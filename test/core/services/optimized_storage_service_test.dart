@@ -2318,13 +2318,13 @@ void main() {
         ),
         isFalse,
       );
-      expect(retained.customHeaders, isEmpty);
-      expect(retained.allowSelfSignedCertificates, isTrue);
-      expect(retained.mtlsCertificateChainPem, isNull);
-      expect(retained.mtlsCertificateLabel, isNull);
-      expect(retained.mtlsPrivateKeyPem, isNull);
-      expect(retained.mtlsPrivateKeyLabel, isNull);
-      expect(retained.mtlsPrivateKeyPassword, isNull);
+      check(retained.customHeaders).isEmpty();
+      check(retained.allowSelfSignedCertificates).isTrue();
+      check(retained.mtlsCertificateChainPem).isNull();
+      check(retained.mtlsCertificateLabel).isNull();
+      check(retained.mtlsPrivateKeyPem).isNull();
+      check(retained.mtlsPrivateKeyLabel).isNull();
+      check(retained.mtlsPrivateKeyPassword).isNull();
       expect(await storage.getActiveServerId(), config.id);
 
       expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);

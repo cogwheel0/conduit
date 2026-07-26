@@ -8,11 +8,12 @@ import 'package:conduit/core/database/database_manager.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:drift/native.dart';
+import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -123,6 +124,50 @@ void main() {
           .signOut(keepServerDetails: true);
 
       check(purgeCalls).equals(1);
+    },
+  );
+
+  test(
+    'failed direct-local purge keeps destructive-clear barriers closed',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(
+            () => Future<void>.error(StateError('delete failed')),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final directRuns = container.read(directRunRegistryProvider);
+      addTearDown(() {
+        PreferencesStore.resumeWritesAfterAppDataClear();
+        SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+        directRuns.resumeAdmissionAfterAppDataClearAbort();
+      });
+
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      await check(
+        container
+            .read(signOutCoordinatorProvider)
+            .signOut(keepServerDetails: true),
+      ).throws<StateError>();
+      await check(
+        PreferencesStore.put('post-purge-failure', 'must-stay-blocked'),
+      ).throws<StateError>();
+      check(
+        () => directRuns.reserve((
+          ownerConversationId: 'post-purge-failure',
+          assistantMessageId: 'assistant',
+        ), 'profile'),
+      ).throws<StateError>();
     },
   );
 

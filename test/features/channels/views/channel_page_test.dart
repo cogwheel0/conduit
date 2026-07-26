@@ -67,6 +67,8 @@ void main() {
       );
       addTearDown(container.dispose);
       container.read(_channelApiOwnerProvider.notifier).set(firstApi);
+      final firstAuthEpoch = container.read(_channelAuthEpochProvider);
+      final replacementAuthEpoch = Object();
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -117,7 +119,9 @@ void main() {
       check(firstApi.postChannelMessageCalls).equals(1);
 
       container.read(_channelApiOwnerProvider.notifier).set(replacementApi);
-      container.read(_channelAuthEpochProvider.notifier).rotate();
+      container
+          .read(_channelAuthEpochProvider.notifier)
+          .set(replacementAuthEpoch);
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump(const Duration(milliseconds: 1));
@@ -133,6 +137,14 @@ void main() {
             .widgetList<TextField>(find.byType(TextField))
             .any((field) => field.controller?.text == 'Original message'),
       ).isFalse();
+
+      // Return to the exact API/auth/channel owner that opened the picker.
+      // Only the operation generation distinguishes this A -> B -> A cycle.
+      container.read(_channelApiOwnerProvider.notifier).set(firstApi);
+      container.read(_channelAuthEpochProvider.notifier).set(firstAuthEpoch);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
       tester
           .widget<GestureDetector>(
             find
@@ -146,6 +158,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       check(firstApi.addMessageReactionCalls).equals(0);
       check(replacementApi.addMessageReactionCalls).equals(0);
+
+      container.read(_channelApiOwnerProvider.notifier).set(replacementApi);
+      container
+          .read(_channelAuthEpochProvider.notifier)
+          .set(replacementAuthEpoch);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
 
       final replacementComposer = tester.widget<ModernChatInput>(
         find.byType(ModernChatInput).first,
@@ -251,6 +271,8 @@ class _MutableChannelAuthEpoch extends Notifier<Object> {
   Object build() => Object();
 
   void rotate() => state = Object();
+
+  void set(Object value) => state = value;
 }
 
 class _ChannelApi extends ApiService {

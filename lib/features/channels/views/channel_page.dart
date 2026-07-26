@@ -760,6 +760,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
+
+    bool ownsPicker() =>
+        operationGeneration == _operationGeneration &&
+        _ownsChannelRequest(api, authSessionEpoch, channelId);
 
     if (Platform.isIOS) {
       try {
@@ -775,8 +780,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ],
           rethrowErrors: true,
         );
-        if (emoji != null &&
-            _ownsChannelRequest(api, authSessionEpoch, channelId)) {
+        if (emoji != null && ownsPicker()) {
           unawaited(_toggleReaction(message, emoji));
         }
         return;
@@ -787,7 +791,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
     }
 
-    if (!mounted) {
+    if (!mounted || !ownsPicker()) {
       return;
     }
 
@@ -807,7 +811,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             behavior: HitTestBehavior.opaque,
             onTap: () {
               Navigator.pop(ctx);
-              if (_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+              if (ownsPicker()) {
                 unawaited(_toggleReaction(message, emoji));
               }
             },

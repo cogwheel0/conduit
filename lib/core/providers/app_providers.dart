@@ -142,6 +142,7 @@ final class SignOutCoordinator {
     final hermesConfig = _ref.read(hermesConfigProvider.notifier);
     final directRuns = _ref.read(directRunRegistryProvider);
     FullAppDataClearOutcome? outcome;
+    var directLocalPurgeCompleted = false;
 
     void resumeGlobalAdmission() {
       directRuns.resumeAdmissionAfterAppDataClearAbort();
@@ -188,13 +189,11 @@ final class SignOutCoordinator {
           // session. Only now is it safe to destructively remove the
           // app-global direct-local database; beforeClear is a reversible
           // admission barrier and may still lose auth ownership.
-          try {
-            await _ref.read(directLocalDatabasePurgeProvider)();
-          } finally {
-            PreferencesStore.resumeWritesAfterAppDataClear();
-            SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
-            _resetProvidersAfterFullAppDataClear(_ref);
-          }
+          await _ref.read(directLocalDatabasePurgeProvider)();
+          directLocalPurgeCompleted = true;
+          PreferencesStore.resumeWritesAfterAppDataClear();
+          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+          _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
           await Future.wait<void>([
             directProfiles.blockMutationsForAppDataClear(),
@@ -210,8 +209,16 @@ final class SignOutCoordinator {
           hermesConfig.resumeMutationsAfterAppDataClearAbort();
       }
     } finally {
-      PreferencesStore.resumeWritesAfterAppDataClear();
-      SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      final committedClearStillNeedsDirectPurge =
+          (outcome == FullAppDataClearOutcome.cleared ||
+              outcome ==
+                  FullAppDataClearOutcome
+                      .localDataClearedSessionCleanupIncomplete) &&
+          !directLocalPurgeCompleted;
+      if (!committedClearStillNeedsDirectPurge) {
+        PreferencesStore.resumeWritesAfterAppDataClear();
+        SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      }
       if (outcome == null) {
         resumeGlobalAdmission();
         directProfiles.resumeMutationsAfterAppDataClearAbort();
