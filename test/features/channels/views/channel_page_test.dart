@@ -145,6 +145,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump(const Duration(milliseconds: 1));
+      firstSendResponse.complete(_messageJson('Old owner response'));
+      await firstSend;
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text('Old owner response'), findsNothing);
       tester
           .widget<GestureDetector>(
             find
@@ -176,9 +180,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       check(replacementApi.postChannelMessageCalls).equals(1);
 
-      firstSendResponse.complete(_messageJson('Old owner response'));
-      await firstSend;
-      await tester.pump(const Duration(milliseconds: 1));
       await (replacementComposer.onSendMessage('Must remain blocked')
           as Future<void>);
       check(replacementApi.postChannelMessageCalls).equals(1);

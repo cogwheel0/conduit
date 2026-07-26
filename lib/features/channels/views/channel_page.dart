@@ -84,6 +84,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         authSessionEpoch: authSessionEpoch,
       );
 
+  bool _ownsChannelOperation(
+    ApiService api,
+    Object authSessionEpoch,
+    String channelId,
+    int operationGeneration,
+  ) =>
+      operationGeneration == _operationGeneration &&
+      _ownsChannelRequest(api, authSessionEpoch, channelId);
+
   void _setReplyTo(ChannelMessage message) {
     setState(() => _replyToMessage = message);
   }
@@ -302,7 +311,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         tempId: tempId,
         replyToId: replyToId,
       );
-      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+      if (!mounted ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
       final message = ChannelMessage.fromJson(json);
@@ -317,7 +332,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         error: e,
         stackTrace: s,
       );
-      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+      if (!mounted ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
       final l10n = AppLocalizations.of(context);
@@ -390,6 +411,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
     final fileService = ref.read(fileAttachmentServiceProvider);
     if (fileService == null) {
       return;
@@ -400,54 +422,104 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         final attachments = List<LocalAttachment>.from(
           await fileService.pickFiles(),
         );
-        if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+        if (!_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
+          return;
+        }
         await _sendAttachmentMessage(
           attachments,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+          channelId: channelId,
+          operationGeneration: operationGeneration,
           parentMessageId: parentMessageId,
         );
       case 'photo':
         final attachments = List<LocalAttachment>.from(
           await fileService.pickImages(),
         );
-        if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+        if (!_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
+          return;
+        }
         await _sendAttachmentMessage(
           attachments,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+          channelId: channelId,
+          operationGeneration: operationGeneration,
           parentMessageId: parentMessageId,
         );
       case 'camera':
         final attachment = await fileService.takePhoto() as LocalAttachment?;
         if (attachment != null &&
-            _ownsChannelRequest(api, authSessionEpoch, channelId)) {
-          await _sendAttachmentMessage([
-            attachment,
-          ], parentMessageId: parentMessageId);
+            _ownsChannelOperation(
+              api,
+              authSessionEpoch,
+              channelId,
+              operationGeneration,
+            )) {
+          await _sendAttachmentMessage(
+            [attachment],
+            api: api,
+            authSessionEpoch: authSessionEpoch,
+            channelId: channelId,
+            operationGeneration: operationGeneration,
+            parentMessageId: parentMessageId,
+          );
         }
     }
   }
 
   Future<void> _sendAttachmentMessage(
     List<LocalAttachment> attachments, {
+    required ApiService api,
+    required Object authSessionEpoch,
+    required String channelId,
+    required int operationGeneration,
     String? parentMessageId,
   }) async {
     if (attachments.isEmpty || _isSending) return;
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return;
-    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final channelId = widget.channelId;
     final replyToId = parentMessageId == null ? _replyToMessage?.id : null;
-    final operationGeneration = _operationGeneration;
 
-    if (!mounted || operationGeneration != _operationGeneration) return;
+    if (!_ownsChannelOperation(
+      api,
+      authSessionEpoch,
+      channelId,
+      operationGeneration,
+    )) {
+      return;
+    }
     setState(() => _isSending = true);
     try {
       final attachmentSizes = <LocalAttachment, int>{};
       for (final attachment in attachments) {
         final fileSize = await attachment.file.length();
+        if (!_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
+          return;
+        }
         attachmentSizes[attachment] = fileSize;
         if (!_validateChannelAttachmentSize(fileSize, 20)) {
           if (!mounted ||
-              !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+              !_ownsChannelOperation(
+                api,
+                authSessionEpoch,
+                channelId,
+                operationGeneration,
+              )) {
             return;
           }
           ScaffoldMessenger.of(context).showSnackBar(
@@ -461,7 +533,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
       final files = <Map<String, dynamic>>[];
       for (final attachment in attachments) {
-        if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+        if (!_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
+          return;
+        }
         final fileSize = attachmentSizes[attachment]!;
         final contentType = _contentTypeForChannelAttachment(attachment);
         final fileId = await api.uploadFile(
@@ -470,7 +549,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           contentType: contentType,
           metadata: {'channel_id': channelId},
         );
-        if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+        if (!_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
+          return;
+        }
         files.add({
           'type': attachment.isImage ? 'image' : 'file',
           'id': fileId,
@@ -493,7 +579,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         parentId: parentMessageId,
         data: {'files': files},
       );
-      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+      if (!mounted ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
 
@@ -515,7 +607,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         error: e,
         stackTrace: s,
       );
-      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+      if (!mounted ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
@@ -597,9 +695,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
     try {
       await api.deleteChannelMessage(channelId, message.id);
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       ref
           .read(channelMessagesProvider(channelId).notifier)
           .removeMessage(message.id);
@@ -642,6 +748,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
 
     try {
       final json = await api.updateChannelMessage(
@@ -649,7 +756,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         message.id,
         content: newContent,
       );
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       final updated = ChannelMessage.fromJson(json);
       ref
           .read(channelMessagesProvider(channelId).notifier)
@@ -662,7 +776,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         stackTrace: st,
       );
     }
-    if (mounted) _cancelEditing();
+    if (_ownsChannelOperation(
+      api,
+      authSessionEpoch,
+      channelId,
+      operationGeneration,
+    )) {
+      _cancelEditing();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -674,6 +795,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
 
     try {
       final json = await api.pinMessage(
@@ -682,7 +804,12 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         isPinned: !message.isPinned,
       );
       if (json == null ||
-          !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
       final updated = ChannelMessage.fromJson(json);
@@ -834,13 +961,19 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final operationGeneration = _operationGeneration;
     final result = await showEditChannelFormDialog(
       context,
       channel: channel,
       includePrivacyToggle: false,
     );
     if (result == null ||
-        !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+        !_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
       return;
     }
     if (result.name == channel.name &&
@@ -854,7 +987,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         name: result.name,
         description: result.description,
       );
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       final updated = Channel.fromJson(json);
       ref.read(activeChannelProvider.notifier).set(updated);
       ref.read(channelsListProvider.notifier).updateChannel(updated);
@@ -873,19 +1013,33 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final operationGeneration = _operationGeneration;
     final l10n = AppLocalizations.of(context);
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n?.channelLeave ?? 'Leave Channel',
       message: l10n?.channelLeaveConfirm ?? 'Leave this channel?',
     );
-    if (!confirmed || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+    if (!confirmed ||
+        !_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
       return;
     }
 
     try {
       await api.updateMemberActiveStatus(channelId, isActive: false);
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
@@ -904,6 +1058,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final operationGeneration = _operationGeneration;
     final l10n = AppLocalizations.of(context);
     final confirmed = await ThemedDialogs.confirm(
       context,
@@ -913,13 +1068,26 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           'Delete this channel? This cannot be undone.',
       isDestructive: true,
     );
-    if (!confirmed || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+    if (!confirmed ||
+        !_ownsChannelOperation(
+          api,
+          authSessionEpoch,
+          channelId,
+          operationGeneration,
+        )) {
       return;
     }
 
     try {
       await api.deleteChannel(channelId);
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
       NavigationService.router.go(Routes.chat);
@@ -1393,12 +1561,20 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     if (api == null) return;
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
+    final operationGeneration = _operationGeneration;
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
     try {
       final result = await api.getChannelMembers(channelId);
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!_ownsChannelOperation(
+        api,
+        authSessionEpoch,
+        channelId,
+        operationGeneration,
+      )) {
+        return;
+      }
       final users = (result['users'] as List<dynamic>?) ?? [];
       final total = (result['total'] as int?) ?? users.length;
 
@@ -1423,13 +1599,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           );
           return;
         } catch (_) {
-          if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+          if (!_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
             return;
           }
         }
       }
 
-      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+      if (!mounted ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
         return;
       }
 

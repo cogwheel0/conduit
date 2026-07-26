@@ -191,8 +191,6 @@ final class SignOutCoordinator {
           // admission barrier and may still lose auth ownership.
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
-          PreferencesStore.resumeWritesAfterAppDataClear();
-          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
           await Future.wait<void>([
@@ -201,8 +199,6 @@ final class SignOutCoordinator {
           ]);
           directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
           hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
-          PreferencesStore.resumeWritesAfterAppDataClear();
-          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
         case FullAppDataClearOutcome.ownershipYielded:
           resumeGlobalAdmission();
           directProfiles.resumeMutationsAfterAppDataClearAbort();
