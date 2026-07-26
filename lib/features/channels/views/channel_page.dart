@@ -69,6 +69,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   ApiService? _channelOwnerApi;
   Object? _channelOwnerAuthSessionEpoch;
   bool _channelReloadScheduled = false;
+  int _operationGeneration = 0;
 
   bool _ownsChannelRequest(
     ApiService api,
@@ -116,6 +117,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _clearTransientChannelState(String channelId, {bool notify = false}) {
+    _operationGeneration += 1;
     final threadParent = _threadParent;
     if (threadParent != null) {
       ref.invalidate(threadMessagesProvider(channelId, threadParent.id));
@@ -126,6 +128,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       _replyToMessage = null;
       _editingMessageId = null;
       _editController.clear();
+      _isSending = false;
+      _isLoadingMore = false;
     }
 
     if (notify) {
@@ -176,6 +180,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       _channelReloadScheduled = false;
       if (!mounted) return;
       _clearTransientChannelState(widget.channelId, notify: true);
+      ref.read(activeChannelProvider.notifier).clear();
       unawaited(_loadChannel());
     });
   }
@@ -239,15 +244,19 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   Future<void> _loadMoreMessages() async {
+    final operationGeneration = _operationGeneration;
     final notifier = ref.read(
       channelMessagesProvider(widget.channelId).notifier,
     );
     if (!notifier.hasMore()) return;
+    if (!mounted || operationGeneration != _operationGeneration) return;
     setState(() => _isLoadingMore = true);
     try {
       await notifier.loadMore();
     } finally {
-      if (mounted) setState(() => _isLoadingMore = false);
+      if (mounted && operationGeneration == _operationGeneration) {
+        setState(() => _isLoadingMore = false);
+      }
     }
   }
 
@@ -264,7 +273,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
     final replyToId = _replyToMessage?.id;
+    final operationGeneration = _operationGeneration;
 
+    if (!mounted || operationGeneration != _operationGeneration) return;
     setState(() => _isSending = true);
     try {
       final tempId = DateTime.now().microsecondsSinceEpoch.toString();
@@ -299,7 +310,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         ).showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
       }
     } finally {
-      if (mounted) setState(() => _isSending = false);
+      if (mounted && operationGeneration == _operationGeneration) {
+        setState(() => _isSending = false);
+      }
     }
   }
 
@@ -406,7 +419,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
     final replyToId = parentMessageId == null ? _replyToMessage?.id : null;
+    final operationGeneration = _operationGeneration;
 
+    if (!mounted || operationGeneration != _operationGeneration) return;
     setState(() => _isSending = true);
     try {
       final attachmentSizes = <LocalAttachment, int>{};
@@ -490,7 +505,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         SnackBar(content: Text(AppLocalizations.of(context)!.channelSendError)),
       );
     } finally {
-      if (mounted) setState(() => _isSending = false);
+      if (mounted && operationGeneration == _operationGeneration) {
+        setState(() => _isSending = false);
+      }
     }
   }
 

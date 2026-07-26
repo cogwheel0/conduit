@@ -10,6 +10,7 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
+import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -32,12 +33,16 @@ void main() {
     'mounted channel reloads details when API and auth owner change',
     (tester) async {
       final firstResponse = Completer<Map<String, dynamic>>();
+      final firstSendResponse = Completer<Map<String, dynamic>>();
+      final replacementSendResponse = Completer<Map<String, dynamic>>();
       final firstApi = _ChannelApi(
         firstResponse: firstResponse,
+        sendResponse: firstSendResponse,
         messages: [_messageJson('Original message')],
       );
       final replacementApi = _ChannelApi(
         channelName: 'Replacement channel',
+        sendResponse: replacementSendResponse,
         messages: [_messageJson('Replacement message')],
       );
       final container = ProviderContainer(
@@ -94,6 +99,14 @@ void main() {
             .any((field) => field.controller?.text == 'Original message'),
       ).isTrue();
 
+      final firstSend =
+          tester
+                  .widget<ModernChatInput>(find.byType(ModernChatInput).first)
+                  .onSendMessage('Old owner message')
+              as Future<void>;
+      await tester.pump(const Duration(milliseconds: 1));
+      check(firstApi.postChannelMessageCalls).equals(1);
+
       container.read(_channelApiOwnerProvider.notifier).set(replacementApi);
       container.read(_channelAuthEpochProvider.notifier).rotate();
       await tester.pump(const Duration(milliseconds: 1));
@@ -112,11 +125,39 @@ void main() {
             .any((field) => field.controller?.text == 'Original message'),
       ).isFalse();
 
+      final replacementComposer = tester.widget<ModernChatInput>(
+        find.byType(ModernChatInput).first,
+      );
+      final replacementSend =
+          replacementComposer.onSendMessage('Replacement owner message')
+              as Future<void>;
+      await tester.pump(const Duration(milliseconds: 1));
+      check(replacementApi.postChannelMessageCalls).equals(1);
+
+      firstSendResponse.complete(_messageJson('Old owner response'));
+      await firstSend;
+      await tester.pump(const Duration(milliseconds: 1));
+      await (replacementComposer.onSendMessage('Must remain blocked')
+          as Future<void>);
+      check(replacementApi.postChannelMessageCalls).equals(1);
+
+      replacementSendResponse.complete(
+        _messageJson('Replacement owner response'),
+      );
+      await replacementSend;
+      await tester.pump(const Duration(milliseconds: 1));
+
       firstResponse.complete(_channelJson('Stale channel'));
       await tester.pump(const Duration(milliseconds: 1));
       check(
         container.read(activeChannelProvider)?.name,
       ).equals('Replacement channel');
+
+      container.read(_channelApiOwnerProvider.notifier).set(null);
+      container.read(_channelAuthEpochProvider.notifier).rotate();
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
+      check(container.read(activeChannelProvider)).isNull();
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
@@ -141,7 +182,7 @@ class _MutableChannelApiOwner extends Notifier<ApiService?> {
   @override
   ApiService? build() => null;
 
-  void set(ApiService value) => state = value;
+  void set(ApiService? value) => state = value;
 }
 
 class _MutableChannelAuthEpoch extends Notifier<Object> {
@@ -154,6 +195,7 @@ class _MutableChannelAuthEpoch extends Notifier<Object> {
 class _ChannelApi extends ApiService {
   _ChannelApi({
     this.firstResponse,
+    this.sendResponse,
     this.channelName = 'Initial channel',
     this.messages = const [],
   }) : super(
@@ -166,9 +208,11 @@ class _ChannelApi extends ApiService {
        );
 
   final Completer<Map<String, dynamic>>? firstResponse;
+  final Completer<Map<String, dynamic>>? sendResponse;
   final String channelName;
   final List<Map<String, dynamic>> messages;
   int getChannelCalls = 0;
+  int postChannelMessageCalls = 0;
 
   @override
   Future<Map<String, dynamic>> getChannel(String channelId) {
@@ -191,6 +235,21 @@ class _ChannelApi extends ApiService {
     int skip = 0,
     int limit = 50,
   }) async => const [];
+
+  @override
+  Future<Map<String, dynamic>> postChannelMessage(
+    String channelId, {
+    required String content,
+    String? tempId,
+    String? replyToId,
+    String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+  }) {
+    postChannelMessageCalls += 1;
+    return sendResponse?.future ??
+        Future<Map<String, dynamic>>.value(_messageJson(content));
+  }
 
   @override
   Future<(List<Map<String, dynamic>>, bool)> getChannels() async =>
