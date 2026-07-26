@@ -618,6 +618,7 @@ Future<void> dispatchHermesRun({
           final errorMessage = switch (recovered.status) {
             'cancelled' || 'canceled' => 'Hermes run was cancelled.',
             'stopped' => 'Hermes run was stopped.',
+            'incomplete' => 'Hermes stopped this response before it completed.',
             _ => 'Hermes run failed.',
           };
           updateMessage(
@@ -851,7 +852,8 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'failed' ||
         status == 'cancelled' ||
         status == 'canceled' ||
-        status == 'stopped';
+        status == 'stopped' ||
+        status == 'incomplete';
     if (terminal) return (text: text, status: status!);
     const nonTerminalStatuses = {
       'created',
@@ -888,6 +890,7 @@ Future<({String text, String status})?> _recoverResponseOutput(
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
   }
+  var consecutiveErrors = 0;
   var polls = 0;
   while (!cancelToken.isCancelled) {
     if (polls >= maxPolls) {
@@ -896,11 +899,22 @@ Future<({String text, String status})?> _recoverResponseOutput(
       );
     }
     polls++;
-    final response = await service.getResponse(
-      responseId,
-      cancelToken: cancelToken,
-    );
-    if (cancelToken.isCancelled) return null;
+    Map<String, dynamic> response;
+    try {
+      response = await service.getResponse(
+        responseId,
+        cancelToken: cancelToken,
+      );
+      if (cancelToken.isCancelled) return null;
+      consecutiveErrors = 0;
+    } catch (error) {
+      if (_isHermesProtocolFailure(error)) rethrow;
+      if (cancelToken.isCancelled) return null;
+      consecutiveErrors++;
+      if (consecutiveErrors >= 3) rethrow;
+      await Future<void>.delayed(pollInterval);
+      continue;
+    }
     String status;
     String text;
     try {

@@ -188,6 +188,58 @@ void main() {
       check(api.fileCalls['kb-1']).equals(1);
       check(api.fileCalls['kb-2']).equals(1);
     });
+
+    for (final clearAll in [false, true]) {
+      test('${clearAll ? 'clearAllCaches' : 'clearCache'} fences an older '
+          'same-owner file request', () async {
+        final staleGate = Completer<void>();
+        final freshGate = Completer<void>();
+        final staleFile = KnowledgeBaseFile(
+          id: 'stale-file',
+          filename: 'stale.md',
+          createdAt: DateTime.utc(2026, 1, 1),
+        );
+        final freshFile = KnowledgeBaseFile(
+          id: 'fresh-file',
+          filename: 'fresh.md',
+          createdAt: DateTime.utc(2026, 1, 2),
+        );
+        final api = _SequencedFilesApi(
+          gates: [staleGate, freshGate],
+          results: [
+            [staleFile],
+            [freshFile],
+          ],
+        );
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final notifier = container.read(knowledgeCacheProvider.notifier);
+
+        final staleRequest = notifier.fetchFilesForBase('kb-1');
+        await Future<void>.delayed(Duration.zero);
+        if (clearAll) {
+          notifier.clearAllCaches();
+        } else {
+          notifier.clearCache();
+        }
+        final freshRequest = notifier.fetchFilesForBase('kb-1');
+        await Future<void>.delayed(Duration.zero);
+
+        freshGate.complete();
+        await freshRequest;
+        check(
+          container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
+        ).equals('fresh-file');
+
+        staleGate.complete();
+        await staleRequest;
+        check(
+          container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
+        ).equals('fresh-file');
+      });
+    }
   });
 }
 
@@ -229,5 +281,23 @@ class _FakeApiService extends ApiService {
     fileCalls.update(knowledgeBaseId, (count) => count + 1, ifAbsent: () => 1);
     await fileGates[knowledgeBaseId];
     return filesByBase[knowledgeBaseId] ?? const <KnowledgeBaseFile>[];
+  }
+}
+
+class _SequencedFilesApi extends _FakeApiService {
+  _SequencedFilesApi({required this.gates, required this.results});
+
+  final List<Completer<void>> gates;
+  final List<List<KnowledgeBaseFile>> results;
+  int _nextResult = 0;
+
+  @override
+  Future<List<KnowledgeBaseFile>> getAllKnowledgeBaseFiles(
+    String knowledgeBaseId,
+  ) async {
+    final index = _nextResult++;
+    fileCalls.update(knowledgeBaseId, (count) => count + 1, ifAbsent: () => 1);
+    await gates[index].future;
+    return results[index];
   }
 }

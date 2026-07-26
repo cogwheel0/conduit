@@ -3793,7 +3793,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // only the assistant body leaves stale/missing user and assistant turns
     // around it after a DB-first reopen.
     _reopenedStreamingMessageId = openedMessageId;
-    await _refreshReopenedStreamFromServer(
+    final rebaselined = await _refreshReopenedStreamFromServer(
       api: api,
       owner: owner,
       expectedLocalMessageId: openedMessageId,
@@ -3801,6 +3801,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       source: 'active-open baseline',
       persist: true,
     );
+    if (!rebaselined) {
+      if (openedAsStreaming && _stillOwnsReopenedTail(owner, openedMessageId)) {
+        // Keep a durable checkpoint recoverable without attaching live socket
+        // deltas to an assistant branch that the server snapshot could not
+        // identify. The owner-fenced monitor can retry reconciliation later.
+        _ensureRemoteTaskMonitor();
+        _reopenedStreamingMessageId = openedMessageId;
+      } else {
+        _reopenedStreamingMessageId = null;
+      }
+      return;
+    }
 
     if (_disposed ||
         activeOpenWebUiChatIdForMutation(ref, owner) == null ||
@@ -3962,13 +3974,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     serverTail = serverTail.copyWith(isStreaming: streaming);
 
-    if (foreignLiveBinding) {
-      state = [...state.sublist(0, state.length - 1), serverTail];
-    } else {
-      final reconciled = List<ChatMessage>.from(mergedServerMessages);
-      reconciled[serverIndex] = serverTail;
-      state = List<ChatMessage>.unmodifiable(reconciled);
-    }
+    final reconciled = List<ChatMessage>.from(mergedServerMessages);
+    reconciled[serverIndex] = serverTail;
+    state = List<ChatMessage>.unmodifiable(reconciled);
 
     if (streaming && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();

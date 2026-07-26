@@ -164,6 +164,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
   _KnowledgeCacheScope? _scope;
   int _ownerGeneration = 0;
   int _basesRequestGeneration = 0;
+  int _fileRequestEpoch = 0;
   final Map<String, int> _fileRequestGenerations = {};
   Future<void>? _basesInFlight;
   Object? _basesInFlightToken;
@@ -296,6 +297,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
     }
 
     final ownerGeneration = _ownerGeneration;
+    final requestEpoch = _fileRequestEpoch;
     final requestGeneration = (_fileRequestGenerations[baseId] ?? 0) + 1;
     _fileRequestGenerations[baseId] = requestGeneration;
     final requestToken = Object();
@@ -305,6 +307,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
       api: api,
       scope: scope,
       ownerGeneration: ownerGeneration,
+      requestEpoch: requestEpoch,
       requestGeneration: requestGeneration,
       requestToken: requestToken,
     );
@@ -317,12 +320,14 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
     required ApiService api,
     required _KnowledgeCacheScope scope,
     required int ownerGeneration,
+    required int requestEpoch,
     required int requestGeneration,
     required Object requestToken,
   }) async {
     try {
       final files = await api.getAllKnowledgeBaseFiles(baseId);
       if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
+          requestEpoch != _fileRequestEpoch ||
           _fileRequestGenerations[baseId] != requestGeneration) {
         return;
       }
@@ -332,6 +337,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
       state = state.copyWith(files: next);
     } catch (_) {
       if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
+          requestEpoch != _fileRequestEpoch ||
           _fileRequestGenerations[baseId] != requestGeneration) {
         return;
       }
@@ -353,6 +359,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
       _cacheManager._clearScope(scope);
     }
     _basesRequestGeneration += 1;
+    _fileRequestEpoch += 1;
     _fileRequestGenerations.clear();
     _basesInFlight = null;
     _basesInFlightToken = null;
@@ -365,6 +372,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
   void clearAllCaches() {
     _cacheManager.clear();
     _basesRequestGeneration += 1;
+    _fileRequestEpoch += 1;
     _fileRequestGenerations.clear();
     _basesInFlight = null;
     _basesInFlightToken = null;

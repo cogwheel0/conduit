@@ -65,6 +65,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   ChannelMessage? _threadParent;
   late final ChannelSocketHandler _socketHandler;
   int _channelLoadGeneration = 0;
+  ApiService? _channelOwnerApi;
+  Object? _channelOwnerAuthSessionEpoch;
+  bool _channelReloadScheduled = false;
 
   bool _ownsChannelRequest(
     ApiService api,
@@ -130,6 +133,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   void initState() {
     super.initState();
     _socketHandler = ref.read(channelSocketHandlerProvider.notifier);
+    _channelOwnerApi = ref.read(apiServiceProvider);
+    _channelOwnerAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     _scrollController.addListener(_onScroll);
     _loadChannel();
     // Defer subscribe to after the build phase — unsubscribe
@@ -138,6 +143,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     Future(() {
       if (!mounted) return;
       _socketHandler.subscribe(widget.channelId);
+    });
+  }
+
+  void _scheduleChannelReloadForOwnerChange() {
+    if (_channelReloadScheduled) return;
+    _channelReloadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _channelReloadScheduled = false;
+      if (!mounted) return;
+      unawaited(_loadChannel());
     });
   }
 
@@ -857,6 +872,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     // Keep the socket handler's owner watches active while this channel is on
     // screen so a replaced socket/auth session rebinds without navigation.
     ref.watch(channelSocketHandlerProvider);
+    final api = ref.watch(apiServiceProvider);
+    final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+    if (!identical(_channelOwnerApi, api) ||
+        !identical(_channelOwnerAuthSessionEpoch, authSessionEpoch)) {
+      _channelOwnerApi = api;
+      _channelOwnerAuthSessionEpoch = authSessionEpoch;
+      _scheduleChannelReloadForOwnerChange();
+    }
     final theme = context.conduitTheme;
     return _buildScaffold(context, theme);
   }

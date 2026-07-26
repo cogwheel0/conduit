@@ -876,6 +876,67 @@ void main() {
     );
 
     test(
+      'active task poll cannot roll back content already delivered by socket',
+      () async {
+        final timestamp = DateTime.now();
+        final opened = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('assistant-1', 'ABC', timestamp),
+        ];
+        final socket = _FakeSocketService()..connected = true;
+        final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+          ..taskIds = ['task-1'];
+
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await pumpMicrotasks();
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+        check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+
+        socket.emitChatEvent(
+          type: 'message',
+          payload: {'chat_id': 'chat-1', 'content': 'D'},
+          messageId: 'assistant-1',
+        );
+        await pumpMicrotasks();
+        notifier.syncStreamingBuffer();
+        check(container.read(chatMessagesProvider).last.content).equals('ABCD');
+
+        // The server has not persisted the just-delivered socket delta yet.
+        api.conversation = _conversation('chat-1', opened, timestamp);
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+        await notifier.debugSyncRemoteTaskStatus();
+        await pumpMicrotasks();
+
+        check(container.read(chatMessagesProvider).last.content).equals('ABCD');
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      },
+    );
+
+    test(
       'cold reopen finalizes a persisted stream whose task already ended',
       () async {
         final timestamp = DateTime.now();
@@ -925,13 +986,21 @@ void main() {
         'without a socket binding', () async {
       final timestamp = DateTime.now();
       final opened = [
-        _userMessage('user-1', 'Hi', timestamp),
+        _userMessage('user-1', 'Stale first question', timestamp),
+        _assistantMessage('assistant-1', 'Stale first answer', timestamp),
+        _userMessage('user-2', 'Follow-up', timestamp),
         _assistantMessage('assistant-local', 'Partial', timestamp),
       ];
       // The server persists the message under its OWN (foreign) id, not the
       // local placeholder id.
       final grown = [
-        _userMessage('user-1', 'Hi', timestamp),
+        _userMessage('user-1', 'Authoritative first question', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Authoritative first answer',
+          timestamp,
+        ),
+        _userMessage('user-2', 'Follow-up', timestamp),
         _assistantMessage(
           'server-foreign',
           'Partial answer that grew',
@@ -969,8 +1038,60 @@ void main() {
       check(
         container.read(chatMessagesProvider).last.content,
       ).equals('Partial answer that grew');
+      check(
+        container.read(chatMessagesProvider)[0].content,
+      ).equals('Authoritative first question');
+      check(
+        container.read(chatMessagesProvider)[1].content,
+      ).equals('Authoritative first answer');
       notifier.debugCancelRemoteTaskMonitorTimer();
     });
+
+    test(
+      'active reopen does not attach deltas when the server branch cannot bind',
+      () async {
+        final timestamp = DateTime.now();
+        final opened = [
+          _userMessage('user-local', 'Local question', timestamp),
+          _assistantMessage('assistant-local', 'Local partial', timestamp),
+        ];
+        final unrelatedServerBranch = [
+          _userMessage('user-server', 'Different question', timestamp),
+          _assistantMessage('assistant-server', 'Different answer', timestamp),
+        ];
+        final socket = _FakeSocketService()..connected = true;
+        final api = _FakeApiService(
+          _conversation('chat-1', unrelatedServerBranch, timestamp),
+        )..taskIds = ['task-1'];
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await pumpMicrotasks();
+
+        final tail = container.read(chatMessagesProvider).last;
+        check(tail.id).equals('assistant-local');
+        check(tail.content).equals('Local partial');
+        check(tail.isStreaming).isFalse();
+        check(notifier.debugShouldProtectLocalStreamingState).isFalse();
+        check(notifier.debugHasRemoteTaskMonitor).isFalse();
+      },
+    );
 
     test(
       'cold reopen finalizes a foreign assistant id after its task ended',
