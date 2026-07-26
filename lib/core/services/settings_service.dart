@@ -1126,6 +1126,12 @@ bool _listEquals(List<String> a, List<String> b) {
 class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void>? _pendingLoad;
 
+  Future<bool> _waitForHydration() async {
+    final pendingLoad = _pendingLoad;
+    if (pendingLoad != null) await pendingLoad;
+    return ref.mounted;
+  }
+
   @override
   AppSettings build() {
     if (PreferencesStore.isReady) {
@@ -1416,6 +1422,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     required String modelId,
     String? languageCode,
   }) async {
+    if (!await _waitForHydration()) return;
     final normalizedLanguageCode = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
@@ -1441,6 +1448,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     String? languageCode,
     String? speakerId,
   }) async {
+    if (!await _waitForHydration()) return;
     final normalizedLanguageCode = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
@@ -1463,6 +1471,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaSttLanguageCode(String? languageCode) async {
+    if (!await _waitForHydration()) return;
     final normalized = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
@@ -1474,6 +1483,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaTtsLanguageCode(String? languageCode) async {
+    if (!await _waitForHydration()) return;
     final normalized = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
@@ -1485,6 +1495,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaTtsSpeakerId(String? speakerId) async {
+    if (!await _waitForHydration()) return;
     state = state.copyWith(sherpaTtsSpeakerId: speakerId);
     await SettingsService._putOrRemove(
       PreferenceKeys.sherpaTtsSpeakerId,
@@ -1493,6 +1504,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaTtsSpeed(double speed) async {
+    if (!await _waitForHydration()) return;
     final value = speed.clamp(0.5, 2.0).toDouble();
     state = state.copyWith(sherpaTtsSpeed: value);
     await PreferencesStore.put(PreferenceKeys.sherpaTtsSpeed, value);

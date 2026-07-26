@@ -3905,7 +3905,7 @@
   "sherpaStreaming": "ストリーミング",
   "sherpaOffline": "オフライン",
   "sherpaRecommended": "おすすめ",
-  "sherpaVoices": "{count} 音声",
+  "sherpaVoices": "{count} 種類の音声",
   "sherpaPreparing": "準備中…",
   "sherpaInstallPhase": "{phase, select, queued{待機中} downloading{ダウンロード中} verifying{確認中} extracting{展開中} validating{モデルを検証中} installed{インストール済み} failed{インストールに失敗しました} other{準備中}}",
   "sherpaLargeModelWarning": "大規模モデルには64ビット端末が必要で、メモリ使用量、遅延、バッテリー消費、発熱が増える場合があります。",

@@ -25,6 +25,19 @@ void main() {
     check(manager.subtitle).equals('2 installed • 1.5 MB');
   });
 
+  test('native Sherpa manager keeps generic copy when inventory fails', () {
+    final parts = buildNativeAudioSheetParts(
+      l10n,
+      const AppSettings(),
+      installedModelCount: null,
+    );
+
+    final manager = parts.mainItems.firstWhere(
+      (item) => item.id == 'sherpa-models',
+    );
+    check(manager.subtitle).equals(l10n.sherpaModelsSubtitle);
+  });
+
   test('native Sherpa engines expose the selected model choosers', () {
     final stt = sherpaModelCatalog.firstWhere(
       (model) => model.kind == SherpaModelKind.stt,

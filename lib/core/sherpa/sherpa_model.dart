@@ -144,6 +144,12 @@ final class SherpaModel {
   final List<PlatformType> platforms;
   final bool recommended;
 
+  bool get supportsAutomaticLanguage =>
+      kind == SherpaModelKind.stt &&
+      (family == SherpaModelFamily.whisper ||
+          family == SherpaModelFamily.senseVoice ||
+          family == SherpaModelFamily.nemotron);
+
   bool supportsLanguage(String tag) {
     final primary = tag.toLowerCase().split(RegExp('[-_]')).first;
     return languages.any(

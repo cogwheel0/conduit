@@ -156,9 +156,7 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     dismissOnSelect: true,
   );
   final allowAutomaticSherpaLanguage =
-      sherpaSttModel?.family == SherpaModelFamily.nemotron ||
-      sherpaSttModel?.family == SherpaModelFamily.whisper ||
-      sherpaSttModel?.family == SherpaModelFamily.senseVoice;
+      sherpaSttModel?.supportsAutomaticLanguage ?? false;
   final sherpaSttLanguageField = NativeSheetItemConfig(
     id: 'sherpa-stt-language-code',
     title: l10n.sttTranscriptionLanguage,

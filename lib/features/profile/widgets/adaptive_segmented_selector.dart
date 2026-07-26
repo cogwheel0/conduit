@@ -33,14 +33,12 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Three labelled segments become crowded quickly on phones and with
-        // larger accessibility text. Labels remain visible while decorative
-        // icons yield first, on both platform implementations.
+        // Three labelled segments become crowded quickly. Labels remain
+        // visible while decorative icons yield first on both platforms.
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
         final useIcons =
             showIcons &&
-            (options.length < 3 ||
-                constraints.maxWidth >= 360 ||
-                !constraints.maxWidth.isFinite);
+            (options.length < 3 || constraints.maxWidth >= 360 * textScale);
         return _buildControl(context, useIcons: useIcons);
       },
     );

@@ -69,29 +69,7 @@ void main() {
               child: AdaptiveSegmentedSelector<int>(
                 value: 1,
                 onChanged: _ignoreSelection,
-                options: [
-                  (
-                    value: 1,
-                    label: 'Device',
-                    cupertinoIcon: CupertinoIcons.device_phone_portrait,
-                    materialIcon: Icons.phone_android,
-                    enabled: true,
-                  ),
-                  (
-                    value: 2,
-                    label: 'Server',
-                    cupertinoIcon: CupertinoIcons.cloud,
-                    materialIcon: Icons.cloud,
-                    enabled: true,
-                  ),
-                  (
-                    value: 3,
-                    label: 'Sherpa',
-                    cupertinoIcon: CupertinoIcons.waveform,
-                    materialIcon: Icons.graphic_eq,
-                    enabled: true,
-                  ),
-                ],
+                options: _engineOptions,
               ),
             ),
           ),
@@ -109,7 +87,90 @@ void main() {
       expect(find.byIcon(CupertinoIcons.waveform), findsNothing);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('keeps icons in wide ${platform.name}', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: const Center(
+            child: SizedBox(
+              width: 400,
+              child: AdaptiveSegmentedSelector<int>(
+                value: 1,
+                onChanged: _ignoreSelection,
+                options: _engineOptions,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(find.text('Device').evaluate()).length.equals(1);
+      check(find.text('Server').evaluate()).length.equals(1);
+      check(find.text('Sherpa').evaluate()).length.equals(1);
+      final icons = platform == TargetPlatform.iOS
+          ? const [
+              CupertinoIcons.device_phone_portrait,
+              CupertinoIcons.cloud,
+              CupertinoIcons.waveform,
+            ]
+          : const [Icons.phone_android, Icons.cloud, Icons.graphic_eq];
+      for (final icon in icons) {
+        check(find.byIcon(icon).evaluate()).length.equals(1);
+      }
+      check(tester.takeException()).isNull();
+    });
+
+    testWidgets('drops icons for large text on ${platform.name}', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: const MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(2)),
+            child: Center(
+              child: SizedBox(
+                width: 400,
+                child: AdaptiveSegmentedSelector<int>(
+                  value: 1,
+                  onChanged: _ignoreSelection,
+                  options: _engineOptions,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(find.byType(Icon).evaluate()).isEmpty();
+      check(tester.takeException()).isNull();
+    });
   }
 }
+
+const _engineOptions = [
+  (
+    value: 1,
+    label: 'Device',
+    cupertinoIcon: CupertinoIcons.device_phone_portrait,
+    materialIcon: Icons.phone_android,
+    enabled: true,
+  ),
+  (
+    value: 2,
+    label: 'Server',
+    cupertinoIcon: CupertinoIcons.cloud,
+    materialIcon: Icons.cloud,
+    enabled: true,
+  ),
+  (
+    value: 3,
+    label: 'Sherpa',
+    cupertinoIcon: CupertinoIcons.waveform,
+    materialIcon: Icons.graphic_eq,
+    enabled: true,
+  ),
+];
 
 void _ignoreSelection(int _) {}

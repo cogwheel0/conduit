@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/navigation_service.dart';
@@ -149,6 +150,11 @@ void main() {
         find.text('Audio settings placeholder').evaluate(),
       ).length.equals(1);
       check(find.text(selection.title).evaluate()).isEmpty();
+      if (model.supportsAutomaticLanguage && model.languages.length > 1) {
+        check(
+          PreferencesStore.containsKey(PreferenceKeys.sherpaSttLanguageCode),
+        ).isFalse();
+      }
       check(tester.takeException()).isNull();
     });
   }

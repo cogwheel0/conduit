@@ -2565,7 +2565,7 @@
   "sherpaStreaming": "Потоковая",
   "sherpaOffline": "Офлайн",
   "sherpaRecommended": "Рекомендуется",
-  "sherpaVoices": "Голосов: {count}",
+  "sherpaVoices": "{count, plural, one{{count} голос} few{{count} голоса} many{{count} голосов} other{{count} голоса}}",
   "sherpaPreparing": "Подготовка…",
   "sherpaInstallPhase": "{phase, select, queued{В очереди} downloading{Загрузка} verifying{Проверка} extracting{Распаковка} validating{Проверка модели} installed{Установлено} failed{Ошибка установки} other{Подготовка}}",
   "sherpaLargeModelWarning": "Для больших моделей требуется 64-разрядное устройство. Они могут увеличить расход памяти и батареи, задержку и нагрев.",

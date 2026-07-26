@@ -590,6 +590,51 @@ void main() {
     );
   });
 
+  group('AppSettingsNotifier Sherpa startup writes', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.voiceSttPreference: SttPreference.serverOnly.name,
+        PreferenceKeys.ttsEngine: TtsEngine.server.name,
+      });
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('waits for hydration before applying Sherpa selections', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+
+      await notifier.activateSherpaStt(modelId: 'whisper', languageCode: null);
+      await notifier.activateSherpaTts(
+        modelId: 'kokoro',
+        languageCode: 'en',
+        speakerId: '2',
+      );
+      await notifier.setSherpaSttLanguageCode('de');
+      await notifier.setSherpaTtsLanguageCode('zh');
+      await notifier.setSherpaTtsSpeakerId('7');
+      await notifier.setSherpaTtsSpeed(1.5);
+
+      final settings = container.read(appSettingsProvider);
+      check(settings.sttPreference).equals(SttPreference.sherpa);
+      check(settings.sherpaSttModelId).equals('whisper');
+      check(settings.sherpaSttLanguageCode).equals('de');
+      check(settings.ttsEngine).equals(TtsEngine.sherpa);
+      check(settings.sherpaTtsModelId).equals('kokoro');
+      check(settings.sherpaTtsLanguageCode).equals('zh');
+      check(settings.sherpaTtsSpeakerId).equals('7');
+      check(settings.sherpaTtsSpeed).equals(1.5);
+      check(
+        PreferencesStore.getString(PreferenceKeys.sherpaSttModelId),
+      ).equals('whisper');
+      check(
+        PreferencesStore.getString(PreferenceKeys.sherpaTtsModelId),
+      ).equals('kokoro');
+    });
+  });
+
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});

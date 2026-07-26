@@ -104,7 +104,11 @@ class _SherpaModelsPageState extends ConsumerState<SherpaModelsPage> {
         )
         .toList(growable: false);
     final available = models
-        .where((model) => !installedById.containsKey(model.id))
+        .where(
+          (model) =>
+              !installedById.containsKey(model.id) &&
+              !activeIds.contains(model.id),
+        )
         .toList(growable: false);
 
     return SettingsPageScaffold(
@@ -342,7 +346,7 @@ class _SherpaModelsPageState extends ConsumerState<SherpaModelsPage> {
   Future<void> _activate(SherpaModel model) async {
     final notifier = ref.read(appSettingsProvider.notifier);
     final language =
-        model.family == SherpaModelFamily.nemotron && model.languages.length > 1
+        model.supportsAutomaticLanguage && model.languages.length > 1
         ? null
         : model.languages.first.tag;
     if (model.kind == SherpaModelKind.stt) {
@@ -380,7 +384,9 @@ class _SherpaModelsPageState extends ConsumerState<SherpaModelsPage> {
       isDestructive: true,
     );
     if (confirmed) {
+      if (!mounted) return;
       await ref.read(sherpaModelManagerProvider).delete(model);
+      if (!mounted) return;
       ref.invalidate(sherpaInstalledModelsProvider);
     }
   }
