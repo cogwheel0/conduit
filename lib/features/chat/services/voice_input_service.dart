@@ -119,6 +119,7 @@ class VoiceInputService with WidgetsBindingObserver {
   bool _usingFallbackLocales = false;
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
+  Future<void>? _stopListeningInFlight;
   Future<void>? _vadRecordingStartup;
   int _listenGeneration = 0;
   StreamController<String>? _textStreamController;
@@ -675,6 +676,10 @@ class VoiceInputService with WidgetsBindingObserver {
     required bool iosAudioSessionManagedExternally,
     required bool nativeAccumulateResults,
   }) async {
+    final pendingStop = _stopListeningInFlight;
+    if (pendingStop != null) {
+      await pendingStop;
+    }
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
     }
@@ -841,8 +846,21 @@ class VoiceInputService with WidgetsBindingObserver {
     await _stopListening();
   }
 
-  Future<void> _stopListening() async {
-    _listenGeneration++;
+  Future<void> _stopListening() {
+    final inFlight = _stopListeningInFlight;
+    if (inFlight != null) return inFlight;
+
+    final stopFuture = _stopListeningInternal();
+    _stopListeningInFlight = stopFuture;
+    return stopFuture.whenComplete(() {
+      if (identical(_stopListeningInFlight, stopFuture)) {
+        _stopListeningInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _stopListeningInternal() async {
+    final stopGeneration = ++_listenGeneration;
     final wasListening = _isListening;
     final wasUsingServerStt = _usingServerStt;
     final wasUsingSherpaStt = _usingSherpaStt;
@@ -861,7 +879,7 @@ class VoiceInputService with WidgetsBindingObserver {
       }
     }
     await pendingVadStop;
-    if (!wasListening) {
+    if (!wasListening || _listenGeneration != stopGeneration) {
       return;
     }
 
@@ -879,7 +897,10 @@ class VoiceInputService with WidgetsBindingObserver {
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
         if (wasUsingSherpaStt) {
-          await _processSherpaSamples(samples);
+          await _processSherpaSamples(
+            samples,
+            listenGeneration: stopGeneration,
+          );
         } else {
           await _processVadSamples(samples);
         }
@@ -895,6 +916,7 @@ class VoiceInputService with WidgetsBindingObserver {
         _textStreamController?.add(_currentText);
       }
     }
+    if (_listenGeneration != stopGeneration) return;
 
     _intensityDecayTimer?.cancel();
     _intensityDecayTimer = null;
@@ -1233,9 +1255,13 @@ class VoiceInputService with WidgetsBindingObserver {
     return pending;
   }
 
-  Future<void> _processSherpaSamples(List<double> samples) async {
+  Future<void> _processSherpaSamples(
+    List<double> samples, {
+    required int listenGeneration,
+  }) async {
     try {
       final result = await _sherpaStt.finalize(Float32List.fromList(samples));
+      if (_listenGeneration != listenGeneration) return;
       _handleSherpaResult(result);
     } catch (error) {
       _reportRecognitionError(error);
