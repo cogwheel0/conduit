@@ -210,19 +210,17 @@ void main() {
               return Opacity(
                 key: const ValueKey('settling-transcript-visibility'),
                 opacity: isSettling ? 0 : 1,
-                child: isSettling
-                    ? ExcludeSemantics(
-                        key: const ValueKey(
-                          'settling-transcript-semantics-guard',
-                        ),
-                        child: IgnorePointer(
-                          key: const ValueKey(
-                            'settling-transcript-interaction-guard',
-                          ),
-                          child: transcript,
-                        ),
-                      )
-                    : transcript,
+                child: ExcludeSemantics(
+                  key: const ValueKey('settling-transcript-semantics-guard'),
+                  excluding: isSettling,
+                  child: IgnorePointer(
+                    key: const ValueKey(
+                      'settling-transcript-interaction-guard',
+                    ),
+                    ignoring: isSettling,
+                    child: transcript,
+                  ),
+                ),
               );
             },
           ),
@@ -275,12 +273,20 @@ void main() {
       1,
     );
     expect(
-      find.byKey(const ValueKey('settling-transcript-interaction-guard')),
-      findsNothing,
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(const ValueKey('settling-transcript-interaction-guard')),
+          )
+          .ignoring,
+      isFalse,
     );
     expect(
-      find.byKey(const ValueKey('settling-transcript-semantics-guard')),
-      findsNothing,
+      tester
+          .widget<ExcludeSemantics>(
+            find.byKey(const ValueKey('settling-transcript-semantics-guard')),
+          )
+          .excluding,
+      isFalse,
     );
 
     assistantHeight.value = 120;

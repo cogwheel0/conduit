@@ -2560,19 +2560,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return Opacity(
       key: const ValueKey<String>('positioned-transcript-visibility'),
       opacity: hideForInitialPin ? 0 : 1,
-      child: hideForInitialPin
-          ? ExcludeSemantics(
-              key: const ValueKey<String>(
-                'positioned-transcript-settling-semantics-guard',
-              ),
-              child: IgnorePointer(
-                key: const ValueKey<String>(
-                  'positioned-transcript-settling-guard',
-                ),
-                child: positionedTranscript,
-              ),
-            )
-          : positionedTranscript,
+      child: ExcludeSemantics(
+        key: const ValueKey<String>(
+          'positioned-transcript-settling-semantics-guard',
+        ),
+        excluding: hideForInitialPin,
+        child: IgnorePointer(
+          key: const ValueKey<String>('positioned-transcript-settling-guard'),
+          ignoring: hideForInitialPin,
+          child: positionedTranscript,
+        ),
+      ),
     );
   }
 
