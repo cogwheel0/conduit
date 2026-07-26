@@ -258,6 +258,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         hideThreshold: _scrollButtonHideThreshold,
       );
   bool _showScrollToBottom = false;
+  bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _hasUserScrolled = false;
   bool _isDeactivated = false;
   double _inputHeight = 0;
@@ -279,6 +280,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   double _pinnedTailMeasuredExtent = 0;
   bool _hasPinnedUserMeasurement = false;
   bool _hasPinnedTailMeasurement = false;
+  bool _pinShouldSettleImmediately = false;
   bool _pinToTopPositionSettled = false;
   int _pinPositionGeneration = 0;
   final _stableLayoutCache = _ChatListStableLayoutCache();
@@ -357,9 +359,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         isAnchoredToBottom: _isAnchoredToBottom,
         isUserInteracting: _isUserInteractingWithScroll,
         wantsPinToTop: _wantsPinToTop,
-        pinAutoFollowing: _shouldAutoFollowPinnedTurn,
-        pinPositionSettled: _pinToTopPositionSettled,
-        pinEndSpaceExtent: _pinToTopEndSpaceExtent,
       );
 
   void _handlePositionedItemsChanged() {
@@ -808,7 +807,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _handleFollowUpSend(String text) =>
       _sendMessage(text, includeComposerContext: false);
 
-  void _activatePinToTopAnchor(ChatSendPlaceholderHandle handle) {
+  void _activatePinToTopAnchor(
+    ChatSendPlaceholderHandle handle, {
+    required bool settleImmediately,
+  }) {
     final userMessageId = handle.userMessageId;
     if (!mounted || userMessageId == null) return;
 
@@ -828,6 +830,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinnedTailMeasuredExtent = 0;
     _hasPinnedUserMeasurement = false;
     _hasPinnedTailMeasurement = false;
+    _pinShouldSettleImmediately = settleImmediately;
     _pinToTopPositionSettled = false;
     setState(() {
       _pinToTopState = _PinToTopState.active(
@@ -842,8 +845,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _cancelPinnedTurnAutomaticFollow() {
     if (!_shouldAutoFollowPinnedTurn) return;
-    _pinPositionGeneration += 1;
-    _pinToTopState = _pinToTopState.cancelAutomaticFollow();
+    setState(() {
+      _pinPositionGeneration += 1;
+      _pinToTopState = _pinToTopState.cancelAutomaticFollow();
+      _pinShouldSettleImmediately = false;
+    });
     _syncLayoutBottomAnchor();
   }
 
@@ -877,6 +883,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool includeComposerContext,
     required Object sendOwner,
   }) async {
+    final settlePinImmediately = debugShouldSettlePinImmediatelyForTesting(
+      transcriptWasEmpty: ref.read(chatMessagesProvider).isEmpty,
+    );
     dynamic selectedModel = ref.read(selectedModelProvider);
 
     // Resolve model on-demand if none selected yet
@@ -940,7 +949,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onAssistantPlaceholderCreated: (handle) {
           _releaseMessageSendAdmission(sendOwner);
           pendingSend = handle;
-          _activatePinToTopAnchor(handle);
+          _activatePinToTopAnchor(
+            handle,
+            settleImmediately: settlePinImmediately,
+          );
         },
       );
 
@@ -1489,6 +1501,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     setState(() {});
     _syncLayoutBottomAnchor();
+    final pinOverflowCandidate =
+        _pinToTopEndSpaceExtent <= _pinnedMeasurementEpsilon;
+    if (_showScrollToBottom != pinOverflowCandidate) {
+      _scheduleScrollToBottomVisibilitySync();
+    }
+  }
+
+  void _scheduleScrollToBottomVisibilitySync() {
+    if (_scrollToBottomVisibilitySyncScheduled) return;
+    _scrollToBottomVisibilitySyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottomVisibilitySyncScheduled = false;
+      if (mounted) _updateScrollToBottomVisibility();
+    });
   }
 
   void _recalculatePinnedEndSpace() {
@@ -1565,8 +1591,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!mounted || _isDeactivated) return;
 
     final anchorState = _recomputeBottomAnchorState();
-    final showButton =
-        anchorState.hasScrollableContent && _shouldExposeScrollToBottomButton();
+    final showButton = _shouldExposeScrollToBottomButton(
+      hasScrollableContent: anchorState.hasScrollableContent,
+    );
 
     if (showButton != _showScrollToBottom) {
       setState(() {
@@ -1590,10 +1617,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
   }
 
-  bool _shouldExposeScrollToBottomButton() {
+  bool _shouldExposeScrollToBottomButton({required bool hasScrollableContent}) {
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return false;
     return debugShouldExposeScrollToLatestForTesting(
+      hasScrollableContent: hasScrollableContent,
       pinAutoFollowing: _shouldAutoFollowPinnedTurn,
       userDetached: _bottomAnchorController.isUserDetachedFromBottom,
       isAtLatest: _isAtLatestPosition(),
@@ -1954,6 +1982,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
       if (!_itemScrollController.isAttached) {
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'controller-not-attached',
+        );
         return;
       }
       if (!measurementsReady) {
@@ -1962,17 +1994,34 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           scope: 'chat/scroll',
           data: {'attempts': attempt},
         );
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'measurements-unavailable',
+        );
+        return;
       }
 
       final messages = ref.read(chatMessagesProvider);
       final paging = ref.read(chatTranscriptPagingProvider);
       final visible = _renderedTranscriptWindow(messages, paging);
       final targetId = _pinnedUserMessageId;
-      if (targetId == null) return;
+      if (targetId == null) {
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'target-missing',
+        );
+        return;
+      }
       final positionedIndex = ChatTimelineRenderModel.fromMessages(
         visible,
       ).positionedIndexForMessageId(targetId);
-      if (positionedIndex == null) return;
+      if (positionedIndex == null) {
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'target-not-visible',
+        );
+        return;
+      }
 
       final topPadding =
           MediaQuery.of(context).padding.top +
@@ -1982,7 +2031,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .clamp(0.0, 1.0)
           .toDouble();
       final reversedAlignment = 1 - alignment;
-      if (context.reduceMotion) {
+      if (context.reduceMotion || _pinShouldSettleImmediately) {
         _itemScrollController.jumpTo(
           index: positionedIndex,
           alignment: reversedAlignment,
@@ -2003,14 +2052,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
+  void _cancelFailedPinToTopSettlement({
+    required int generation,
+    required String reason,
+  }) {
+    if (!mounted || generation != _pinPositionGeneration) return;
+    DebugLogger.log(
+      'pin-settlement-cancelled',
+      scope: 'chat/scroll',
+      data: {'reason': reason},
+    );
+    setState(_clearPinToTopAnchor);
+  }
+
   void _markPinToTopPositionSettled(int generation) {
     if (!mounted ||
         generation != _pinPositionGeneration ||
-        !_shouldAutoFollowPinnedTurn) {
+        !_shouldAutoFollowPinnedTurn ||
+        _pinToTopPositionSettled) {
       return;
     }
-    _pinToTopPositionSettled = true;
-    _syncLayoutBottomAnchor();
+    setState(() {
+      _pinToTopPositionSettled = true;
+    });
   }
 
   void _clearPinToTopAnchor() {
@@ -2021,6 +2085,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinnedTailMeasuredExtent = 0;
     _hasPinnedUserMeasurement = false;
     _hasPinnedTailMeasurement = false;
+    _pinShouldSettleImmediately = false;
     _pinToTopPositionSettled = false;
     _syncLayoutBottomAnchor();
   }
@@ -2222,6 +2287,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _wantsPinToTop && _pinnedUserMessageId != null
         ? layoutMetadata.indexByMessageId[_pinnedUserMessageId!] ?? -1
         : -1;
+    final pinnedPositionedIndex = _pinnedUserMessageId == null
+        ? null
+        : timeline.positionedIndexForMessageId(_pinnedUserMessageId!);
+    final initialPinAlignment = pinnedPositionedIndex == null
+        ? 0.0
+        : (1 - (topPadding / MediaQuery.sizeOf(context).height))
+              .clamp(0.0, 1.0)
+              .toDouble();
     _syncLayoutBottomAnchor();
 
     if (_lastProfiledMessageCacheStreamingState != isStreaming) {
@@ -2252,7 +2325,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    return NotificationListener<ScrollNotification>(
+    final positionedTranscript = NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         final isTouchDragStart =
             notification is ScrollStartNotification &&
@@ -2305,6 +2378,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           key: const ValueKey('actual_messages'),
           itemScrollController: _itemScrollController,
           itemPositionsListener: _itemPositionsListener,
+          initialScrollIndex: pinnedPositionedIndex ?? 0,
+          initialAlignment: initialPinAlignment,
           reverse: true,
           physics: platformAlwaysScrollablePhysics(context),
           padding: EdgeInsets.fromLTRB(
@@ -2471,6 +2546,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           },
         ),
       ),
+    );
+    return Opacity(
+      key: const ValueKey<String>('positioned-transcript-visibility'),
+      opacity:
+          debugShouldHideTranscriptForInitialPinForTesting(
+            settleImmediately: _pinShouldSettleImmediately,
+            positionSettled: _pinToTopPositionSettled,
+          )
+          ? 0
+          : 1,
+      child: positionedTranscript,
     );
   }
 
@@ -3070,7 +3156,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           hasChatMessagesProvider,
                         );
                         return (_showScrollToBottom &&
-                                !_shouldAutoFollowPinnedTurn &&
                                 !keyboardVisible &&
                                 canScroll &&
                                 hasMessages)
@@ -3899,12 +3984,26 @@ bool debugIsAtLatestPositionForTesting({
 
 @visibleForTesting
 bool debugShouldExposeScrollToLatestForTesting({
+  required bool hasScrollableContent,
   required bool pinAutoFollowing,
   required bool userDetached,
   required bool isAtLatest,
 }) {
-  return !pinAutoFollowing && userDetached && !isAtLatest;
+  return hasScrollableContent &&
+      !isAtLatest &&
+      (pinAutoFollowing || userDetached);
 }
+
+@visibleForTesting
+bool debugShouldSettlePinImmediatelyForTesting({
+  required bool transcriptWasEmpty,
+}) => transcriptWasEmpty;
+
+@visibleForTesting
+bool debugShouldHideTranscriptForInitialPinForTesting({
+  required bool settleImmediately,
+  required bool positionSettled,
+}) => settleImmediately && !positionSettled;
 
 @visibleForTesting
 bool debugHasScrollablePositionedContentForTesting({
@@ -3999,16 +4098,10 @@ bool debugShouldSmoothFollowStreamingForTesting({
   required bool isAnchoredToBottom,
   required bool isUserInteracting,
   required bool wantsPinToTop,
-  required bool pinAutoFollowing,
-  required bool pinPositionSettled,
-  required double pinEndSpaceExtent,
 }) {
   if (!hasRunningTurn || isUserInteracting) return false;
   if (!wantsPinToTop) return isAnchoredToBottom;
-  return pinAutoFollowing &&
-      pinPositionSettled &&
-      pinEndSpaceExtent.isFinite &&
-      pinEndSpaceExtent <= 1;
+  return false;
 }
 
 double _scrollAnimationStartOffset({

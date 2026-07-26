@@ -68,9 +68,10 @@ void main() {
   });
 
   testWidgets(
-    'pin target remains addressable while newest-row spacer contracts',
+    'pin target remains stable after the newest row exceeds the viewport',
     (tester) async {
       final controller = ItemScrollController();
+      final positions = ItemPositionsListener.create();
       final assistantHeight = ValueNotifier<double>(20);
       addTearDown(assistantHeight.dispose);
 
@@ -84,6 +85,7 @@ void main() {
                 return ScrollablePositionedList.builder(
                   reverse: true,
                   itemScrollController: controller,
+                  itemPositionsListener: positions,
                   itemCount: 10,
                   itemBuilder: (context, positionedIndex) {
                     if (positionedIndex == 0) {
@@ -128,28 +130,63 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(pinnedTop(), closeTo(_topInset, 1));
+
+      // Once the assistant outgrows the synthetic spacer, reverse layout
+      // growth must not push the pinned user row above the viewport.
+      assistantHeight.value = 8000;
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(pinnedTop(), closeTo(_topInset, 1));
+      expect(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: debugHasScrollablePositionedContentForTesting(
+            positions: positions.itemPositions.value,
+            itemCount: 10,
+            viewportExtent: _viewportHeight,
+          ),
+          pinAutoFollowing: true,
+          userDetached: false,
+          isAtLatest: debugIsAtLatestPositionForTesting(
+            positions: positions.itemPositions.value,
+            viewportExtent: _viewportHeight,
+          ),
+        ),
+        isTrue,
+      );
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets(
-    'pin animation never overshoots while initial spacer measurement settles',
-    (tester) async {
-      final controller = ItemScrollController();
-      final pinnedUserExtent = ValueNotifier<double>(0);
-      final assistantHeight = ValueNotifier<double>(20);
-      addTearDown(pinnedUserExtent.dispose);
-      addTearDown(assistantHeight.dispose);
+  testWidgets('first pinned turn starts settled while measurements arrive', (
+    tester,
+  ) async {
+    final controller = ItemScrollController();
+    final pinnedUserExtent = ValueNotifier<double>(0);
+    final assistantHeight = ValueNotifier<double>(20);
+    final positionSettled = ValueNotifier<bool>(false);
+    addTearDown(pinnedUserExtent.dispose);
+    addTearDown(assistantHeight.dispose);
+    addTearDown(positionSettled.dispose);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SizedBox(
-            height: _viewportHeight,
-            child: ListenableBuilder(
-              listenable: Listenable.merge([pinnedUserExtent, assistantHeight]),
-              builder: (context, _) => ScrollablePositionedList.builder(
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          height: _viewportHeight,
+          child: ListenableBuilder(
+            listenable: Listenable.merge([
+              pinnedUserExtent,
+              assistantHeight,
+              positionSettled,
+            ]),
+            builder: (context, _) => Opacity(
+              key: const ValueKey('settling-transcript-visibility'),
+              opacity: positionSettled.value ? 1 : 0,
+              child: ScrollablePositionedList.builder(
                 reverse: true,
                 itemScrollController: controller,
+                initialScrollIndex: 1,
+                initialAlignment: 1 - (_topInset / _viewportHeight),
                 itemCount: 10,
                 itemBuilder: (context, positionedIndex) {
                   if (positionedIndex == 0) {
@@ -174,45 +211,48 @@ void main() {
             ),
           ),
         ),
-      );
-      await tester.pump();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // The page waits for both measured rows, rebuilds the stable minimum
-      // extent, and only then starts the one pin animation.
-      pinnedUserExtent.value = 40;
-      await tester.pump();
+    final finder = find.byKey(const ValueKey('settling-pinned-user-row'));
+    expect(finder, findsOneWidget);
+    expect(
+      tester
+          .widget<Opacity>(
+            find.byKey(const ValueKey('settling-transcript-visibility')),
+          )
+          .opacity,
+      0,
+    );
 
-      final animation = controller.scrollTo(
-        index: 1,
-        alignment: 1 - (_topInset / _viewportHeight),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
+    // Measurements arrive while hidden. The page performs one item jump and
+    // reveals only the already-settled transcript on the following frame.
+    pinnedUserExtent.value = 40;
+    await tester.pump();
+    controller.jumpTo(index: 1, alignment: 1 - (_topInset / _viewportHeight));
+    positionSettled.value = true;
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(finder).dy, closeTo(_topInset, 1));
+    expect(
+      tester
+          .widget<Opacity>(
+            find.byKey(const ValueKey('settling-transcript-visibility')),
+          )
+          .opacity,
+      1,
+    );
+
+    assistantHeight.value = 120;
+
+    var minimumPinnedTop = double.infinity;
+    while (tester.binding.hasScheduledFrame) {
       await tester.pump(const Duration(milliseconds: 16));
-      assistantHeight.value = 120;
+      final pinnedTop = tester.getTopLeft(finder).dy;
+      if (pinnedTop < minimumPinnedTop) minimumPinnedTop = pinnedTop;
+    }
 
-      var minimumPinnedTop = double.infinity;
-      var sampledPinnedRow = false;
-      for (var frame = 0; frame < 16; frame += 1) {
-        await tester.pump(const Duration(milliseconds: 16));
-        final finder = find.byKey(const ValueKey('settling-pinned-user-row'));
-        if (finder.evaluate().isNotEmpty) {
-          sampledPinnedRow = true;
-          final pinnedTop = tester.getTopLeft(finder).dy;
-          if (pinnedTop < minimumPinnedTop) minimumPinnedTop = pinnedTop;
-        }
-      }
-      await animation;
-      await tester.pumpAndSettle();
-
-      expect(sampledPinnedRow, isTrue);
-      expect(minimumPinnedTop, greaterThanOrEqualTo(_topInset - 2));
-      expect(
-        tester
-            .getTopLeft(find.byKey(const ValueKey('settling-pinned-user-row')))
-            .dy,
-        closeTo(_topInset, 1),
-      );
-    },
-  );
+    expect(minimumPinnedTop, greaterThanOrEqualTo(_topInset - 2));
+    expect(tester.getTopLeft(finder).dy, closeTo(_topInset, 1));
+  });
 }

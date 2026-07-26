@@ -419,17 +419,28 @@ void main() {
     expect(guard.isHeld, isFalse);
   });
 
-  test('latest button follows manual detachment but not automatic pinning', () {
+  test('latest button appears for pinned overflow or manual detachment', () {
     expect(
       debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: false,
         pinAutoFollowing: true,
-        userDetached: true,
+        userDetached: false,
         isAtLatest: false,
       ),
       isFalse,
     );
     expect(
       debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: true,
+        userDetached: false,
+        isAtLatest: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
         isAtLatest: false,
@@ -438,6 +449,7 @@ void main() {
     );
     expect(
       debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: false,
         isAtLatest: false,
@@ -446,9 +458,42 @@ void main() {
     );
     expect(
       debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
         isAtLatest: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('only the first turn settles its pin without animation', () {
+    expect(
+      debugShouldSettlePinImmediatelyForTesting(transcriptWasEmpty: true),
+      isTrue,
+    );
+    expect(
+      debugShouldSettlePinImmediatelyForTesting(transcriptWasEmpty: false),
+      isFalse,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: true,
+        positionSettled: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: true,
+        positionSettled: true,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: false,
+        positionSettled: false,
       ),
       isFalse,
     );
@@ -1390,33 +1435,24 @@ void main() {
     expect(state.userMessageId, 'user-message');
   });
 
-  test(
-    'streaming follow waits until pin-to-top reserved space is consumed',
-    () {
-      check(
-        debugShouldSmoothFollowStreamingForTesting(
-          hasRunningTurn: true,
-          isAnchoredToBottom: true,
-          isUserInteracting: false,
-          wantsPinToTop: true,
-          pinAutoFollowing: true,
-          pinPositionSettled: true,
-          pinEndSpaceExtent: 120,
-        ),
-      ).isFalse();
-      check(
-        debugShouldSmoothFollowStreamingForTesting(
-          hasRunningTurn: true,
-          isAnchoredToBottom: true,
-          isUserInteracting: false,
-          wantsPinToTop: true,
-          pinAutoFollowing: true,
-          pinPositionSettled: true,
-          pinEndSpaceExtent: 0,
-        ),
-      ).isTrue();
-    },
-  );
+  test('streaming follow never replaces an active pin-to-top anchor', () {
+    check(
+      debugShouldSmoothFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        wantsPinToTop: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldSmoothFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: true,
+        isUserInteracting: false,
+        wantsPinToTop: true,
+      ),
+    ).isFalse();
+  });
 
   test('streaming follow yields immediately to manual navigation', () {
     check(
@@ -1425,9 +1461,6 @@ void main() {
         isAnchoredToBottom: true,
         isUserInteracting: true,
         wantsPinToTop: false,
-        pinAutoFollowing: false,
-        pinPositionSettled: false,
-        pinEndSpaceExtent: 0,
       ),
     ).isFalse();
   });
