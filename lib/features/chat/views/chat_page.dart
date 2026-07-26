@@ -91,6 +91,34 @@ Widget debugBuildAssistantTimelineSlotForTesting({
   );
 }
 
+/// Keeps the newest positioned row at a stable total extent while a pinned
+/// assistant grows into the unused viewport. The assistant consumes the
+/// implicit end space without changing the item geometry until it fills the
+/// available area.
+@visibleForTesting
+Widget debugBuildNewestTimelineItemForTesting({
+  required Widget row,
+  required Key spacerKey,
+  required double bottomPadding,
+  required bool pinActive,
+  required double availableExtent,
+  required double pinnedUserExtent,
+}) {
+  final minimumExtent = pinActive
+      ? math.max(0, availableExtent - pinnedUserExtent).toDouble()
+      : 0.0;
+  return ConstrainedBox(
+    constraints: BoxConstraints(minHeight: minimumExtent),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        row,
+        SizedBox(key: spacerKey, height: bottomPadding),
+      ],
+    ),
+  );
+}
+
 @visibleForTesting
 double debugChatMessageScrollCachePixels({required bool streaming}) =>
     streaming ? 120.0 : 600.0;
@@ -215,7 +243,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonShowThreshold = 300.0;
   static const double _scrollButtonHideThreshold = 150.0;
   static const int _initialBottomSettleMaxAttempts = 8;
+  static const int _pinScrollMaxAttempts = 12;
   static const double _scrollCorrectionEpsilon = 1.0;
+  static const double _pinnedMeasurementEpsilon = 0.5;
   static const String _composerSpacerListKey = 'chat-composer-spacer';
   static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
 
@@ -246,6 +276,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   double _pinToTopEndSpaceExtent = 0;
   double _pinnedUserMeasuredExtent = 0;
   double _pinnedTailMeasuredExtent = 0;
+  bool _hasPinnedUserMeasurement = false;
+  bool _hasPinnedTailMeasurement = false;
   bool _pinToTopPositionSettled = false;
   int _pinPositionGeneration = 0;
   final _stableLayoutCache = _ChatListStableLayoutCache();
@@ -338,11 +370,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _isAtLatestPosition() {
     final positions = _itemPositionsListener.itemPositions.value;
-    if (positions.isEmpty) return true;
-    final tolerance = 1 / math.max(1.0, MediaQuery.sizeOf(context).height);
-    return positions.any(
-      (position) =>
-          position.index == 0 && position.itemTrailingEdge >= 1 - tolerance,
+    return debugIsAtLatestPositionForTesting(
+      positions: positions,
+      viewportExtent: MediaQuery.sizeOf(context).height,
     );
   }
 
@@ -705,6 +735,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _cancelSmoothStreamingFollow();
     _cancelPendingInitialBottomSettle();
+    _bottomAnchorController.requestBottomAnchor();
     final generation = ++_pinPositionGeneration;
     final topInset =
         MediaQuery.of(context).padding.top +
@@ -716,6 +747,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     _pinnedUserMeasuredExtent = 0;
     _pinnedTailMeasuredExtent = 0;
+    _hasPinnedUserMeasurement = false;
+    _hasPinnedTailMeasurement = false;
     _pinToTopPositionSettled = false;
     setState(() {
       _pinToTopState = _PinToTopState.active(
@@ -1321,11 +1354,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _recordPinnedRowExtent({double? userExtent, double? tailExtent}) {
     if (!_wantsPinToTop) return;
-    if (userExtent != null) _pinnedUserMeasuredExtent = userExtent;
-    if (tailExtent != null) _pinnedTailMeasuredExtent = tailExtent;
+    var measurementChanged = false;
+    if (userExtent != null) {
+      measurementChanged =
+          !_hasPinnedUserMeasurement ||
+          (_pinnedUserMeasuredExtent - userExtent).abs() >=
+              _pinnedMeasurementEpsilon;
+      _hasPinnedUserMeasurement = true;
+      _pinnedUserMeasuredExtent = userExtent;
+    }
+    if (tailExtent != null) {
+      measurementChanged =
+          measurementChanged ||
+          !_hasPinnedTailMeasurement ||
+          (_pinnedTailMeasuredExtent - tailExtent).abs() >=
+              _pinnedMeasurementEpsilon;
+      _hasPinnedTailMeasurement = true;
+      _pinnedTailMeasuredExtent = tailExtent;
+    }
     final previous = _pinToTopEndSpaceExtent;
     _recalculatePinnedEndSpace();
-    if ((previous - _pinToTopEndSpaceExtent).abs() < 0.5) return;
+    if (!measurementChanged &&
+        (previous - _pinToTopEndSpaceExtent).abs() <
+            _pinnedMeasurementEpsilon) {
+      return;
+    }
     setState(() {});
     _syncLayoutBottomAnchor();
   }
@@ -1349,7 +1402,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _updateBottomAnchorTracking() {
-    final hasScrollableContent = _hasScrollableContentForBottomButton();
+    final hasScrollableContent = _shouldExposeScrollToBottomButton();
     final distanceFromBottom = _positionedDistanceFromLatest();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
@@ -1395,7 +1448,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!mounted || _isDeactivated) return;
 
     final distanceFromBottom = _positionedDistanceFromLatest();
-    final bool hasScrollableContent = _hasScrollableContentForBottomButton();
+    final bool hasScrollableContent = _shouldExposeScrollToBottomButton();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
@@ -1427,12 +1480,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
   }
 
-  bool _hasScrollableContentForBottomButton() {
+  bool _shouldExposeScrollToBottomButton() {
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return false;
-    final messages = ref.read(chatMessagesProvider);
-    return messages.length > 2 &&
-        (positions.length < messages.length || !_isAtLatestPosition());
+    return debugShouldExposeScrollToLatestForTesting(
+      pinAutoFollowing: _shouldAutoFollowPinnedTurn,
+      userDetached: _bottomAnchorController.isUserDetachedFromBottom,
+      isAtLatest: _isAtLatestPosition(),
+    );
   }
 
   double _messageListBottomPadding() {
@@ -1731,13 +1786,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return _activeStreamingAssistantId(messages) != null;
   }
 
-  void _scrollToUserMessage({required int generation}) {
+  void _scrollToUserMessage({required int generation, int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           generation != _pinPositionGeneration ||
-          !_shouldAutoFollowPinnedTurn ||
-          !_itemScrollController.isAttached) {
+          !_shouldAutoFollowPinnedTurn) {
         return;
+      }
+
+      final measurementsReady =
+          _hasPinnedUserMeasurement && _hasPinnedTailMeasurement;
+      if ((!_itemScrollController.isAttached || !measurementsReady) &&
+          attempt < _pinScrollMaxAttempts) {
+        _scrollToUserMessage(generation: generation, attempt: attempt + 1);
+        return;
+      }
+      if (!_itemScrollController.isAttached) {
+        return;
+      }
+      if (!measurementsReady) {
+        DebugLogger.log(
+          'pin-measurement-timeout',
+          scope: 'chat/scroll',
+          data: {'attempts': attempt},
+        );
       }
 
       final messages = ref.read(chatMessagesProvider);
@@ -1796,6 +1868,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinToTopEndSpaceExtent = 0;
     _pinnedUserMeasuredExtent = 0;
     _pinnedTailMeasuredExtent = 0;
+    _hasPinnedUserMeasurement = false;
+    _hasPinnedTailMeasurement = false;
     _pinToTopPositionSettled = false;
     _syncLayoutBottomAnchor();
   }
@@ -1998,19 +2072,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     Widget appendNewestSpacer(Widget row, int positionedIndex) {
       final isNewest = positionedIndex == 0;
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          row,
-          SizedBox(
-            key: isNewest
-                ? const ValueKey<String>(_composerSpacerListKey)
-                : null,
-            height: isNewest
-                ? bottomPadding + (_wantsPinToTop ? _pinToTopEndSpaceExtent : 0)
-                : 0,
-          ),
-        ],
+      if (!isNewest) return row;
+      return debugBuildNewestTimelineItemForTesting(
+        row: row,
+        spacerKey: const ValueKey<String>(_composerSpacerListKey),
+        bottomPadding: bottomPadding,
+        pinActive: _wantsPinToTop,
+        availableExtent: math.max(
+          0,
+          MediaQuery.sizeOf(context).height - topPadding,
+        ),
+        pinnedUserExtent: _pinnedUserMeasuredExtent,
       );
     }
 
@@ -2703,7 +2775,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Keyboard visibility - use viewInsetsOf for more efficient partial subscription
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     // Whether the messages list can actually scroll (avoids showing button when not needed)
-    final canScroll = _hasScrollableContentForBottomButton();
+    final canScroll = _shouldExposeScrollToBottomButton();
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {
@@ -2822,6 +2894,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           hasChatMessagesProvider,
                         );
                         return (_showScrollToBottom &&
+                                !_shouldAutoFollowPinnedTurn &&
                                 !keyboardVisible &&
                                 canScroll &&
                                 hasMessages)
@@ -3633,6 +3706,28 @@ bool _shouldTreatScrollUpdateAsUserDriven({
   // which marks the interaction active. Programmatic updates have neither and
   // must not detach the bottom layout anchor.
   return hasDragDetails || isUserInteractingWithScroll;
+}
+
+@visibleForTesting
+bool debugIsAtLatestPositionForTesting({
+  required Iterable<ItemPosition> positions,
+  required double viewportExtent,
+}) {
+  if (positions.isEmpty) return true;
+  final tolerance = 1 / math.max(1.0, viewportExtent);
+  return positions.any(
+    (position) =>
+        position.index == 0 && position.itemLeadingEdge.abs() <= tolerance,
+  );
+}
+
+@visibleForTesting
+bool debugShouldExposeScrollToLatestForTesting({
+  required bool pinAutoFollowing,
+  required bool userDetached,
+  required bool isAtLatest,
+}) {
+  return !pinAutoFollowing && userDetached && !isAtLatest;
 }
 
 @visibleForTesting

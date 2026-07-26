@@ -18,6 +18,7 @@ import 'package:conduit/features/hermes/services/hermes_session_provenance.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 void main() {
   test('message cache shrinks only while streaming', () {
@@ -243,9 +244,84 @@ void main() {
 
     expect(controller.isAnchoredToBottom, isTrue);
     expect(controller.isUserInteractingWithScroll, isFalse);
+    expect(controller.isUserDetachedFromBottom, isFalse);
     expect(
       controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
       isTrue,
+    );
+  });
+
+  test(
+    'reversed latest detection requires the newest edge at the viewport',
+    () {
+      const atLatest = ItemPosition(
+        index: 0,
+        itemLeadingEdge: 0,
+        itemTrailingEdge: 0.4,
+      );
+      const scrolledAwayWithNewestStillVisible = ItemPosition(
+        index: 0,
+        itemLeadingEdge: -0.08,
+        itemTrailingEdge: 0.48,
+      );
+      const olderRowAtViewportEdge = ItemPosition(
+        index: 1,
+        itemLeadingEdge: 0,
+        itemTrailingEdge: 0.4,
+      );
+
+      expect(
+        debugIsAtLatestPositionForTesting(
+          positions: const [atLatest],
+          viewportExtent: 600,
+        ),
+        isTrue,
+      );
+      expect(
+        debugIsAtLatestPositionForTesting(
+          positions: const [
+            scrolledAwayWithNewestStillVisible,
+            olderRowAtViewportEdge,
+          ],
+          viewportExtent: 600,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('latest button follows manual detachment but not automatic pinning', () {
+    expect(
+      debugShouldExposeScrollToLatestForTesting(
+        pinAutoFollowing: true,
+        userDetached: true,
+        isAtLatest: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldExposeScrollToLatestForTesting(
+        pinAutoFollowing: false,
+        userDetached: true,
+        isAtLatest: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldExposeScrollToLatestForTesting(
+        pinAutoFollowing: false,
+        userDetached: false,
+        isAtLatest: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldExposeScrollToLatestForTesting(
+        pinAutoFollowing: false,
+        userDetached: true,
+        isAtLatest: true,
+      ),
+      isFalse,
     );
   });
 

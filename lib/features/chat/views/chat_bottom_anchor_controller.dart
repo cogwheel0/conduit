@@ -9,6 +9,7 @@ class ChatBottomAnchorController {
 
   bool isUserInteractingWithScroll = false;
   bool isAnchoredToBottom = true;
+  bool isUserDetachedFromBottom = false;
 
   bool updateAnchor({
     required bool hasScrollableContent,
@@ -16,6 +17,7 @@ class ChatBottomAnchorController {
   }) {
     if (distanceFromBottom <= hideThreshold) {
       isAnchoredToBottom = true;
+      isUserDetachedFromBottom = false;
     } else if (hasScrollableContent) {
       isAnchoredToBottom = false;
     }
@@ -44,16 +46,19 @@ class ChatBottomAnchorController {
 
   void detachByUser() {
     isAnchoredToBottom = false;
+    isUserDetachedFromBottom = true;
   }
 
   void requestBottomAnchor() {
     isUserInteractingWithScroll = false;
     isAnchoredToBottom = true;
+    isUserDetachedFromBottom = false;
   }
 
   void resetForDetachedScroll() {
     isAnchoredToBottom = true;
     isUserInteractingWithScroll = false;
+    isUserDetachedFromBottom = false;
   }
 }
 
