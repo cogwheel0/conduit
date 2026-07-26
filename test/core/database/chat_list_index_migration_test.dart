@@ -32,6 +32,21 @@ CREATE TABLE chats (
 )
 ''');
       await customStatement('''
+CREATE TABLE messages (
+  id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  parent_id TEXT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  model TEXT,
+  created_at INTEGER NOT NULL,
+  order_index INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  dirty INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (chat_id, id)
+)
+''');
+      await customStatement('''
 CREATE TABLE attachment_queue (
   id TEXT NOT NULL PRIMARY KEY,
   file_path TEXT NOT NULL,
@@ -72,6 +87,21 @@ CREATE TABLE chats (
   pinned INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
+)
+''');
+      await customStatement('''
+CREATE TABLE messages (
+  id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  parent_id TEXT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  model TEXT,
+  created_at INTEGER NOT NULL,
+  order_index INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  dirty INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (chat_id, id)
 )
 ''');
     },
@@ -139,10 +169,42 @@ void main() {
       if (directory.existsSync()) directory.deleteSync(recursive: true);
     }
   });
+
+  test(
+    'v8 upgrade creates the message branch index and reopens idempotently',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'conduit_message_branch_index_migration',
+      );
+      final databaseFile = File(p.join(directory.path, 'migration.sqlite'));
+      AppDatabase? database;
+      try {
+        database = AppDatabase(NativeDatabase(databaseFile));
+        await database.customSelect('SELECT 1').get();
+        await database.customStatement(
+          'DROP INDEX IF EXISTS idx_messages_chat_parent_role',
+        );
+        await database.customStatement('PRAGMA user_version = 8');
+        await database.close();
+        database = null;
+
+        database = AppDatabase(NativeDatabase(databaseFile));
+        await _expectChatListIndex(database);
+        await database.close();
+        database = null;
+
+        database = AppDatabase(NativeDatabase(databaseFile));
+        await _expectChatListIndex(database);
+      } finally {
+        await database?.close();
+        if (directory.existsSync()) directory.deleteSync(recursive: true);
+      }
+    },
+  );
 }
 
 Future<void> _expectChatListIndex(AppDatabase database) async {
-  check(database.schemaVersion).equals(8);
+  check(database.schemaVersion).equals(9);
   final indexRow = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "
@@ -170,4 +232,16 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
       )
       .getSingle();
   check(receiptIndex.read<String>('sql')).contains('durable_key');
+  final messageIndex = await database
+      .customSelect(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' "
+        "AND name = 'idx_messages_chat_parent_role'",
+      )
+      .getSingle();
+  final normalizedMessageSql = messageIndex
+      .read<String>('sql')
+      .replaceAll(RegExp(r'\s+'), ' ');
+  check(
+    normalizedMessageSql,
+  ).contains('(chat_id, parent_id, role, created_at, order_index, id)');
 }

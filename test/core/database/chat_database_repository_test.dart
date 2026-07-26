@@ -426,6 +426,61 @@ void main() {
       ).equals(ChatStorageKind.directLocal);
     });
 
+    test(
+      'loads only the latest 50 active-branch messages for presentation',
+      () async {
+        const chatId = 'windowed-local';
+        final messages = [
+          for (var index = 0; index < 500; index += 1)
+            MessageRowData(
+              id: 'message-$index',
+              chatId: chatId,
+              parentId: index == 0 ? null : 'message-${index - 1}',
+              role: index.isEven ? 'user' : 'assistant',
+              content: 'body $index',
+              createdAt: index,
+              orderIndex: index,
+              payload: {
+                'id': 'message-$index',
+                'parentId': index == 0 ? null : 'message-${index - 1}',
+                'role': index.isEven ? 'user' : 'assistant',
+                'content': 'body $index',
+                'timestamp': index,
+              },
+            ),
+        ];
+        await localDatabase.chatsDao.upsertLocalOnlyChat(
+          rows: ChatRows(
+            chat: const ChatRowData(
+              id: chatId,
+              title: 'Windowed',
+              currentMessageId: 'message-499',
+              createdAt: 0,
+              updatedAt: 499,
+            ),
+            messages: messages,
+            blobHadTitle: true,
+            blobTitleValue: 'Windowed',
+            blobHadHistory: true,
+            historyHadMessages: true,
+            historyHadCurrentId: true,
+          ),
+        );
+
+        final loaded = await repository.loadConversationWindow(
+          chatId,
+          preferred: ChatStorageKind.directLocal,
+        );
+
+        check(loaded).isNotNull();
+        check(loaded!.rowWindow.primaryRows.length).equals(50);
+        check(loaded.rowWindow.hasOlder).isTrue();
+        check(loaded.conversation.messages.length).equals(50);
+        check(loaded.conversation.messages.first.id).equals('message-450');
+        check(loaded.conversation.messages.last.id).equals('message-499');
+      },
+    );
+
     test('merges full-text hits from both stores', () async {
       // Open WebUI normally builds FTS after its first sync. The local store is
       // intentionally left unbuilt; the repository owns that lazy gate.

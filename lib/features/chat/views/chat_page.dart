@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -11,8 +10,9 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:super_sliver_list/super_sliver_list.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'dart:io' show Platform;
+import 'dart:collection';
 import 'dart:math' as math;
 
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -26,6 +26,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/database/chat_database_repository.dart';
+import '../../../core/database/models/chat_transcript_window.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
@@ -88,65 +89,6 @@ Widget debugBuildAssistantTimelineSlotForTesting({
     mainAxisSize: MainAxisSize.min,
     children: [assistantRow, ?runningFooter],
   );
-}
-
-enum _PendingChatScrollActionKind { none, restore, initialBottom }
-
-@visibleForTesting
-void reconcileManagedTimelineExtentsForTesting({
-  required ListController controller,
-  required List<String> previousKeys,
-  required List<String> nextKeys,
-}) {
-  assert(controller.isAttached);
-  assert(!controller.isLocked);
-
-  // SuperSliverList resizes its extent cache from the trailing edge when the
-  // delegate count changes. Restore the pre-resize shape first when the list
-  // grew, then describe the actual keyed insertion/removal so a trailing
-  // composer spacer keeps its cached extent instead of donating it to a new
-  // message inserted immediately before it.
-  while (controller.numberOfItems > previousKeys.length) {
-    controller.removeItem(controller.numberOfItems - 1);
-  }
-
-  final currentKeys = previousKeys
-      .take(controller.numberOfItems)
-      .toList(growable: true);
-  var prefixLength = 0;
-  final shortestLength = math.min(currentKeys.length, nextKeys.length);
-  while (prefixLength < shortestLength &&
-      currentKeys[prefixLength] == nextKeys[prefixLength]) {
-    prefixLength += 1;
-  }
-
-  // Recreate the changed tail, including matching suffix keys. The render pass
-  // preceding this callback may already have laid out a displaced cached item
-  // under its new index, so preserving that suffix could preserve the wrong
-  // measured extent even though the keys happen to match.
-  final removedCount = currentKeys.length - prefixLength;
-  for (var i = 0; i < removedCount; i += 1) {
-    controller.removeItem(prefixLength);
-  }
-
-  final insertedCount = nextKeys.length - prefixLength;
-  for (var i = 0; i < insertedCount; i += 1) {
-    controller.addItem(prefixLength + i);
-  }
-
-  assert(controller.numberOfItems == nextKeys.length);
-}
-
-@visibleForTesting
-void refreshManagedTimelineExtentForTesting({
-  required ListController controller,
-  required int index,
-}) {
-  assert(controller.isAttached);
-  assert(!controller.isLocked);
-  assert(index >= 0 && index < controller.numberOfItems);
-  controller.removeItem(index);
-  controller.addItem(index);
 }
 
 @visibleForTesting
@@ -225,27 +167,6 @@ Future<void> refreshActiveOpenWebUiConversation(dynamic ref) async {
       .set(withChatStorageProvenance(full, ChatStorageKind.openWebUi));
 }
 
-class _PendingChatScrollAction {
-  const _PendingChatScrollAction._(this.kind, {this.restoreOffset = 0});
-
-  const _PendingChatScrollAction.none()
-    : this._(_PendingChatScrollActionKind.none);
-
-  const _PendingChatScrollAction.restore(double restoreOffset)
-    : this._(
-        _PendingChatScrollActionKind.restore,
-        restoreOffset: restoreOffset,
-      );
-
-  const _PendingChatScrollAction.initialBottom()
-    : this._(_PendingChatScrollActionKind.initialBottom);
-
-  final _PendingChatScrollActionKind kind;
-  final double restoreOffset;
-
-  bool get isNone => kind == _PendingChatScrollActionKind.none;
-}
-
 class _PinToTopState {
   const _PinToTopState._({
     required this.isActive,
@@ -283,119 +204,6 @@ class _PinToTopState {
   }
 }
 
-class _AnchoredComposerSpacer extends StatefulWidget {
-  const _AnchoredComposerSpacer({
-    super.key,
-    required this.listController,
-    required this.anchorIndex,
-    required this.messageItemCount,
-    required this.composerExtent,
-    required this.availableExtent,
-    required this.fallbackContentExtentFromAnchor,
-    required this.onEndSpaceExtentChanged,
-  });
-
-  final ListController listController;
-  final int anchorIndex;
-  final int messageItemCount;
-  final double composerExtent;
-  final double availableExtent;
-  final double fallbackContentExtentFromAnchor;
-  final ValueChanged<double> onEndSpaceExtentChanged;
-
-  @override
-  State<_AnchoredComposerSpacer> createState() =>
-      _AnchoredComposerSpacerState();
-}
-
-class _AnchoredComposerSpacerState extends State<_AnchoredComposerSpacer> {
-  double? _lastReportedEndSpaceExtent;
-  bool _extentRefreshScheduled = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.listController.extentsChangedListenable.addListener(
-      _scheduleExtentRefresh,
-    );
-  }
-
-  @override
-  void didUpdateWidget(_AnchoredComposerSpacer oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.listController != widget.listController) {
-      oldWidget.listController.extentsChangedListenable.removeListener(
-        _scheduleExtentRefresh,
-      );
-      widget.listController.extentsChangedListenable.addListener(
-        _scheduleExtentRefresh,
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.listController.extentsChangedListenable.removeListener(
-      _scheduleExtentRefresh,
-    );
-    super.dispose();
-  }
-
-  void _scheduleExtentRefresh() {
-    if (_extentRefreshScheduled) return;
-    _extentRefreshScheduled = true;
-    // SuperSliverList reports extent changes during performLayout. Rebuilding
-    // directly from that notification triggers "Build scheduled during frame"
-    // in debug and can wedge this element dirty. Coalesce into the next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _extentRefreshScheduled = false;
-      if (mounted) setState(() {});
-    });
-  }
-
-  double _contentExtentFromAnchor() {
-    final controller = widget.listController;
-    if (!controller.isAttached ||
-        widget.anchorIndex < 0 ||
-        controller.numberOfItems <= widget.messageItemCount) {
-      return widget.fallbackContentExtentFromAnchor;
-    }
-
-    var extent = widget.composerExtent;
-    for (
-      var index = widget.anchorIndex;
-      index < widget.messageItemCount;
-      index += 1
-    ) {
-      extent += controller.extentForIndex(index).$1;
-    }
-    return extent;
-  }
-
-  void _reportEndSpaceExtent(double extent) {
-    if (_lastReportedEndSpaceExtent == extent) return;
-    _lastReportedEndSpaceExtent = extent;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _lastReportedEndSpaceExtent == extent) {
-        widget.onEndSpaceExtentChanged(extent);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final endSpaceExtent = resolveChatAnchoredEndSpaceExtent(
-      availableExtent: widget.availableExtent,
-      contentExtentFromAnchor: _contentExtentFromAnchor(),
-    );
-    _reportEndSpaceExtent(endSpaceExtent);
-    // Keep the reserved end space inside SuperSliverList. Its item-target
-    // reachability math is sliver-local, so a separate trailing sliver is
-    // invisible and makes the package fall back to bottom-stick corrections.
-    return SizedBox(height: widget.composerExtent + endSpaceExtent);
-  }
-}
-
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
 
@@ -412,52 +220,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _streamingFollowDistanceThreshold = 48.0;
   static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
 
-  final ScrollController _scrollController = ScrollController();
-  final ListController _messageListController = ListController();
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
   late final ChatBottomAnchorController _bottomAnchorController =
       ChatBottomAnchorController(
         showThreshold: _scrollButtonShowThreshold,
         hideThreshold: _scrollButtonHideThreshold,
       );
-  final ChatBottomScrollSettler _bottomScrollSettler =
-      ChatBottomScrollSettler();
   bool _showScrollToBottom = false;
-  Timer? _scrollDebounceTimer;
+  bool _hasUserScrolled = false;
   bool _isDeactivated = false;
   double _inputHeight = 0;
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
-  final Map<String, double> _savedScrollOffsets = {};
+  final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
+      LinkedHashMap<String, ChatScrollAnchor>();
   Timer? _markdownPrewarmTimer;
   int _markdownPrewarmGeneration = 0;
   String? _lastMarkdownPrewarmSignature;
-  _PendingChatScrollAction _pendingScrollAction =
-      const _PendingChatScrollAction.none();
   double? _lastBottomInset;
   String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
   _PinToTopState _pinToTopState = const _PinToTopState.inactive();
   GlobalKey _pinnedUserMessageKey = GlobalKey();
   double _pinToTopEndSpaceExtent = 0;
-  int? _pinnedUserMessageListIndex;
-  double _pinnedUserMessageViewportAlignment = 0;
+  double _pinnedUserMeasuredExtent = 0;
+  double _pinnedTailMeasuredExtent = 0;
   bool _pinToTopPositionSettled = false;
   int _pinPositionGeneration = 0;
   final _stableLayoutCache = _ChatListStableLayoutCache();
-  _ChatListStableLayoutMetadata? _lastExtentCacheInvalidationMetadata;
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
   int _initialBottomSettleGeneration = 0;
-  int _extentCacheInvalidationGeneration = 0;
-  double? _lastManagedComposerSpacerExtent;
-  bool _managedComposerSpacerExtentDirty = false;
-  bool _composerSpacerExtentInvalidationScheduled = false;
-  List<String>? _managedTimelineExtentKeys;
-  List<String>? _pendingManagedTimelineExtentKeys;
-  bool _timelineExtentReconciliationScheduled = false;
   bool? _lastProfiledMessageCacheStreamingState;
   bool _streamingFollowScheduled = false;
   bool _streamingFollowPending = false;
@@ -494,7 +292,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _invalidateChatListStableLayoutMetadata() {
     _stableLayoutCache.invalidate();
-    _lastExtentCacheInvalidationMetadata = null;
   }
 
   _ChatListStableLayoutMetadata _resolveChatListStableLayoutMetadata({
@@ -511,44 +308,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  int? _findMessageIndexForKey(Key key, ChatTimelineRenderModel timeline) {
-    if (key is! ValueKey<String>) {
-      return null;
-    }
-    if (key.value == _composerSpacerListKey) {
-      return timeline.listItemCount;
-    }
-    return timeline.listIndexByMessageKey[key.value];
-  }
-
-  /// Keeps streaming growth anchored in the render layout pass.
-  ///
-  /// Unlike a post-frame jump or animation, this target adjusts the scroll
-  /// offset as the managed sliver learns its new extent. User interaction and
-  /// pin-to-top temporarily disable it so automatic layout never fights an
-  /// intentional gesture or prompt positioning.
   void _syncLayoutBottomAnchor() {
-    if (_wantsPinToTop) {
-      final target = resolveChatPinStickTargetForTesting(
-        anchorIndex: _pinnedUserMessageListIndex,
-        anchorAlignment: _pinnedUserMessageViewportAlignment,
-        isAutoFollowing: _shouldAutoFollowPinnedTurn,
-        isUserInteracting: _isUserInteractingWithScroll,
-        isPositionSettled: _pinToTopPositionSettled,
-        anchoredEndSpaceExtent: _pinToTopEndSpaceExtent,
-      );
-      _messageListController.stickTarget =
-          target?.isBottom == true && _shouldSmoothFollowStreamingGrowth
-          ? null
-          : target;
-      return;
+    if (_shouldSmoothFollowStreamingGrowth) {
+      _streamingFollowPending = true;
+      _scheduleSmoothStreamingFollow();
     }
-    final shouldAnchor = _bottomAnchorController
-        .shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: _wantsPinToTop);
-    _messageListController.stickTarget =
-        shouldAnchor && !_shouldSmoothFollowStreamingGrowth
-        ? const StickTarget.bottom()
-        : null;
   }
 
   bool get _shouldSmoothFollowStreamingGrowth =>
@@ -564,10 +328,39 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         pinEndSpaceExtent: _pinToTopEndSpaceExtent,
       );
 
-  void _handleManagedMessageExtentsChanged() {
+  void _handlePositionedItemsChanged() {
+    _updateScrollToBottomVisibility();
+    _maybeLoadOlderMessages();
     if (!_shouldSmoothFollowStreamingGrowth) return;
     _streamingFollowPending = true;
     _scheduleSmoothStreamingFollow();
+  }
+
+  bool _isAtLatestPosition() {
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return true;
+    final tolerance = 1 / math.max(1.0, MediaQuery.sizeOf(context).height);
+    return positions.any(
+      (position) =>
+          position.index == 0 && position.itemTrailingEdge >= 1 - tolerance,
+    );
+  }
+
+  void _maybeLoadOlderMessages() {
+    if (!_hasUserScrolled) return;
+    final paging = ref.read(chatTranscriptPagingProvider);
+    if (!paging.hasOlder || paging.isLoadingOlder) return;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return;
+    final oldestVisible = positions
+        .map((position) => position.index)
+        .reduce((left, right) => left > right ? left : right);
+    if (oldestVisible < paging.loadedCount - 3) return;
+    unawaited(
+      ref
+          .read(chatTranscriptPagingProvider.notifier)
+          .fetchOlder(totalMessages: ref.read(chatMessagesProvider).length),
+    );
   }
 
   void _scheduleSmoothStreamingFollow() {
@@ -579,7 +372,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _isDeactivated ||
           !_streamingFollowPending ||
           !_shouldSmoothFollowStreamingGrowth ||
-          !_scrollController.hasClients) {
+          !_itemScrollController.isAttached) {
         return;
       }
       _runSmoothStreamingFollow();
@@ -588,23 +381,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _runSmoothStreamingFollow() {
     _streamingFollowPending = false;
-    final target = _bottomScrollOffset();
-    final distance = _distanceFromBottom();
-    if (!target.isFinite ||
-        target <= 0 ||
-        !distance.isFinite ||
-        distance < _scrollCorrectionEpsilon) {
+    if (!_itemScrollController.isAttached || _isAtLatestPosition()) {
       return;
     }
 
     _bottomAnchorController.requestBottomAnchor();
-    _syncLayoutBottomAnchor();
-    if (!debugShouldAnimateStreamingFollowForTesting(
-      distanceFromBottom: distance,
-      reduceMotion: context.reduceMotion,
-    )) {
-      _bottomScrollSettler.cancel();
-      _scrollController.jumpTo(target);
+    if (context.reduceMotion) {
+      _itemScrollController.jumpTo(index: 0);
       _updateScrollToBottomVisibility();
       if (_streamingFollowPending) _scheduleSmoothStreamingFollow();
       return;
@@ -615,40 +398,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     PerformanceProfiler.instance.instant(
       'chat_streaming_follow',
       scope: 'chat',
-      data: {
-        'distance': distance.toStringAsFixed(1),
-        'targetOffset': target.toStringAsFixed(1),
-      },
+      data: const {'targetIndex': 0},
     );
     unawaited(
-      _bottomScrollSettler
-          .animateToLatestBottom(
-            initialBottom: target,
-            animateTo: (nextTarget) => _scrollController.animateTo(
-              nextTarget,
-              duration: _streamingFollowDuration,
-              curve: Curves.easeOutCubic,
-            ),
-            canSettle: () =>
-                mounted &&
-                !_isDeactivated &&
-                _scrollController.hasClients &&
-                !_isUserInteractingWithScroll &&
-                _shouldSmoothFollowStreamingGrowth,
-            rearmBottomAnchor: () {
-              _bottomAnchorController.requestBottomAnchor();
-              _syncLayoutBottomAnchor();
-            },
-            latestBottom: _bottomScrollOffset,
-            currentOffset: () => _scrollController.offset,
-            jumpTo: _scrollController.jumpTo,
-            onSettled: _updateScrollToBottomVisibility,
-            correctionEpsilon: _scrollCorrectionEpsilon,
+      _itemScrollController
+          .scrollTo(
+            index: 0,
+            duration: _streamingFollowDuration,
+            curve: Curves.easeOutCubic,
           )
           .whenComplete(() {
             if (generation != _streamingFollowGeneration) return;
             _streamingFollowInFlight = false;
-            _syncLayoutBottomAnchor();
+            _updateScrollToBottomVisibility();
             if (_streamingFollowPending) {
               _scheduleSmoothStreamingFollow();
             }
@@ -657,7 +419,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _cancelSmoothStreamingFollow() {
-    _bottomScrollSettler.cancel();
     _streamingFollowGeneration += 1;
     _streamingFollowScheduled = false;
     _streamingFollowPending = false;
@@ -685,18 +446,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
 
-    // Save outgoing conversation's scroll position before resetting
-    if (_lastConversationId != null && _scrollController.hasClients) {
-      _savedScrollOffsets[_lastConversationId!] =
-          _scrollController.position.pixels;
+    _saveCurrentScrollAnchor();
+    if (_itemScrollController.isAttached) {
+      _itemScrollController.jumpTo(index: 0);
     }
-
-    // Scroll to top
-    if (_scrollController.hasClients) {
-      _scrollController.jumpTo(0);
-    }
-
-    _pendingScrollAction = const _PendingChatScrollAction.none();
+    ref.read(chatTranscriptPagingProvider.notifier).reset(totalMessages: 0);
     _cancelPendingInitialBottomSettle();
     _clearPinToTopAnchor();
     _invalidateChatListStableLayoutMetadata();
@@ -718,7 +472,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (ref.read(isChatStreamingProvider)) return;
     _isSavingTemporary = true;
     try {
-      final messages = ref.read(chatMessagesProvider);
+      final messages = (await readCompleteActiveChatHistory(ref)).messages;
       if (messages.isEmpty) return;
 
       final api = ref.read(apiServiceProvider);
@@ -857,10 +611,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void initState() {
     super.initState();
 
-    // Listen to scroll events to show/hide scroll to bottom button
-    _scrollController.addListener(_onScroll);
-    _messageListController.extentsChangedListenable.addListener(
-      _handleManagedMessageExtentsChanged,
+    _itemPositionsListener.itemPositions.addListener(
+      _handlePositionedItemsChanged,
     );
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) return;
@@ -918,24 +670,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
-    _bottomScrollSettler.cancel();
     _cancelSmoothStreamingFollow();
     _endScrollProfile(reason: 'disposed');
-    _messageListController.extentsChangedListenable.removeListener(
-      _handleManagedMessageExtentsChanged,
+    _itemPositionsListener.itemPositions.removeListener(
+      _handlePositionedItemsChanged,
     );
-    _messageListController.dispose();
-    _scrollController.dispose();
-    _scrollDebounceTimer?.cancel();
     super.dispose();
   }
 
   @override
   void deactivate() {
     _isDeactivated = true;
-    _bottomScrollSettler.cancel();
     _cancelSmoothStreamingFollow();
-    _scrollDebounceTimer?.cancel();
     super.deactivate();
   }
 
@@ -943,12 +689,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void activate() {
     super.activate();
     _isDeactivated = false;
-    if (_managedComposerSpacerExtentDirty) {
-      _scheduleComposerSpacerExtentInvalidation();
-    }
-    if (_pendingManagedTimelineExtentKeys != null) {
-      _scheduleManagedTimelineExtentReconciliation();
-    }
+    _handlePositionedItemsChanged();
   }
 
   Future<void> _handleMessageSend(String text) =>
@@ -961,7 +702,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final userMessageId = handle.userMessageId;
     if (!mounted || userMessageId == null) return;
 
-    _bottomScrollSettler.cancel();
     _cancelSmoothStreamingFollow();
     _cancelPendingInitialBottomSettle();
     final generation = ++_pinPositionGeneration;
@@ -973,8 +713,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       0,
       MediaQuery.sizeOf(context).height - topInset,
     );
-    _pinnedUserMessageListIndex = null;
-    _pinnedUserMessageViewportAlignment = 0;
+    _pinnedUserMeasuredExtent = 0;
+    _pinnedTailMeasuredExtent = 0;
     _pinToTopPositionSettled = false;
     setState(() {
       _pinToTopState = _PinToTopState.active(
@@ -1572,132 +1312,44 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if ((nextInputHeight - _inputHeight).abs() < _scrollCorrectionEpsilon) {
       return;
     }
-    setState(() => _inputHeight = nextInputHeight);
-  }
-
-  void _trackManagedComposerSpacerExtent(double extent) {
-    final previousExtent = _lastManagedComposerSpacerExtent;
-    _lastManagedComposerSpacerExtent = extent;
-    if (previousExtent != null &&
-        (extent - previousExtent).abs() >= _scrollCorrectionEpsilon) {
-      _managedComposerSpacerExtentDirty = true;
-    }
-    if (!_managedComposerSpacerExtentDirty) {
-      return;
-    }
-    // This also catches voice-overlay padding changes, which do not affect the
-    // measured composer height itself.
-    _scheduleComposerSpacerExtentInvalidation();
-  }
-
-  void _scheduleComposerSpacerExtentInvalidation({int attempt = 0}) {
-    if (_composerSpacerExtentInvalidationScheduled) {
-      return;
-    }
-    _composerSpacerExtentInvalidationScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _composerSpacerExtentInvalidationScheduled = false;
-      if (!mounted || _isDeactivated) {
-        return;
-      }
-      if (!_messageListController.isAttached ||
-          _messageListController.isLocked) {
-        if (attempt < 2) {
-          _scheduleComposerSpacerExtentInvalidation(attempt: attempt + 1);
-        }
-        return;
-      }
-
-      final timeline = ChatTimelineRenderModel.fromMessages(
-        ref.read(chatMessagesProvider),
-      );
-      final spacerIndex = timeline.listItemCount;
-      if (spacerIndex >= _messageListController.numberOfItems) {
-        return;
-      }
-      // Recreate the slot so its numeric estimate changes immediately. Merely
-      // marking it dirty retains the old value until an off-screen spacer is
-      // laid out, leaving detached max-scroll metrics stale.
-      refreshManagedTimelineExtentForTesting(
-        controller: _messageListController,
-        index: spacerIndex,
-      );
-      _managedComposerSpacerExtentDirty = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_isDeactivated) {
-          _updateScrollToBottomVisibility();
-        }
-      });
+    setState(() {
+      _inputHeight = nextInputHeight;
+      _recalculatePinnedEndSpace();
     });
   }
 
-  List<String> _managedTimelineKeys(ChatTimelineRenderModel timeline) => [
-    for (final message in timeline.historyMessages) 'message-${message.id}',
-    if (timeline.tailAssistant case final tail?) 'message-${tail.id}',
-    _composerSpacerListKey,
-  ];
-
-  void _trackManagedTimelineExtentKeys(ChatTimelineRenderModel timeline) {
-    final nextKeys = _managedTimelineKeys(timeline);
-    if (!_messageListController.isAttached) {
-      // A newly attached sliver starts with a fresh extent manager.
-      _managedTimelineExtentKeys = null;
-    }
-    final alreadyManaged = _managedTimelineExtentKeys;
-    if (_pendingManagedTimelineExtentKeys == null &&
-        alreadyManaged != null &&
-        listEquals(alreadyManaged, nextKeys)) {
-      return;
-    }
-    _pendingManagedTimelineExtentKeys = List.unmodifiable(nextKeys);
-    _scheduleManagedTimelineExtentReconciliation();
+  void _recordPinnedRowExtent({double? userExtent, double? tailExtent}) {
+    if (!_wantsPinToTop) return;
+    if (userExtent != null) _pinnedUserMeasuredExtent = userExtent;
+    if (tailExtent != null) _pinnedTailMeasuredExtent = tailExtent;
+    final previous = _pinToTopEndSpaceExtent;
+    _recalculatePinnedEndSpace();
+    if ((previous - _pinToTopEndSpaceExtent).abs() < 0.5) return;
+    setState(() {});
+    _syncLayoutBottomAnchor();
   }
 
-  void _scheduleManagedTimelineExtentReconciliation({int attempt = 0}) {
-    if (_timelineExtentReconciliationScheduled) {
-      return;
-    }
-    _timelineExtentReconciliationScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _timelineExtentReconciliationScheduled = false;
-      if (!mounted || _isDeactivated) {
-        return;
-      }
-      final nextKeys = _pendingManagedTimelineExtentKeys;
-      if (nextKeys == null) {
-        return;
-      }
-      if (!_messageListController.isAttached ||
-          _messageListController.isLocked ||
-          _messageListController.numberOfItems != nextKeys.length) {
-        if (attempt < 2) {
-          _scheduleManagedTimelineExtentReconciliation(attempt: attempt + 1);
-        }
-        return;
-      }
-
-      final previousKeys = _managedTimelineExtentKeys;
-      if (previousKeys != null) {
-        reconcileManagedTimelineExtentsForTesting(
-          controller: _messageListController,
-          previousKeys: previousKeys,
-          nextKeys: nextKeys,
-        );
-      }
-      _managedTimelineExtentKeys = nextKeys;
-      _pendingManagedTimelineExtentKeys = null;
-    });
+  void _recalculatePinnedEndSpace() {
+    if (!_wantsPinToTop) return;
+    final topInset =
+        MediaQuery.paddingOf(context).top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
+    _pinToTopEndSpaceExtent = resolveChatAnchoredEndSpaceExtent(
+      availableExtent: math.max(
+        0,
+        MediaQuery.sizeOf(context).height - topInset,
+      ),
+      contentExtentFromAnchor:
+          _pinnedUserMeasuredExtent +
+          _pinnedTailMeasuredExtent +
+          _messageListBottomPadding(),
+    );
   }
 
   void _updateBottomAnchorTracking() {
-    if (!_scrollController.hasClients) {
-      _bottomAnchorController.resetForDetachedScroll();
-      _syncLayoutBottomAnchor();
-      return;
-    }
-
     final hasScrollableContent = _hasScrollableContentForBottomButton();
-    final distanceFromBottom = _distanceFromBottom();
+    final distanceFromBottom = _isAtLatestPosition() ? 0.0 : 301.0;
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
@@ -1738,24 +1390,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  // Replaced bottom-sheet chat list with left drawer (see ChatsDrawer)
-
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    _updateBottomAnchorTracking();
-
-    // Debounce scroll handling to reduce rebuilds
-    if (_scrollDebounceTimer?.isActive == true) return;
-
-    _scrollDebounceTimer = Timer(const Duration(milliseconds: 80), () {
-      _updateScrollToBottomVisibility();
-    });
-  }
-
   void _updateScrollToBottomVisibility() {
-    if (!mounted || _isDeactivated || !_scrollController.hasClients) return;
+    if (!mounted || _isDeactivated) return;
 
-    final distanceFromBottom = _distanceFromBottom();
+    final distanceFromBottom = _isAtLatestPosition() ? 0.0 : 301.0;
     final bool hasScrollableContent = _hasScrollableContentForBottomButton();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
@@ -1789,26 +1427,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   bool _hasScrollableContentForBottomButton() {
-    if (!_scrollController.hasClients) {
-      return false;
-    }
-    final position = _scrollController.position;
-    if (!position.hasContentDimensions) {
-      return false;
-    }
-    final maxScroll = position.maxScrollExtent;
-    if (!maxScroll.isFinite) {
-      return false;
-    }
-
-    // The managed message list ends with padding equal to the overlaid
-    // composer height so the final message is not hidden behind it. Do not
-    // show a scroll button when the only scrollable extent is that footer or
-    // the temporary pin-to-top phantom sliver.
-    final bottomSpacer =
-        _messageListBottomPadding() + _pinToTopEndSpaceScrollExtent();
-    final contentScrollExtent = maxScroll - bottomSpacer;
-    return contentScrollExtent > _scrollButtonShowThreshold;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return false;
+    final messages = ref.read(chatMessagesProvider);
+    return messages.length > 2 &&
+        (positions.length < messages.length || !_isAtLatestPosition());
   }
 
   double _messageListBottomPadding() {
@@ -1817,37 +1440,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? (voice.isCollapsed ? 72.0 : 180.0)
         : 0.0;
     return Spacing.lg + _inputHeight + voiceOverlayHeight;
-  }
-
-  double _pinToTopEndSpaceScrollExtent() {
-    if (!_wantsPinToTop) {
-      return 0.0;
-    }
-    return _pinToTopEndSpaceExtent;
-  }
-
-  double _bottomScrollOffset() {
-    if (!_scrollController.hasClients) {
-      return 0.0;
-    }
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    if (!maxScroll.isFinite || maxScroll <= 0) {
-      return 0.0;
-    }
-    return (maxScroll - _pinToTopEndSpaceScrollExtent()).clamp(0.0, maxScroll);
-  }
-
-  double _distanceFromBottom() {
-    if (!_scrollController.hasClients) {
-      return double.infinity;
-    }
-    final position = _scrollController.position;
-    final bottomOffset = _bottomScrollOffset();
-    if (!bottomOffset.isFinite) {
-      return double.infinity;
-    }
-    final distance = bottomOffset - position.pixels;
-    return distance >= 0 ? distance : 0.0;
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
@@ -1870,62 +1462,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     bool smooth = true,
     Duration duration = const Duration(milliseconds: 200),
   }) {
-    if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
-    final maxScroll = _bottomScrollOffset();
-    if (!maxScroll.isFinite || maxScroll <= 0) return;
+    if (_isUserInteractingWithScroll || !_itemScrollController.isAttached) {
+      return;
+    }
     _bottomAnchorController.requestBottomAnchor();
-    _syncLayoutBottomAnchor();
     final shouldAnimate = smooth && !context.reduceMotion;
 
     PerformanceProfiler.instance.instant(
       'chat_auto_scroll',
       scope: 'chat',
-      data: {
-        'smooth': shouldAnimate,
-        'targetOffset': maxScroll.toStringAsFixed(1),
-      },
+      data: {'smooth': shouldAnimate, 'targetIndex': 0},
     );
 
     if (shouldAnimate) {
-      final position = _scrollController.position;
-      final animationStart = _scrollAnimationStartOffset(
-        currentOffset: _scrollController.offset,
-        targetOffset: maxScroll,
-        viewportDimension: position.viewportDimension,
-        minScrollExtent: position.minScrollExtent,
-        maxScrollExtent: position.maxScrollExtent,
-      );
-      if ((animationStart - _scrollController.offset).abs() >= 1) {
-        _scrollController.jumpTo(animationStart);
-      }
       unawaited(
-        _bottomScrollSettler.animateToLatestBottom(
-          initialBottom: maxScroll,
-          animateTo: (target) => _scrollController.animateTo(
-            target,
-            duration: duration,
-            curve: Curves.easeOutCubic,
-          ),
-          canSettle: () =>
-              mounted &&
-              !_isDeactivated &&
-              _scrollController.hasClients &&
-              !_isUserInteractingWithScroll &&
-              !_wantsPinToTop,
-          rearmBottomAnchor: () {
-            _bottomAnchorController.requestBottomAnchor();
-            _syncLayoutBottomAnchor();
-          },
-          latestBottom: _bottomScrollOffset,
-          currentOffset: () => _scrollController.offset,
-          jumpTo: _scrollController.jumpTo,
-          onSettled: _updateScrollToBottomVisibility,
-          correctionEpsilon: _scrollCorrectionEpsilon,
-        ),
+        _itemScrollController
+            .scrollTo(index: 0, duration: duration, curve: Curves.easeOutCubic)
+            .whenComplete(_updateScrollToBottomVisibility),
       );
     } else {
-      _bottomScrollSettler.cancel();
-      _scrollController.jumpTo(maxScroll);
+      _itemScrollController.jumpTo(index: 0);
       _updateScrollToBottomVisibility();
     }
   }
@@ -1955,9 +1511,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       taskKey,
       data: {
         'reason': reason,
-        'offset': _scrollController.hasClients
-            ? _scrollController.offset.toStringAsFixed(1)
-            : 'detached',
+        'visibleItems': _itemPositionsListener.itemPositions.value.length
+            .toString(),
       },
     );
   }
@@ -1969,8 +1524,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (isActiveConversationInPlaceRemap(ref, outgoingId, conversationId)) {
       if (outgoingId != null &&
           conversationId != null &&
-          _savedScrollOffsets.containsKey(outgoingId)) {
-        _savedScrollOffsets[conversationId] = _savedScrollOffsets.remove(
+          _savedScrollAnchors.containsKey(outgoingId)) {
+        _savedScrollAnchors[conversationId] = _savedScrollAnchors.remove(
           outgoingId,
         )!;
       }
@@ -1979,13 +1534,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    _bottomScrollSettler.cancel();
     _cancelSmoothStreamingFollow();
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
-    if (outgoingId != null && _scrollController.hasClients) {
-      _savedScrollOffsets[outgoingId] = _scrollController.position.pixels;
-    }
+    _saveCurrentScrollAnchor(conversationId: outgoingId);
 
     final currentStreamingId = _activeStreamingAssistantId(
       ref.read(chatMessagesProvider),
@@ -2003,27 +1555,99 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _clearPinToTopAnchor();
       _invalidateChatListStableLayoutMetadata();
     }
-    if (conversationId == null) {
-      _pendingScrollAction = const _PendingChatScrollAction.none();
-    } else if (_savedScrollOffsets.containsKey(conversationId)) {
-      // Do not let the first layout snap a returning conversation to the end
-      // before its saved position is restored.
+    _hasUserScrolled = false;
+    final totalMessages = ref.read(chatMessagesProvider).length;
+    final anchor = conversationId == null
+        ? null
+        : _savedScrollAnchors[conversationId];
+    if (anchor != null) {
       _bottomAnchorController.detachByUser();
-      _syncLayoutBottomAnchor();
-      _pendingScrollAction = _PendingChatScrollAction.restore(
-        _savedScrollOffsets[conversationId]!,
-      );
+      ref
+          .read(chatTranscriptPagingProvider.notifier)
+          .restoreLoadedCount(
+            totalMessages: totalMessages,
+            loadedCount: anchor.loadedCount,
+          );
+      _scheduleScrollAnchorRestore(anchor);
     } else {
-      _bottomAnchorController.resetForDetachedScroll();
-      _syncLayoutBottomAnchor();
-      _pendingScrollAction = const _PendingChatScrollAction.initialBottom();
+      ref
+          .read(chatTranscriptPagingProvider.notifier)
+          .reset(totalMessages: totalMessages);
+      if (conversationId != null) {
+        _bottomAnchorController.resetForDetachedScroll();
+        _scheduleInitialScrollToBottom();
+      }
     }
+  }
+
+  void _saveCurrentScrollAnchor({String? conversationId}) {
+    final id = conversationId ?? _lastConversationId;
+    if (id == null) return;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return;
+    final messages = ref.read(chatMessagesProvider);
+    final paging = ref.read(chatTranscriptPagingProvider);
+    final visibleCount = math.min(paging.loadedCount, messages.length);
+    if (visibleCount == 0) return;
+    final visible = messages.sublist(messages.length - visibleCount);
+    final candidates = positions.where(
+      (position) => position.index >= 0 && position.index < visible.length,
+    );
+    if (candidates.isEmpty) return;
+    final position = candidates.reduce(
+      (left, right) =>
+          (left.itemLeadingEdge.abs() <= right.itemLeadingEdge.abs())
+          ? left
+          : right,
+    );
+    final chronologicalIndex = visible.length - 1 - position.index;
+    if (chronologicalIndex < 0 || chronologicalIndex >= visible.length) return;
+    _savedScrollAnchors.remove(id);
+    _savedScrollAnchors[id] = ChatScrollAnchor(
+      messageId: visible[chronologicalIndex].id,
+      itemLeadingEdge: position.itemLeadingEdge.clamp(0.0, 1.0),
+      loadedCount: visibleCount,
+    );
+    while (_savedScrollAnchors.length > 20) {
+      _savedScrollAnchors.remove(_savedScrollAnchors.keys.first);
+    }
+  }
+
+  void _scheduleScrollAnchorRestore(
+    ChatScrollAnchor anchor, {
+    int attempt = 0,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_itemScrollController.isAttached) {
+        if (attempt < 4) {
+          _scheduleScrollAnchorRestore(anchor, attempt: attempt + 1);
+        }
+        return;
+      }
+      final messages = ref.read(chatMessagesProvider);
+      final paging = ref.read(chatTranscriptPagingProvider);
+      final visibleCount = math.min(paging.loadedCount, messages.length);
+      final visible = messages.sublist(messages.length - visibleCount);
+      final chronologicalIndex = visible.indexWhere(
+        (message) => message.id == anchor.messageId,
+      );
+      if (chronologicalIndex < 0) {
+        _scrollToBottom(smooth: false);
+        return;
+      }
+      _itemScrollController.jumpTo(
+        index: visible.length - 1 - chronologicalIndex,
+        alignment: 1 - anchor.itemLeadingEdge,
+      );
+      _updateScrollToBottomVisibility();
+    });
   }
 
   void _scheduleAfterScrollAttachment(VoidCallback action, {int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (!_scrollController.hasClients) {
+      if (!_itemScrollController.isAttached) {
         if (attempt < 2) {
           _scheduleAfterScrollAttachment(action, attempt: attempt + 1);
         }
@@ -2064,13 +1688,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted ||
             _initialBottomSettleGeneration != settleGeneration ||
-            !_scrollController.hasClients ||
+            !_itemScrollController.isAttached ||
             _isUserInteractingWithScroll ||
             (!allowDuringStreaming &&
                 _hasActiveStreamingAssistant(ref.read(chatMessagesProvider)))) {
           return;
         }
-        if (_distanceFromBottom() > _scrollCorrectionEpsilon) {
+        if (!_isAtLatestPosition()) {
           _scheduleInitialScrollToBottom(
             attempt: attempt + 1,
             generation: settleGeneration,
@@ -2078,21 +1702,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           );
         }
       });
-    });
-  }
-
-  void _scheduleScrollRestore(double targetOffset) {
-    _cancelPendingInitialBottomSettle();
-    _scheduleAfterScrollAttachment(() {
-      final clampedTargetOffset = targetOffset
-          .clamp(0.0, _scrollController.position.maxScrollExtent)
-          .toDouble();
-      if ((_scrollController.offset - clampedTargetOffset).abs() < 1.0) {
-        return;
-      }
-
-      _scrollController.jumpTo(clampedTargetOffset);
-      _updateScrollToBottomVisibility();
     });
   }
 
@@ -2114,25 +1723,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return _activeStreamingAssistantId(messages) != null;
   }
 
-  /// Scrolls the pending user message near the top of the viewport.
-  ///
-  /// Uses an estimated offset first so built-in slivers can build the target
-  /// item, then snaps to the exact row once its context exists.
-  void _scrollToUserMessage({required int generation, int attempt = 0}) {
+  void _scrollToUserMessage({required int generation}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           generation != _pinPositionGeneration ||
           !_shouldAutoFollowPinnedTurn ||
-          !_scrollController.hasClients) {
+          !_itemScrollController.isAttached) {
         return;
       }
 
       final messages = ref.read(chatMessagesProvider);
+      final paging = ref.read(chatTranscriptPagingProvider);
+      final visibleCount = math.min(paging.loadedCount, messages.length);
+      final visible = messages.sublist(messages.length - visibleCount);
       final targetId = _pinnedUserMessageId;
       final targetIndex = targetId == null
           ? -1
-          : messages.indexWhere((message) => message.id == targetId);
-      if (targetIndex < 0 || targetIndex >= messages.length) {
+          : visible.indexWhere((message) => message.id == targetId);
+      if (targetIndex < 0 || targetIndex >= visible.length) {
         return;
       }
 
@@ -2140,16 +1748,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           MediaQuery.of(context).padding.top +
           conduitAdaptiveToolbarHeightOf(context) +
           Spacing.md;
-      final ctx = _pinnedUserMessageKey.currentContext;
-      if (ctx == null) {
-        _jumpNearMessageIndex(messages, targetIndex);
-        if (attempt < 12) {
-          _scrollToUserMessage(generation: generation, attempt: attempt + 1);
-        }
+      final alignment = (topPadding / MediaQuery.sizeOf(context).height)
+          .clamp(0.0, 1.0)
+          .toDouble();
+      final reversedAlignment = 1 - alignment;
+      final positionedIndex = visible.length - 1 - targetIndex;
+      if (context.reduceMotion) {
+        _itemScrollController.jumpTo(
+          index: positionedIndex,
+          alignment: reversedAlignment,
+        );
+        _markPinToTopPositionSettled(generation);
         return;
       }
-
-      _animatePinnedMessageToTop(ctx, topPadding, generation: generation);
+      unawaited(
+        _itemScrollController
+            .scrollTo(
+              index: positionedIndex,
+              alignment: reversedAlignment,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+            )
+            .whenComplete(() => _markPinToTopPositionSettled(generation)),
+      );
     });
   }
 
@@ -2163,129 +1784,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _syncLayoutBottomAnchor();
   }
 
-  void _animatePinnedMessageToTop(
-    BuildContext targetContext,
-    double topInset, {
-    required int generation,
-  }) {
-    final renderObject = targetContext.findRenderObject();
-    if (renderObject is! RenderBox || !_scrollController.hasClients) {
-      return;
-    }
-
-    final targetTop = renderObject.localToGlobal(Offset.zero).dy;
-    final currentOffset = _scrollController.offset;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final targetOffset = (currentOffset + targetTop - topInset)
-        .clamp(0.0, maxScroll)
-        .toDouble();
-    if ((targetOffset - currentOffset).abs() < 1.0) {
-      _markPinToTopPositionSettled(generation);
-      return;
-    }
-
-    if (context.reduceMotion) {
-      _scrollController.jumpTo(targetOffset);
-      _markPinToTopPositionSettled(generation);
-      return;
-    }
-
-    final position = _scrollController.position;
-    final animationStart = _scrollAnimationStartOffset(
-      currentOffset: currentOffset,
-      targetOffset: targetOffset,
-      viewportDimension: position.viewportDimension,
-      minScrollExtent: position.minScrollExtent,
-      maxScrollExtent: position.maxScrollExtent,
-    );
-    if ((animationStart - currentOffset).abs() >= 1) {
-      _scrollController.jumpTo(animationStart);
-    }
-    unawaited(
-      _scrollController
-          .animateTo(
-            targetOffset,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-          )
-          .whenComplete(() => _markPinToTopPositionSettled(generation)),
-    );
-  }
-
-  void _jumpNearMessageIndex(List<ChatMessage> messages, int targetIndex) {
-    if (!_scrollController.hasClients || targetIndex <= 0) {
-      return;
-    }
-
-    if (_messageListController.isAttached) {
-      _messageListController.jumpToItem(
-        index: targetIndex,
-        scrollController: _scrollController,
-        alignment: 0,
-      );
-      return;
-    }
-
-    final modelsAsync = ref.read(modelsProvider);
-    final models = modelsAsync.hasValue ? modelsAsync.value : null;
-    final metadata = _resolveChatListStableLayoutMetadata(
-      messages: messages,
-      models: models,
-      apiService: ref.read(apiServiceProvider),
-    );
-
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final targetOffset = metadata
-        .estimatedOffsetBefore(targetIndex)
-        .clamp(0.0, maxScroll);
-    _scrollController.jumpTo(targetOffset);
-  }
-
-  void _scheduleExtentCacheInvalidation({int attempt = 0, int? generation}) {
-    final invalidationGeneration =
-        generation ?? (_extentCacheInvalidationGeneration += 1);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          _extentCacheInvalidationGeneration != invalidationGeneration) {
-        return;
-      }
-      if (!_messageListController.isAttached ||
-          _messageListController.isLocked) {
-        if (attempt < 2) {
-          _scheduleExtentCacheInvalidation(
-            attempt: attempt + 1,
-            generation: invalidationGeneration,
-          );
-        }
-        return;
-      }
-      _messageListController.invalidateAllExtents();
-    });
-  }
-
-  double _estimateMessageListExtent(
-    _ChatListStableLayoutMetadata layoutMetadata,
-    ChatTimelineRenderModel timeline,
-    double composerSpacerExtent,
-    int? index,
-    double crossAxisExtent,
-  ) {
-    if (index == timeline.listItemCount) {
-      return composerSpacerExtent + _pinToTopEndSpaceScrollExtent();
-    }
-    return _estimateMessageListExtentForIndex(
-      layoutMetadata,
-      index,
-      crossAxisExtent,
-    );
-  }
-
   void _clearPinToTopAnchor() {
     _pinPositionGeneration += 1;
     _pinToTopState = const _PinToTopState.inactive();
     _pinToTopEndSpaceExtent = 0;
-    _pinnedUserMessageListIndex = null;
-    _pinnedUserMessageViewportAlignment = 0;
+    _pinnedUserMeasuredExtent = 0;
+    _pinnedTailMeasuredExtent = 0;
     _pinToTopPositionSettled = false;
     _syncLayoutBottomAnchor();
   }
@@ -2324,9 +1828,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Rebuild the list shell only when streaming starts or ends so pin-to-top
     // cleanup runs on completion without rebuilding on every streamed chunk.
     final isStreaming = watchRef.watch(isChatStreamingProvider);
-    final messages = watchRef.read(chatMessagesProvider);
+    final completeMessages = watchRef.read(chatMessagesProvider);
+    final paging = watchRef.watch(chatTranscriptPagingProvider);
+    final requestedCount =
+        paging.loadedCount == 0 && completeMessages.isNotEmpty
+        ? math.min(kChatTranscriptPageSize, completeMessages.length)
+        : math.min(paging.loadedCount, completeMessages.length);
+    final messages = latestTranscriptWindow(completeMessages, requestedCount);
+    if (paging.loadedCount != requestedCount ||
+        paging.hasOlder != (requestedCount < completeMessages.length)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref
+            .read(chatTranscriptPagingProvider.notifier)
+            .ensureTotal(completeMessages.length);
+      });
+    }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
-    final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
+    final showLoadingSkeleton =
+        isLoadingConversation && completeMessages.isEmpty;
     if (showLoadingSkeleton) {
       return _buildLoadingMessagesList();
     }
@@ -2427,30 +1947,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final apiService = watchRef.watch(apiServiceProvider);
+    final paging = watchRef.watch(chatTranscriptPagingProvider);
 
-    final pendingScrollAction = _pendingScrollAction;
-    if (!pendingScrollAction.isNone) {
-      _pendingScrollAction = const _PendingChatScrollAction.none();
-      switch (pendingScrollAction.kind) {
-        case _PendingChatScrollActionKind.restore:
-          _scheduleScrollRestore(pendingScrollAction.restoreOffset);
-          break;
-        case _PendingChatScrollActionKind.initialBottom:
-          _scheduleInitialScrollToBottom();
-          break;
-        case _PendingChatScrollActionKind.none:
-          break;
-      }
-    }
-
-    // Add top padding for the floating app bar. The overlaid composer keeps a
-    // matching synthetic footer inside the managed list below.
+    // The positioned list is reversed: item zero is always the newest
+    // timeline row. Padding for the overlaid composer therefore belongs to
+    // item zero rather than to a separate sliver.
     final topPadding =
         MediaQuery.of(context).padding.top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
     final bottomPadding = _messageListBottomPadding();
-    _trackManagedComposerSpacerExtent(bottomPadding);
 
     // Watch models once here instead of per-message in the item builder.
     final modelsAsync = watchRef.watch(modelsProvider);
@@ -2464,318 +1970,258 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       apiService: apiService,
     );
     final timeline = ChatTimelineRenderModel.fromMessages(messages);
-    _trackManagedTimelineExtentKeys(timeline);
-    if (!identical(_lastExtentCacheInvalidationMetadata, layoutMetadata)) {
-      _lastExtentCacheInvalidationMetadata = layoutMetadata;
-      _scheduleExtentCacheInvalidation();
-    }
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
 
     final pinnedUserMessageIndex =
         _wantsPinToTop && _pinnedUserMessageId != null
         ? layoutMetadata.indexByMessageId[_pinnedUserMessageId!] ?? -1
         : -1;
-    _pinnedUserMessageListIndex = pinnedUserMessageIndex >= 0
-        ? pinnedUserMessageIndex
-        : null;
-    _pinnedUserMessageViewportAlignment =
-        (topPadding / MediaQuery.sizeOf(context).height)
-            .clamp(0.0, 1.0)
-            .toDouble();
-    var fallbackContentExtentFromAnchor = 0.0;
-    if (pinnedUserMessageIndex >= 0) {
-      for (
-        var index = pinnedUserMessageIndex;
-        index < timeline.listItemCount;
-        index += 1
-      ) {
-        fallbackContentExtentFromAnchor += _estimateMessageListExtent(
-          layoutMetadata,
-          timeline,
-          bottomPadding,
-          index,
-          _chatListCrossAxisExtent(),
-        );
-      }
-      fallbackContentExtentFromAnchor += bottomPadding;
-    }
     _syncLayoutBottomAnchor();
-    final messageCachePixels = debugChatMessageScrollCachePixels(
-      streaming: isStreaming,
-    );
+
     if (_lastProfiledMessageCacheStreamingState != isStreaming) {
       _lastProfiledMessageCacheStreamingState = isStreaming;
       PerformanceProfiler.instance.instant(
-        'message_cache_policy',
+        'positioned_message_window',
         scope: 'platform_views',
         data: <String, Object?>{
           'streaming': isStreaming,
-          'cachePixels': messageCachePixels,
+          'loadedCount': messages.length,
         },
       );
     }
 
-    return NotificationListener<ScrollMetricsNotification>(
-      onNotification: (_) {
-        // Content and viewport dimension changes are the single source of
-        // truth for detached distance/button updates. SuperSliverList handles
-        // visible row extents and anchored corrections in its layout pass.
-        _updateScrollToBottomVisibility();
+    Widget appendNewestSpacer(Widget row, int positionedIndex) {
+      if (positionedIndex != 0) return row;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          row,
+          SizedBox(
+            key: const ValueKey<String>(_composerSpacerListKey),
+            height:
+                bottomPadding + (_wantsPinToTop ? _pinToTopEndSpaceExtent : 0),
+          ),
+        ],
+      );
+    }
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        final isTouchDragStart =
+            notification is ScrollStartNotification &&
+            notification.dragDetails != null;
+        final isUserScrollUpdate =
+            notification is ScrollUpdateNotification &&
+            _shouldTreatScrollUpdateAsUserDriven(
+              hasDragDetails: notification.dragDetails != null,
+              isUserInteractingWithScroll: _isUserInteractingWithScroll,
+            );
+        final isUserDirectionalScroll =
+            notification is UserScrollNotification &&
+            notification.direction != ScrollDirection.idle;
+        final isUserScrollIdle =
+            notification is UserScrollNotification &&
+            notification.direction == ScrollDirection.idle;
+
+        if (isTouchDragStart || isUserScrollUpdate || isUserDirectionalScroll) {
+          _hasUserScrolled = true;
+          if (!_isUserInteractingWithScroll) {
+            _cancelPinnedTurnAutomaticFollow();
+            _cancelSmoothStreamingFollow();
+            _cancelPendingInitialBottomSettle();
+            _beginScrollProfile('user_drag');
+          }
+          _isUserInteractingWithScroll = true;
+          if (!_isAtLatestPosition()) {
+            _bottomAnchorController.detachByUser();
+            _syncLayoutBottomAnchor();
+          }
+          try {
+            ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+          } catch (_) {}
+        }
+        if (notification is ScrollEndNotification || isUserScrollIdle) {
+          _endScrollProfile(reason: 'idle');
+          _isUserInteractingWithScroll = false;
+          _updateBottomAnchorTracking();
+          _maybeLoadOlderMessages();
+        }
         return false;
       },
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          final isTouchDragStart =
-              notification is ScrollStartNotification &&
-              notification.dragDetails != null;
-          final isUserScrollUpdate =
-              notification is ScrollUpdateNotification &&
-              _shouldTreatScrollUpdateAsUserDriven(
-                hasDragDetails: notification.dragDetails != null,
-                isUserInteractingWithScroll: _isUserInteractingWithScroll,
-              );
-          final isUserDirectionalScroll =
-              notification is UserScrollNotification &&
-              notification.direction != ScrollDirection.idle;
-          final isUserScrollIdle =
-              notification is UserScrollNotification &&
-              notification.direction == ScrollDirection.idle;
-
-          // Match T3 Code's interaction contract: the first real navigation
-          // gesture cancels automatic positioning, while the measured end
-          // space remains part of the list so the viewport cannot clamp.
-          if (isTouchDragStart ||
-              isUserScrollUpdate ||
-              isUserDirectionalScroll) {
-            if (!_isUserInteractingWithScroll) {
-              _cancelPinnedTurnAutomaticFollow();
-              _bottomScrollSettler.cancel();
-              _cancelSmoothStreamingFollow();
-              _cancelPendingInitialBottomSettle();
-              _beginScrollProfile('user_drag');
-            }
-            _isUserInteractingWithScroll = true;
-            final nearBottom =
-                _scrollController.hasClients &&
-                _distanceFromBottom() <= _scrollButtonHideThreshold;
-            if (isUserScrollUpdate && !nearBottom) {
-              _bottomAnchorController.detachByUser();
-              _syncLayoutBottomAnchor();
-            }
-            // Dismiss native platform keyboard on drag (mirrors
-            // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
-            // which only affects Flutter's text input system).
-            try {
-              ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-            } catch (_) {}
-          }
-          if (notification is ScrollEndNotification || isUserScrollIdle) {
-            _endScrollProfile(reason: 'idle');
-            _isUserInteractingWithScroll = false;
-            _updateBottomAnchorTracking();
-          }
-          return false; // Allow notification to continue bubbling
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) {
+          _cancelPinnedTurnAutomaticFollow();
+          _cancelSmoothStreamingFollow();
         },
-        child: Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => _cancelPinnedTurnAutomaticFollow(),
-          child: CustomScrollView(
-            key: const ValueKey('actual_messages'),
-            controller: _scrollController,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            physics: SuperRangeMaintainingScrollPhysics(
-              parent: platformAlwaysScrollablePhysics(context),
-            ),
-            scrollCacheExtent: ScrollCacheExtent.pixels(messageCachePixels),
-            slivers: [
-              SliverToBoxAdapter(child: SizedBox(height: topPadding)),
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  Spacing.inputPadding,
-                  0,
-                  Spacing.inputPadding,
-                  0,
-                ),
-                sliver: SuperSliverList(
-                  listController: _messageListController,
-                  extentEstimation: (index, crossAxisExtent) =>
-                      _estimateMessageListExtent(
-                        layoutMetadata,
-                        timeline,
-                        bottomPadding,
-                        index,
-                        crossAxisExtent,
-                      ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      if (index == timeline.listItemCount) {
-                        if (_wantsPinToTop && pinnedUserMessageIndex >= 0) {
-                          return _AnchoredComposerSpacer(
-                            key: const ValueKey<String>(_composerSpacerListKey),
-                            listController: _messageListController,
-                            anchorIndex: pinnedUserMessageIndex,
-                            messageItemCount: timeline.listItemCount,
-                            composerExtent: bottomPadding,
-                            availableExtent: math.max(
-                              0,
-                              MediaQuery.sizeOf(context).height - topPadding,
-                            ),
-                            fallbackContentExtentFromAnchor:
-                                fallbackContentExtentFromAnchor,
-                            onEndSpaceExtentChanged: (extent) {
-                              if (!_wantsPinToTop ||
-                                  _pinnedUserMessageId !=
-                                      messages[pinnedUserMessageIndex].id ||
-                                  (_pinToTopEndSpaceExtent - extent).abs() <
-                                      0.5) {
-                                return;
-                              }
-                              _pinToTopEndSpaceExtent = extent;
-                              _syncLayoutBottomAnchor();
-                              _scheduleComposerSpacerExtentInvalidation();
-                            },
-                          );
+        child: ScrollablePositionedList.builder(
+          key: const ValueKey('actual_messages'),
+          itemScrollController: _itemScrollController,
+          itemPositionsListener: _itemPositionsListener,
+          reverse: true,
+          physics: platformAlwaysScrollablePhysics(context),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.inputPadding,
+            topPadding,
+            Spacing.inputPadding,
+            0,
+          ),
+          itemCount: timeline.listItemCount + (paging.isLoadingOlder ? 1 : 0),
+          itemBuilder: (context, positionedIndex) {
+            if (positionedIndex >= timeline.listItemCount) {
+              return Padding(
+                key: const ValueKey<String>('older-messages-loading'),
+                padding: const EdgeInsets.symmetric(vertical: Spacing.lg),
+                child: Center(child: ConduitLoading.inline(context: context)),
+              );
+            }
+
+            final chronologicalIndex =
+                timeline.listItemCount - 1 - positionedIndex;
+            final tailIndex = timeline.tailAssistantListIndex;
+            if (tailIndex != null && chronologicalIndex == tailIndex) {
+              final tailAssistant = timeline.tailAssistant!;
+              final liveSourceIndex = timeline.tailAssistantSourceIndex!;
+              final runningFooter = timeline.runningFooterHost;
+              final row = KeyedSubtree(
+                key: ValueKey<String>('message-${tailAssistant.id}'),
+                child: MeasureSize(
+                  onChange: (size) {
+                    if (_pinnedStreamingId == tailAssistant.id) {
+                      _recordPinnedRowExtent(tailExtent: size.height);
+                    }
+                  },
+                  child: debugBuildAssistantTimelineSlotForTesting(
+                    assistantRow: Consumer(
+                      builder: (context, rowRef, _) {
+                        final latestMessage = rowRef.watch(
+                          chatMessageByIdProvider(tailAssistant.id),
+                        );
+                        if (latestMessage == null) {
+                          return const SizedBox.shrink();
                         }
-                        return SizedBox(
-                          key: const ValueKey<String>(_composerSpacerListKey),
-                          height: bottomPadding,
+                        return _buildAssistantMessageRowContent(
+                          rowRef: rowRef,
+                          messageId: tailAssistant.id,
+                          latestMessage: latestMessage,
+                          rowMetadata: layoutMetadata.rows[liveSourceIndex],
+                          suppressStreamingHaptics:
+                              suppressAssistantStreamingHaptics,
                         );
-                      }
-                      final tailIndex = timeline.tailAssistantListIndex;
-                      if (tailIndex != null && index == tailIndex) {
-                        final tailAssistant = timeline.tailAssistant!;
-                        final liveSourceIndex =
-                            timeline.tailAssistantSourceIndex!;
-                        final runningFooter = timeline.runningFooterHost;
-                        return KeyedSubtree(
-                          key: ValueKey<String>('message-${tailAssistant.id}'),
-                          child: debugBuildAssistantTimelineSlotForTesting(
-                            assistantRow: Consumer(
-                              builder: (context, rowRef, _) {
-                                final latestMessage = rowRef.watch(
-                                  chatMessageByIdProvider(tailAssistant.id),
-                                );
-                                if (latestMessage == null) {
-                                  return const SizedBox.shrink();
-                                }
-                                return _buildAssistantMessageRowContent(
-                                  rowRef: rowRef,
-                                  messageId: tailAssistant.id,
-                                  latestMessage: latestMessage,
-                                  rowMetadata:
-                                      layoutMetadata.rows[liveSourceIndex],
-                                  suppressStreamingHaptics:
-                                      suppressAssistantStreamingHaptics,
-                                );
-                              },
-                            ),
-                            runningFooter: runningFooter == null
-                                ? null
-                                : Consumer(
-                                    builder: (context, rowRef, _) {
-                                      final latestMessage = rowRef.watch(
-                                        chatMessageByIdProvider(
-                                          runningFooter.messageId,
-                                        ),
-                                      );
-                                      if (latestMessage == null) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      return StreamingTurnFooter(
-                                        message: latestMessage,
-                                        suppressStreamingHaptics:
-                                            suppressAssistantStreamingHaptics,
-                                      );
-                                    },
-                                  ),
-                          ),
-                        );
-                      }
-
-                      final message = timeline.historyMessages[index];
-                      final messageId = message.id;
-                      final rowMetadata = layoutMetadata.rows[index];
-                      final isUser = message.role == 'user';
-
-                      if (rowMetadata.isArchivedVariant) {
-                        return const SizedBox.shrink();
-                      }
-
-                      if (isUser) {
-                        final isPinTarget = index == pinnedUserMessageIndex;
-                        return KeyedSubtree(
-                          key: isPinTarget
-                              ? _pinnedUserMessageKey
-                              : ValueKey<String>('message-$messageId'),
-                          child: Consumer(
+                      },
+                    ),
+                    runningFooter: runningFooter == null
+                        ? null
+                        : Consumer(
                             builder: (context, rowRef, _) {
                               final latestMessage = rowRef.watch(
-                                chatMessageByIdProvider(messageId),
+                                chatMessageByIdProvider(
+                                  runningFooter.messageId,
+                                ),
                               );
                               if (latestMessage == null) {
                                 return const SizedBox.shrink();
                               }
-                              return UserMessageBubble(
+                              return StreamingTurnFooter(
                                 message: latestMessage,
-                                isUser: true,
-                                isStreaming: latestMessage.isStreaming,
-                                modelName: rowMetadata.displayModelName,
-                                onCopy: () {
-                                  final currentMessage = rowRef.read(
-                                    chatMessageByIdProvider(messageId),
-                                  );
-                                  if (currentMessage != null) {
-                                    _copyMessage(currentMessage.content);
-                                  }
-                                },
-                                onDelete: () {
-                                  final currentMessage = rowRef.read(
-                                    chatMessageByIdProvider(messageId),
-                                  );
-                                  if (currentMessage != null) {
-                                    _deleteMessage(currentMessage);
-                                  }
-                                },
-                                onRegenerate: () =>
-                                    _regenerateMessage(messageId),
-                              );
-                            },
-                          ),
-                        );
-                      }
-
-                      return KeyedSubtree(
-                        key: ValueKey<String>('message-$messageId'),
-                        child: debugBuildAssistantTimelineSlotForTesting(
-                          assistantRow: Consumer(
-                            builder: (context, rowRef, _) {
-                              final latestMessage = rowRef.watch(
-                                chatMessageByIdProvider(messageId),
-                              );
-                              if (latestMessage == null) {
-                                return const SizedBox.shrink();
-                              }
-                              return _buildAssistantMessageRowContent(
-                                rowRef: rowRef,
-                                messageId: messageId,
-                                latestMessage: latestMessage,
-                                rowMetadata: rowMetadata,
                                 suppressStreamingHaptics:
                                     suppressAssistantStreamingHaptics,
                               );
                             },
                           ),
-                        ),
-                      );
-                    },
-                    childCount: timeline.listItemCount + 1,
-                    findChildIndexCallback: (key) =>
-                        _findMessageIndexForKey(key, timeline),
                   ),
                 ),
+              );
+              return appendNewestSpacer(row, positionedIndex);
+            }
+
+            final message = timeline.historyMessages[chronologicalIndex];
+            final messageId = message.id;
+            final rowMetadata = layoutMetadata.rows[chronologicalIndex];
+            final isUser = message.role == 'user';
+
+            if (rowMetadata.isArchivedVariant) {
+              return appendNewestSpacer(
+                const SizedBox.shrink(),
+                positionedIndex,
+              );
+            }
+
+            if (isUser) {
+              final isPinTarget = chronologicalIndex == pinnedUserMessageIndex;
+              final userBubble = Consumer(
+                builder: (context, rowRef, _) {
+                  final latestMessage = rowRef.watch(
+                    chatMessageByIdProvider(messageId),
+                  );
+                  if (latestMessage == null) {
+                    return const SizedBox.shrink();
+                  }
+                  return UserMessageBubble(
+                    message: latestMessage,
+                    isUser: true,
+                    isStreaming: latestMessage.isStreaming,
+                    modelName: rowMetadata.displayModelName,
+                    onCopy: () {
+                      final currentMessage = rowRef.read(
+                        chatMessageByIdProvider(messageId),
+                      );
+                      if (currentMessage != null) {
+                        _copyMessage(currentMessage.content);
+                      }
+                    },
+                    onDelete: () {
+                      final currentMessage = rowRef.read(
+                        chatMessageByIdProvider(messageId),
+                      );
+                      if (currentMessage != null) {
+                        _deleteMessage(currentMessage);
+                      }
+                    },
+                    onRegenerate: () => _regenerateMessage(messageId),
+                  );
+                },
+              );
+              final row = KeyedSubtree(
+                key: isPinTarget
+                    ? _pinnedUserMessageKey
+                    : ValueKey<String>('message-$messageId'),
+                child: isPinTarget
+                    ? MeasureSize(
+                        onChange: (size) =>
+                            _recordPinnedRowExtent(userExtent: size.height),
+                        child: userBubble,
+                      )
+                    : userBubble,
+              );
+              return appendNewestSpacer(row, positionedIndex);
+            }
+
+            final row = KeyedSubtree(
+              key: ValueKey<String>('message-$messageId'),
+              child: debugBuildAssistantTimelineSlotForTesting(
+                assistantRow: Consumer(
+                  builder: (context, rowRef, _) {
+                    final latestMessage = rowRef.watch(
+                      chatMessageByIdProvider(messageId),
+                    );
+                    if (latestMessage == null) {
+                      return const SizedBox.shrink();
+                    }
+                    return _buildAssistantMessageRowContent(
+                      rowRef: rowRef,
+                      messageId: messageId,
+                      latestMessage: latestMessage,
+                      rowMetadata: rowMetadata,
+                      suppressStreamingHaptics:
+                          suppressAssistantStreamingHaptics,
+                    );
+                  },
+                ),
               ),
-            ],
-          ),
+            );
+            return appendNewestSpacer(row, positionedIndex);
+          },
         ),
       ),
     );
@@ -2833,12 +2279,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final candidateIndices = _selectMarkdownPrewarmCandidateIndices(
       messages: messages,
       layoutMetadata: layoutMetadata,
-      viewportTop: _scrollController.hasClients
-          ? _scrollController.offset
-          : null,
-      viewportHeight: _scrollController.hasClients
-          ? _scrollController.position.viewportDimension
-          : null,
+      viewportTop: null,
+      viewportHeight: null,
       maxCount: 6,
     );
     final filteredCandidateIndices = <int>[];
@@ -4245,34 +3687,6 @@ double resolveChatAnchoredEndSpaceExtent({
   return math.max(0, availableExtent - contentExtentFromAnchor);
 }
 
-@visibleForTesting
-StickTarget? resolveChatPinStickTargetForTesting({
-  required int? anchorIndex,
-  required double anchorAlignment,
-  required bool isAutoFollowing,
-  required bool isUserInteracting,
-  required bool isPositionSettled,
-  required double anchoredEndSpaceExtent,
-}) {
-  if (anchorIndex == null || !isAutoFollowing || isUserInteracting) {
-    return null;
-  }
-
-  // Once the response consumes the reserved viewport remainder, each new
-  // chunk should reveal its own trailing edge. Before that transition, pin
-  // the prompt row itself; a bottom target would incorrectly apply every
-  // extent delta and push the prompt upward while the spacer is shrinking.
-  if (isPositionSettled && anchoredEndSpaceExtent <= 1) {
-    return const StickTarget.bottom();
-  }
-
-  return StickTarget(
-    index: anchorIndex,
-    alignment: anchorAlignment.clamp(0.0, 1.0).toDouble(),
-    rect: const Rect.fromLTWH(0, 0, 0, 1),
-  );
-}
-
 bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -4298,9 +3712,8 @@ double _estimateMessageListExtentForIndex(
     return layoutMetadata.rows[index].estimatedExtent;
   }
 
-  // SuperSliverList treats a null index as a shared fallback estimate for all
-  // unmeasured rows. Our chat rows vary substantially by message type/content,
-  // so return 0 to force per-index estimates instead.
+  // A null index represents an unknown row. There is no safe shared estimate
+  // because chat rows vary substantially by message type and content.
   return 0.0;
 }
 

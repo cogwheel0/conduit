@@ -16,10 +16,8 @@ import 'package:conduit/features/direct_connections/models/direct_remote_model.d
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:super_sliver_list/super_sliver_list.dart';
 
 void main() {
   test('message cache shrinks only while streaming', () {
@@ -56,112 +54,6 @@ void main() {
 
       check(mounts).equals(1);
       check(disposals).equals(0);
-    },
-  );
-
-  testWidgets(
-    'managed timeline keeps its trailing edge pinned during live growth',
-    (tester) async {
-      final scrollController = ScrollController();
-      final listController = ListController()
-        ..stickTarget = const StickTarget.bottom();
-      final liveHeight = ValueNotifier<double>(180);
-      final composerSpacerHeight = ValueNotifier<double>(60);
-      var metricsNotifications = 0;
-      addTearDown(scrollController.dispose);
-      addTearDown(listController.dispose);
-      addTearDown(liveHeight.dispose);
-      addTearDown(composerSpacerHeight.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              height: 320,
-              child: NotificationListener<ScrollMetricsNotification>(
-                onNotification: (_) {
-                  metricsNotifications += 1;
-                  return false;
-                },
-                child: CustomScrollView(
-                  controller: scrollController,
-                  slivers: [
-                    const SliverToBoxAdapter(child: SizedBox(height: 420)),
-                    SuperSliverList(
-                      listController: listController,
-                      delegate: SliverChildListDelegate.fixed([
-                        ValueListenableBuilder<double>(
-                          valueListenable: liveHeight,
-                          builder: (context, height, _) => SizedBox(
-                            key: const ValueKey('live-turn'),
-                            height: height,
-                          ),
-                        ),
-                        ValueListenableBuilder<double>(
-                          valueListenable: composerSpacerHeight,
-                          builder: (context, height, _) => SizedBox(
-                            key: const ValueKey('composer-spacer'),
-                            height: height,
-                          ),
-                        ),
-                      ]),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      scrollController.jumpTo(scrollController.position.maxScrollExtent);
-      await tester.pump();
-      final offsetBeforeGrowth = scrollController.offset;
-      final metricsBeforeGrowth = metricsNotifications;
-
-      liveHeight.value += 72;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(offsetBeforeGrowth + 72, 0.01);
-      check(
-        scrollController.offset,
-      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-      check(scrollController.position.isScrollingNotifier.value).isFalse();
-      check(metricsNotifications).isGreaterThan(metricsBeforeGrowth);
-
-      final offsetBeforeComposerGrowth = scrollController.offset;
-      composerSpacerHeight.value += 36;
-      await tester.pump();
-
-      check(
-        scrollController.offset,
-      ).isCloseTo(offsetBeforeComposerGrowth + 36, 0.01);
-      check(
-        scrollController.offset,
-      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-      check(scrollController.position.isScrollingNotifier.value).isFalse();
-
-      listController.stickTarget = null;
-      scrollController.jumpTo(scrollController.offset - 100);
-      await tester.pump();
-      final detachedOffset = scrollController.offset;
-
-      liveHeight.value += 40;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
-      check(
-        scrollController.position.maxScrollExtent - scrollController.offset,
-      ).isGreaterThan(100);
-
-      final maxExtentBeforeDetachedComposerGrowth =
-          scrollController.position.maxScrollExtent;
-      composerSpacerHeight.value += 24;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
-      check(
-        scrollController.position.maxScrollExtent,
-      ).isCloseTo(maxExtentBeforeDetachedComposerGrowth + 24, 0.01);
     },
   );
 
@@ -301,99 +193,6 @@ void main() {
     check(
       scrollController.offset,
     ).isLessThan(scrollController.position.maxScrollExtent);
-  });
-
-  testWidgets(
-    'managed timeline remaps the trailing spacer extent when a row is appended',
-    (tester) async {
-      final listController = ListController();
-      final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
-      addTearDown(listController.dispose);
-      addTearDown(itemExtents.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SizedBox(
-            height: 120,
-            child: ValueListenableBuilder<List<double>>(
-              valueListenable: itemExtents,
-              builder: (context, extents, _) => CustomScrollView(
-                scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                slivers: [
-                  SuperSliverList(
-                    listController: listController,
-                    extentEstimation: (index, _) => extents[index ?? 0],
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => SizedBox(height: extents[index]),
-                      childCount: extents.length,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      const previousKeys = ['a', 'b', 'c', 'd', 'spacer'];
-      itemExtents.value = [100, 100, 100, 100, 240, 60];
-      await tester.pump();
-
-      // The delegate count grew at the tail, but the keyed row was inserted
-      // before the composer spacer.
-      reconcileManagedTimelineExtentsForTesting(
-        controller: listController,
-        previousKeys: previousKeys,
-        nextKeys: const ['a', 'b', 'c', 'd', 'new-row', 'spacer'],
-      );
-
-      check(listController.extentForIndex(4).$1).equals(240);
-      check(listController.extentForIndex(5).$1).equals(60);
-    },
-  );
-
-  testWidgets('managed timeline refreshes an off-screen spacer estimate', (
-    tester,
-  ) async {
-    final listController = ListController();
-    final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
-    addTearDown(listController.dispose);
-    addTearDown(itemExtents.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 120,
-          child: ValueListenableBuilder<List<double>>(
-            valueListenable: itemExtents,
-            builder: (context, extents, _) => CustomScrollView(
-              scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-              slivers: [
-                SuperSliverList(
-                  listController: listController,
-                  extentEstimation: (index, _) => extents[index ?? 0],
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => SizedBox(height: extents[index]),
-                    childCount: extents.length,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    itemExtents.value = [100, 100, 100, 100, 140];
-    await tester.pump();
-    refreshManagedTimelineExtentForTesting(
-      controller: listController,
-      index: 4,
-    );
-
-    check(listController.extentForIndex(4).$1).equals(140);
   });
 
   test('bottom anchor controller separates anchored and detached states', () {
@@ -1238,55 +1037,6 @@ void main() {
       ),
       0,
     );
-  });
-
-  test(
-    'pin-to-top anchors the prompt until real content fills the viewport',
-    () {
-      final positioning = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: false,
-        anchoredEndSpaceExtent: 0,
-      );
-      final reservedSpace = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: true,
-        anchoredEndSpaceExtent: 220,
-      );
-      final overflowing = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: true,
-        anchoredEndSpaceExtent: 0,
-      );
-
-      expect(positioning?.isBottom, isFalse);
-      expect(positioning?.index, 4);
-      expect(positioning?.alignment, 0.16);
-      expect(reservedSpace?.isBottom, isFalse);
-      expect(overflowing?.isBottom, isTrue);
-    },
-  );
-
-  test('pin-to-top layout corrections stop on the first user gesture', () {
-    final target = resolveChatPinStickTargetForTesting(
-      anchorIndex: 4,
-      anchorAlignment: 0.16,
-      isAutoFollowing: false,
-      isUserInteracting: true,
-      isPositionSettled: true,
-      anchoredEndSpaceExtent: 0,
-    );
-
-    expect(target, isNull);
   });
 
   test('manual navigation cancels follow without discarding the anchor', () {

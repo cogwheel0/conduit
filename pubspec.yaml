@@ -102,12 +102,7 @@ dependencies:
   jovial_svg: ^1.1.29
   highlight: ^0.7.0
   geolocator: ^14.0.2
-  # Fork provides zero-lag StickTarget.bottom anchoring used by chat timelines.
-  # The fork publishes no tags, so pin its latest verified commit exactly.
-  super_sliver_list:
-    git:
-      url: https://github.com/Telosnex/super_sliver_list.git
-      ref: fe038453b41305baf032b29bbdf3aa64f62b2c09
+  scrollable_positioned_list: ^0.3.8
   drift: ^2.34.2
   drift_flutter: ^0.3.1
   fleather: ^1.27.0

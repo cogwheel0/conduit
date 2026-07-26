@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
+import '../models/chat_transcript_window.dart';
 import '../tables/chats.dart';
 import '../tables/messages.dart';
 
@@ -28,6 +29,102 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
 
   Future<MessageRow?> getMessage(String chatId, String messageId) {
     return _messageById(chatId, messageId);
+  }
+
+  /// Loads one page from the active branch, newest-first at the SQL boundary
+  /// and chronological in the returned model. A cursor starts at its parent so
+  /// adjacent pages never overlap.
+  Future<MessageRowWindow> getActiveBranchPage(
+    String chatId, {
+    MessageWindowCursor? before,
+    int limit = kChatTranscriptPageSize,
+  }) async {
+    final safeLimit = limit.clamp(1, 500).toInt();
+    final primaryRows = await _activeBranchRows(
+      chatId,
+      before: before,
+      limit: safeLimit + 1,
+    );
+    final hasOlder = primaryRows.length > safeLimit;
+    final selectedNewestFirst = hasOlder
+        ? primaryRows.sublist(0, safeLimit)
+        : primaryRows;
+    final selected = selectedNewestFirst.reversed.toList(growable: false);
+    final expanded = await _withVersionSiblings(
+      chatId,
+      selected,
+      maxSiblingRows: 200,
+    );
+    return MessageRowWindow(
+      primaryRows: List.unmodifiable(selected),
+      rows: List.unmodifiable(expanded.rows),
+      hasOlder: hasOlder,
+      olderCursor: selected.isEmpty
+          ? null
+          : MessageWindowCursor(selected.first.id),
+      semanticBoundaryTruncated: expanded.truncated,
+    );
+  }
+
+  /// Watches a bounded latest window. Drift invalidates this query for changes
+  /// to either the chat tip or any message row, then the same owner-scoped page
+  /// query reconstructs versions.
+  Stream<MessageRowWindow> watchActiveBranchWindow(
+    String chatId, {
+    int limit = kChatTranscriptPageSize,
+  }) {
+    final safeLimit = limit.clamp(1, 500).toInt();
+    return customSelect(
+      _activeBranchSql,
+      variables: [
+        Variable.withString(chatId),
+        const Variable<String>(null),
+        Variable.withString(chatId),
+        Variable.withString(chatId),
+        Variable.withInt(safeLimit + 1),
+      ],
+      readsFrom: {chats, messages},
+    ).watch().asyncMap((rawRows) async {
+      final primaryRows = rawRows
+          .map((row) => messages.map(row.data))
+          .toList(growable: false);
+      final hasOlder = primaryRows.length > safeLimit;
+      final selectedNewestFirst = hasOlder
+          ? primaryRows.sublist(0, safeLimit)
+          : primaryRows;
+      final selected = selectedNewestFirst.reversed.toList(growable: false);
+      final expanded = await _withVersionSiblings(
+        chatId,
+        selected,
+        maxSiblingRows: 200,
+      );
+      return MessageRowWindow(
+        primaryRows: List.unmodifiable(selected),
+        rows: List.unmodifiable(expanded.rows),
+        hasOlder: hasOlder,
+        olderCursor: selected.isEmpty
+            ? null
+            : MessageWindowCursor(selected.first.id),
+        semanticBoundaryTruncated: expanded.truncated,
+      );
+    });
+  }
+
+  /// Explicit full-history boundary for completion, mutation, and export
+  /// operations. The conversation parser follows the active tip and ignores
+  /// abandoned branches while retaining them for sibling-version discovery.
+  Future<List<MessageRow>> getCompleteActiveBranchRows(String chatId) async {
+    final newestFirst = await _activeBranchRows(
+      chatId,
+      before: null,
+      limit: kChatTranscriptMaxTraversalRows,
+    );
+    final primary = newestFirst.reversed.toList(growable: false);
+    return (await _withVersionSiblings(
+      chatId,
+      primary,
+      maxSiblingRows: null,
+    )).rows;
   }
 
   /// Marks an assistant placeholder as submitted/completed without changing its
@@ -227,6 +324,125 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return (select(messages)
           ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
         .getSingleOrNull();
+  }
+
+  static const String _activeBranchSql = '''
+WITH RECURSIVE branch(id, parent_id, depth, path) AS (
+  SELECT
+    seed.id,
+    seed.parent_id,
+    0,
+    ',' || seed.id || ','
+  FROM messages AS seed
+  JOIN chats AS owner ON owner.id = seed.chat_id
+  WHERE owner.id = ?
+    AND seed.id = COALESCE(
+      (
+        SELECT cursor_row.parent_id
+        FROM messages AS cursor_row
+        WHERE cursor_row.chat_id = owner.id
+          AND cursor_row.id = ?
+      ),
+      owner.current_message_id
+    )
+
+  UNION ALL
+
+  SELECT
+    parent.id,
+    parent.parent_id,
+    branch.depth + 1,
+    branch.path || parent.id || ','
+  FROM branch
+  JOIN messages AS parent
+    ON parent.chat_id = ?
+   AND parent.id = branch.parent_id
+  WHERE branch.depth < 9999
+    AND instr(branch.path, ',' || parent.id || ',') = 0
+)
+SELECT message.*
+FROM branch
+JOIN messages AS message
+  ON message.chat_id = ?
+ AND message.id = branch.id
+ORDER BY branch.depth ASC
+LIMIT ?
+''';
+
+  Future<List<MessageRow>> _activeBranchRows(
+    String chatId, {
+    required MessageWindowCursor? before,
+    required int limit,
+  }) async {
+    if (before != null) {
+      final cursorRow = await _messageById(chatId, before.messageId);
+      if (cursorRow?.parentId == null) return const [];
+    }
+    final rows = await customSelect(
+      _activeBranchSql,
+      variables: [
+        Variable.withString(chatId),
+        before == null
+            ? const Variable<String>(null)
+            : Variable.withString(before.messageId),
+        Variable.withString(chatId),
+        Variable.withString(chatId),
+        Variable.withInt(limit),
+      ],
+      readsFrom: {chats, messages},
+    ).get();
+    return rows.map((row) => messages.map(row.data)).toList(growable: false);
+  }
+
+  Future<({List<MessageRow> rows, bool truncated})> _withVersionSiblings(
+    String chatId,
+    List<MessageRow> primaryRows, {
+    required int? maxSiblingRows,
+  }) async {
+    if (primaryRows.isEmpty) {
+      return (rows: const <MessageRow>[], truncated: false);
+    }
+    final clauses = <String>[];
+    final variables = <Variable>[Variable.withString(chatId)];
+    for (final row in primaryRows) {
+      if (row.parentId == null) {
+        clauses.add('(parent_id IS NULL AND role = ?)');
+      } else {
+        clauses.add('(parent_id = ? AND role = ?)');
+        variables.add(Variable.withString(row.parentId!));
+      }
+      variables.add(Variable.withString(row.role));
+    }
+    final siblingLimitClause = maxSiblingRows == null
+        ? ''
+        : ' LIMIT ${maxSiblingRows + 1}';
+    final siblingRows = await customSelect(
+      'SELECT * FROM messages WHERE chat_id = ? AND (${clauses.join(' OR ')}) '
+      'ORDER BY created_at ASC, order_index ASC, id ASC$siblingLimitClause',
+      variables: variables,
+      readsFrom: {messages},
+    ).get();
+    final truncated =
+        maxSiblingRows != null && siblingRows.length > maxSiblingRows;
+    final retainedSiblingRows = truncated
+        ? siblingRows.take(maxSiblingRows)
+        : siblingRows;
+    final byId = <String, MessageRow>{
+      for (final row in primaryRows) row.id: row,
+      for (final row in retainedSiblingRows.map(
+        (row) => messages.map(row.data),
+      ))
+        row.id: row,
+    };
+    final result = byId.values.toList()
+      ..sort((left, right) {
+        final byCreated = left.createdAt.compareTo(right.createdAt);
+        if (byCreated != 0) return byCreated;
+        final byOrder = left.orderIndex.compareTo(right.orderIndex);
+        if (byOrder != 0) return byOrder;
+        return left.id.compareTo(right.id);
+      });
+    return (rows: result, truncated: truncated);
   }
 
   Map<String, dynamic> _decodePayloadMap(String raw) {
