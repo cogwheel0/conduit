@@ -467,7 +467,7 @@ void main() {
       ).isNull();
     });
 
-    test('preferred Hermes ignores a loading optional OWUI server', () async {
+    test('authenticated Hermes escapes auth while OWUI loads', () async {
       final pendingServer = Completer<ServerConfig?>();
       final container = ProviderContainer(
         overrides: [
@@ -496,10 +496,10 @@ void main() {
       check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
 
       when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-      check(notifier.redirect(_MockBuildContext(), state)).isNull();
+      check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
     });
 
-    test('preferred Hermes ignores a failed optional OWUI server', () async {
+    test('authenticated Hermes escapes auth when OWUI errors', () async {
       final container = ProviderContainer(
         overrides: [
           reviewerModeProvider.overrideWithValue(false),
@@ -530,7 +530,7 @@ void main() {
       check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
 
       when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-      check(notifier.redirect(_MockBuildContext(), state)).isNull();
+      check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
     });
   });
 
@@ -578,7 +578,7 @@ void main() {
       },
     );
 
-    test('usable Direct ignores a loading optional OWUI server', () async {
+    test('authenticated Direct escapes auth while OWUI loads', () async {
       final pendingServer = Completer<ServerConfig?>();
       final container = ProviderContainer(
         overrides: [
@@ -611,10 +611,10 @@ void main() {
       check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
 
       when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-      check(notifier.redirect(_MockBuildContext(), state)).isNull();
+      check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
     });
 
-    test('usable Direct ignores a failed optional OWUI server', () async {
+    test('authenticated Direct escapes auth when OWUI errors', () async {
       final container = ProviderContainer(
         overrides: [
           reviewerModeProvider.overrideWithValue(false),
@@ -649,7 +649,7 @@ void main() {
       check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
 
       when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-      check(notifier.redirect(_MockBuildContext(), state)).isNull();
+      check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
     });
 
     test('recovers setup when no usable Direct profile remains', () async {

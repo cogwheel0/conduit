@@ -74,6 +74,8 @@ typedef _ModelAuthReadiness = ({
 /// sign-out wipe.
 void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.read(activeConversationProvider.notifier).set(null);
+  ref.invalidate(directLocalDatabaseProvider);
+  ref.invalidate(conversationsProvider);
 
   ref.invalidate(appSettingsProvider);
   ref.invalidate(appThemeModeProvider);
@@ -180,10 +182,19 @@ final class SignOutCoordinator {
             beforeClear: prepareForClear,
           );
       switch (outcome) {
-        case FullAppDataClearOutcome.cleared:
-          PreferencesStore.resumeWritesAfterAppDataClear();
-          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
-          _resetProvidersAfterFullAppDataClear(_ref);
+        case FullAppDataClearOutcome.cleared ||
+            FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
+          // The auth transaction has committed and did not yield to a newer
+          // session. Only now is it safe to destructively remove the
+          // app-global direct-local database; beforeClear is a reversible
+          // admission barrier and may still lose auth ownership.
+          try {
+            await _ref.read(directLocalDatabasePurgeProvider)();
+          } finally {
+            PreferencesStore.resumeWritesAfterAppDataClear();
+            SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+            _resetProvidersAfterFullAppDataClear(_ref);
+          }
         case FullAppDataClearOutcome.incomplete:
           await Future.wait<void>([
             directProfiles.blockMutationsForAppDataClear(),

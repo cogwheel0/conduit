@@ -2276,7 +2276,7 @@ void main() {
   );
 
   test(
-    'conditional full wipe preserves only sanitized server details when requested',
+    'conditional full wipe preserves only non-secret server details when requested',
     () async {
       final config = _serverConfig('server-a').copyWith(
         apiKey: 'legacy-session-token',
@@ -2286,7 +2286,9 @@ void main() {
         },
         allowSelfSignedCertificates: true,
         mtlsCertificateChainPem: 'certificate',
+        mtlsCertificateLabel: 'client-certificate.pem',
         mtlsPrivateKeyPem: 'private-key',
+        mtlsPrivateKeyLabel: 'client-key.pem',
         mtlsPrivateKeyPassword: 'passphrase',
         isActive: true,
       );
@@ -2316,11 +2318,13 @@ void main() {
         ),
         isFalse,
       );
-      expect(retained.customHeaders['X-Tenant'], 'keep-me');
+      expect(retained.customHeaders, isEmpty);
       expect(retained.allowSelfSignedCertificates, isTrue);
-      expect(retained.mtlsCertificateChainPem, 'certificate');
-      expect(retained.mtlsPrivateKeyPem, 'private-key');
-      expect(retained.mtlsPrivateKeyPassword, 'passphrase');
+      expect(retained.mtlsCertificateChainPem, isNull);
+      expect(retained.mtlsCertificateLabel, isNull);
+      expect(retained.mtlsPrivateKeyPem, isNull);
+      expect(retained.mtlsPrivateKeyLabel, isNull);
+      expect(retained.mtlsPrivateKeyPassword, isNull);
       expect(await storage.getActiveServerId(), config.id);
 
       expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);
