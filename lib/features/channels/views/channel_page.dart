@@ -502,7 +502,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   Future<void> _toggleReaction(ChannelMessage message, String emoji) async {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
-    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final channelId = widget.channelId;
     final currentUserId = ref.read(currentUserProvider).value?.id;
     if (currentUserId == null) return;
@@ -523,7 +522,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       } else {
         await api.addMessageReaction(channelId, message.id, emoji);
       }
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
     } catch (e, s) {
       developer.log(
         'Failed to toggle reaction',

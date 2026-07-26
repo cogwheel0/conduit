@@ -7,6 +7,7 @@ import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
@@ -207,7 +208,13 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
     }
 
     ref.read(channelsListProvider.notifier).addChannel(Channel.fromJson(json));
-  } catch (_) {
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'create-channel-failed',
+      scope: 'navigation/sidebar-create',
+      error: error,
+      stackTrace: stackTrace,
+    );
     if (!context.mounted ||
         !identical(ref.read(apiServiceProvider), api) ||
         !identical(

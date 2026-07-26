@@ -134,6 +134,32 @@ class _RecoveredHermesApi extends HermesApiService {
   }
 }
 
+class _RejectFirstAttachHermesRunRegistry extends HermesRunRegistry {
+  int attachAttempts = 0;
+
+  @override
+  bool attachRun(
+    HermesRunKey key, {
+    required CancelToken cancelToken,
+    required String runId,
+    required StreamSubscription<void> subscription,
+    required Future<void> Function(String runId) stopRemote,
+  }) {
+    attachAttempts += 1;
+    if (attachAttempts == 1) {
+      unawaited(subscription.cancel());
+      return false;
+    }
+    return super.attachRun(
+      key,
+      cancelToken: cancelToken,
+      runId: runId,
+      subscription: subscription,
+      stopRemote: stopRemote,
+    );
+  }
+}
+
 class _GatedRecoveredHermesApi extends HermesApiService {
   _GatedRecoveredHermesApi(this.response)
     : super(
@@ -5590,17 +5616,82 @@ void main() {
         );
 
         container.read(activeConversationProvider.notifier).set(conversation);
-        for (var attempt = 0; attempt < 50; attempt++) {
-          final message = container.read(chatMessagesProvider).singleOrNull;
-          if (message != null && !message.isStreaming) break;
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
 
         final recovered = container.read(chatMessagesProvider).single;
         check(service.getRunCalls).equals(1);
         check(recovered.content).equals('Authoritative recovered answer');
         check(recovered.isStreaming).isFalse();
         check(recovered.error).isNull();
+      },
+    );
+
+    test(
+      'cold Hermes recovery can retry after its registry attach is rejected',
+      () async {
+        final service = _RecoveredHermesApi();
+        final registry = _RejectFirstAttachHermesRunRegistry();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesRunRegistryProvider.overrideWithValue(registry),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+        final assistant = _assistantMessage(
+          id: 'retry-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-retry',
+            'hermesSessionId': 'session-retry',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-retry', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(() => registry.attachAttempts >= 1);
+        check(service.getRunCalls).equals(0);
+        check(container.read(chatMessagesProvider).single.isStreaming).isTrue();
+
+        await container
+            .read(chatMessagesProvider.notifier)
+            .reconcileBackgroundServiceFailure(const <String>[
+              'chat-stream-retry-hermes-checkpoint',
+            ]);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        check(registry.attachAttempts).equals(2);
+        check(service.getRunCalls).equals(1);
+        check(
+          container.read(chatMessagesProvider).single.content,
+        ).equals('Authoritative recovered answer');
       },
     );
 

@@ -322,6 +322,8 @@ void main() {
         );
         addTearDown(container.dispose);
         final provider = channelMessagesProvider('channel');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
         await container.read(provider.future);
 
         final load = container.read(provider.notifier).loadMore();
@@ -361,6 +363,8 @@ void main() {
       );
       addTearDown(container.dispose);
       final provider = channelMessagesProvider('channel');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
       await container.read(provider.future);
 
       final staleLoad = container.read(provider.notifier).loadMore();

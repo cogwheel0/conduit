@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
@@ -65,7 +66,9 @@ void main() {
         ),
       );
 
-      expect(failedStreamIds, const <String>['chat-stream-assistant-1']);
+      check(
+        failedStreamIds,
+      ).isNotNull().deepEquals(const <String>['chat-stream-assistant-1']);
     },
   );
 }

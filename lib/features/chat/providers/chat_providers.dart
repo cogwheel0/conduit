@@ -2797,6 +2797,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           );
     if (!attached) {
       if (!recoverySettled.isCompleted) recoverySettled.complete();
+      registry.complete(key, cancelToken: cancelToken);
+      if (identical(_coldHermesRecoveryCancelToken, cancelToken)) {
+        _coldHermesRecoveryCancelToken = null;
+        _coldHermesRecoveryKey = null;
+        _coldHermesRecoveryMessageId = null;
+      }
       return;
     }
 

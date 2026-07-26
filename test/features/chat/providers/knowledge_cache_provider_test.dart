@@ -80,8 +80,45 @@ void main() {
           container.read(knowledgeCacheProvider).bases.single.id,
         ).equals('kb-b');
         check(secondApi.basesCallCount).equals(1);
+
+        container.read(_activeKnowledgeApiProvider.notifier).set(firstApi);
+        await container.read(knowledgeCacheProvider.notifier).ensureBases();
+
+        check(
+          container.read(knowledgeCacheProvider).bases.single.id,
+        ).equals('kb-a');
+        check(firstApi.basesCallCount).equals(1);
       },
     );
+
+    test('retains only the eight most recently used API scopes', () async {
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWith(
+            (ref) => ref.watch(_activeKnowledgeApiProvider),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      for (var index = 0; index < 12; index++) {
+        final api = _FakeApiService(
+          serverId: 'server-$index',
+          bases: [
+            KnowledgeBase(
+              id: 'kb-$index',
+              name: 'Account $index',
+              createdAt: DateTime.utc(2026, 1, 1),
+              updatedAt: DateTime.utc(2026, 1, 2),
+            ),
+          ],
+        );
+        container.read(_activeKnowledgeApiProvider.notifier).set(api);
+        await container.read(knowledgeCacheProvider.notifier).ensureBases();
+      }
+
+      check(KnowledgeCacheManager().stats()['scopes']).equals(8);
+    });
 
     test('ensureBases loads knowledge bases from the API', () async {
       final api = _FakeApiService(
@@ -191,6 +228,58 @@ void main() {
 
     for (final clearAll in [false, true]) {
       test('${clearAll ? 'clearAllCaches' : 'clearCache'} fences an older '
+          'same-owner bases request', () async {
+        final staleGate = Completer<void>();
+        final freshGate = Completer<void>();
+        final staleBase = KnowledgeBase(
+          id: 'stale-base',
+          name: 'Stale',
+          createdAt: DateTime.utc(2026, 1, 1),
+          updatedAt: DateTime.utc(2026, 1, 1),
+        );
+        final freshBase = KnowledgeBase(
+          id: 'fresh-base',
+          name: 'Fresh',
+          createdAt: DateTime.utc(2026, 1, 2),
+          updatedAt: DateTime.utc(2026, 1, 2),
+        );
+        final api = _SequencedBasesApi(
+          gates: [staleGate, freshGate],
+          results: [
+            [staleBase],
+            [freshBase],
+          ],
+        );
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final notifier = container.read(knowledgeCacheProvider.notifier);
+
+        final staleRequest = notifier.ensureBases();
+        await Future<void>.delayed(Duration.zero);
+        if (clearAll) {
+          notifier.clearAllCaches();
+        } else {
+          notifier.clearCache();
+        }
+        final freshRequest = notifier.ensureBases();
+        await Future<void>.delayed(Duration.zero);
+
+        freshGate.complete();
+        await freshRequest;
+        check(
+          container.read(knowledgeCacheProvider).bases.single.id,
+        ).equals('fresh-base');
+
+        staleGate.complete();
+        await staleRequest;
+        check(
+          container.read(knowledgeCacheProvider).bases.single.id,
+        ).equals('fresh-base');
+      });
+
+      test('${clearAll ? 'clearAllCaches' : 'clearCache'} fences an older '
           'same-owner file request', () async {
         final staleGate = Completer<void>();
         final freshGate = Completer<void>();
@@ -297,6 +386,22 @@ class _SequencedFilesApi extends _FakeApiService {
   ) async {
     final index = _nextResult++;
     fileCalls.update(knowledgeBaseId, (count) => count + 1, ifAbsent: () => 1);
+    await gates[index].future;
+    return results[index];
+  }
+}
+
+class _SequencedBasesApi extends _FakeApiService {
+  _SequencedBasesApi({required this.gates, required this.results});
+
+  final List<Completer<void>> gates;
+  final List<List<KnowledgeBase>> results;
+  int _nextResult = 0;
+
+  @override
+  Future<List<KnowledgeBase>> getKnowledgeBases() async {
+    final index = _nextResult++;
+    basesCallCount += 1;
     await gates[index].future;
     return results[index];
   }

@@ -295,6 +295,8 @@ void main() {
     final container = makeContainer(socket, api: api);
     container.read(notificationSocketListenerProvider);
     final messages = channelMessagesProvider('chan-1');
+    final messagesSubscription = container.listen(messages, (_, _) {});
+    addTearDown(messagesSubscription.close);
     final initial = await container.read(messages.future);
     check(initial.single.id).equals('before-reconnect');
 

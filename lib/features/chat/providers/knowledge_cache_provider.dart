@@ -18,6 +18,7 @@ const Duration _knowledgeCacheTtl = Duration(minutes: 10);
 ///
 /// Uses the shared [CacheManager] pattern for TTL and LRU eviction.
 class KnowledgeCacheManager {
+  static const int _maxRetainedScopes = 8;
   static final KnowledgeCacheManager _instance =
       KnowledgeCacheManager._internal();
   factory KnowledgeCacheManager() => _instance;
@@ -25,15 +26,29 @@ class KnowledgeCacheManager {
 
   final Map<_KnowledgeCacheScope, CacheManager> _scopedCaches = {};
 
-  CacheManager _cacheFor(_KnowledgeCacheScope scope) =>
-      _scopedCaches.putIfAbsent(
-        scope,
-        () => CacheManager(defaultTtl: _knowledgeCacheTtl, maxEntries: 64),
-      );
+  CacheManager? _touchExistingCache(_KnowledgeCacheScope scope) {
+    final cache = _scopedCaches.remove(scope);
+    if (cache != null) {
+      _scopedCaches[scope] = cache;
+    }
+    return cache;
+  }
+
+  CacheManager _cacheFor(_KnowledgeCacheScope scope) {
+    final existing = _touchExistingCache(scope);
+    if (existing != null) return existing;
+    while (_scopedCaches.length >= _maxRetainedScopes) {
+      final oldestScope = _scopedCaches.keys.first;
+      _scopedCaches.remove(oldestScope)?.clear();
+    }
+    final cache = CacheManager(defaultTtl: _knowledgeCacheTtl, maxEntries: 64);
+    _scopedCaches[scope] = cache;
+    return cache;
+  }
 
   /// Returns cached knowledge bases, or null if not cached.
   List<KnowledgeBase>? _getCachedBases(_KnowledgeCacheScope scope) {
-    final cache = _scopedCaches[scope];
+    final cache = _touchExistingCache(scope);
     if (cache == null) return null;
     final (hit: hit, value: bases) = cache.lookup<List<KnowledgeBase>>(
       _basesKey,
@@ -59,7 +74,7 @@ class KnowledgeCacheManager {
     _KnowledgeCacheScope scope,
     String baseId,
   ) {
-    final cache = _scopedCaches[scope];
+    final cache = _touchExistingCache(scope);
     if (cache == null) return null;
     final (hit: hit, value: files) = cache.lookup<List<KnowledgeBaseFile>>(
       _filesKey(baseId),
@@ -335,12 +350,19 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
       final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
       next[baseId] = files;
       state = state.copyWith(files: next);
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
           requestEpoch != _fileRequestEpoch ||
           _fileRequestGenerations[baseId] != requestGeneration) {
         return;
       }
+      DebugLogger.error(
+        'files-load-failed',
+        scope: 'knowledge/files',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'baseId': baseId},
+      );
       final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
       next[baseId] = const <KnowledgeBaseFile>[];
       state = state.copyWith(files: next);
@@ -358,6 +380,10 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
     if (scope != null) {
       _cacheManager._clearScope(scope);
     }
+    _resetRequestFences();
+  }
+
+  void _resetRequestFences() {
     _basesRequestGeneration += 1;
     _fileRequestEpoch += 1;
     _fileRequestGenerations.clear();
@@ -371,14 +397,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
   /// Clears every account/server scope at a sign-out boundary.
   void clearAllCaches() {
     _cacheManager.clear();
-    _basesRequestGeneration += 1;
-    _fileRequestEpoch += 1;
-    _fileRequestGenerations.clear();
-    _basesInFlight = null;
-    _basesInFlightToken = null;
-    _filesInFlight.clear();
-    _filesInFlightTokens.clear();
-    state = const KnowledgeCacheState();
+    _resetRequestFences();
   }
 }
 
