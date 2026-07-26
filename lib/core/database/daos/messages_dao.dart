@@ -336,7 +336,12 @@ WITH RECURSIVE branch(id, parent_id, depth, path) AS (
         WHERE cursor_row.chat_id = owner.id
           AND cursor_row.id = ?
       ),
-      owner.current_message_id,
+      (
+        SELECT current_row.id
+        FROM messages AS current_row
+        WHERE current_row.chat_id = owner.id
+          AND current_row.id = owner.current_message_id
+      ),
       (
         SELECT fallback.id
         FROM messages AS fallback

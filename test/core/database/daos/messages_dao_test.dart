@@ -193,6 +193,30 @@ void main() {
     );
 
     test(
+      'dangling current tip falls back for paged and watched windows',
+      () async {
+        await seedChain(chatId: 'window-dangling-tip', count: 75);
+        await (db.update(db.chats)
+              ..where((row) => row.id.equals('window-dangling-tip')))
+            .write(const ChatsCompanion(currentMessageId: Value('missing')));
+
+        final page = await db.messagesDao.getActiveBranchPage(
+          'window-dangling-tip',
+        );
+        final watched = await db.messagesDao
+            .watchActiveBranchWindow('window-dangling-tip')
+            .first;
+
+        for (final window in [page, watched]) {
+          check(window.primaryRows.length).equals(50);
+          check(window.primaryRows.first.id).equals('m25');
+          check(window.primaryRows.last.id).equals('m74');
+          check(window.hasOlder).isTrue();
+        }
+      },
+    );
+
+    test(
       'complete reads chunk sibling predicates below SQLite limits',
       () async {
         await seedChain(chatId: 'window-large-chain', count: 1200);
