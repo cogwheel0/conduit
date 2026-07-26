@@ -1,3 +1,5 @@
+import 'package:checks/checks.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -163,6 +165,7 @@ void main() {
   ) async {
     final controller = ItemScrollController();
     final pinActive = ValueNotifier<bool>(false);
+    var transitionEndCount = 0;
     addTearDown(pinActive.dispose);
 
     await tester.pumpWidget(
@@ -186,6 +189,7 @@ void main() {
                       availableExtent: _viewportHeight - _topInset,
                       pinnedUserExtent: 40,
                       transitionDuration: const Duration(milliseconds: 220),
+                      onTransitionEnd: () => transitionEndCount += 1,
                     );
                   }
                   if (positionedIndex == 1) {
@@ -228,8 +232,59 @@ void main() {
     await tester.pumpAndSettle();
 
     final finalTop = tester.getTopLeft(finder).dy;
-    expect(minimumTop, greaterThanOrEqualTo(_topInset - 2));
-    expect(finalTop, closeTo(_topInset, 1));
+    check(transitionEndCount).equals(1);
+    check(minimumTop).isGreaterOrEqual(_topInset - 2);
+    check(finalTop).isCloseTo(_topInset, 1);
+
+    // Completion must only settle ownership. It must not enqueue a second
+    // positioned-list command after the spacer has reached its target.
+    await tester.pump(const Duration(milliseconds: 350));
+    check(tester.getTopLeft(finder).dy).isCloseTo(finalTop, 0.01);
+  });
+
+  testWidgets('detached streaming presentation stays frozen until latest', (
+    tester,
+  ) async {
+    final liveMessage = ValueNotifier<ChatMessage>(
+      ChatMessage(
+        id: 'assistant-live',
+        role: 'assistant',
+        content: 'first chunk',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      ),
+    );
+    final detachedSnapshot = ValueNotifier<ChatMessage?>(liveMessage.value);
+    addTearDown(liveMessage.dispose);
+    addTearDown(detachedSnapshot.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ListenableBuilder(
+          listenable: Listenable.merge([liveMessage, detachedSnapshot]),
+          builder: (context, _) {
+            final presented = debugResolveStreamingTailPresentationForTesting(
+              liveMessage: liveMessage.value,
+              detachedSnapshot: detachedSnapshot.value,
+            );
+            return Text(presented.content);
+          },
+        ),
+      ),
+    );
+
+    liveMessage.value = liveMessage.value.copyWith(
+      content: 'first chunk\nsecond chunk\nthird chunk',
+    );
+    await tester.pump();
+
+    check(find.text('first chunk').evaluate().length).equals(1);
+    check(find.textContaining('second chunk').evaluate()).isEmpty();
+
+    detachedSnapshot.value = null;
+    await tester.pump();
+
+    check(find.textContaining('third chunk').evaluate().length).equals(1);
   });
 
   testWidgets('first pinned turn starts settled while measurements arrive', (

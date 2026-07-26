@@ -420,51 +420,55 @@ void main() {
   });
 
   test('latest button appears for pinned overflow or manual detachment', () {
-    expect(
+    check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: false,
         pinAutoFollowing: true,
         userDetached: false,
         isAtLatest: false,
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: true,
         userDetached: false,
         isAtLatest: false,
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
         isAtLatest: false,
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: false,
         isAtLatest: false,
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
         isAtLatest: true,
       ),
-      isFalse,
-    );
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        userDetached: true,
+        isAtLatest: true,
+        hasDetachedPresentation: true,
+      ),
+    ).isTrue();
   });
 
   test('only the first turn settles its pin without animation', () {
@@ -497,6 +501,57 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('initial bottom settlement never competes with pin-to-top', () {
+    check(
+      debugShouldRunInitialBottomSettleForTesting(
+        isMounted: true,
+        ownsGeneration: true,
+        hasActiveStreamingAssistant: false,
+        allowDuringStreaming: false,
+        isUserInteractingWithScroll: false,
+        wantsPinToTop: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRunInitialBottomSettleForTesting(
+        isMounted: true,
+        ownsGeneration: true,
+        hasActiveStreamingAssistant: true,
+        allowDuringStreaming: true,
+        isUserInteractingWithScroll: false,
+        wantsPinToTop: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRunInitialBottomSettleForTesting(
+        isMounted: true,
+        ownsGeneration: true,
+        hasActiveStreamingAssistant: true,
+        allowDuringStreaming: false,
+        isUserInteractingWithScroll: false,
+        wantsPinToTop: false,
+      ),
+    ).isFalse();
+  });
+
+  test('detachment freezes the OpenWebUI responseDone settlement gap', () {
+    final settlingTail = ChatMessage(
+      id: 'assistant-settling',
+      role: 'assistant',
+      content: 'Still receiving visible updates',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+      metadata: const {'responseDone': true},
+    );
+
+    check(debugCanFreezeStreamingTailForTesting(settlingTail)).isTrue();
+    check(
+      debugCanFreezeStreamingTailForTesting(
+        settlingTail.copyWith(isStreaming: false),
+      ),
+    ).isFalse();
   });
 
   test(
