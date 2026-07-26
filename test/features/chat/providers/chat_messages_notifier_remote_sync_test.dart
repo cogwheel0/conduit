@@ -232,6 +232,13 @@ Conversation _conversation(
 
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
+Future<void> _drainRemoteTaskStatusCheck(ChatMessagesNotifier notifier) async {
+  notifier.debugCancelRemoteTaskMonitorTimer();
+  while (notifier.debugTaskStatusCheckInFlight) {
+    await pumpMicrotasks();
+  }
+}
+
 ({DirectModelRegistry registry, Model model, String wireModelId})
 _serverDirectModel() {
   final profile = DirectConnectionProfile(
@@ -872,10 +879,7 @@ void main() {
 
         await Future<void>.delayed(const Duration(milliseconds: 50));
         await pumpMicrotasks();
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         check(notifier.debugShouldProtectLocalStreamingState).isTrue();
 
         // "BC" was emitted while this chat had no listener. The newly attached
@@ -894,10 +898,7 @@ void main() {
 
         // The socket chunk touches streaming activity and re-arms the monitor.
         // Drain that poll before driving one deterministic iteration below.
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         await notifier.debugSyncRemoteTaskStatus();
         await pumpMicrotasks();
 
@@ -976,10 +977,7 @@ void main() {
 
         await Future<void>.delayed(const Duration(milliseconds: 50));
         await pumpMicrotasks();
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         check(notifier.debugShouldProtectLocalStreamingState).isTrue();
 
         socket.emitChatEvent(
@@ -993,10 +991,7 @@ void main() {
 
         // The server has not persisted the just-delivered socket delta yet.
         api.conversation = _conversation('chat-1', opened, timestamp);
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         await notifier.debugSyncRemoteTaskStatus();
         await pumpMicrotasks();
 
@@ -1379,10 +1374,7 @@ void main() {
             );
         await pumpMicrotasks();
         await pumpMicrotasks();
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
 
         check(notifier.debugHasOpenWebUiTaskRecoverableTail).isTrue();
         check(api.getTaskIdsCalls).isGreaterThan(0);
@@ -1444,10 +1436,7 @@ void main() {
       // grace logic (no background poll racing the deterministic assertions),
       // then drain any in-flight background poll so the re-entry guard cannot
       // short-circuit our first manual poll.
-      notifier.debugCancelRemoteTaskMonitorTimer();
-      while (notifier.debugTaskStatusCheckInFlight) {
-        await pumpMicrotasks();
-      }
+      await _drainRemoteTaskStatusCheck(notifier);
 
       // Establish a socket resume stream protecting the last message so
       // _shouldProtectLocalStreamingState holds (Feature C resume state).
@@ -1532,10 +1521,7 @@ void main() {
             .set(_conversation('chat-1', checkpoint, timestamp));
 
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
 
         check(api.getTaskIdsCalls).equals(2);
         check(api.getConversationCalls).equals(0);
@@ -1584,10 +1570,7 @@ void main() {
             .read(activeConversationProvider.notifier)
             .set(_conversation('chat-1', opened, timestamp));
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
 
         api.taskIds = const <String>[];
@@ -1657,10 +1640,7 @@ void main() {
             .read(activeConversationProvider.notifier)
             .set(_conversation('chat-1', messages, timestamp));
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
 
         notifier.debugPrimeReopenedSnapshotAttempt();
         api.getConversationCalls = 0;
@@ -1702,10 +1682,7 @@ void main() {
             .read(activeConversationProvider.notifier)
             .set(_conversation('chat-1', messages, timestamp));
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        while (notifier.debugTaskStatusCheckInFlight) {
-          await pumpMicrotasks();
-        }
+        await _drainRemoteTaskStatusCheck(notifier);
         check(notifier.debugShouldProtectLocalStreamingState).isTrue();
 
         api.conversation = _conversation('chat-1', [

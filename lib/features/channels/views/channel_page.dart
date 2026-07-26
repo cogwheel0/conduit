@@ -269,7 +269,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         error: e,
         stackTrace: s,
       );
-      if (!_ownsChannelRequest(api, authSessionEpoch, channelId)) return;
+      if (!mounted || !_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+        return;
+      }
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
         ScaffoldMessenger.of(
