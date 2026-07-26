@@ -22,6 +22,13 @@ const Set<String> _previewableImageExtensions = <String>{
   '.bmp',
 };
 
+const double _fileAttachmentCardWidth = 140;
+const double _fileAttachmentPreviewAspectRatio = 4 / 3;
+const double _fileAttachmentPreviewWidth =
+    _fileAttachmentCardWidth - (Spacing.sm * 2);
+const double _fileAttachmentPreviewHeight =
+    _fileAttachmentPreviewWidth / _fileAttachmentPreviewAspectRatio;
+
 class FileAttachmentWidget extends ConsumerWidget {
   const FileAttachmentWidget({super.key});
 
@@ -86,7 +93,7 @@ class _FileAttachmentCard extends ConsumerWidget {
     final Widget removeButton = _buildRemoveButton(context, ref);
 
     return Container(
-      width: 140,
+      width: _fileAttachmentCardWidth,
       padding: const EdgeInsets.all(Spacing.sm),
       decoration: BoxDecoration(
         color: context.conduitTheme.cardBackground,
@@ -290,8 +297,8 @@ class _FileAttachmentCard extends ConsumerWidget {
     final decodeTarget = RasterMediaPolicy.forBox(
       context,
       profile: RasterDecodeProfile.thumbnail,
-      logicalWidth: 320,
-      logicalHeight: 240,
+      logicalWidth: _fileAttachmentPreviewWidth,
+      logicalHeight: _fileAttachmentPreviewHeight,
     );
     final Widget basePreview = Image(
       image: RasterMediaPolicy.resizeProvider(FileImage(file), decodeTarget),
@@ -312,7 +319,7 @@ class _FileAttachmentCard extends ConsumerWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.xs),
         child: AspectRatio(
-          aspectRatio: 4 / 3,
+          aspectRatio: _fileAttachmentPreviewAspectRatio,
           child: Stack(
             children: [
               Positioned.fill(child: basePreview),
@@ -369,7 +376,7 @@ class _FileAttachmentSkeletonCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 140,
+      width: _fileAttachmentCardWidth,
       padding: const EdgeInsets.all(Spacing.sm),
       decoration: BoxDecoration(
         color: context.conduitTheme.cardBackground,
@@ -383,7 +390,7 @@ class _FileAttachmentSkeletonCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AspectRatio(
-            aspectRatio: 4 / 3,
+            aspectRatio: _fileAttachmentPreviewAspectRatio,
             child: ConduitLoading.skeleton(
               borderRadius: BorderRadius.circular(AppBorderRadius.xs),
             ),

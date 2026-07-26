@@ -2047,6 +2047,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final authoritativeTerminal =
               assistant.error != null ||
               assistant.metadata?['responseDone'] == true;
+          final preserveActiveLocalStream =
+              current.isStreaming && !authoritativeTerminal;
+          final recoveredStreamingState =
+              preserveActiveLocalStream || assistant.isStreaming;
           return _AssistantServerPatch(
             content: recoverAuthoritativeState ? assistant.content : null,
             followUps: nextFollowUps,
@@ -2060,9 +2064,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             // local task until an explicit terminal marker/error or the normal
             // completion watchdog authoritatively settles it.
             isStreaming: recoverAuthoritativeState
-                ? current.isStreaming && !authoritativeTerminal
-                      ? true
-                      : assistant.isStreaming
+                ? recoveredStreamingState
                 : null,
             error: recoverAuthoritativeState ? assistant.error : null,
             clearError: recoverAuthoritativeState && assistant.error == null,

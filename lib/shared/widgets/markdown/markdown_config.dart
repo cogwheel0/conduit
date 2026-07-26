@@ -731,6 +731,7 @@ class ConduitMarkdown {
         );
         return Container(
           margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 480),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
             child: Image(

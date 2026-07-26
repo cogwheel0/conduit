@@ -1745,12 +1745,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final visibleCount = math.min(paging.loadedCount, messages.length);
       final visible = messages.sublist(messages.length - visibleCount);
       final targetId = _pinnedUserMessageId;
-      final targetIndex = targetId == null
-          ? -1
-          : visible.indexWhere((message) => message.id == targetId);
-      if (targetIndex < 0 || targetIndex >= visible.length) {
-        return;
-      }
+      if (targetId == null) return;
+      final positionedIndex = ChatTimelineRenderModel.fromMessages(
+        visible,
+      ).positionedIndexForMessageId(targetId);
+      if (positionedIndex == null) return;
 
       final topPadding =
           MediaQuery.of(context).padding.top +
@@ -1760,7 +1759,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .clamp(0.0, 1.0)
           .toDouble();
       final reversedAlignment = 1 - alignment;
-      final positionedIndex = visible.length - 1 - targetIndex;
       if (context.reduceMotion) {
         _itemScrollController.jumpTo(
           index: positionedIndex,

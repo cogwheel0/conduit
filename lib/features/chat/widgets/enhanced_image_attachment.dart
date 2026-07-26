@@ -901,6 +901,7 @@ class _EnhancedImageAttachmentState
         dimensions,
       ),
       fit: BoxFit.cover,
+      gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         return wasSynchronouslyLoaded || frame != null
             ? child
