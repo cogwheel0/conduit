@@ -1553,6 +1553,82 @@ void main() {
     );
 
     test(
+      'completed task keeps polling until the authoritative body catches up',
+      () async {
+        final timestamp = DateTime.now();
+        final opened = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage(
+            'assistant-1',
+            'Partial answer from socket',
+            timestamp,
+          ),
+        ];
+        final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+          ..taskIds = const <String>['task-1'];
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        api.taskIds = const <String>[];
+        api.conversation = _conversation('chat-1', [
+          opened.first,
+          _assistantMessage('assistant-1', '', timestamp),
+        ], timestamp);
+        await notifier.debugSyncRemoteTaskStatus();
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Partial answer from socket');
+
+        api.conversation = _conversation('chat-1', [
+          opened.first,
+          _assistantMessage('assistant-1', 'Partial', timestamp),
+        ], timestamp);
+        await notifier.debugSyncRemoteTaskStatus();
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Partial answer from socket');
+
+        api.conversation = _conversation('chat-1', [
+          opened.first,
+          _assistantMessage(
+            'assistant-1',
+            'Final authoritative answer',
+            timestamp,
+          ),
+        ], timestamp);
+        await notifier.debugSyncRemoteTaskStatus();
+
+        check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Final authoritative answer');
+      },
+    );
+
+    test(
       'poll-only reopened snapshots are throttled between full fetches',
       () async {
         final timestamp = DateTime.now();

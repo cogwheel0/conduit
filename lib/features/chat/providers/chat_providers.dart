@@ -4001,6 +4001,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // never mark an older assistant and the current tip as streaming together.
     if (streaming && serverIndex != serverMessages.length - 1) return false;
 
+    final authoritativeServerTail = serverMessages[serverIndex];
+    if (!streaming &&
+        (authoritativeServerTail.content.trim().isEmpty ||
+            _shouldPreserveLocalAssistantContent(
+              localTail,
+              authoritativeServerTail,
+            ))) {
+      DebugLogger.log(
+        'Deferring reopened completion until the authoritative assistant '
+        'body catches up',
+        scope: 'chat/resume',
+        data: {
+          'messageId': localTail.id,
+          'serverLength': authoritativeServerTail.content.length,
+          'localLength': localTail.content.length,
+        },
+      );
+      return false;
+    }
+
     final mergedServerMessages = _preserveFreshLocalAssistantState(
       serverMessages,
     );
