@@ -1156,7 +1156,15 @@ class VoiceInputService with WidgetsBindingObserver {
         await _sherpaStt.load(installed, languageCode: languageCode);
       } catch (error) {
         if (error is SherpaModelLoadException) {
-          await _sherpaStorage.markModelBroken(id, error);
+          try {
+            await _sherpaStorage.markModelBroken(id, error);
+          } catch (cleanupError) {
+            DebugLogger.warning(
+              'sherpa-stt-mark-broken-failed',
+              scope: 'voice/stt',
+              data: {'modelId': id, 'error': cleanupError},
+            );
+          }
         }
         DebugLogger.warning(
           'sherpa-stt-load-failed',

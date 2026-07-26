@@ -16,6 +16,7 @@ import '../../../core/sherpa/sherpa_runtime.dart';
 import '../../../core/sherpa/sherpa_storage.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import 'native_tts_service.dart';
 
@@ -1751,8 +1752,24 @@ class TtsManager with WidgetsBindingObserver {
     } catch (error) {
       if (error is SherpaModelLoadException) {
         _sherpaModelAvailable = false;
-        await _sherpaStorage.markModelBroken(id, error);
-        await _sherpaTts.unload();
+        try {
+          await _sherpaStorage.markModelBroken(id, error);
+        } catch (cleanupError) {
+          DebugLogger.warning(
+            'sherpa-tts-mark-broken-failed',
+            scope: 'voice/tts',
+            data: {'modelId': id, 'error': cleanupError},
+          );
+        }
+        try {
+          await _sherpaTts.unload();
+        } catch (cleanupError) {
+          DebugLogger.warning(
+            'sherpa-tts-load-cleanup-failed',
+            scope: 'voice/tts',
+            data: {'modelId': id, 'error': cleanupError},
+          );
+        }
       }
       rethrow;
     }
