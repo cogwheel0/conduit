@@ -135,6 +135,17 @@ void main() {
       check(service.selectedLocaleId).isNull();
     });
 
+    test('force-probes native STT while Sherpa is selected', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+      service.updatePreference(SttPreference.sherpa);
+
+      await service.initialize(forceLocalStt: true);
+
+      check(nativeStt.availabilityLocaleIds).deepEquals([null]);
+      check(service.hasLocalStt).isTrue();
+    });
+
     test(
       'uses a supported system-language variant when auto is unavailable',
       () async {

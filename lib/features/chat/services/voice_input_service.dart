@@ -148,6 +148,7 @@ class VoiceInputService with WidgetsBindingObserver {
   StreamSubscription<SherpaSttEvent>? _sherpaSttSub;
   Timer? _nativeDictationSettleTimer;
   bool _observingLifecycle = false;
+  Future<void>? _disposeFuture;
   AppLifecycleState? _lifecycleState;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
@@ -205,6 +206,9 @@ class VoiceInputService with WidgetsBindingObserver {
   }
 
   Future<bool> initialize({bool forceLocalStt = false}) async {
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
     if (!isSupportedPlatform) return false;
     if (!_observingLifecycle) {
       WidgetsBinding.instance.addObserver(this);
@@ -221,7 +225,7 @@ class VoiceInputService with WidgetsBindingObserver {
       return true;
     }
 
-    if (_preference == SttPreference.sherpa) {
+    if (_preference == SttPreference.sherpa && !forceLocalStt) {
       await _prepareSherpaStt();
       _isInitialized = true;
       return true;
@@ -654,6 +658,9 @@ class VoiceInputService with WidgetsBindingObserver {
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
   }) async {
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
     final inFlight = _startListeningInFlight;
     if (inFlight != null) {
       return inFlight;
@@ -1038,53 +1045,65 @@ class VoiceInputService with WidgetsBindingObserver {
     required bool iosAudioSessionManagedExternally,
     required bool feedRecognizer,
   }) async {
-    _checkListeningGeneration(generation);
-    await _stopVadRecording();
-    _checkListeningGeneration(generation);
-    _vadPendingSamples = null;
-    await _setupVadStreams();
-    _checkListeningGeneration(generation);
-    final settings = _ref?.read(appSettingsProvider);
-    final silenceMs =
-        settings?.voiceSilenceDuration ??
-        SettingsService.defaultVoiceSilenceDurationMs;
-    await _vadRecorder.start(
-      minSilenceDuration: silenceMs / 1000,
-      feedRecognizer: feedRecognizer,
-      recordConfig: RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: _vadSampleRate,
-        numChannels: 1,
-        bitRate: 16,
-        echoCancel: true,
-        autoGain: false,
-        noiseSuppress: true,
-        androidConfig: _androidServerVadRecordConfig(
-          voiceCallSession:
-              Platform.isAndroid && iosAudioSessionManagedExternally,
+    try {
+      _checkListeningGeneration(generation);
+      await _stopVadRecording();
+      _checkListeningGeneration(generation);
+      _vadPendingSamples = null;
+      await _setupVadStreams(generation: generation);
+      _checkListeningGeneration(generation);
+      final settings = _ref?.read(appSettingsProvider);
+      final silenceMs =
+          settings?.voiceSilenceDuration ??
+          SettingsService.defaultVoiceSilenceDurationMs;
+      await _vadRecorder.start(
+        minSilenceDuration: silenceMs / 1000,
+        feedRecognizer: feedRecognizer,
+        recordConfig: RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: _vadSampleRate,
+          numChannels: 1,
+          bitRate: 16,
+          echoCancel: true,
+          autoGain: false,
+          noiseSuppress: true,
+          androidConfig: _androidServerVadRecordConfig(
+            voiceCallSession:
+                Platform.isAndroid && iosAudioSessionManagedExternally,
+          ),
+          iosConfig: iosAudioSessionManagedExternally
+              ? _iosManagedServerVadRecordConfig
+              : _iosStandaloneServerVadRecordConfig,
         ),
-        iosConfig: iosAudioSessionManagedExternally
-            ? _iosManagedServerVadRecordConfig
-            : _iosStandaloneServerVadRecordConfig,
-      ),
-    );
-    _checkListeningGeneration(generation);
+      );
+      _checkListeningGeneration(generation);
+    } on Object catch (startupError) {
+      try {
+        await _stopVadRecording();
+      } on Object catch (cleanupError) {
+        DebugLogger.warning(
+          'vad-startup-cleanup-failed',
+          scope: 'voice/stt',
+          data: {'startupError': startupError, 'cleanupError': cleanupError},
+        );
+      }
+      rethrow;
+    }
   }
 
-  Future<void> _setupVadStreams() async {
+  Future<void> _setupVadStreams({required int generation}) async {
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = _vadRecorder.onSpeechEnd.listen((samples) {
+      if (!_isCurrentListeningGeneration(generation)) return;
       if (!_usingServerStt && !_usingSherpaStt) return;
       if (samples.isEmpty) return;
       _vadPendingSamples = samples;
-      if (_isListening) {
-        unawaited(_stopListening());
-      }
+      unawaited(_stopListening());
     });
 
     await _vadFrameSub?.cancel();
     _vadFrameSub = _vadRecorder.onFrameProcessed.listen((frame) {
-      if (!_isListening) return;
+      if (!_isCurrentListeningGeneration(generation)) return;
       final intensity = _intensityFromVadFrame(frame);
       _lastIntensity = intensity;
       try {
@@ -1094,10 +1113,9 @@ class VoiceInputService with WidgetsBindingObserver {
 
     await _vadErrorSub?.cancel();
     _vadErrorSub = _vadRecorder.onError.listen((message) {
+      if (!_isCurrentListeningGeneration(generation)) return;
       _reportRecognitionError(Exception(message));
-      if (_isListening) {
-        unawaited(_stopListening());
-      }
+      unawaited(_stopListening());
     });
   }
 
@@ -1520,7 +1538,21 @@ class VoiceInputService with WidgetsBindingObserver {
     });
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
+    if (_observingLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+      _observingLifecycle = false;
+    }
+    final pendingStart = _startListeningInFlight;
+    if (pendingStart != null) {
+      try {
+        await pendingStart;
+      } on Object {
+        // Startup failures are handled by the normal recognition path.
+      }
+    }
     await stopListening();
     _cancelNativeDictationSettle();
     try {
@@ -1532,10 +1564,6 @@ class VoiceInputService with WidgetsBindingObserver {
       await _sherpaLifecycleSerial;
       await _sherpaStt.dispose();
     } catch (_) {}
-    if (_observingLifecycle) {
-      WidgetsBinding.instance.removeObserver(this);
-      _observingLifecycle = false;
-    }
     await _nativeSttSub?.cancel();
     _nativeSttSub = null;
     try {
@@ -1551,7 +1579,15 @@ class VoiceInputService with WidgetsBindingObserver {
   }
 
   Future<void> _unloadIdleLargeSherpaRecognizerNow() async {
-    if (_lifecycleState != AppLifecycleState.paused || _isListening) return;
+    if (_disposeFuture != null ||
+        !_observingLifecycle ||
+        _lifecycleState != AppLifecycleState.paused ||
+        _isListening ||
+        _startListeningInFlight != null ||
+        _stopListeningInFlight != null ||
+        _vadRecordingStartup != null) {
+      return;
+    }
     final model = sherpaModelById(_loadedSherpaSttModelId);
     if (model?.tier != SherpaModelTier.large) return;
     await _invalidateSherpaRecognizerNow(forceUnload: true);
