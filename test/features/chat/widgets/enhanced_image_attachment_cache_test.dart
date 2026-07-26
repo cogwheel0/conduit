@@ -8,6 +8,7 @@ import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/image_attachment_cache_service.dart';
+import 'package:conduit/core/services/raster_media_policy.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart'
     show
@@ -45,6 +46,43 @@ void main() {
     );
     expect(unboundedDecode.width, 900);
     expect(unboundedDecode.height, 900);
+  });
+
+  test('network and base64 cover previews retain both crop axes', () {
+    const destination = RasterDecodeTarget(width: 900, height: 900);
+    final network = RasterMediaPolicy.resizeProviderForCover(
+      const NetworkImage('https://example.test/wide.png'),
+      destination,
+      profile: RasterDecodeProfile.inline,
+    );
+    final base64 = RasterMediaPolicy.resizeProviderForCover(
+      MemoryImage(Uint8List.fromList(const [1, 2, 3])),
+      destination,
+      profile: RasterDecodeProfile.inline,
+    );
+    final equivalentNetwork = RasterMediaPolicy.resizeProviderForCover(
+      const NetworkImage('https://example.test/wide.png'),
+      destination,
+      profile: RasterDecodeProfile.inline,
+    );
+
+    check(network).isA<RasterCoverResizeImage>();
+    check(base64).isA<RasterCoverResizeImage>();
+    check(network).equals(equivalentNetwork);
+    check(network.hashCode).equals(equivalentNetwork.hashCode);
+    final wide = (network as RasterCoverResizeImage).targetForIntrinsic(
+      3200,
+      1800,
+    );
+    final tall = (base64 as RasterCoverResizeImage).targetForIntrinsic(
+      1800,
+      3200,
+    );
+
+    check(wide.width).equals(RasterDecodeProfile.inline.maxLongestEdge);
+    check(wide.height).equals(864);
+    check(tall.width).equals(864);
+    check(tall.height).equals(RasterDecodeProfile.inline.maxLongestEdge);
   });
 
   test('same-origin image metadata cannot override the Conduit identity', () {

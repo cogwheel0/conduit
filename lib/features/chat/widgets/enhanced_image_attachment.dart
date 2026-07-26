@@ -917,7 +917,7 @@ class _EnhancedImageAttachmentState
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
     final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      image: RasterMediaPolicy.resizeProvider(
+      image: RasterMediaPolicy.resizeProviderForCover(
         CachedNetworkImageProvider(
           _cachedImageData!,
           cacheKey: networkCacheKey,
@@ -925,6 +925,7 @@ class _EnhancedImageAttachmentState
           headers: headers,
         ),
         dimensions,
+        profile: RasterDecodeProfile.inline,
       ),
       width: previewSize.width,
       height: previewSize.height,
@@ -989,7 +990,11 @@ class _EnhancedImageAttachmentState
 
     final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      image: RasterMediaPolicy.resizeProvider(MemoryImage(bytes), dimensions),
+      image: RasterMediaPolicy.resizeProviderForCover(
+        MemoryImage(bytes),
+        dimensions,
+        profile: RasterDecodeProfile.inline,
+      ),
       width: previewSize.width,
       height: previewSize.height,
       fit: BoxFit.cover,

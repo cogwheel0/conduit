@@ -1679,9 +1679,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (positions.isEmpty) return;
     final messages = ref.read(chatMessagesProvider);
     final paging = ref.read(chatTranscriptPagingProvider);
-    final visibleCount = math.min(paging.loadedCount, messages.length);
+    final visible = _renderedTranscriptWindow(messages, paging);
+    final visibleCount = visible.length;
     if (visibleCount == 0) return;
-    final visible = messages.sublist(messages.length - visibleCount);
     final timeline = ChatTimelineRenderModel.fromMessages(visible);
     final candidates = positions.where((position) {
       final message = timeline.messageAtPositionedIndex(position.index);
@@ -1732,8 +1732,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       final messages = ref.read(chatMessagesProvider);
       final paging = ref.read(chatTranscriptPagingProvider);
-      final visibleCount = math.min(paging.loadedCount, messages.length);
-      final visible = messages.sublist(messages.length - visibleCount);
+      final visible = _renderedTranscriptWindow(messages, paging);
       final timeline = ChatTimelineRenderModel.fromMessages(visible);
       final positionedIndex = timeline.positionedIndexForMessageId(
         anchor.messageId,
@@ -1857,8 +1856,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       final messages = ref.read(chatMessagesProvider);
       final paging = ref.read(chatTranscriptPagingProvider);
-      final visibleCount = math.min(paging.loadedCount, messages.length);
-      final visible = messages.sublist(messages.length - visibleCount);
+      final visible = _renderedTranscriptWindow(messages, paging);
       final targetId = _pinnedUserMessageId;
       if (targetId == null) return;
       final positionedIndex = ChatTimelineRenderModel.fromMessages(
