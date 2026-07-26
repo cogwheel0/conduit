@@ -1435,34 +1435,111 @@ void main() {
     expect(state.userMessageId, 'user-message');
   });
 
+  test('latest action reattaches follow without discarding pin geometry', () {
+    final state = debugPinStateAfterScrollToLatestForTesting();
+
+    expect(state.anchorActive, isTrue);
+    expect(state.autoFollowing, isTrue);
+    expect(state.userMessageId, 'user-message');
+  });
+
   test('streaming follow never replaces an active pin-to-top anchor', () {
     check(
-      debugShouldSmoothFollowStreamingForTesting(
+      debugShouldFollowStreamingForTesting(
         hasRunningTurn: true,
         isAnchoredToBottom: false,
         isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
         wantsPinToTop: true,
+        followLatestRequested: false,
+        pinnedEndSpaceExhausted: true,
       ),
     ).isFalse();
     check(
-      debugShouldSmoothFollowStreamingForTesting(
+      debugShouldFollowStreamingForTesting(
         hasRunningTurn: true,
         isAnchoredToBottom: true,
         isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
         wantsPinToTop: true,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: false,
+      ),
+    ).isFalse();
+  });
+
+  test('latest action follows only after pinned end space is consumed', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: false,
+        pinnedEndSpaceExhausted: true,
       ),
     ).isFalse();
   });
 
   test('streaming follow yields immediately to manual navigation', () {
     check(
-      debugShouldSmoothFollowStreamingForTesting(
+      debugShouldFollowStreamingForTesting(
         hasRunningTurn: true,
         isAnchoredToBottom: true,
         isUserInteracting: true,
+        isExplicitNavigationInFlight: false,
         wantsPinToTop: false,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
       ),
     ).isFalse();
+  });
+
+  test('streaming maintenance waits for explicit latest navigation', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: true,
+        wantsPinToTop: false,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+  });
+
+  test('only the current explicit navigation completion clears its fence', () {
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: null,
+        currentGeneration: 3,
+      ),
+    ).isFalse();
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: 2,
+        currentGeneration: 3,
+      ),
+    ).isFalse();
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: 3,
+        currentGeneration: 3,
+      ),
+    ).isTrue();
   });
 
   test(

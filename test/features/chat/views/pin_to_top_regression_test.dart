@@ -158,6 +158,80 @@ void main() {
     },
   );
 
+  testWidgets('measured pin end space moves the prompt up without overshoot', (
+    tester,
+  ) async {
+    final controller = ItemScrollController();
+    final pinActive = ValueNotifier<bool>(false);
+    addTearDown(pinActive.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          height: _viewportHeight,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: pinActive,
+            builder: (context, active, _) {
+              return ScrollablePositionedList.builder(
+                reverse: true,
+                itemScrollController: controller,
+                itemCount: 10,
+                itemBuilder: (context, positionedIndex) {
+                  if (positionedIndex == 0) {
+                    return debugBuildNewestTimelineItemForTesting(
+                      row: const SizedBox(height: 20),
+                      spacerKey: const ValueKey('animated-composer-spacer'),
+                      bottomPadding: _composerHeight,
+                      pinActive: active,
+                      availableExtent: _viewportHeight - _topInset,
+                      pinnedUserExtent: 40,
+                      transitionDuration: const Duration(milliseconds: 220),
+                    );
+                  }
+                  if (positionedIndex == 1) {
+                    return const SizedBox(
+                      key: ValueKey('animated-pinned-user-row'),
+                      height: 40,
+                    );
+                  }
+                  return const SizedBox(height: 100);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final finder = find.byKey(const ValueKey('animated-pinned-user-row'));
+    final initialTop = tester.getTopLeft(finder).dy;
+    expect(initialTop, greaterThan(_topInset + 100));
+
+    pinActive.value = true;
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 16));
+    final firstAnimatedTop = tester.getTopLeft(finder).dy;
+    expect(firstAnimatedTop, lessThan(initialTop - 1));
+    expect(firstAnimatedTop, greaterThan(_topInset + 2));
+
+    var previousTop = firstAnimatedTop;
+    var minimumTop = firstAnimatedTop;
+    for (var frame = 1; frame < 16; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final currentTop = tester.getTopLeft(finder).dy;
+      expect(currentTop, lessThanOrEqualTo(previousTop + 1));
+      minimumTop = currentTop < minimumTop ? currentTop : minimumTop;
+      previousTop = currentTop;
+    }
+    await tester.pumpAndSettle();
+
+    final finalTop = tester.getTopLeft(finder).dy;
+    expect(minimumTop, greaterThanOrEqualTo(_topInset - 2));
+    expect(finalTop, closeTo(_topInset, 1));
+  });
+
   testWidgets('first pinned turn starts settled while measurements arrive', (
     tester,
   ) async {
