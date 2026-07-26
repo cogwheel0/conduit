@@ -27,6 +27,8 @@ import '../providers/direct_connection_providers.dart';
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
+const String _openRouterProviderPreset = 'openrouter';
+
 final class _OpenWebUiDirectConnectionOwnershipChanged implements Exception {
   const _OpenWebUiDirectConnectionOwnershipChanged();
 }
@@ -161,6 +163,7 @@ class _DirectConnectionEditorPageState
   Object? _openWebUiOwnerAuthEpoch;
   bool _openWebUiOwnerCaptured = false;
   String _adapterKey = kOpenAiCompatibleAdapterKey;
+  String _providerPreset = kOpenAiCompatibleAdapterKey;
   DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
   DirectAuthenticationMode _authentication = DirectAuthenticationMode.bearer;
   bool _enabled = true;
@@ -219,9 +222,14 @@ class _DirectConnectionEditorPageState
     _modelIdPrefixController.text = profile.modelIdPrefix ?? '';
     _tagsController.text = profile.tags.join(', ');
     _adapterKey = profile.adapterKey;
+    _providerPreset = profile.isOpenRouter
+        ? _openRouterProviderPreset
+        : profile.adapterKey;
     _openAiApiMode = profile.openAiApiMode;
     _authentication = openWebUiRecord == null
-        ? (profile.apiKey ?? '').isEmpty
+        ? profile.isOpenRouter
+              ? DirectAuthenticationMode.bearer
+              : (profile.apiKey ?? '').isEmpty
               ? DirectAuthenticationMode.none
               : switch (profile.apiKeyAuthMode) {
                   DirectApiKeyAuthMode.bearer =>
@@ -348,6 +356,10 @@ class _DirectConnectionEditorPageState
     if (DirectConnectionProfile.originOf(baseUrl) == null) {
       valid = false;
       urlError = l10n.directConnectionUrlInvalid;
+    } else if (_providerPreset == _openRouterProviderPreset &&
+        !isOpenRouterApiBaseUrl(baseUrl)) {
+      valid = false;
+      urlError = l10n.directOpenRouterUrlInvalid;
     } else if (!_originBoundSecretsReviewed) {
       valid = false;
       urlError = l10n.directConnectionCredentialsReentryRequired;
@@ -975,6 +987,7 @@ class _DirectConnectionEditorPageState
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final isOllama = _adapterKey == kOllamaAdapterKey;
+    final isOpenRouter = _providerPreset == _openRouterProviderPreset;
     final usesCupertinoChrome = context.usesCupertinoChrome;
 
     final content = <Widget>[
@@ -1075,51 +1088,81 @@ class _DirectConnectionEditorPageState
           ),
         )
       else
-        AdaptiveSegmentedSelector<String>(
-          value: _adapterKey,
-          showIcons: false,
-          onChanged: (value) {
-            setState(() {
-              _adapterKey = value;
-              _testSucceeded = null;
-              _testMessage = null;
-              if (widget.isNew) {
-                _baseUrlController.text = value == kOllamaAdapterKey
-                    ? 'https://ollama.com'
-                    : 'https://api.openai.com/v1';
-                _authentication = DirectAuthenticationMode.bearer;
-                if (_nameController.text == 'My provider' ||
-                    _nameController.text == l10n.ollamaCloudDefaultName) {
-                  _nameController.text = value == kOllamaAdapterKey
-                      ? l10n.ollamaCloudDefaultName
-                      : 'My provider';
+        Material(
+          key: const ValueKey<String>('direct-provider-preset-selector'),
+          type: MaterialType.transparency,
+          child: DropdownButtonFormField<String>(
+            initialValue: _providerPreset,
+            isExpanded: true,
+            decoration: context.conduitInputStyles.standard(),
+            dropdownColor: theme.surfaceBackground,
+            items: [
+              DropdownMenuItem(
+                value: kOpenAiCompatibleAdapterKey,
+                child: Text(l10n.openAICompatible),
+              ),
+              DropdownMenuItem(
+                value: _openRouterProviderPreset,
+                child: Text(l10n.openRouterProviderName),
+              ),
+              DropdownMenuItem(
+                value: kOllamaAdapterKey,
+                child: Text(l10n.ollama),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _providerPreset = value;
+                _adapterKey = value == kOllamaAdapterKey
+                    ? kOllamaAdapterKey
+                    : kOpenAiCompatibleAdapterKey;
+                if (value == _openRouterProviderPreset) {
+                  _authentication = DirectAuthenticationMode.bearer;
+                  _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+                  if (!isOpenRouterApiBaseUrl(
+                    normalizeDirectBaseUrl(_baseUrlController.text),
+                  )) {
+                    _baseUrlController.text = kOpenRouterApiBaseUrl;
+                    _invalidateOriginSecretConfirmation();
+                  }
                 }
-              }
-            });
-          },
-          options: [
-            (
-              value: kOpenAiCompatibleAdapterKey,
-              label: l10n.openAICompatible,
-              cupertinoIcon: CupertinoIcons.cloud,
-              materialIcon: Icons.cloud_outlined,
-              enabled: true,
-            ),
-            (
-              value: kOllamaAdapterKey,
-              label: l10n.ollama,
-              cupertinoIcon: CupertinoIcons.desktopcomputer,
-              materialIcon: Icons.computer_outlined,
-              enabled: true,
-            ),
-          ],
+                _testSucceeded = null;
+                _testMessage = null;
+                if (widget.isNew) {
+                  _baseUrlController.text = switch (value) {
+                    kOllamaAdapterKey => 'https://ollama.com',
+                    _openRouterProviderPreset => kOpenRouterApiBaseUrl,
+                    _ => 'https://api.openai.com/v1',
+                  };
+                  if (value != _openRouterProviderPreset) {
+                    _authentication = DirectAuthenticationMode.bearer;
+                    _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+                  }
+                  if (_nameController.text == 'My provider' ||
+                      _nameController.text == l10n.ollamaCloudDefaultName ||
+                      _nameController.text == l10n.openRouterProviderName) {
+                    _nameController.text = switch (value) {
+                      kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
+                      _openRouterProviderPreset => l10n.openRouterProviderName,
+                      _ => 'My provider',
+                    };
+                  }
+                }
+              });
+            },
+          ),
         ),
       if (!widget.isOpenWebUi) ...[
         const SizedBox(height: Spacing.lg),
         AccessibleFormField(
           key: const ValueKey<String>('direct-connection-name-field'),
           label: l10n.directConnectionName,
-          hint: isOllama ? l10n.ollamaCloudDefaultName : 'My provider',
+          hint: isOllama
+              ? l10n.ollamaCloudDefaultName
+              : isOpenRouter
+              ? l10n.openRouterProviderName
+              : 'My provider',
           controller: _nameController,
           errorText: _nameError,
           isRequired: true,
@@ -1133,6 +1176,8 @@ class _DirectConnectionEditorPageState
         label: l10n.directApiBaseUrl,
         hint: isOllama
             ? l10n.ollamaCloudBaseUrlHint
+            : isOpenRouter
+            ? kOpenRouterApiBaseUrl
             : 'https://api.openai.com/v1',
         controller: _baseUrlController,
         keyboardType: TextInputType.url,
@@ -1146,10 +1191,20 @@ class _DirectConnectionEditorPageState
       Text(
         isOllama
             ? l10n.ollamaCloudBaseUrlDescription
+            : isOpenRouter
+            ? l10n.directOpenRouterBaseUrlDescription
             : 'Include the API prefix expected by the provider, usually /v1.',
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
-      if (!isOllama) ...[
+      if (isOpenRouter) ...[
+        const SizedBox(height: Spacing.lg),
+        SettingsSectionHeader(title: l10n.directCompletionApi),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          l10n.directOpenRouterChatCompletionsDescription,
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+      ] else if (!isOllama) ...[
         const SizedBox(height: Spacing.lg),
         SettingsSectionHeader(title: l10n.directCompletionApi),
         const SizedBox(height: Spacing.sm),
@@ -1208,7 +1263,9 @@ class _DirectConnectionEditorPageState
       Material(
         type: MaterialType.transparency,
         child: DropdownButtonFormField<DirectAuthenticationMode>(
-          key: ValueKey<String>('direct-authentication-selector-$_adapterKey'),
+          key: ValueKey<String>(
+            'direct-authentication-selector-$_providerPreset',
+          ),
           initialValue: _authentication,
           isExpanded: true,
           decoration: context.conduitInputStyles.standard(),
@@ -1218,15 +1275,16 @@ class _DirectConnectionEditorPageState
               value: DirectAuthenticationMode.bearer,
               child: Text(l10n.bearerToken),
             ),
-            if (!widget.isOpenWebUi)
+            if (!widget.isOpenWebUi && !isOpenRouter)
               DropdownMenuItem(
                 value: DirectAuthenticationMode.apiKeyHeader,
                 child: Text(l10n.directApiKeyHeader),
               ),
-            DropdownMenuItem(
-              value: DirectAuthenticationMode.none,
-              child: Text(l10n.noAuthentication),
-            ),
+            if (widget.isOpenWebUi || !isOpenRouter)
+              DropdownMenuItem(
+                value: DirectAuthenticationMode.none,
+                child: Text(l10n.noAuthentication),
+              ),
             if (_authentication == DirectAuthenticationMode.unsupported)
               DropdownMenuItem(
                 value: DirectAuthenticationMode.unsupported,

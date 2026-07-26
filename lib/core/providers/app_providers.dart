@@ -136,9 +136,7 @@ final class SignOutCoordinator {
   }
 
   Future<void> _signOut({required bool keepServerDetails}) async {
-    final directProfiles = _ref.read(
-      directConnectionProfilesProvider.notifier,
-    );
+    final directProfiles = _ref.read(directConnectionProfilesProvider.notifier);
     final hermesConfig = _ref.read(hermesConfigProvider.notifier);
     final directRuns = _ref.read(directRunRegistryProvider);
     FullAppDataClearOutcome? outcome;
@@ -2448,7 +2446,8 @@ class SelectedModel extends _$SelectedModel {
           switch (preferredBackend) {
             PreferredBackend.direct =>
               isLocallyMintedDirectModel(current) &&
-                  ref.read(directModelRegistryProvider).resolve(current) != null,
+                  ref.read(directModelRegistryProvider).resolve(current) !=
+                      null,
             PreferredBackend.hermes =>
               isHermesModel(current) && ref.read(hermesConfigProvider).isUsable,
             _ => false,
@@ -5924,6 +5923,16 @@ bool _modelSupportsFeature(Model? model, String featureKey) {
 }
 
 final imageGenerationAvailableProvider = Provider<bool>((ref) {
+  final selectedModel = ref.watch(selectedModelProvider);
+  final directBinding = selectedModel == null
+      ? null
+      : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+  if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+    return directBinding?.source == DirectModelSource.device &&
+        selectedModel.capabilities?['openrouter'] == true &&
+        selectedModel.capabilities?['image_generation'] == true;
+  }
+
   final perms = ref.watch(userPermissionsProvider);
   return perms.maybeWhen(
     data: (data) {
@@ -5950,11 +5959,16 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
   if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
     // Device-owned direct models must never fall through to OpenWebUI
-    // permissions. Ollama Cloud is currently the only direct transport with
-    // a native, permission-aware web-search execution path.
-    return directBinding?.source == DirectModelSource.device &&
+    // permissions. Only locally minted provider capabilities can enable a
+    // Conduit-managed search path.
+    final isTrustedOllamaCloud =
         directBinding?.adapterKey == kOllamaAdapterKey &&
-        selectedModel.capabilities?['ollama_cloud'] == true &&
+        selectedModel.capabilities?['ollama_cloud'] == true;
+    final isTrustedOpenRouter =
+        directBinding?.adapterKey == kOpenAiCompatibleAdapterKey &&
+        selectedModel.capabilities?['openrouter'] == true;
+    return directBinding?.source == DirectModelSource.device &&
+        (isTrustedOllamaCloud || isTrustedOpenRouter) &&
         selectedModel.capabilities?['web_search'] == true;
   }
 

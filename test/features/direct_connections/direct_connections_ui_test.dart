@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -1488,140 +1489,143 @@ void main() {
     },
   );
 
-  testWidgets('unsupported server auth blocks execution but permits deletion', (
-    tester,
-  ) async {
-    final snapshot =
-        OpenWebUiDirectConnectionsCodec(
-          serverId: 'server',
-          accountId: 'account',
-        ).decode({
-          'ui': {
-            'directConnections': {
-              'OPENAI_API_BASE_URLS': ['https://session.example/v1'],
-              'OPENAI_API_KEYS': ['must-not-be-forwarded'],
-              'OPENAI_API_CONFIGS': {
-                '0': {'auth_type': 'session'},
+  testWidgets(
+    'unsupported OpenRouter server auth blocks execution but permits deletion',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': [kOpenRouterApiBaseUrl],
+                'OPENAI_API_KEYS': ['must-not-be-forwarded'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'session'},
+                },
               },
             },
-          },
-        });
+          });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => _StaticOpenWebUiConnections(snapshot),
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: DirectConnectionEditorPage(
-            profileId: snapshot.records.single.profile.id,
-            isOpenWebUi: true,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => _StaticOpenWebUiConnections(snapshot),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Delete connection'),
-      500,
-      scrollable: find.byType(Scrollable).first,
-    );
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
 
-    final buttons = tester.widgetList<ConduitButton>(
-      find.byType(ConduitButton, skipOffstage: false),
-    );
-    expect(
-      buttons.singleWhere((button) => button.text == 'Save').onPressed,
-      isNull,
-    );
-    expect(
-      buttons
-          .singleWhere((button) => button.text == 'Test connection')
-          .onPressed,
-      isNull,
-    );
-    expect(
-      buttons
-          .singleWhere((button) => button.text == 'Delete connection')
-          .onPressed,
-      isNotNull,
-    );
-    expect(find.textContaining('cannot safely use'), findsOneWidget);
-  });
+      final buttons = tester.widgetList<ConduitButton>(
+        find.byType(ConduitButton, skipOffstage: false),
+      );
+      expect(
+        buttons.singleWhere((button) => button.text == 'Save').onPressed,
+        isNull,
+      );
+      expect(
+        buttons
+            .singleWhere((button) => button.text == 'Test connection')
+            .onPressed,
+        isNull,
+      );
+      expect(
+        buttons
+            .singleWhere((button) => button.text == 'Delete connection')
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.textContaining('cannot safely use'), findsOneWidget);
+    },
+  );
 
-  testWidgets('switching a server connection to bearer requires a key', (
-    tester,
-  ) async {
-    final snapshot =
-        OpenWebUiDirectConnectionsCodec(
-          serverId: 'server',
-          accountId: 'account',
-        ).decode({
-          'ui': {
-            'directConnections': {
-              'OPENAI_API_BASE_URLS': ['https://none.example/v1'],
-              'OPENAI_API_KEYS': [''],
-              'OPENAI_API_CONFIGS': {
-                '0': {'auth_type': 'none'},
+  testWidgets(
+    'OpenRouter server none auth opens and switching to bearer requires a key',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': [kOpenRouterApiBaseUrl],
+                'OPENAI_API_KEYS': [''],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'none'},
+                },
               },
             },
-          },
-        });
+          });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => _StaticOpenWebUiConnections(snapshot),
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: DirectConnectionEditorPage(
-            profileId: snapshot.records.single.profile.id,
-            isOpenWebUi: true,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => _StaticOpenWebUiConnections(snapshot),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('No authentication'),
-      500,
-      scrollable: find.byType(Scrollable).first,
-    );
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('No authentication'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
 
-    final authenticationSelector = tester
-        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
-          find.byKey(
-            const Key('direct-authentication-selector-openai-compatible'),
-          ),
-        );
-    authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
-    await tester.pump();
+      final authenticationSelector = tester
+          .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+            find.byKey(const Key('direct-authentication-selector-openrouter')),
+          );
+      authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
+      await tester.pump();
 
-    final save = tester.widget<ConduitButton>(
-      find.byWidgetPredicate(
-        (widget) => widget is ConduitButton && widget.text == 'Save',
-        skipOffstage: false,
-      ),
-    );
-    save.onPressed!();
-    await tester.pump();
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pump();
 
-    final keyField = tester.widget<AccessibleFormField>(
-      find.byKey(
-        const ValueKey<String>('direct-api-key-field'),
-        skipOffstage: false,
-      ),
-    );
-    expect(keyField.errorText, 'Enter an API key or choose no authentication.');
-  });
+      final keyField = tester.widget<AccessibleFormField>(
+        find.byKey(
+          const ValueKey<String>('direct-api-key-field'),
+          skipOffstage: false,
+        ),
+      );
+      expect(
+        keyField.errorText,
+        'Enter an API key or choose no authentication.',
+      );
+    },
+  );
 
   testWidgets('editor restores the OpenAI-family completion API mode', (
     tester,
@@ -1663,6 +1667,132 @@ void main() {
     expect(find.text('Chat Completions'), findsOneWidget);
     expect(find.text('Responses'), findsOneWidget);
   });
+
+  testWidgets('switching an existing profile to OpenRouter normalizes state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final profile = DirectConnectionProfile(
+      id: 'existing-generic',
+      name: 'Existing provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      openAiApiMode: DirectOpenAiApiMode.responses,
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'existing-generic'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final providerSelector = tester.widget<DropdownButtonFormField<String>>(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('direct-provider-preset-selector'),
+        ),
+        matching: find.byType(DropdownButtonFormField<String>),
+      ),
+    );
+    providerSelector.onChanged?.call('openrouter');
+    await tester.pump();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(
+        const ValueKey<String>('direct-openai-api-mode-selector'),
+        skipOffstage: false,
+      ),
+      findsNothing,
+    );
+    final authenticationSelector = tester
+        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+          find.byKey(const Key('direct-authentication-selector-openrouter')),
+        );
+    expect(
+      authenticationSelector.initialValue,
+      DirectAuthenticationMode.bearer,
+    );
+    expect(
+      tester
+          .widget<AccessibleFormField>(
+            find.byKey(
+              const ValueKey<String>('direct-base-url-field'),
+              skipOffstage: false,
+            ),
+          )
+          .controller
+          ?.text,
+      kOpenRouterApiBaseUrl,
+    );
+  });
+
+  testWidgets(
+    'opening an editor preserves the native sheet transition origin',
+    (tester) async {
+      Object? editorExtra;
+      final router = GoRouter(
+        initialLocation: Routes.directConnections,
+        routes: [
+          GoRoute(
+            path: Routes.directConnections,
+            name: RouteNames.directConnections,
+            builder: (_, _) => const DirectConnectionsPage(),
+          ),
+          GoRoute(
+            path: Routes.directConnectionEditor,
+            name: RouteNames.directConnectionEditor,
+            builder: (_, state) {
+              editorExtra = state.extra;
+              return const Scaffold(body: Text('Connection editor'));
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directConnectionProfilesProvider.overrideWith(
+              () => _StaticDirectProfiles(const []),
+            ),
+            directHistoryPolicyProvider.overrideWith(_StaticHistoryPolicy.new),
+          ],
+          child: MaterialApp.router(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Add connection'));
+      await tester.pumpAndSettle();
+
+      expect(editorExtra, isA<NativeSheetNavigationOrigin>());
+      expect(find.text('Connection editor'), findsOneWidget);
+    },
+  );
 
   testWidgets('editor rejects a save from a stale profile snapshot', (
     tester,

@@ -39,6 +39,34 @@ void main() {
     expect(find.text('Direct Alpha'), findsOneWidget);
     expect(find.text('Direct Beta'), findsOneWidget);
   });
+
+  testWidgets('OpenRouter Personalization exposes the image generation model', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          openWebUiAccountAvailableProvider.overrideWithValue(false),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(
+              openRouterImageGenerationModel: 'openai/gpt-5-image-mini',
+            ),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          modelsProvider.overrideWith(_OpenRouterModels.new),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: PersonalizationPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Default image generation model'), findsWidgets);
+    expect(find.text('openai/gpt-5-image-mini'), findsOneWidget);
+  });
 }
 
 class _DirectModels extends Models {
@@ -52,6 +80,18 @@ class _DirectModels extends Models {
     Model(
       id: 'direct:beta',
       name: 'Direct Beta',
+      metadata: {'backend': 'direct'},
+    ),
+  ];
+}
+
+class _OpenRouterModels extends Models {
+  @override
+  Future<List<Model>> build() async => const [
+    Model(
+      id: 'direct:openrouter:text-model',
+      name: 'OpenRouter Text Model',
+      capabilities: {'openrouter': true, 'image_generation': true},
       metadata: {'backend': 'direct'},
     ),
   ];

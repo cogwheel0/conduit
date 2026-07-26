@@ -226,6 +226,45 @@ void main() {
     });
   });
 
+  group('normalizeDirectGeneratedImage', () {
+    test('preserves the aggregate image limit error', () {
+      expect(
+        () => normalizeDirectGeneratedImage(
+          const DirectGeneratedImage(
+            dataUrl: 'data:image/png;base64,AQID',
+            mediaType: 'image/png',
+          ),
+          maxDecodedBytes: 2,
+        ),
+        throwsA(
+          isA<DirectProviderException>().having(
+            (error) => error.message,
+            'message',
+            'The generated images exceed the Direct image limit.',
+          ),
+        ),
+      );
+    });
+
+    test('keeps malformed generated image details generic', () {
+      expect(
+        () => normalizeDirectGeneratedImage(
+          const DirectGeneratedImage(
+            dataUrl: 'data:image/png;base64,AQ I',
+            mediaType: 'image/png',
+          ),
+        ),
+        throwsA(
+          isA<DirectProviderException>().having(
+            (error) => error.message,
+            'message',
+            'The provider returned an invalid generated image.',
+          ),
+        ),
+      );
+    });
+  });
+
   group('buildDirectChatMessages', () {
     test('preserves supported history and resolves protected images', () async {
       final resolvedImage = _imageDataUrl([1, 2, 3]);
@@ -324,6 +363,48 @@ void main() {
           'user',
         ]);
         expect(_textParts(result[1]), [rawAssistantAnswer]);
+      },
+    );
+
+    test(
+      'replays image-only assistants as bounded text without image bytes',
+      () async {
+        const generatedImage = 'data:image/png;base64,AQID';
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(id: 'user-1', role: 'user', content: 'Draw a lighthouse'),
+            _message(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              files: const <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'type': 'image',
+                  'source': 'direct_openrouter_image',
+                  'url': generatedImage,
+                  'content_type': 'image/png',
+                },
+              ],
+              metadata: const <String, dynamic>{
+                'transport': kDirectTransport,
+                kDirectRawAssistantContentMetadataKey: '',
+              },
+            ),
+            _message(
+              id: 'user-2',
+              role: 'user',
+              content: 'Make the mood warmer',
+            ),
+          ],
+        );
+
+        expect(result.map((message) => message.role), [
+          'user',
+          'assistant',
+          'user',
+        ]);
+        expect(_textParts(result[1]), [kDirectGeneratedImageReplayText]);
+        expect(result.expand(_imageParts), isEmpty);
       },
     );
 

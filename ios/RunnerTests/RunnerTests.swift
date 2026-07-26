@@ -7,6 +7,25 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testNativeModelSelectorKeepsCurrentSelectionWithPinnedModels() {
+    XCTAssertEqual(
+      nativeModelSelectorFeaturedIds(
+        pinnedModelIds: ["pinned-model"],
+        configuredFeaturedModelIds: ["fallback-model"],
+        selectedModelId: "selected-model"
+      ),
+      ["pinned-model", "selected-model"]
+    )
+    XCTAssertEqual(
+      nativeModelSelectorFeaturedIds(
+        pinnedModelIds: ["selected-model"],
+        configuredFeaturedModelIds: ["fallback-model"],
+        selectedModelId: "selected-model"
+      ),
+      ["selected-model"]
+    )
+  }
+
   func testHermesFlutterAssetCanBeLoadedAsAnImage() {
     let image = loadFlutterAssetImage("assets/icons/hermes_agent.png")
     XCTAssertNotNil(image)
@@ -151,6 +170,36 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(nativeSheetRedirectStaysWithinOrigin(
       originalURL: original,
       redirectURL: try XCTUnwrap(URL(string: "http://example.test/final"))
+    ))
+
+    let googleFavicon = try XCTUnwrap(
+      URL(string: "https://www.google.com/s2/favicons?domain=example.test")
+    )
+    XCTAssertTrue(nativeSheetRedirectStaysWithinOrigin(
+      originalURL: googleFavicon,
+      redirectURL: try XCTUnwrap(
+        URL(string: "https://t3.gstatic.com/faviconV2?client=SOCIAL")
+      )
+    ))
+    XCTAssertFalse(nativeSheetRedirectStaysWithinOrigin(
+      originalURL: googleFavicon,
+      redirectURL: try XCTUnwrap(
+        URL(string: "https://t3.gstatic.com/unrelated")
+      )
+    ))
+    XCTAssertFalse(nativeSheetRedirectStaysWithinOrigin(
+      originalURL: googleFavicon,
+      redirectURL: try XCTUnwrap(
+        URL(string: "https://images.gstatic.com/faviconV2")
+      )
+    ))
+    XCTAssertFalse(nativeSheetRedirectStaysWithinOrigin(
+      originalURL: try XCTUnwrap(
+        URL(string: "https://www.google.com/unrelated")
+      ),
+      redirectURL: try XCTUnwrap(
+        URL(string: "https://t3.gstatic.com/faviconV2")
+      )
     ))
   }
 

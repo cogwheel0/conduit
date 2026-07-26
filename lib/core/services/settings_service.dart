@@ -49,6 +49,8 @@ class SettingsService {
   static const String _highContrastKey = PreferenceKeys.highContrast;
   static const String _darkModeKey = PreferenceKeys.darkMode;
   static const String _defaultModelKey = PreferenceKeys.defaultModel;
+  static const String _openRouterImageGenerationModelKey =
+      PreferenceKeys.openRouterImageGenerationModel;
   // Voice input settings
   static const String _voiceLocaleKey = PreferenceKeys.voiceLocaleId;
   static const String _voiceHoldToTalkKey = PreferenceKeys.voiceHoldToTalk;
@@ -244,6 +246,18 @@ class SettingsService {
     return PreferencesStore.remove(_defaultModelKey);
   }
 
+  /// Set the model used by OpenRouter's dedicated Image API.
+  static Future<void> setOpenRouterImageGenerationModel(String? modelId) {
+    final normalized = modelId?.trim();
+    if (normalized != null && normalized.isNotEmpty) {
+      return PreferencesStore.put(
+        _openRouterImageGenerationModelKey,
+        normalized,
+      );
+    }
+    return PreferencesStore.remove(_openRouterImageGenerationModelKey);
+  }
+
   /// Load all settings
   static Future<AppSettings> loadSettings() {
     return Future.value(
@@ -295,6 +309,10 @@ class SettingsService {
       settings.chatImageGenerationEnabled,
     );
     await _putOrRemove(_defaultModelKey, settings.defaultModel);
+    await _putOrRemove(
+      _openRouterImageGenerationModelKey,
+      settings.openRouterImageGenerationModel,
+    );
     await _putOrRemove(
       _voiceLocaleKey,
       normalizeVoiceLocaleId(settings.voiceLocaleId),
@@ -639,6 +657,9 @@ class SettingsService {
       highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
       darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
       defaultModel: PreferencesStore.get<String>(_defaultModelKey),
+      openRouterImageGenerationModel: PreferencesStore.get<String>(
+        _openRouterImageGenerationModelKey,
+      ),
       voiceLocaleId: normalizeVoiceLocaleId(
         PreferencesStore.get<String>(_voiceLocaleKey),
       ),
@@ -725,6 +746,7 @@ class AppSettings {
   final bool highContrast;
   final bool darkMode;
   final String? defaultModel;
+  final String? openRouterImageGenerationModel;
   final String? voiceLocaleId;
   final bool voiceHoldToTalk;
   final bool voiceAutoSendFinal;
@@ -763,6 +785,7 @@ class AppSettings {
     this.highContrast = false,
     this.darkMode = true,
     this.defaultModel,
+    this.openRouterImageGenerationModel,
     this.voiceLocaleId,
     this.voiceHoldToTalk = false,
     this.voiceAutoSendFinal = false,
@@ -802,6 +825,7 @@ class AppSettings {
     bool? highContrast,
     bool? darkMode,
     Object? defaultModel = const _DefaultValue(),
+    Object? openRouterImageGenerationModel = const _DefaultValue(),
     Object? voiceLocaleId = const _DefaultValue(),
     bool? voiceHoldToTalk,
     bool? voiceAutoSendFinal,
@@ -843,6 +867,10 @@ class AppSettings {
       defaultModel: defaultModel is _DefaultValue
           ? this.defaultModel
           : defaultModel as String?,
+      openRouterImageGenerationModel:
+          openRouterImageGenerationModel is _DefaultValue
+          ? this.openRouterImageGenerationModel
+          : openRouterImageGenerationModel as String?,
       voiceLocaleId: voiceLocaleId is _DefaultValue
           ? this.voiceLocaleId
           : voiceLocaleId as String?,
@@ -903,6 +931,8 @@ class AppSettings {
         other.highContrast == highContrast &&
         other.darkMode == darkMode &&
         other.defaultModel == defaultModel &&
+        other.openRouterImageGenerationModel ==
+            openRouterImageGenerationModel &&
         other.voiceLocaleId == voiceLocaleId &&
         other.voiceHoldToTalk == voiceHoldToTalk &&
         other.voiceAutoSendFinal == voiceAutoSendFinal &&
@@ -944,6 +974,7 @@ class AppSettings {
       highContrast,
       darkMode,
       defaultModel,
+      openRouterImageGenerationModel,
       voiceLocaleId,
       voiceHoldToTalk,
       voiceAutoSendFinal,
@@ -1109,6 +1140,18 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setDefaultModel(String? modelId) async {
     state = state.copyWith(defaultModel: modelId);
     await SettingsService.setDefaultModel(modelId);
+  }
+
+  Future<void> setOpenRouterImageGenerationModel(String? modelId) async {
+    final pendingLoad = _pendingLoad;
+    if (pendingLoad != null) {
+      await pendingLoad;
+      if (!ref.mounted) return;
+    }
+    final normalized = modelId?.trim();
+    final value = normalized == null || normalized.isEmpty ? null : normalized;
+    state = state.copyWith(openRouterImageGenerationModel: value);
+    await SettingsService.setOpenRouterImageGenerationModel(value);
   }
 
   Future<void> setVoiceLocaleId(String? localeId) async {

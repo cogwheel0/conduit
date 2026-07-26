@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/ollama_thinking.dart';
+import 'package:conduit/features/direct_connections/models/openrouter_reasoning.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -76,6 +78,36 @@ void main() {
     check(container.read(selectedModelProvider)).identicalTo(models.first);
   });
 
+  test('server model reasoning effort takes precedence over user effort', () {
+    const model = Model(
+      id: 'server-model',
+      name: 'Server model',
+      metadata: {
+        'info': {
+          'params': {'reasoning_effort': ' none '},
+        },
+      },
+    );
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+
+    check(container.read(reasoningEffortProvider)).equals('none');
+    check(reasoningEffortForModel(container.read, model)).equals('none');
+  });
+
+  test('server model preserves custom reasoning effort values', () {
+    const model = Model(
+      id: 'custom-server-model',
+      name: 'Custom server model',
+      metadata: {
+        'params': {'reasoning_effort': 'Vendor_Ultra'},
+      },
+    );
+
+    check(modelConfiguredReasoningEffort(model)).equals('vendor_ultra');
+  });
+
   test(
     'malformed saved effort does not discard valid model settings',
     () async {
@@ -119,6 +151,11 @@ void main() {
 
     check(container.read(configuredReasoningEffortProvider)).isNull();
     check(container.read(reasoningEffortAllowsCustomProvider)).isFalse();
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(policy.restrictsValues).isTrue();
+    await check(
+      setReasoningEffortForModel(container.read, model, 'unsupported'),
+    ).throws<FormatException>();
     final write = setReasoningEffortForModel(container.read, model, 'high');
     await Future<void>.delayed(Duration.zero);
 
@@ -160,4 +197,111 @@ void main() {
     check(container.read(localReasoningEffortsProvider)).isEmpty();
     check(profiles.writes).isEmpty();
   });
+
+  test('OpenRouter policy follows supported efforts and mandatory mode', () {
+    final profile = DirectConnectionProfile(
+      id: 'openrouter-profile',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'reasoning': {
+            'supported_efforts': ['high', 'minimal', 'none'],
+            'default_effort': 'minimal',
+            'mandatory': true,
+          },
+        },
+      ),
+    ]).single;
+    final container = ProviderContainer(
+      overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+    );
+    addTearDown(container.dispose);
+
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(policy.visible).isTrue();
+    check(policy.allowsCustom).isFalse();
+    check(policy.restrictsValues).isTrue();
+    check(policy.options).deepEquals(['automatic', 'high', 'minimal']);
+    check(policy.accepts('none')).isFalse();
+    check(policy.effectiveConfiguredEffort('automatic')).isNull();
+  });
+
+  test('OpenRouter null supported efforts exposes all gateway levels', () {
+    final profile = DirectConnectionProfile(
+      id: 'openrouter-profile',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'reasoning': {'supported_efforts': null, 'mandatory': false},
+        },
+      ),
+    ]).single;
+    final container = ProviderContainer(
+      overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+    );
+    addTearDown(container.dispose);
+
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(
+      policy.options,
+    ).deepEquals(['automatic', ...kOpenRouterReasoningEfforts]);
+  });
+
+  test(
+    'OpenRouter hides absent reasoning and keeps stale preference stored',
+    () async {
+      final profile = DirectConnectionProfile(
+        id: 'openrouter-profile',
+        name: 'OpenRouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'without-reasoning'),
+        DirectRemoteModel(
+          id: 'limited',
+          capabilities: const {
+            'reasoning': {
+              'supported_efforts': ['high', 'minimal'],
+              'mandatory': false,
+            },
+          },
+        ),
+      ]);
+      final container = ProviderContainer(
+        overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+      );
+      addTearDown(container.dispose);
+      const key = 'direct:openrouter-profile:limited';
+      await container
+          .read(localReasoningEffortsProvider.notifier)
+          .set(key, 'medium');
+
+      check(
+        reasoningEffortPolicyForModel(container.read, models.first).visible,
+      ).isFalse();
+      check(
+        reasoningEffortForModel(container.read, models.last),
+      ).equals('automatic');
+      check(
+        container.read(localReasoningEffortsProvider)[key],
+      ).equals('medium');
+      await check(
+        setReasoningEffortForModel(container.read, models.last, 'medium'),
+      ).throws<FormatException>();
+    },
+  );
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
@@ -17,6 +18,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,6 +43,21 @@ class _RecordingTextToSpeechController extends TextToSpeechController {
     required String text,
   }) async {
     onToggle();
+  }
+}
+
+final class _PendingImageProvider extends ImageProvider<_PendingImageProvider> {
+  @override
+  Future<_PendingImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture(this);
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    _PendingImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(Completer<ImageInfo>().future);
   }
 }
 
@@ -170,6 +187,138 @@ void main() {
     expect(find.text('API Docs'), findsOneWidget);
     expect(find.text('A second source summary for the sheet.'), findsOneWidget);
   });
+
+  testWidgets('source chip shows an icon while its favicon is loading', (
+    tester,
+  ) async {
+    const sources = <ChatSourceReference>[
+      ChatSourceReference(
+        title: 'Loading source',
+        url: 'https://favicon-loading.invalid/article',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      _buildHarness(
+        Center(
+          child: OpenWebUISourcesWidget(
+            sources: sources,
+            faviconImageProvider: (_) => _PendingImageProvider(),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('1 Source'), findsOneWidget);
+    expect(find.byIcon(Icons.language), findsOneWidget);
+  });
+
+  testWidgets(
+    'source chip resolves Gemini grounding redirects before favicon lookup',
+    (tester) async {
+      final resolvedDomain = Completer<String>();
+      final requestedFaviconUrls = <String>[];
+
+      await tester.pumpWidget(
+        _buildHarness(
+          Center(
+            child: OpenWebUISourcesWidget(
+              sources: const <ChatSourceReference>[
+                ChatSourceReference(
+                  title: 'Grounded source',
+                  url:
+                      'https://vertexaisearch.cloud.google.com/'
+                      'grounding-api-redirect/opaque',
+                ),
+              ],
+              faviconDomainResolver: (_) => resolvedDomain.future,
+              faviconImageProvider: (url) {
+                requestedFaviconUrls.add(url);
+                return _PendingImageProvider();
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.language), findsOneWidget);
+      expect(requestedFaviconUrls, isEmpty);
+
+      resolvedDomain.complete('help.openai.com');
+      await tester.pump();
+
+      expect(
+        requestedFaviconUrls,
+        contains(
+          'https://www.google.com/s2/favicons'
+          '?sz=32&domain=help.openai.com',
+        ),
+      );
+    },
+  );
+
+  test('favicon domain resolver accepts only HTTPS grounding destinations', () {
+    const groundingUrl =
+        'https://vertexaisearch.cloud.google.com/'
+        'grounding-api-redirect/opaque';
+
+    expect(
+      resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: (_) async =>
+            Uri.parse('https://www.help.openai.com/en/articles/'),
+      ),
+      completion('help.openai.com'),
+    );
+    expect(
+      resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: (_) async =>
+            Uri.parse('http://help.openai.com/en/articles/'),
+      ),
+      completion('vertexaisearch.cloud.google.com'),
+    );
+  });
+
+  test(
+    'favicon resolver shares in-flight and completed grounding lookups',
+    () async {
+      debugResetSourceFaviconDomainCache();
+      addTearDown(debugResetSourceFaviconDomainCache);
+      const groundingUrl =
+          'https://vertexaisearch.cloud.google.com/'
+          'grounding-api-redirect/cache-test';
+      var calls = 0;
+      final gate = Completer<Uri?>();
+
+      Future<Uri?> resolver(Uri _) {
+        calls += 1;
+        return gate.future;
+      }
+
+      final first = resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: resolver,
+      );
+      final second = resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: resolver,
+      );
+      check(calls).equals(1);
+
+      gate.complete(Uri.parse('https://www.help.openai.com/en/articles/'));
+      check(
+        await Future.wait([first, second]),
+      ).deepEquals(['help.openai.com', 'help.openai.com']);
+      check(
+        await resolveSourceFaviconDomain(
+          groundingUrl,
+          redirectResolver: resolver,
+        ),
+      ).equals('help.openai.com');
+      check(calls).equals(1);
+    },
+  );
 
   testWidgets('assistant footer caps inline actions and overflows extras', (
     tester,

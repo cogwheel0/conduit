@@ -557,6 +557,15 @@ final class OllamaAdapter
           );
           var hasCompletion = false;
           final messages = requireSerializableDirectMessages(request.messages);
+          if (request.enableImageGeneration ||
+              messages.any(
+                (message) =>
+                    message.parts.any((part) => part is DirectFilePart),
+              )) {
+            throw const DirectProviderException(
+              'This Ollama connection does not support that Direct capability.',
+            );
+          }
           final webToolsEnabled =
               request.enableWebSearch && profile.supportsOllamaCloudWebSearch;
           if (request.enableWebSearch && !webToolsEnabled) {
