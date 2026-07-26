@@ -163,6 +163,45 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
     },
   );
+
+  testWidgets('channel route change clears the prior active channel', (
+    tester,
+  ) async {
+    final secondResponse = Completer<Map<String, dynamic>>();
+    final api = _RouteChangeChannelApi(secondResponse);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    Widget buildPage(String channelId) => UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ChannelPage(channelId: channelId),
+      ),
+    );
+
+    await tester.pumpWidget(buildPage('channel-1'));
+    await tester.pump(const Duration(milliseconds: 1));
+    check(container.read(activeChannelProvider)?.name).equals('First channel');
+
+    await tester.pumpWidget(buildPage('channel-2'));
+    await tester.pump(const Duration(milliseconds: 1));
+    check(container.read(activeChannelProvider)).isNull();
+
+    secondResponse.complete({'id': 'channel-2', 'name': 'Second channel'});
+    await tester.pump(const Duration(milliseconds: 1));
+    check(container.read(activeChannelProvider)?.name).equals('Second channel');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }
 
 Map<String, dynamic> _channelJson(String name) => {
@@ -262,4 +301,19 @@ class _ChannelApi extends ApiService {
   Future<Map<String, dynamic>> getUserSettings({
     ApiAuthSnapshot? authSnapshot,
   }) async => const {};
+}
+
+class _RouteChangeChannelApi extends _ChannelApi {
+  _RouteChangeChannelApi(this.secondResponse);
+
+  final Completer<Map<String, dynamic>> secondResponse;
+
+  @override
+  Future<Map<String, dynamic>> getChannel(String channelId) {
+    if (channelId == 'channel-2') return secondResponse.future;
+    return Future<Map<String, dynamic>>.value({
+      'id': channelId,
+      'name': 'First channel',
+    });
+  }
 }

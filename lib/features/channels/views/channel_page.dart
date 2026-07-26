@@ -116,10 +116,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     }
   }
 
-  void _clearTransientChannelState(String channelId, {bool notify = false}) {
+  void _clearTransientChannelState(
+    String channelId, {
+    bool notify = false,
+    bool invalidateThread = true,
+  }) {
     _operationGeneration += 1;
     final threadParent = _threadParent;
-    if (threadParent != null) {
+    if (invalidateThread && threadParent != null) {
       ref.invalidate(threadMessagesProvider(channelId, threadParent.id));
     }
 
@@ -143,8 +147,21 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   void didUpdateWidget(covariant ChannelPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.channelId != oldWidget.channelId) {
-      _clearTransientChannelState(oldWidget.channelId);
-      _loadChannel();
+      final previousChannelId = oldWidget.channelId;
+      final previousThreadParentId = _threadParent?.id;
+      final nextChannelId = widget.channelId;
+      _clearTransientChannelState(previousChannelId, invalidateThread: false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (previousThreadParentId != null) {
+          ref.invalidate(
+            threadMessagesProvider(previousChannelId, previousThreadParentId),
+          );
+        }
+        if (widget.channelId != nextChannelId) return;
+        ref.read(activeChannelProvider.notifier).clear();
+        unawaited(_loadChannel());
+      });
       // Defer subscribe — unsubscribe clears ChannelTypingUsers
       // state which is not allowed during the build phase.
       Future(() {
