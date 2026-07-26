@@ -199,6 +199,7 @@ class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
           );
     _ownerGeneration += 1;
     _basesRequestGeneration += 1;
+    _fileRequestEpoch += 1;
     _fileRequestGenerations.clear();
     _basesInFlight = null;
     _basesInFlightToken = null;

@@ -15,12 +15,23 @@ final _activeKnowledgeApiProvider =
     NotifierProvider<_ActiveKnowledgeApi, ApiService?>(
       () => _ActiveKnowledgeApi(),
     );
+final _activeKnowledgeEpochProvider =
+    NotifierProvider<_ActiveKnowledgeEpoch, Object>(
+      () => _ActiveKnowledgeEpoch(),
+    );
 
 class _ActiveKnowledgeApi extends Notifier<ApiService?> {
   @override
   ApiService? build() => null;
 
   void set(ApiService? api) => state = api;
+}
+
+class _ActiveKnowledgeEpoch extends Notifier<Object> {
+  @override
+  Object build() => Object();
+
+  void rotate() => state = Object();
 }
 
 void main() {
@@ -241,6 +252,60 @@ void main() {
       await Future.wait([first, duplicate, otherBase]);
       check(api.fileCalls['kb-1']).equals(1);
       check(api.fileCalls['kb-2']).equals(1);
+    });
+
+    test('auth owner rebuild fences an older same-base file request', () async {
+      final staleGate = Completer<void>();
+      final freshGate = Completer<void>();
+      final staleFile = KnowledgeBaseFile(
+        id: 'stale-owner-file',
+        filename: 'stale.md',
+        createdAt: DateTime.utc(2026, 1, 1),
+      );
+      final freshFile = KnowledgeBaseFile(
+        id: 'fresh-owner-file',
+        filename: 'fresh.md',
+        createdAt: DateTime.utc(2026, 1, 2),
+      );
+      final api = _SequencedFilesApi(
+        gates: [staleGate, freshGate],
+        results: [
+          [staleFile],
+          [freshFile],
+        ],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(_activeKnowledgeEpochProvider),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final staleRequest = container
+          .read(knowledgeCacheProvider.notifier)
+          .fetchFilesForBase('kb-1');
+      await Future<void>.delayed(Duration.zero);
+      container.read(_activeKnowledgeEpochProvider.notifier).rotate();
+      final freshRequest = container
+          .read(knowledgeCacheProvider.notifier)
+          .fetchFilesForBase('kb-1');
+      await Future<void>.delayed(Duration.zero);
+
+      freshGate.complete();
+      await freshRequest;
+      check(
+        container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
+      ).equals('fresh-owner-file');
+
+      staleGate.complete();
+      await staleRequest;
+      check(
+        container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
+      ).equals('fresh-owner-file');
+      check(api.fileCalls['kb-1']).equals(2);
     });
 
     for (final clearAll in [false, true]) {
