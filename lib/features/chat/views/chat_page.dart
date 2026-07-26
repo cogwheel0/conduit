@@ -2287,7 +2287,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _wantsPinToTop && _pinnedUserMessageId != null
         ? layoutMetadata.indexByMessageId[_pinnedUserMessageId!] ?? -1
         : -1;
-    final pinnedPositionedIndex = _pinnedUserMessageId == null
+    // The constant-key positioned list consumes these only when it is first
+    // created for an empty transcript's first turn. Subsequent pins are
+    // positioned authoritatively by _scrollToUserMessage.
+    final shouldSeedInitialPin =
+        _pinShouldSettleImmediately && !_pinToTopPositionSettled;
+    final pinnedPositionedIndex =
+        !shouldSeedInitialPin || _pinnedUserMessageId == null
         ? null
         : timeline.positionedIndexForMessageId(_pinnedUserMessageId!);
     final initialPinAlignment = pinnedPositionedIndex == null
@@ -2547,16 +2553,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ),
       ),
     );
+    final hideForInitialPin = debugShouldHideTranscriptForInitialPinForTesting(
+      settleImmediately: _pinShouldSettleImmediately,
+      positionSettled: _pinToTopPositionSettled,
+    );
     return Opacity(
       key: const ValueKey<String>('positioned-transcript-visibility'),
-      opacity:
-          debugShouldHideTranscriptForInitialPinForTesting(
-            settleImmediately: _pinShouldSettleImmediately,
-            positionSettled: _pinToTopPositionSettled,
-          )
-          ? 0
-          : 1,
-      child: positionedTranscript,
+      opacity: hideForInitialPin ? 0 : 1,
+      child: hideForInitialPin
+          ? ExcludeSemantics(
+              key: const ValueKey<String>(
+                'positioned-transcript-settling-semantics-guard',
+              ),
+              child: IgnorePointer(
+                key: const ValueKey<String>(
+                  'positioned-transcript-settling-guard',
+                ),
+                child: positionedTranscript,
+              ),
+            )
+          : positionedTranscript,
     );
   }
 

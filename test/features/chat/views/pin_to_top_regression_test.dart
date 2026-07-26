@@ -179,10 +179,8 @@ void main() {
               assistantHeight,
               positionSettled,
             ]),
-            builder: (context, _) => Opacity(
-              key: const ValueKey('settling-transcript-visibility'),
-              opacity: positionSettled.value ? 1 : 0,
-              child: ScrollablePositionedList.builder(
+            builder: (context, _) {
+              final transcript = ScrollablePositionedList.builder(
                 reverse: true,
                 itemScrollController: controller,
                 initialScrollIndex: 1,
@@ -207,8 +205,26 @@ void main() {
                   }
                   return const SizedBox(height: 100);
                 },
-              ),
-            ),
+              );
+              final isSettling = !positionSettled.value;
+              return Opacity(
+                key: const ValueKey('settling-transcript-visibility'),
+                opacity: isSettling ? 0 : 1,
+                child: isSettling
+                    ? ExcludeSemantics(
+                        key: const ValueKey(
+                          'settling-transcript-semantics-guard',
+                        ),
+                        child: IgnorePointer(
+                          key: const ValueKey(
+                            'settling-transcript-interaction-guard',
+                          ),
+                          child: transcript,
+                        ),
+                      )
+                    : transcript,
+              );
+            },
           ),
         ),
       ),
@@ -224,6 +240,22 @@ void main() {
           )
           .opacity,
       0,
+    );
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(const ValueKey('settling-transcript-interaction-guard')),
+          )
+          .ignoring,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<ExcludeSemantics>(
+            find.byKey(const ValueKey('settling-transcript-semantics-guard')),
+          )
+          .excluding,
+      isTrue,
     );
 
     // Measurements arrive while hidden. The page performs one item jump and
@@ -242,16 +274,27 @@ void main() {
           .opacity,
       1,
     );
+    expect(
+      find.byKey(const ValueKey('settling-transcript-interaction-guard')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('settling-transcript-semantics-guard')),
+      findsNothing,
+    );
 
     assistantHeight.value = 120;
 
     var minimumPinnedTop = double.infinity;
-    while (tester.binding.hasScheduledFrame) {
+    var frames = 0;
+    while (tester.binding.hasScheduledFrame && frames < 240) {
+      frames++;
       await tester.pump(const Duration(milliseconds: 16));
       final pinnedTop = tester.getTopLeft(finder).dy;
       if (pinnedTop < minimumPinnedTop) minimumPinnedTop = pinnedTop;
     }
 
+    expect(tester.binding.hasScheduledFrame, isFalse);
     expect(minimumPinnedTop, greaterThanOrEqualTo(_topInset - 2));
     expect(tester.getTopLeft(finder).dy, closeTo(_topInset, 1));
   });
