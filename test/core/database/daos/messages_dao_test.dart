@@ -10,6 +10,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/chat_blob_fixtures.dart';
+import '../support/transcript_chain_fixture.dart';
 
 const _deepEq = DeepCollectionEquality();
 
@@ -30,42 +31,8 @@ void main() {
       required int count,
       List<MessageRowData> extras = const [],
     }) {
-      final messages = <MessageRowData>[
-        for (var index = 0; index < count; index += 1)
-          MessageRowData(
-            id: 'm$index',
-            chatId: chatId,
-            parentId: index == 0 ? null : 'm${index - 1}',
-            role: index.isEven ? 'user' : 'assistant',
-            content: 'message $index',
-            createdAt: 100,
-            orderIndex: index,
-            payload: {
-              'id': 'm$index',
-              'parentId': index == 0 ? null : 'm${index - 1}',
-              'role': index.isEven ? 'user' : 'assistant',
-              'content': 'message $index',
-              'timestamp': 100,
-            },
-          ),
-        ...extras,
-      ];
       return db.chatsDao.upsertServerChat(
-        rows: ChatRows(
-          chat: ChatRowData(
-            id: chatId,
-            title: 'Window',
-            currentMessageId: count == 0 ? null : 'm${count - 1}',
-            createdAt: 1,
-            updatedAt: 2,
-          ),
-          messages: messages,
-          blobHadTitle: true,
-          blobTitleValue: 'Window',
-          blobHadHistory: true,
-          historyHadMessages: true,
-          historyHadCurrentId: true,
-        ),
+        rows: buildLinearChatRows(chatId: chatId, count: count, extras: extras),
       );
     }
 

@@ -12,6 +12,8 @@ import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/transcript_chain_fixture.dart';
+
 void main() {
   late bool previousDontWarnAboutMultipleDatabases;
   late AppDatabase serverDatabase;
@@ -430,40 +432,16 @@ void main() {
       'loads only the latest 50 active-branch messages for presentation',
       () async {
         const chatId = 'windowed-local';
-        final messages = [
-          for (var index = 0; index < 500; index += 1)
-            MessageRowData(
-              id: 'message-$index',
-              chatId: chatId,
-              parentId: index == 0 ? null : 'message-${index - 1}',
-              role: index.isEven ? 'user' : 'assistant',
-              content: 'body $index',
-              createdAt: index,
-              orderIndex: index,
-              payload: {
-                'id': 'message-$index',
-                'parentId': index == 0 ? null : 'message-${index - 1}',
-                'role': index.isEven ? 'user' : 'assistant',
-                'content': 'body $index',
-                'timestamp': index,
-              },
-            ),
-        ];
         await localDatabase.chatsDao.upsertLocalOnlyChat(
-          rows: ChatRows(
-            chat: const ChatRowData(
-              id: chatId,
-              title: 'Windowed',
-              currentMessageId: 'message-499',
-              createdAt: 0,
-              updatedAt: 499,
-            ),
-            messages: messages,
-            blobHadTitle: true,
-            blobTitleValue: 'Windowed',
-            blobHadHistory: true,
-            historyHadMessages: true,
-            historyHadCurrentId: true,
+          rows: buildLinearChatRows(
+            chatId: chatId,
+            count: 500,
+            title: 'Windowed',
+            messageIdForIndex: (index) => 'message-$index',
+            contentForIndex: (index) => 'body $index',
+            createdAtForIndex: (index) => index,
+            chatCreatedAt: 0,
+            chatUpdatedAt: 499,
           ),
         );
 
