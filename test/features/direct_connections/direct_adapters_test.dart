@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -643,6 +644,1353 @@ void main() {
   );
 
   test(
+    'OpenRouter probe validates the key and lists user-filtered models',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'data': {'label': 'Conduit key', 'limit_remaining': 10},
+        }),
+        _Reply.json({
+          'data': [
+            {
+              'id': 'anthropic/claude-sonnet-4',
+              'name': 'Claude Sonnet 4',
+              'architecture': {
+                'input_modalities': ['text', 'image', 'file'],
+              },
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final result = await adapter.probe(
+        _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+      );
+
+      expect(result.reachable, isTrue);
+      expect(result.modelCount, 1);
+      expect(http.requests.map((request) => request.uri.toString()), [
+        'https://openrouter.ai/api/v1/key',
+        'https://openrouter.ai/api/v1/models/user',
+      ]);
+      expect(
+        http.requests.every(
+          (request) => request.headers['Authorization'] == 'Bearer secret',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'OpenRouter discovery derives image generation from output modalities',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'data': [
+            {
+              'id': 'image-model',
+              'architecture': {
+                'input_modalities': ['text'],
+                'output_modalities': ['text', 'IMAGE'],
+              },
+            },
+            {
+              'id': 'text-model',
+              'architecture': {
+                'input_modalities': ['text'],
+                'output_modalities': ['text'],
+              },
+            },
+            {'id': 'unknown-model'},
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final models = await adapter.listModels(
+        _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+      );
+      DirectRemoteModel model(String id) =>
+          models.firstWhere((candidate) => candidate.id == id);
+
+      expect(model('image-model').capabilities['image_generation'], isTrue);
+      expect(model('text-model').capabilities['image_generation'], isFalse);
+      expect(model('unknown-model').capabilities['image_generation'], isFalse);
+      expect(
+        http.requests.single.uri.toString(),
+        'https://openrouter.ai/api/v1/models/user',
+      );
+    },
+  );
+
+  test('OpenRouter discovery normalizes model reasoning metadata', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {
+            'id': 'limited',
+            'reasoning': {
+              'supported_efforts': [
+                'high',
+                'minimal',
+                'none',
+                'future',
+                'high',
+              ],
+              'default_effort': 'minimal',
+              'default_enabled': true,
+              'supports_max_tokens': false,
+              'mandatory': true,
+            },
+          },
+          {
+            'id': 'all-efforts',
+            'reasoning': {'supported_efforts': null},
+          },
+          {'id': 'not-reasoning'},
+          {
+            'id': 'malformed',
+            'reasoning': {'supported_efforts': 'high'},
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(
+      _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+    );
+    DirectRemoteModel model(String id) =>
+        models.firstWhere((candidate) => candidate.id == id);
+
+    check(model('limited').capabilities['reasoning']).isA<Map>().deepEquals({
+      'supported_efforts': ['high', 'minimal', 'none'],
+      'default_effort': 'minimal',
+      'default_enabled': true,
+      'supports_max_tokens': false,
+      'mandatory': true,
+    });
+    check(
+      model('all-efforts').capabilities['reasoning'],
+    ).isA<Map>().deepEquals({'supported_efforts': null, 'mandatory': false});
+    check(
+      model('not-reasoning').capabilities.containsKey('reasoning'),
+    ).isFalse();
+    check(model('malformed').capabilities.containsKey('reasoning')).isFalse();
+  });
+
+  for (final mode in DirectOpenAiApiMode.values) {
+    test(
+      'OpenRouter ${mode.storageValue} uses unified reasoning effort',
+      () async {
+        final http = _QueuedAdapter([
+          mode == DirectOpenAiApiMode.responses
+              ? _Reply.json({
+                  'id': 'resp_1',
+                  'object': 'response',
+                  'created_at': 1,
+                  'status': 'completed',
+                  'output': <Object>[],
+                })
+              : _Reply.json({
+                  'choices': [
+                    {
+                      'message': {'content': 'ok'},
+                    },
+                  ],
+                }),
+        ]);
+        final adapter = OpenAiCompatibleAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        );
+
+        final run = adapter.startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl, openAiApiMode: mode),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            parameters: const {'reasoning_effort': 'HIGH'},
+          ),
+        );
+        await run.events.toList();
+        await run.done;
+
+        final body = http.requests.single.data as Map;
+        check(body.containsKey('reasoning_effort')).isFalse();
+        check(body['reasoning']).isA<Map>().deepEquals({'effort': 'high'});
+      },
+    );
+  }
+
+  test(
+    'non-OpenRouter connections retain reasoning_effort shorthand',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          parameters: const {'reasoning_effort': 'custom-provider-value'},
+        ),
+      );
+      await run.events.toList();
+      await run.done;
+
+      final body = http.requests.single.data as Map;
+      check(body['reasoning_effort']).equals('custom-provider-value');
+      check(body.containsKey('reasoning')).isFalse();
+    },
+  );
+
+  test(
+    'OpenRouter automatic reasoning omits every reasoning override',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          parameters: const {
+            'reasoning_effort': 'automatic',
+            'reasoning': {'effort': 'high'},
+          },
+        ),
+      );
+      await run.events.toList();
+      await run.done;
+
+      final body = http.requests.single.data as Map;
+      check(body.containsKey('reasoning_effort')).isFalse();
+      check(body.containsKey('reasoning')).isFalse();
+    },
+  );
+
+  test(
+    'OpenRouter rejects malformed nested reasoning before dispatch',
+    () async {
+      final http = _QueuedAdapter(const []);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+              parameters: const {'reasoning': 'invalid'},
+            ),
+          )
+          .events
+          .toList();
+
+      check(http.requests).isEmpty();
+      check(
+        events.whereType<DirectStreamError>().single.message,
+      ).equals('OpenRouter reasoning configuration is invalid.');
+    },
+  );
+
+  test(
+    'OpenRouter compiles web and PDF features and emits extensions',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {
+                'content': 'Grounded answer.',
+                'annotations': [
+                  {
+                    'type': 'url_citation',
+                    'url_citation': {
+                      'url': 'https://example.com/source',
+                      'title': 'Example source',
+                      'content': 'Relevant excerpt',
+                    },
+                  },
+                  {
+                    'type': 'file',
+                    'file': {
+                      'hash': 'pdf-hash',
+                      'name': 'brief.pdf',
+                      'content': [
+                        {'type': 'text', 'text': 'Parsed PDF'},
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          'usage': {
+            'total_tokens': 7,
+            'cost': 0.0123,
+            'server_tool_use': {'web_search_requests': 1},
+          },
+          'openrouter_metadata': {
+            'strategy': 'fallback',
+            'attempt': 2,
+            'pipeline': [
+              {'type': 'server_tools', 'name': 'server-tools'},
+            ],
+          },
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final pdf = base64Encode(utf8.encode('%PDF-1.4'));
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'anthropic/claude-sonnet-4',
+              enableWebSearch: true,
+              messages: [
+                DirectChatMessage(
+                  role: 'user',
+                  parts: [
+                    const DirectTextPart('Use this PDF'),
+                    DirectFilePart(
+                      filename: 'brief.pdf',
+                      dataUrl: 'data:application/pdf;base64,$pdf',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      final request = http.requests.single;
+      expect(
+        request.uri.toString(),
+        'https://openrouter.ai/api/v1/chat/completions',
+      );
+      expect(request.headers['X-OpenRouter-Metadata'], 'enabled');
+      final body = request.data as Map;
+      expect(body['stream'], isTrue);
+      expect(request.headers['Accept'], 'text/event-stream');
+      expect(body['max_tool_calls'], 4);
+      final tools = body['tools'] as List;
+      expect(tools.map((tool) => (tool as Map)['type']), [
+        'openrouter:web_search',
+      ]);
+      final plugins = body['plugins'] as List;
+      expect(
+        plugins.map((plugin) => (plugin as Map)['id']),
+        containsAll(['file-parser', 'context-compression']),
+      );
+      final parser = plugins.cast<Map>().firstWhere(
+        (plugin) => plugin['id'] == 'file-parser',
+      );
+      expect((parser['pdf'] as Map)['engine'], 'cloudflare-ai');
+      final messages = body['messages'] as List;
+      final content = (messages.single as Map)['content'] as List;
+      expect(
+        content.map((part) => (part as Map)['type']),
+        containsAll(['text', 'file']),
+      );
+      expect(
+        events.whereType<DirectSourceFound>().single.url,
+        'https://example.com/source',
+      );
+      expect(
+        events.whereType<DirectContentDelta>().single.content,
+        'Grounded answer.',
+      );
+      expect(
+        events
+            .whereType<DirectFileAnnotationsUpdate>()
+            .single
+            .annotations
+            .single['type'],
+        'file',
+      );
+      expect(
+        events
+            .whereType<DirectProviderMetadataUpdate>()
+            .single
+            .metadata['attempt'],
+        2,
+      );
+      expect(
+        events.whereType<DirectUsageUpdate>().single.usage['cost'],
+        0.0123,
+      );
+    },
+  );
+
+  test('OpenRouter uses the dedicated Image API and emits an asset', () async {
+    const image = 'data:image/png;base64,AQID';
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': 'A luminous fox beneath an aurora',
+            },
+          },
+        ],
+        'usage': {'total_tokens': 5, 'cost': 0.001},
+      }),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQID', 'media_type': 'image/png'},
+        ],
+        'usage': {'total_tokens': 4000, 'cost': 0.04},
+      }),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Here is the image.'},
+          },
+        ],
+        'usage': {'total_tokens': 4, 'cost': 0.002},
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'anthropic/claude-sonnet-4',
+            enableWebSearch: true,
+            enableImageGeneration: true,
+            imageGenerationModel: 'google/gemini-3.1-flash-image',
+            messages: [
+              DirectChatMessage.text(
+                role: 'user',
+                text: 'Create a fox beneath an aurora',
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(http.requests, hasLength(3));
+    expect(http.requests.map((request) => request.uri.path), <String>[
+      '/api/v1/chat/completions',
+      '/api/v1/images',
+      '/api/v1/chat/completions',
+    ]);
+    final refinementRequest = http.requests.first.data as Map;
+    expect(
+      ((refinementRequest['tools'] as List).single as Map)['type'],
+      'openrouter:web_search',
+    );
+    final imageRequest = http.requests[1].data as Map;
+    expect(imageRequest['model'], 'google/gemini-3.1-flash-image');
+    expect(imageRequest['prompt'], 'A luminous fox beneath an aurora');
+    expect(imageRequest['n'], 1);
+    final generated = events.whereType<DirectGeneratedImage>().single;
+    expect(generated.dataUrl, image);
+    expect(generated.mediaType, 'image/png');
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Here is the image.',
+    );
+    expect(
+      events.whereType<DirectUsageUpdate>().last.usage['cost'],
+      closeTo(0.043, 0.000001),
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenRouter Image API supports a Responses-mode parent', () async {
+    Map<String, dynamic> response(String id, String text) => <String, dynamic>{
+      'id': id,
+      'object': 'response',
+      'created_at': 1,
+      'status': 'completed',
+      'output': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'message',
+          'id': 'message-$id',
+          'role': 'assistant',
+          'status': 'completed',
+          'content': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'output_text', 'text': text},
+          ],
+        },
+      ],
+    };
+
+    final http = _QueuedAdapter([
+      _Reply.json(response('refinement', 'A refined image prompt')),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQID', 'media_type': 'image/png'},
+        ],
+      }),
+      _Reply.json(response('acknowledgement', 'Image generated.')),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(
+            baseUrl: kOpenRouterApiBaseUrl,
+            openAiApiMode: DirectOpenAiApiMode.responses,
+          ),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(http.requests.map((request) => request.uri.path), <String>[
+      '/api/v1/responses',
+      '/api/v1/images',
+      '/api/v1/responses',
+    ]);
+    final refinement = http.requests.first.data as Map;
+    expect(refinement['input'], 'Create an image');
+    expect(refinement['instructions'], isA<String>());
+    expect((http.requests[1].data as Map)['model'], 'openai/gpt-5-image');
+    expect(events.whereType<DirectGeneratedImage>(), hasLength(1));
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Image generated.',
+    );
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenRouter does not accept unsolicited chat images', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': null,
+              'images': [
+                {
+                  'image_url': {'url': 'data:image/png;base64,AQID'},
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
+            messages: [DirectChatMessage.text(role: 'user', text: 'Hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'The provider returned an invalid response.',
+    );
+  });
+
+  test(
+    'OpenRouter skips malformed Image API entries before a valid image',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'A refined prompt'},
+            },
+          ],
+        }),
+        _Reply.json({
+          'data': [
+            null,
+            {'b64_json': 'AQID', 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Image generated.'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'openai/gpt-5-mini',
+              enableImageGeneration: true,
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectGeneratedImage>(), hasLength(1));
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test('OpenRouter rejects unpadded Image API base64', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'A refined prompt'},
+          },
+        ],
+      }),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQI', 'media_type': 'image/png'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'The provider returned an invalid response.',
+    );
+  });
+
+  test(
+    'OpenRouter accounts generated images outside the text budget',
+    () async {
+      const base64 =
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'P'},
+            },
+          ],
+        }),
+        _Reply.json({
+          'data': [
+            {'b64_json': base64, 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Done.'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        maxStreamCharacters: 16,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'openai/gpt-5-mini',
+              enableImageGeneration: true,
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(
+        events.whereType<DirectGeneratedImage>().single.dataUrl,
+        'data:image/png;base64,$base64',
+      );
+      expect(events.whereType<DirectContentDelta>().single.content, 'Done.');
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test(
+    'OpenRouter preserves a generated image when parent continuation fails',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'error': {'message': 'Refinement unavailable'},
+        }, statusCode: 503),
+        _Reply.json({
+          'data': [
+            {'b64_json': 'AQID', 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': null},
+              'error': {
+                'code': 400,
+                'message': 'Parent continuation failed',
+                'metadata': {'error_type': 'invalid_request'},
+              },
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'google/gemini-3.5-flash-lite',
+              enableImageGeneration: true,
+              imageGenerationModel: 'google/gemini-3.1-flash-image',
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect((http.requests[1].data as Map)['prompt'], 'Create an image');
+      expect(events.whereType<DirectGeneratedImage>().single.dataUrl, image);
+      expect(events.whereType<DirectContentDelta>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test('OpenRouter surfaces dedicated image generation errors', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Create an image'},
+          },
+        ],
+      }),
+      _Reply.json({
+        'error': {
+          'code': 502,
+          'message': 'Image generation failed',
+          'metadata': {'error_type': 'provider_unavailable'},
+        },
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'anthropic/claude-sonnet-4',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Image generation failed',
+    );
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenRouter rejects malformed PDF base64 before dispatch', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [
+              DirectChatMessage(
+                role: 'user',
+                parts: const [
+                  DirectFilePart(
+                    filename: 'brief.pdf',
+                    dataUrl: 'data:application/pdf;base64,JVBERi0=xLjQ',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(http.requests, isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'The PDF attachment is invalid.',
+    );
+  });
+
+  test('OpenRouter rejects PDF filenames with trailing controls', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final pdf = base64Encode(utf8.encode('%PDF-1.4'));
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [
+              DirectChatMessage(
+                role: 'user',
+                parts: [
+                  DirectFilePart(
+                    filename: 'brief.pdf\n',
+                    dataUrl: 'data:application/pdf;base64,$pdf',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    check(http.requests).isEmpty();
+    check(
+      events.whereType<DirectStreamError>().single.message,
+    ).equals('The PDF attachment is invalid.');
+  });
+
+  test('OpenRouter deduplicates cumulative streamed extensions', () async {
+    const annotations = [
+      {
+        'type': 'url_citation',
+        'url_citation': {
+          'url': 'https://example.com/source',
+          'title': 'Example source',
+        },
+      },
+      {
+        'type': 'file',
+        'file': {
+          'hash': 'pdf-hash',
+          'name': 'brief.pdf',
+          'content': [
+            {'type': 'text', 'text': 'Parsed PDF'},
+          ],
+        },
+      },
+    ];
+    final first = jsonEncode({
+      'choices': [
+        {
+          'delta': {'content': 'Grounded ', 'annotations': annotations},
+        },
+      ],
+    });
+    final second = jsonEncode({
+      'choices': [
+        {
+          'delta': {'content': 'answer.', 'annotations': annotations},
+        },
+      ],
+    });
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode('data: $first\n\ndata: $second\n\ndata: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events
+          .whereType<DirectContentDelta>()
+          .map((event) => event.content)
+          .join(),
+      'Grounded answer.',
+    );
+    expect(events.whereType<DirectSourceFound>(), hasLength(1));
+    expect(events.whereType<DirectFileAnnotationsUpdate>(), hasLength(1));
+    expect((http.requests.single.data as Map)['stream'], isTrue);
+    expect(http.requests.single.headers['Accept'], 'text/event-stream');
+  });
+
+  test(
+    'OpenRouter streams richer citation details for an existing URL',
+    () async {
+      final first = jsonEncode({
+        'choices': [
+          {
+            'delta': {
+              'content': 'Grounded ',
+              'annotations': [
+                {
+                  'type': 'url_citation',
+                  'url_citation': {'url': 'https://example.com/source'},
+                },
+              ],
+            },
+          },
+        ],
+      });
+      final second = jsonEncode({
+        'choices': [
+          {
+            'delta': {
+              'content': 'answer.',
+              'annotations': [
+                {
+                  'type': 'url_citation',
+                  'url_citation': {
+                    'url': 'https://example.com/source',
+                    'title': 'Enriched title',
+                    'content': 'Enriched excerpt',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode('data: $first\n\ndata: $second\n\ndata: [DONE]\n\n'),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+
+      final sources = events.whereType<DirectSourceFound>().toList();
+      expect(sources, hasLength(2));
+      expect(sources.last.title, 'Enriched title');
+      expect(sources.last.snippet, 'Enriched excerpt');
+    },
+  );
+
+  test('non-OpenRouter connections reject managed server tools', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            enableWebSearch: true,
+            messages: [DirectChatMessage.text(role: 'user', text: 'search')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(http.requests, isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'This provider does not support Conduit-managed server tools.',
+    );
+  });
+
+  test('non-OpenRouter connections reject replayed file annotations', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [
+              DirectChatMessage(
+                role: 'assistant',
+                parts: const [DirectTextPart('parsed')],
+                annotations: const [
+                  {
+                    'type': 'file',
+                    'file': {
+                      'hash': 'hash',
+                      'content': [
+                        {'type': 'text', 'text': 'parsed'},
+                      ],
+                    },
+                  },
+                ],
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(http.requests, isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Replayed message annotations require an OpenRouter Chat Completions connection.',
+    );
+  });
+
+  test('non-OpenRouter responses cannot emit OpenRouter extensions', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'content': 'ordinary answer',
+              'annotations': [
+                {
+                  'type': 'url_citation',
+                  'url_citation': {'url': 'https://example.com/source'},
+                },
+                {
+                  'type': 'file',
+                  'file': {
+                    'hash': 'pdf-hash',
+                    'content': [
+                      {'type': 'text', 'text': 'hidden parsed content'},
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        'openrouter_metadata': {'attempt': 1},
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectSourceFound>(), isEmpty);
+    expect(events.whereType<DirectFileAnnotationsUpdate>(), isEmpty);
+    expect(events.whereType<DirectProviderMetadataUpdate>(), isEmpty);
+    expect(
+      events.whereType<DirectContentDelta>().map((event) => event.content),
+      ['ordinary answer'],
+    );
+  });
+
+  test('malformed OpenRouter metadata does not discard a completion', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'content': 'valid answer'},
+          },
+        ],
+        'openrouter_metadata': {
+          'oversized': List<int>.filled(kMaxDirectUsageContainerEntries + 1, 0),
+        },
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectProviderMetadataUpdate>(), isEmpty);
+    expect(
+      events.whereType<DirectContentDelta>().map((event) => event.content),
+      ['valid answer'],
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenRouter Responses capabilities fail before dispatch', () async {
+    for (final entry
+        in <({DirectCompletionRequest request, String expectedMessage})>[
+          (
+            request: DirectCompletionRequest(
+              remoteModelId: 'model',
+              enableWebSearch: true,
+              messages: [DirectChatMessage.text(role: 'user', text: 'search')],
+            ),
+            expectedMessage:
+                'OpenRouter web search currently requires Chat Completions.',
+          ),
+          (
+            request: DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [
+                DirectChatMessage(
+                  role: 'assistant',
+                  parts: const [DirectTextPart('parsed')],
+                  annotations: const [
+                    {
+                      'type': 'file',
+                      'file': {
+                        'hash': 'hash',
+                        'content': [
+                          {'type': 'text', 'text': 'parsed'},
+                        ],
+                      },
+                    },
+                  ],
+                ),
+              ],
+            ),
+            expectedMessage:
+                'Replayed message annotations require Chat Completions.',
+          ),
+          (
+            request: DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [
+                DirectChatMessage(
+                  role: 'user',
+                  parts: const [
+                    DirectFilePart(
+                      filename: 'brief.pdf',
+                      dataUrl: 'data:application/pdf;base64,JVBERi0=',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            expectedMessage: 'PDF inputs require Chat Completions.',
+          ),
+        ]) {
+      final http = _QueuedAdapter(const []);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(
+              baseUrl: kOpenRouterApiBaseUrl,
+              openAiApiMode: DirectOpenAiApiMode.responses,
+            ),
+            entry.request,
+          )
+          .events
+          .toList();
+
+      expect(http.requests, isEmpty);
+      expect(
+        events.whereType<DirectStreamError>().single.message,
+        entry.expectedMessage,
+      );
+    }
+  });
+
+  test('OpenRouter Responses omits Chat Completions plugins', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'id': 'resp_openrouter',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'message',
+            'id': 'msg_openrouter',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'answer'},
+            ],
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(
+            baseUrl: kOpenRouterApiBaseUrl,
+            openAiApiMode: DirectOpenAiApiMode.responses,
+          ),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    final body = http.requests.single.data as Map;
+    expect(body, isNot(contains('plugins')));
+    expect(body, isNot(contains('tools')));
+  });
+
+  test(
     'OpenAI discovery honors advertised image modalities with absent fallback',
     () async {
       final http = _QueuedAdapter([
@@ -1069,6 +2417,32 @@ void main() {
     expect(result.reachable, isFalse);
     expect(result.message, contains('HTTP 401'));
     expect(http.requests, hasLength(1));
+  });
+
+  test('manual OpenRouter probe validates the key before liveness', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream(const [], contentType: 'application/json', statusCode: 401),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final result = await adapter.probe(
+      _openAiProfile(
+        baseUrl: kOpenRouterApiBaseUrl,
+        manualModelIds: const ['manual-a'],
+      ),
+    );
+
+    expect(result.reachable, isFalse);
+    expect(result.message, contains('HTTP 401'));
+    expect(http.requests, hasLength(1));
+    expect(http.requests.single.method, 'GET');
+    expect(
+      http.requests.single.uri.toString(),
+      'https://openrouter.ai/api/v1/key',
+    );
   });
 
   test('manual Ollama probe uses api/version liveness endpoint', () async {
@@ -3394,6 +4768,50 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test(
+    'Ollama rejects image generation and PDF parts before dispatch',
+    () async {
+      for (final request in <DirectCompletionRequest>[
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          enableImageGeneration: true,
+          messages: [DirectChatMessage.text(role: 'user', text: 'draw')],
+        ),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [
+            DirectChatMessage(
+              role: 'user',
+              parts: const [
+                DirectFilePart(
+                  filename: 'brief.pdf',
+                  dataUrl: 'data:application/pdf;base64,JVBERi0=',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ]) {
+        final http = _QueuedAdapter(const []);
+        final adapter = OllamaAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        );
+
+        final events = await adapter
+            .startCompletion(_ollamaProfile(), request)
+            .events
+            .toList();
+
+        expect(http.requests, isEmpty);
+        expect(
+          events.whereType<DirectStreamError>().single.message,
+          'This Ollama connection does not support that Direct capability.',
+        );
+      }
+    },
+  );
+
   test('OpenAI adapter keeps malformed Responses events strict', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
@@ -3424,6 +4842,7 @@ void main() {
 }
 
 DirectConnectionProfile _openAiProfile({
+  String baseUrl = 'https://api.test/v1',
   List<String> manualModelIds = const [],
   DirectOpenAiApiMode openAiApiMode = DirectOpenAiApiMode.chatCompletions,
   DirectApiKeyAuthMode apiKeyAuthMode = DirectApiKeyAuthMode.bearer,
@@ -3434,7 +4853,7 @@ DirectConnectionProfile _openAiProfile({
   id: 'openai-one',
   name: 'OpenAI compatible',
   adapterKey: kOpenAiCompatibleAdapterKey,
-  baseUrl: 'https://api.test/v1',
+  baseUrl: baseUrl,
   apiKey: apiKey,
   customHeaders: customHeaders,
   manualModelIds: manualModelIds,

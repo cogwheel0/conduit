@@ -73,6 +73,29 @@ void main() {
     expect(extensions, isNot(contains('pdf')));
   });
 
+  test('OpenRouter direct file picking exposes bounded PDF inputs', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'openrouter',
+        name: 'OpenRouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+      ),
+      [DirectRemoteModel(id: 'anthropic/claude-sonnet-4')],
+    ).single;
+
+    final extensions = localFilePickerExtensionsForModel(directModel)!;
+
+    expect(extensions, contains('pdf'));
+    expect(directModel.capabilities?['web_search'], isTrue);
+    expect(
+      directModel.capabilities?['image_generation'],
+      isTrue,
+      reason: 'The OpenRouter Image API works with text-only parent models.',
+    );
+  });
+
   test('attachment panel matches the full IME footprint', () {
     expect(
       fallbackAttachmentPanelHeight(

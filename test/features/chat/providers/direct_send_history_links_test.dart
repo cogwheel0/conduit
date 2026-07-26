@@ -175,10 +175,13 @@ final class _GatedProfiles extends DirectConnectionProfilesController {
 }
 
 final class _Adapter implements DirectProviderAdapter {
+  _Adapter({this.adapterKey = 'test-adapter'});
+
+  final String adapterKey;
   var startCalls = 0;
 
   @override
-  String get key => 'test-adapter';
+  String get key => adapterKey;
 
   @override
   Future<List<DirectRemoteModel>> listModels(
@@ -263,18 +266,21 @@ final class _GatedAdapter implements DirectProviderAdapter {
     this.hostileCancellation = false,
     this.startError,
     this.startErrorStack,
+    this.adapterKey = 'test-adapter',
   });
 
   final void Function()? onStart;
   final bool hostileCancellation;
   final Object? startError;
   final StackTrace? startErrorStack;
+  final String adapterKey;
   final StreamController<_GatedRun> _started =
       StreamController<_GatedRun>.broadcast(sync: true);
   var _nextId = 0;
+  DirectCompletionRequest? lastRequest;
 
   @override
-  String get key => 'test-adapter';
+  String get key => adapterKey;
 
   @override
   Future<List<DirectRemoteModel>> listModels(
@@ -290,6 +296,7 @@ final class _GatedAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) {
+    lastRequest = request;
     final error = startError;
     if (error != null) {
       final stackTrace = startErrorStack;
@@ -381,6 +388,51 @@ final class _DeferredAttachmentApi extends ApiService {
               firstInfoCancelled.complete();
             }
           }),
+      ]);
+      final cancellation = cancelToken?.cancelError;
+      if (cancellation != null) throw cancellation;
+    }
+    return const {
+      'meta': {'content_type': 'image/png'},
+    };
+  }
+
+  @override
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async => 'AQID';
+}
+
+final class _SequencedDeferredAttachmentApi extends ApiService {
+  _SequencedDeferredAttachmentApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final started = <Completer<void>>[Completer<void>(), Completer<void>()];
+  final gates = <Completer<void>>[Completer<void>(), Completer<void>()];
+  var getFileInfoCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
+    final index = getFileInfoCalls++;
+    if (index < gates.length) {
+      started[index].complete();
+      await Future.any<void>(<Future<void>>[
+        gates[index].future,
+        if (cancelToken != null) cancelToken.whenCancel.then<void>((_) {}),
       ]);
       final cancellation = cancelToken?.cancelError;
       if (cancellation != null) throw cancellation;
@@ -582,6 +634,42 @@ final class _GatedCompletionPersistRepository extends ChatDatabaseRepository {
   }
 }
 
+final class _DelayedGeneratedImagePersistRepository
+    extends ChatDatabaseRepository {
+  _DelayedGeneratedImagePersistRepository({required AppDatabase database})
+    : super(openWebUiDatabase: null, directLocalDatabase: database);
+
+  var delayed = false;
+
+  @override
+  Future<void> persistDirectMessages(
+    ChatDatabaseLocation location, {
+    required String chatId,
+    required List<MessageRowData> messages,
+    String? currentMessageId,
+    int? updatedAt,
+  }) async {
+    final isStreamingImage = messages.any((message) {
+      final files = message.payload['files'];
+      return message.role == 'assistant' &&
+          message.payload['isStreaming'] == true &&
+          files is List &&
+          files.isNotEmpty;
+    });
+    if (!delayed && isStreamingImage) {
+      delayed = true;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+    await super.persistDirectMessages(
+      location,
+      chatId: chatId,
+      messages: messages,
+      currentMessageId: currentMessageId,
+      updatedAt: updatedAt,
+    );
+  }
+}
+
 final class _RotateAuthAfterTurnStartCommitRepository
     extends ChatDatabaseRepository {
   _RotateAuthAfterTurnStartCommitRepository({
@@ -735,6 +823,7 @@ Future<Conversation> _seedDirectConversation({
   required String chatId,
   required String modelId,
   required String suffix,
+  List<Map<String, dynamic>>? userFiles,
 }) async {
   final now = DateTime.utc(2026, 7, 11);
   final user = ChatMessage(
@@ -742,6 +831,7 @@ Future<Conversation> _seedDirectConversation({
     role: 'user',
     content: 'Question $suffix',
     timestamp: now,
+    files: userFiles,
     metadata: {
       'parentId': null,
       'childrenIds': <String>['assistant-$suffix'],
@@ -773,6 +863,7 @@ Future<Conversation> _seedDirectConversation({
             'childrenIds': [assistant.id],
             'role': 'user',
             'content': user.content,
+            'files': ?userFiles,
             'timestamp': 1,
           },
           assistant.id: {
@@ -820,6 +911,7 @@ _createGatedDirectHarness(
   DirectNormalizedStreamLimits? streamLimits,
   bool hostileCancellation = false,
   String profileBaseUrl = 'http://localhost:11434',
+  String profileAdapterKey = 'test-adapter',
   String? profileApiKey,
   Map<String, String> profileHeaders = const {},
   String? profileMtlsCertificateChainPem,
@@ -829,13 +921,14 @@ _createGatedDirectHarness(
   String? profileMtlsPrivateKeyPassword,
   Object? startError,
   StackTrace? startErrorStack,
+  ChatDatabaseRepository Function(AppDatabase database)? repositoryBuilder,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   addTearDown(db.close);
   final profile = DirectConnectionProfile(
     id: 'profile',
     name: 'Provider',
-    adapterKey: 'test-adapter',
+    adapterKey: profileAdapterKey,
     baseUrl: profileBaseUrl,
     apiKey: profileApiKey,
     customHeaders: profileHeaders,
@@ -855,6 +948,7 @@ _createGatedDirectHarness(
     hostileCancellation: hostileCancellation,
     startError: startError,
     startErrorStack: startErrorStack,
+    adapterKey: profileAdapterKey,
   );
   addTearDown(adapter.dispose);
   final chat = await _seedDirectConversation(
@@ -863,6 +957,7 @@ _createGatedDirectHarness(
     modelId: model.id,
     suffix: suffix,
   );
+  final repository = repositoryBuilder?.call(db);
   container = ProviderContainer(
     overrides: [
       activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -873,6 +968,8 @@ _createGatedDirectHarness(
       socketServiceProvider.overrideWithValue(null),
       appDatabaseProvider.overrideWithValue(null),
       directLocalDatabaseProvider.overrideWithValue(db),
+      if (repository != null)
+        chatDatabaseRepositoryProvider.overrideWithValue(repository),
       directModelRegistryProvider.overrideWithValue(modelRegistry),
       directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
       if (streamLimits != null)
@@ -1321,6 +1418,266 @@ void main() {
   );
 
   test(
+    'late direct attachment preflight aborts after selected model changes',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter(adapterKey: kOpenAiCompatibleAdapterKey);
+      final api = _DeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:late-model-switch',
+        modelId: modelA.id,
+        suffix: 'late-model-switch',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+      container.read(imageGenerationEnabledProvider.notifier).set(true);
+      check(container.read(imageGenerationAvailableProvider)).isTrue();
+
+      final send = sendMessageWithContainer(
+        container,
+        'Do not dispatch through model A',
+        const ['server-image'],
+      );
+      await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.firstInfoGate.complete();
+
+      await send.timeout(const Duration(seconds: 1));
+
+      expect(registry.resolve(modelA), isNotNull);
+      expect(registry.resolve(modelB), isNotNull);
+      expect(adapter.startCalls, 0);
+      check(container.read(imageGenerationEnabledProvider)).isTrue();
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'assistant');
+      expect(visibleAssistant.isStreaming, isFalse);
+      expect(visibleAssistant.content, isEmpty);
+      final durableRows = await db.messagesDao.getForChat(chat.id);
+      expect(
+        durableRows.where(
+          (row) => row.content == 'Do not dispatch through model A',
+        ),
+        hasLength(1),
+      );
+      final durableAssistant = durableRows.lastWhere(
+        (row) => row.role == 'assistant',
+      );
+      final assistantPayload =
+          jsonDecode(durableAssistant.payload) as Map<String, dynamic>;
+      expect(assistantPayload['isStreaming'], isFalse);
+      expect(durableAssistant.content, isEmpty);
+    },
+  );
+
+  test(
+    'regeneration restores the previous assistant after a late model switch',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter();
+      final api = _DeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:late-regeneration-model-switch',
+        modelId: modelA.id,
+        suffix: 'late-regeneration-model-switch',
+        userFiles: const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'server-image', 'type': 'image'},
+        ],
+      );
+      final previousAssistant = chat.messages.last;
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final regeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.firstInfoGate.complete();
+
+      await regeneration.timeout(const Duration(seconds: 1));
+
+      expect(adapter.startCalls, 0);
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == previousAssistant.id);
+      expect(visibleAssistant.content, previousAssistant.content);
+      expect(visibleAssistant.isStreaming, isFalse);
+      final reloaded = await container
+          .read(chatDatabaseRepositoryProvider)
+          .loadConversation(chat.id, preferred: ChatStorageKind.directLocal);
+      final durableAssistant = reloaded!.conversation.messages.singleWhere(
+        (message) => message.id == previousAssistant.id,
+      );
+      expect(durableAssistant.content, previousAssistant.content);
+      expect(durableAssistant.isStreaming, isFalse);
+    },
+  );
+
+  test(
+    'chained preflight cancellation restores the last completed assistant',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter();
+      final api = _SequencedDeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:chained-regeneration-cancellation',
+        modelId: modelA.id,
+        suffix: 'chained-regeneration-cancellation',
+        userFiles: const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'server-image', 'type': 'image'},
+        ],
+      );
+      final previousAssistant = chat.messages.last;
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final firstRegeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.started[0].future.timeout(const Duration(seconds: 1));
+
+      final secondRegeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.started[1].future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.gates[1].complete();
+
+      await Future.wait<void>([
+        firstRegeneration,
+        secondRegeneration,
+      ]).timeout(const Duration(seconds: 1));
+
+      expect(adapter.startCalls, 0);
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == previousAssistant.id);
+      expect(visibleAssistant.content, previousAssistant.content);
+      expect(visibleAssistant.isStreaming, isFalse);
+      final reloaded = await container
+          .read(chatDatabaseRepositoryProvider)
+          .loadConversation(chat.id, preferred: ChatStorageKind.directLocal);
+      final durableAssistant = reloaded!.conversation.messages.singleWhere(
+        (message) => message.id == previousAssistant.id,
+      );
+      expect(durableAssistant.content, previousAssistant.content);
+      expect(durableAssistant.isStreaming, isFalse);
+    },
+  );
+
+  test(
     'Stop interrupts a never-settling direct attachment preflight and releases its lease',
     () async {
       final manager = DatabaseManager(
@@ -1473,6 +1830,157 @@ void main() {
         chatB.id,
       )).where((row) => row.content == 'Must stay in A'),
       isEmpty,
+    );
+  });
+
+  test(
+    'direct send aborts when selection switches to another live profile',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profileA = DirectConnectionProfile(
+        id: 'profile-a',
+        name: 'Provider A',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final profileB = DirectConnectionProfile(
+        id: 'profile-b',
+        name: 'Provider B',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11435',
+      );
+      final registry = DirectModelRegistry();
+      final modelA = registry.replaceProfileModels(profileA, [
+        DirectRemoteModel(id: 'model-a'),
+      ]).single;
+      final modelB = registry.replaceProfileModels(profileB, [
+        DirectRemoteModel(id: 'model-b'),
+      ]).single;
+      final profiles = _GatedProfiles(profileA);
+      final adapter = _Adapter();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:selection-switch',
+        modelId: modelA.id,
+        suffix: 'selection-switch',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(() => profiles),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+      final visibleBeforeSend = container.read(chatMessagesProvider);
+      final rowsBeforeSend = await db.messagesDao.getForChat(chat.id);
+
+      final send = sendMessageWithContainer(
+        container,
+        'Do not send through profile A',
+        null,
+      );
+      await profiles.started.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      profiles.gate.complete([profileA, profileB]);
+
+      await expectLater(
+        send,
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'The selected direct connection changed while preparing the message.',
+          ),
+        ),
+      );
+      expect(
+        identical(container.read(chatMessagesProvider), visibleBeforeSend),
+        isTrue,
+      );
+      expect(registry.resolve(modelA), isNotNull);
+      expect(registry.resolve(modelB), isNotNull);
+      expect(adapter.startCalls, 0);
+      final rowsAfterSend = await db.messagesDao.getForChat(chat.id);
+      expect(
+        rowsAfterSend.map((row) => row.id),
+        rowsBeforeSend.map((row) => row.id),
+      );
+    },
+  );
+
+  test('direct send survives an unchanged catalog refresh', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Original model'),
+    ]).single;
+    final profiles = _GatedProfiles(profile);
+    final adapter = _Adapter();
+    final chat = await _seedDirectConversation(
+      db: db,
+      chatId: 'direct-local:catalog-refresh',
+      modelId: model.id,
+      suffix: 'catalog-refresh',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseProvider.overrideWithValue(db),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+    final send = sendMessageWithContainer(
+      container,
+      'Continue through the same route',
+      null,
+    );
+    await profiles.started.future.timeout(const Duration(seconds: 1));
+    final refreshed = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Refreshed model'),
+    ]).single;
+    container.read(selectedModelProvider.notifier).set(refreshed);
+    profiles.gate.complete([profile]);
+
+    await send.timeout(const Duration(seconds: 1));
+    expect(adapter.startCalls, 1);
+    expect(
+      container.read(chatMessagesProvider).last.content,
+      contains('Follow-up answer'),
     );
   });
 
@@ -2916,6 +3424,225 @@ void main() {
       expect(persisted.content, 'Safe partial');
     },
   );
+
+  test(
+    'generated image persists before acknowledgement and survives its failure',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final harness = await _createGatedDirectHarness(
+        'image-before-acknowledgement',
+      );
+      final started = harness.adapter.nextRun();
+      final send = sendMessageWithContainer(
+        harness.container,
+        'Create a durable image',
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+      final assistantId = harness.container.read(chatMessagesProvider).last.id;
+
+      run
+        ..add(
+          DirectUsageUpdate(<String, dynamic>{
+            'total_tokens': 4000,
+            'cost': 0.04,
+          }),
+        )
+        ..add(
+          const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'),
+        );
+
+      await _waitUntil(() async {
+        final row = await harness.db.messagesDao.getMessage(
+          harness.chat.id,
+          assistantId,
+        );
+        if (row == null) return false;
+        final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+        final files = payload['files'];
+        return payload['isStreaming'] == true &&
+            files is List &&
+            files.any((file) => file is Map && file['url'] == image);
+      });
+
+      final streaming = harness.container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == assistantId);
+      expect(streaming.isStreaming, isTrue);
+      expect(streaming.files?.single['url'], image);
+
+      run.addError(StateError('Parent acknowledgement transport failed'));
+      await send.timeout(const Duration(seconds: 1));
+
+      final completed = harness.container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == assistantId);
+      expect(completed.isStreaming, isFalse);
+      expect(completed.error, isNull);
+      expect(completed.files?.single['url'], image);
+      expect(completed.usage?['cost'], 0.04);
+      final durable = (await harness.db.messagesDao.getForChat(
+        harness.chat.id,
+      )).singleWhere((row) => row.id == assistantId);
+      final durablePayload =
+          jsonDecode(durable.payload) as Map<String, dynamic>;
+      expect(durablePayload['isStreaming'], isFalse);
+      expect(durablePayload['error'], isNull);
+      expect((durablePayload['files'] as List).single['url'], image);
+    },
+  );
+
+  test(
+    'OpenRouter image generation is consumed before the conversational follow-up',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final harness = await _createGatedDirectHarness(
+        'openrouter-image-one-shot',
+        profileBaseUrl: kOpenRouterApiBaseUrl,
+        profileAdapterKey: kOpenAiCompatibleAdapterKey,
+      );
+      harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
+      expect(harness.container.read(imageGenerationAvailableProvider), isTrue);
+
+      final imageStarted = harness.adapter.nextRun();
+      final imageSend = sendMessageWithContainer(
+        harness.container,
+        'Draw a lighthouse',
+        null,
+      );
+      final imageRun = await imageStarted.timeout(const Duration(seconds: 1));
+      addTearDown(imageRun.close);
+
+      expect(harness.adapter.lastRequest?.enableImageGeneration, isTrue);
+      expect(harness.container.read(imageGenerationEnabledProvider), isFalse);
+      imageRun
+        ..add(
+          const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'),
+        )
+        ..add(const DirectStreamDone());
+      await imageSend.timeout(const Duration(seconds: 1));
+
+      final followUpStarted = harness.adapter.nextRun();
+      final followUpSend = sendMessageWithContainer(
+        harness.container,
+        'Make the mood warmer',
+        null,
+      );
+      final followUpRun = await followUpStarted.timeout(
+        const Duration(seconds: 1),
+      );
+      addTearDown(followUpRun.close);
+
+      expect(harness.adapter.lastRequest?.enableImageGeneration, isFalse);
+      followUpRun
+        ..add(const DirectContentDelta('I can help refine it.'))
+        ..add(const DirectStreamDone());
+      await followUpSend.timeout(const Duration(seconds: 1));
+
+      final messages = harness.container.read(chatMessagesProvider);
+      expect(
+        messages.where((message) => message.role == 'assistant').last.content,
+        'I can help refine it.',
+      );
+    },
+  );
+
+  test(
+    'OpenRouter image generation is consumed when regeneration submits',
+    () async {
+      final harness = await _createGatedDirectHarness(
+        'openrouter-image-regeneration-one-shot',
+        profileBaseUrl: kOpenRouterApiBaseUrl,
+        profileAdapterKey: kOpenAiCompatibleAdapterKey,
+      );
+      harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
+      check(harness.container.read(imageGenerationAvailableProvider)).isTrue();
+
+      final started = harness.adapter.nextRun();
+      final regeneration = regenerateMessage(
+        harness.container,
+        harness.chat.messages.first.content,
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+
+      check(harness.adapter.lastRequest?.enableImageGeneration).equals(true);
+      check(harness.container.read(imageGenerationEnabledProvider)).isFalse();
+      run
+        ..add(const DirectContentDelta('Regenerated response'))
+        ..add(const DirectStreamDone());
+      await regeneration.timeout(const Duration(seconds: 1));
+    },
+  );
+
+  test('generated image bytes do not consume the text budget', () async {
+    const image =
+        'data:image/png;base64,'
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    final harness = await _createGatedDirectHarness(
+      'image-binary-budget',
+      streamLimits: const DirectNormalizedStreamLimits(
+        idleTimeout: Duration(seconds: 1),
+        maxDuration: Duration(seconds: 2),
+        maxCharacters: 16,
+        maxEvents: 10,
+      ),
+    );
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Create a bounded image',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run
+      ..add(const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'))
+      ..add(const DirectContentDelta('Done.'))
+      ..add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    expect(completed.error, isNull);
+    expect(completed.content, 'Done.');
+    expect(completed.files?.single['url'], image);
+  });
+
+  test('image persistence time does not consume the stream budget', () async {
+    const image = 'data:image/png;base64,AQID';
+    final harness = await _createGatedDirectHarness(
+      'image-persistence-stream-budget',
+      streamLimits: const DirectNormalizedStreamLimits(
+        idleTimeout: Duration(seconds: 1),
+        maxDuration: Duration(milliseconds: 40),
+        maxEvents: 10,
+      ),
+      repositoryBuilder: (database) =>
+          _DelayedGeneratedImagePersistRepository(database: database),
+    );
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Create an image with acknowledgement',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run
+      ..add(const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'))
+      ..add(const DirectContentDelta('Here it is.'))
+      ..add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    expect(completed.error, isNull);
+    expect(completed.content, 'Here it is.');
+    expect(completed.files?.single['url'], image);
+  });
 
   test('provider EOF without a terminal event is a protocol failure', () async {
     final harness = await _createGatedDirectHarness('eof-without-terminal');

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:dio/dio.dart';
@@ -9,6 +10,33 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('OpenRouter identity requires its exact HTTPS API root', () {
+    check(isOpenRouterApiBaseUrl(kOpenRouterApiBaseUrl)).isTrue();
+    check(isOpenRouterApiBaseUrl('https://eu.openrouter.ai/api/v1/')).isTrue();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1/extra'),
+    ).isFalse();
+    check(isOpenRouterApiBaseUrl('http://openrouter.ai/api/v1')).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.example/api/v1'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai.evil.test/api/v1'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://user:pass@openrouter.ai/api/v1'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1?key=leak'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1#fragment'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai:8443/api/v1'),
+    ).isFalse();
+  });
+
   group('DirectConnectionProfile security', () {
     test('versioned document round-trips secrets without redaction loss', () {
       final profile = _profile(

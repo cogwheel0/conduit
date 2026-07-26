@@ -3,15 +3,15 @@ import 'dart:collection';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Streaming haptic events that must fire at most once per assistant message.
-enum StreamingHapticEvent { contentArrival, turnCompleted }
+enum StreamingHapticEvent { contentArrival, turnCompleted, runningIndicator }
 
 /// Remount-proof memory of per-message streaming haptics.
 ///
-/// The assistant row's State can be recreated mid-stream (live-tail slot
-/// restructuring, transient provider gaps, list churn). Widget-local guard
-/// fields die with the State and replay the haptics on every remount, so the
-/// fired flags live here, keyed by message id and bounded to the most recent
-/// [maxEntries] messages.
+/// Streaming widget State can be recreated mid-turn (live-tail slot changes,
+/// transient provider gaps, list virtualization). Widget-local guard fields
+/// die with the State and replay haptics on every remount, so the fired flags
+/// live here, keyed by message id and bounded to the most recent [maxEntries]
+/// messages.
 class StreamingHapticMemory {
   StreamingHapticMemory({this.maxEntries = 128});
 
@@ -43,10 +43,16 @@ class StreamingHapticMemory {
   void rearmContentArrival(String messageId) {
     _fired[messageId]?.remove(StreamingHapticEvent.contentArrival);
   }
+
+  /// Re-arms the running-indicator haptic after the same message genuinely
+  /// leaves the running phase. A widget remount alone must not re-arm it.
+  void rearmRunningIndicator(String messageId) {
+    _fired[messageId]?.remove(StreamingHapticEvent.runningIndicator);
+  }
 }
 
-/// App-wide [StreamingHapticMemory], shared by every assistant row so the
-/// guards survive row remounts.
+/// App-wide [StreamingHapticMemory], shared by assistant rows and their
+/// running footer so the guards survive timeline remounts.
 final streamingHapticMemoryProvider = Provider<StreamingHapticMemory>(
   (ref) => StreamingHapticMemory(),
 );

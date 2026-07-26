@@ -226,9 +226,21 @@
   "@reasoningEffortHigh": {
     "description": "High model reasoning effort option."
   },
+  "reasoningEffortMinimal": "Minimal",
+  "@reasoningEffortMinimal": {
+    "description": "Minimal model reasoning effort option."
+  },
+  "reasoningEffortExtraHigh": "Extra high",
+  "@reasoningEffortExtraHigh": {
+    "description": "Extra-high model reasoning effort option."
+  },
   "reasoningEffortMaximum": "Maximum",
   "@reasoningEffortMaximum": {
     "description": "Maximum model reasoning effort option."
+  },
+  "reasoningEffortNone": "None",
+  "@reasoningEffortNone": {
+    "description": "Option that disables model reasoning."
   },
   "customReasoningEffort": "Custom effort",
   "@customReasoningEffort": {
@@ -2839,6 +2851,9 @@
     "description": "Title for the personalization settings page."
   },
   "personalizationSubtitle": "Default model, personal prompt, and memories",
+  "defaultImageGenerationModel": "Default image generation model",
+  "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
+  "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
@@ -4678,6 +4693,10 @@
   "@ollama": {
     "description": "Label for an Ollama native API connection."
   },
+  "openRouterProviderName": "OpenRouter",
+  "@openRouterProviderName": {
+    "description": "Provider name used by the OpenRouter connection preset."
+  },
   "ollamaCloudDefaultName": "Ollama Cloud",
   "@ollamaCloudDefaultName": {
     "description": "Default connection name and field hint for Ollama Cloud."
@@ -4803,6 +4822,18 @@
   "directApiBaseUrl": "Base URL",
   "@directApiBaseUrl": {
     "description": "Label for the direct provider base URL."
+  },
+  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
+  "@directOpenRouterUrlInvalid": {
+    "description": "Validation error shown when an OpenRouter direct connection does not use an approved API root."
+  },
+  "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
+  "@directOpenRouterBaseUrlDescription": {
+    "description": "Help text shown below the OpenRouter direct connection base URL."
+  },
+  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
+  "@directOpenRouterChatCompletionsDescription": {
+    "description": "Help text explaining why OpenRouter direct connections use Chat Completions."
   },
   "directCompletionApi": "Completion API",
   "@directCompletionApi": {

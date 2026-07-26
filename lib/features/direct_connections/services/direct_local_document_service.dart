@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import '../../../core/services/local_document_extraction_service.dart';
 
 const String kDirectLocalDocumentAttachmentPrefix = 'direct-local:';
+const String kDirectOpenRouterPdfAttachmentPrefix = 'direct-openrouter-pdf:';
 const int kDirectMaxLocalDocuments = kLocalDocumentDefaultMaxFiles;
 const int kDirectMaxLocalDocumentBytes = kLocalDocumentDefaultMaxSourceBytes;
 const int kDirectMaxLocalDocumentCharacters =
@@ -14,6 +15,9 @@ const List<String> kDirectLocalDocumentPickerExtensions =
 
 bool isDirectLocalDocumentFileNameSupported(String name) =>
     isLocalDocumentFileNameSupported(name);
+
+bool isDirectOpenRouterPdfFileNameSupported(String name) =>
+    name.trim().toLowerCase().endsWith('.pdf');
 
 typedef DirectLocalDocumentLimits = LocalDocumentExtractionLimits;
 typedef DirectLocalDocumentSource = LocalDocumentSource;

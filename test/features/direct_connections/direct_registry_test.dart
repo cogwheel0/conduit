@@ -124,6 +124,48 @@ void main() {
     expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
+  test('catalog refresh preserves authority for an unchanged route', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final original = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Original name'),
+    ]).single;
+    final originalBinding = registry.resolve(original);
+
+    final refreshed = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Refreshed name'),
+    ]).single;
+
+    expect(registry.resolve(original), same(originalBinding));
+    expect(registry.resolve(refreshed), same(originalBinding));
+  });
+
+  test('profile changes revoke prior catalog authority', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final stale = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+
+    final current = registry.replaceProfileModels(
+      profile.copyWith(baseUrl: 'http://localhost:11435'),
+      [DirectRemoteModel(id: 'model')],
+    ).single;
+
+    expect(registry.resolve(stale), isNull);
+    expect(registry.resolve(current), isNotNull);
+  });
+
   test('binding revision changes only when registry contents mutate', () {
     final registry = DirectModelRegistry();
     final profile = DirectConnectionProfile(
@@ -174,6 +216,96 @@ void main() {
       expect(registry.resolve(model)?.remoteModelId, 'qwen');
     },
   );
+
+  test('OpenRouter transport capabilities override remote claims', () {
+    final registry = DirectModelRegistry();
+    final responsesProfile = DirectConnectionProfile(
+      id: 'openrouter-responses',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+      openAiApiMode: DirectOpenAiApiMode.responses,
+    );
+    final responsesModel = registry.replaceProfileModels(responsesProfile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'file_upload': true,
+          'pdf_input': true,
+          'web_search': true,
+          'image_generation': true,
+        },
+      ),
+    ]).single;
+
+    expect(responsesModel.capabilities?['openrouter'], isTrue);
+    expect(responsesModel.capabilities?['file_upload'], isFalse);
+    expect(responsesModel.capabilities?['pdf_input'], isFalse);
+    expect(responsesModel.capabilities?['web_search'], isFalse);
+    expect(responsesModel.capabilities?['image_generation'], isTrue);
+
+    final chatProfile = responsesProfile.copyWith(
+      openAiApiMode: DirectOpenAiApiMode.chatCompletions,
+    );
+    final chatModel = registry.replaceProfileModels(chatProfile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {'image_generation': true},
+      ),
+    ]).single;
+
+    expect(chatModel.capabilities?['pdf_input'], isTrue);
+    expect(chatModel.capabilities?['file_upload'], isTrue);
+    expect(chatModel.capabilities?['web_search'], isTrue);
+    expect(chatModel.capabilities?['image_generation'], isTrue);
+
+    final textOnlyModel = registry.replaceProfileModels(chatProfile, [
+      DirectRemoteModel(
+        id: 'text-only',
+        capabilities: const {'image_generation': false},
+      ),
+    ]).single;
+    expect(
+      textOnlyModel.capabilities?['image_generation'],
+      isTrue,
+      reason:
+          'OpenRouter image generation uses the dedicated Image API and is '
+          'independent of parent-model output modalities.',
+    );
+
+    final openWebUiModel = registry
+        .replaceProfileModels(
+          chatProfile,
+          [
+            DirectRemoteModel(
+              id: 'openwebui-model',
+              capabilities: const {'image_generation': true},
+            ),
+          ],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 0,
+        )
+        .single;
+    expect(openWebUiModel.capabilities?['pdf_input'], isFalse);
+    expect(openWebUiModel.capabilities?['file_upload'], isFalse);
+    expect(openWebUiModel.capabilities?['image_generation'], isFalse);
+
+    final nonOpenRouterModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'compatible',
+        name: 'Compatible',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://compatible.example/v1',
+      ),
+      [
+        DirectRemoteModel(
+          id: 'spoofed',
+          capabilities: const {'openrouter': true},
+        ),
+      ],
+    ).single;
+    expect(nonOpenRouterModel.capabilities?['openrouter'], isFalse);
+  });
 
   test('Open WebUI provenance and URL index are trusted binding state', () {
     final registry = DirectModelRegistry();

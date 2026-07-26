@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
@@ -456,6 +457,49 @@ void main() {
       find.byKey(const ValueKey('streaming-turn-footer-empty')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('does not replay the running haptic when the footer remounts', (
+    tester,
+  ) async {
+    final container = _buildHapticsContainer();
+    addTearDown(container.dispose);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <_RecordedPlatformCall>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      calls.add(_RecordedPlatformCall(call.method, call.arguments));
+      return null;
+    });
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+    try {
+      final running = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      );
+
+      await tester.pumpWidget(
+        _buildHarness(container: container, message: running),
+      );
+      await tester.pump();
+      check(_lightImpactCalls(calls)).length.equals(1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pumpWidget(
+        _buildHarness(container: container, message: running),
+      );
+      await tester.pump();
+
+      check(_lightImpactCalls(calls)).length.equals(1);
+    } finally {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets(

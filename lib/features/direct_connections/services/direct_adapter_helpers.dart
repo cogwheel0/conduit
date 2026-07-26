@@ -25,8 +25,17 @@ List<DirectChatMessage> requireSerializableDirectMessages(
     final parts = message.role == 'user'
         ? message.parts
         : message.parts.whereType<DirectTextPart>().toList(growable: false);
-    if (parts.isEmpty) continue;
-    result.add(DirectChatMessage(role: message.role, parts: parts));
+    final annotations = message.role == 'assistant'
+        ? message.annotations
+        : const <Map<String, dynamic>>[];
+    if (parts.isEmpty && annotations.isEmpty) continue;
+    result.add(
+      DirectChatMessage(
+        role: message.role,
+        parts: parts,
+        annotations: annotations,
+      ),
+    );
   }
   if (result.isEmpty) {
     throw const DirectProviderException(
@@ -61,6 +70,11 @@ void rejectUnsupportedDirectToolParameters(Map<String, dynamic> parameters) {
 
   if (populated(parameters['tools']) ||
       populated(parameters['functions']) ||
+      populated(parameters['plugins']) ||
+      populated(parameters['transforms']) ||
+      populated(parameters['max_tool_calls']) ||
+      populated(parameters['stop_server_tools_when']) ||
+      populated(parameters['web_search_options']) ||
       selectsTool(parameters['tool_choice']) ||
       selectsTool(parameters['function_call']) ||
       parameters['parallel_tool_calls'] == true) {

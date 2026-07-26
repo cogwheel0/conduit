@@ -9,6 +9,8 @@ final class PreferenceKeys {
   static const String highContrast = 'high_contrast';
   static const String darkMode = 'dark_mode';
   static const String defaultModel = 'default_model';
+  static const String openRouterImageGenerationModel =
+      'openrouter_image_generation_model_v1';
   static const String voiceLocaleId = 'voice_locale_id';
   static const String voiceHoldToTalk = 'voice_hold_to_talk';
   static const String voiceAutoSendFinal = 'voice_auto_send_final';

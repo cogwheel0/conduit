@@ -525,6 +525,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .setDefaultModel(modelId);
             await restoreDefaultModel(ref);
           }
+        case 'default-image-generation-model':
+          if (value is String) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setOpenRouterImageGenerationModel(value);
+          }
         case 'stt-silence-duration':
           final ms = switch (value) {
             final int i => i,

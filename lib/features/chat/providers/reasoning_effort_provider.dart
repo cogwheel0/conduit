@@ -9,6 +9,7 @@ import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../direct_connections/models/direct_connection_profile.dart';
 import '../../direct_connections/models/ollama_thinking.dart';
+import '../../direct_connections/models/openrouter_reasoning.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 
@@ -25,6 +26,39 @@ const List<String> kReasoningEffortOptions = <String>[
   ...kStandardReasoningEfforts,
 ];
 
+final class ReasoningEffortPolicy {
+  const ReasoningEffortPolicy({
+    required this.visible,
+    required this.options,
+    required this.allowsCustom,
+    this.restrictsValues = false,
+  });
+
+  static const generic = ReasoningEffortPolicy(
+    visible: true,
+    options: kReasoningEffortOptions,
+    allowsCustom: true,
+  );
+
+  final bool visible;
+  final List<String> options;
+  final bool allowsCustom;
+  final bool restrictsValues;
+
+  String? effectiveConfiguredEffort(String? configured) {
+    if (configured == null || configured == kAutomaticReasoningEffort) {
+      return null;
+    }
+    if (!restrictsValues) return configured;
+    return options.contains(configured) ? configured : null;
+  }
+
+  bool accepts(String effort) =>
+      effort == kAutomaticReasoningEffort ||
+      !restrictsValues ||
+      options.contains(effort);
+}
+
 String normalizeReasoningEffort(String value) {
   final normalized = value.trim().toLowerCase();
   if (normalized.isEmpty || normalized.length > 64) {
@@ -36,6 +70,28 @@ String normalizeReasoningEffort(String value) {
     );
   }
   return normalized;
+}
+
+String? modelConfiguredReasoningEffort(Model? model) {
+  final metadata = model?.metadata;
+  if (metadata == null) return null;
+
+  final info = metadata['info'];
+  final candidates = <Object?>[
+    if (info is Map) info['params'],
+    metadata['params'],
+  ];
+  for (final candidate in candidates) {
+    if (candidate is! Map) continue;
+    final rawEffort = candidate['reasoning_effort'];
+    if (rawEffort is! String) continue;
+    try {
+      return normalizeReasoningEffort(rawEffort);
+    } on FormatException {
+      // Ignore malformed server metadata and continue to the user preference.
+    }
+  }
+  return null;
 }
 
 @Riverpod(keepAlive: true)
@@ -110,8 +166,15 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
 
   final localKey = _localEffortKey(ref);
   if (localKey != null) {
-    return ref.watch(localReasoningEffortsProvider)[localKey];
+    return ref
+        .watch(reasoningEffortPolicyProvider)
+        .effectiveConfiguredEffort(
+          ref.watch(localReasoningEffortsProvider)[localKey],
+        );
   }
+
+  final modelEffort = modelConfiguredReasoningEffort(model);
+  if (modelEffort != null) return modelEffort;
 
   if (ref.watch(apiServiceProvider) != null) {
     return ref
@@ -128,12 +191,13 @@ final reasoningEffortProvider = Provider<String>(
       ref.watch(configuredReasoningEffortProvider) ?? kAutomaticReasoningEffort,
 );
 
-final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
+final reasoningEffortPolicyProvider = Provider<ReasoningEffortPolicy>((ref) {
   final model = ref.watch(selectedModelProvider);
-  if (model == null) return true;
-  final binding = ref.watch(directModelRegistryProvider).resolve(model);
-  if (binding == null) return true;
-  return binding.adapterKey != kOllamaAdapterKey;
+  return reasoningEffortPolicyForModel(ref.watch, model);
+});
+
+final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
+  return ref.watch(reasoningEffortPolicyProvider).allowsCustom;
 });
 
 typedef ReasoningEffortReader = T Function<T>(ProviderListenable<T> provider);
@@ -147,15 +211,21 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
       return profile?.ollamaThinkingFor(binding.remoteModelId)?.storageValue ??
           kAutomaticReasoningEffort;
     }
-    return read(
-          localReasoningEffortsProvider,
-        )['direct:${binding.profileId}:${binding.remoteModelId}'] ??
+    final configured = read(
+      localReasoningEffortsProvider,
+    )['direct:${binding.profileId}:${binding.remoteModelId}'];
+    return reasoningEffortPolicyForModel(
+          read,
+          model,
+        ).effectiveConfiguredEffort(configured) ??
         kAutomaticReasoningEffort;
   }
   if (isHermesModel(model)) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
+  final modelEffort = modelConfiguredReasoningEffort(model);
+  if (modelEffort != null) return modelEffort;
   if (read(apiServiceProvider) != null) {
     return read(
           personalizationSettingsProvider,
@@ -168,11 +238,45 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
 bool reasoningEffortAllowsCustomForModel(
   ReasoningEffortReader read,
   Model? model,
+) => reasoningEffortPolicyForModel(read, model).allowsCustom;
+
+ReasoningEffortPolicy reasoningEffortPolicyForModel(
+  ReasoningEffortReader read,
+  Model? model,
 ) {
-  if (model == null) return true;
+  if (model == null) {
+    return const ReasoningEffortPolicy(
+      visible: false,
+      options: <String>[],
+      allowsCustom: false,
+    );
+  }
   final binding = read(directModelRegistryProvider).resolve(model);
-  if (binding == null) return true;
-  return binding.adapterKey != kOllamaAdapterKey;
+  if (binding == null) return ReasoningEffortPolicy.generic;
+  if (binding.adapterKey == kOllamaAdapterKey) {
+    return const ReasoningEffortPolicy(
+      visible: true,
+      options: kReasoningEffortOptions,
+      allowsCustom: false,
+      restrictsValues: true,
+    );
+  }
+  if (model.capabilities?['openrouter'] != true) {
+    return ReasoningEffortPolicy.generic;
+  }
+  final support = OpenRouterReasoningSupport.tryParseCatalog(
+    model.capabilities?['reasoning'],
+  );
+  final efforts = support?.selectableEfforts ?? const <String>[];
+  return ReasoningEffortPolicy(
+    visible: efforts.isNotEmpty,
+    options: List<String>.unmodifiable(<String>[
+      if (efforts.isNotEmpty) kAutomaticReasoningEffort,
+      ...efforts,
+    ]),
+    allowsCustom: false,
+    restrictsValues: true,
+  );
 }
 
 Future<void> setReasoningEffort(
@@ -190,6 +294,12 @@ Future<void> setReasoningEffortForModel(
   String effort,
 ) async {
   final normalized = normalizeReasoningEffort(effort);
+  final policy = reasoningEffortPolicyForModel(read, model);
+  if (!policy.accepts(normalized)) {
+    throw const FormatException(
+      'This model does not support that reasoning effort.',
+    );
+  }
   final configured = normalized == kAutomaticReasoningEffort
       ? null
       : normalized;

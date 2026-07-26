@@ -27,11 +27,34 @@ final class DirectImagePart extends DirectContentPart {
   }
 }
 
+/// A local PDF payload accepted only by Conduit's first-party OpenRouter path.
+///
+/// Keeping this normalized part distinct from arbitrary provider content makes
+/// it impossible for callers to smuggle unsupported file types or provider
+/// tool configuration through [DirectCompletionRequest.parameters].
+final class DirectFilePart extends DirectContentPart {
+  const DirectFilePart({
+    required this.filename,
+    required this.dataUrl,
+    this.mimeType = 'application/pdf',
+  });
+
+  final String filename;
+  final String dataUrl;
+  final String mimeType;
+}
+
 final class DirectChatMessage {
   DirectChatMessage({
     required this.role,
     required Iterable<DirectContentPart> parts,
-  }) : parts = List.unmodifiable(parts) {
+    Iterable<Map<String, dynamic>> annotations = const [],
+  }) : parts = List.unmodifiable(parts),
+       annotations = List.unmodifiable(
+         annotations.map(
+           (annotation) => Map<String, dynamic>.unmodifiable(annotation),
+         ),
+       ) {
     if (role.trim().isEmpty) throw ArgumentError.value(role, 'role');
   }
 
@@ -42,6 +65,7 @@ final class DirectChatMessage {
 
   final String role;
   final List<DirectContentPart> parts;
+  final List<Map<String, dynamic>> annotations;
 }
 
 final class DirectCompletionRequest {
@@ -50,6 +74,8 @@ final class DirectCompletionRequest {
     required Iterable<DirectChatMessage> messages,
     Map<String, dynamic> parameters = const {},
     this.enableWebSearch = false,
+    this.enableImageGeneration = false,
+    this.imageGenerationModel,
   }) : messages = List.unmodifiable(messages),
        parameters = Map.unmodifiable(parameters) {
     if (remoteModelId.trim().isEmpty) {
@@ -60,12 +86,15 @@ final class DirectCompletionRequest {
   final String remoteModelId;
   final List<DirectChatMessage> messages;
   final bool enableWebSearch;
+  final bool enableImageGeneration;
+  final String? imageGenerationModel;
 
   /// Provider-compatible optional sampling/output parameters.
   ///
   /// Caller-supplied tool definitions are intentionally rejected by the
-  /// built-in adapters. Ollama Cloud may expose Conduit's permission-aware,
-  /// compiled-in web tools through [enableWebSearch].
+  /// built-in adapters. Trusted first-party provider profiles may expose
+  /// Conduit's compiled-in web tool through [enableWebSearch] and its
+  /// first-party image pipeline through [enableImageGeneration].
   /// Transport-owned keys (`model`, `messages`, `stream`) are overwritten by
   /// adapters and cannot redirect a request to another registered model.
   final Map<String, dynamic> parameters;
@@ -89,6 +118,47 @@ final class DirectUsageUpdate extends DirectStreamEvent {
   DirectUsageUpdate(Map<String, dynamic> usage)
     : usage = Map.unmodifiable(usage);
   final Map<String, dynamic> usage;
+}
+
+/// Bounded OpenRouter routing diagnostics for this completion.
+final class DirectProviderMetadataUpdate extends DirectStreamEvent {
+  DirectProviderMetadataUpdate(Map<String, dynamic> metadata)
+    : metadata = Map.unmodifiable(metadata);
+
+  final Map<String, dynamic> metadata;
+}
+
+/// Parsed PDF annotations that can be replayed to avoid paying to parse the
+/// same document on each follow-up turn.
+final class DirectFileAnnotationsUpdate extends DirectStreamEvent {
+  DirectFileAnnotationsUpdate(Iterable<Map<String, dynamic>> annotations)
+    : annotations = List.unmodifiable(
+        annotations.map(
+          (annotation) => Map<String, dynamic>.unmodifiable(annotation),
+        ),
+      );
+
+  final List<Map<String, dynamic>> annotations;
+}
+
+final class DirectSourceFound extends DirectStreamEvent {
+  const DirectSourceFound({required this.url, this.title, this.snippet});
+
+  final String url;
+  final String? title;
+  final String? snippet;
+}
+
+/// A generated image asset whose lifecycle is independent of assistant text.
+///
+/// First-party adapters emit only bounded base64 data URLs. The chat
+/// dispatcher validates the payload again before projecting or persisting it,
+/// so runtime adapters cannot bypass Direct image limits.
+final class DirectGeneratedImage extends DirectStreamEvent {
+  const DirectGeneratedImage({required this.dataUrl, required this.mediaType});
+
+  final String dataUrl;
+  final String mediaType;
 }
 
 final class DirectToolCallStarted extends DirectStreamEvent {

@@ -28,6 +28,38 @@ void main() {
   });
 
   testWidgets(
+    'assistant row state survives the live-tail to history transition',
+    (tester) async {
+      var mounts = 0;
+      var disposals = 0;
+
+      Widget build({required bool includeRunningFooter}) {
+        return MaterialApp(
+          home: debugBuildAssistantTimelineSlotForTesting(
+            assistantRow: _LifecycleProbe(
+              key: const ValueKey('assistant-row'),
+              onMount: () => mounts += 1,
+              onDispose: () => disposals += 1,
+            ),
+            runningFooter: includeRunningFooter
+                ? const SizedBox(key: ValueKey('running-footer'))
+                : null,
+          ),
+        );
+      }
+
+      await tester.pumpWidget(build(includeRunningFooter: true));
+      check(mounts).equals(1);
+      check(disposals).equals(0);
+
+      await tester.pumpWidget(build(includeRunningFooter: false));
+
+      check(mounts).equals(1);
+      check(disposals).equals(0);
+    },
+  );
+
+  testWidgets(
     'managed timeline keeps its trailing edge pinned during live growth',
     (tester) async {
       final scrollController = ScrollController();
@@ -1489,6 +1521,37 @@ void main() {
       identical(container.read(activeConversationProvider), original),
     ).isTrue();
   });
+}
+
+class _LifecycleProbe extends StatefulWidget {
+  const _LifecycleProbe({
+    super.key,
+    required this.onMount,
+    required this.onDispose,
+  });
+
+  final VoidCallback onMount;
+  final VoidCallback onDispose;
+
+  @override
+  State<_LifecycleProbe> createState() => _LifecycleProbeState();
+}
+
+class _LifecycleProbeState extends State<_LifecycleProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onMount();
+  }
+
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
 }
 
 Conversation _refreshConversation(String id, String title) => Conversation(
