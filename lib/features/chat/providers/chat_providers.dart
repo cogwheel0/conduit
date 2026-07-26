@@ -1412,6 +1412,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   // Polls to wait after `tasksDone` before the poll force-adopts server state
   // over a still-protected socket resume stream (~2s at the 1s cadence).
   static const int _tasksDoneSocketGracePolls = 2;
+  // Consecutive empty task-registry polls observed for a reopened tail whose
+  // task lookup previously failed. Requiring a second empty observation keeps
+  // a temporarily unregistered server task from being finalized immediately.
+  int _unobservedReopenedEmptyPolls = 0;
+  static const int _unobservedReopenedEmptyPollGrace = 1;
   bool _passiveConversationRefreshInFlight = false;
   int _passiveConversationGeneration = 0;
   int? _queuedPassiveConversationGeneration;
@@ -1572,7 +1577,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             state = nextMessages;
           }
           _syncStreamingProfileWithState();
-          unawaited(_recoverColdHermesCheckpointIfNeeded(next));
+          final restoredHermesCheckpoint =
+              nextMessages.isNotEmpty &&
+                  nextMessages.last.role == 'assistant' &&
+                  nextMessages.last.isStreaming &&
+                  nextMessages.last.metadata?['transport'] == kHermesTransport
+              ? nextMessages.last
+              : null;
+          if (restoredHermesCheckpoint != null) {
+            unawaited(
+              _recoverColdHermesCheckpointIfNeeded(
+                next,
+                settleUnrecoverable: true,
+                expectedMessageId: restoredHermesCheckpoint.id,
+              ),
+            );
+          }
 
           // Update selected model if conversation has a different model
           _updateModelForConversation(next, generation: modelRebindGeneration);
@@ -3591,6 +3611,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   @visibleForTesting
   int get debugTasksDoneGracePolls => _tasksDoneGracePolls;
 
+  @visibleForTesting
+  int get debugReopenedSocketCatchUpPollsRemaining =>
+      _reopenedSocketCatchUpPollsRemaining;
+
+  @visibleForTesting
+  void debugPrimeReopenedSnapshotAttempt({int catchUpPolls = 0}) {
+    _reopenedSocketCatchUpPollsRemaining = catchUpPolls;
+    _lastReopenedSnapshotAt = null;
+  }
+
   /// Test-only entry point that drives a single remote-task poll iteration,
   /// mirroring exactly one tick of the 1s monitor. Lets grace-window regression
   /// tests exercise [_syncRemoteTaskStatus] deterministically.
@@ -3744,9 +3774,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         // poll will retry both the task registry and authoritative transcript.
         if (openedAsStreaming &&
             _stillOwnsReopenedTail(owner, openedMessageId)) {
-          _reopenedStreamingMessageId = openedMessageId;
-          _ensureRemoteTaskMonitor();
-          _reopenedStreamingMessageId = openedMessageId;
+          _engageReopenedTailMonitor(openedMessageId);
         }
         return;
       }
@@ -3790,9 +3818,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _cancelMessageStream();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
           _hasStreamingAssistant) {
-        _reopenedStreamingMessageId = openedMessageId;
-        _ensureRemoteTaskMonitor();
-        _reopenedStreamingMessageId = openedMessageId;
+        _engageReopenedTailMonitor(openedMessageId);
       }
       return;
     }
@@ -3814,8 +3840,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         // Keep a durable checkpoint recoverable without attaching live socket
         // deltas to an assistant branch that the server snapshot could not
         // identify. The owner-fenced monitor can retry reconciliation later.
-        _ensureRemoteTaskMonitor();
-        _reopenedStreamingMessageId = openedMessageId;
+        _engageReopenedTailMonitor(openedMessageId);
       } else {
         _reopenedStreamingMessageId = null;
       }
@@ -3871,10 +3896,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _awaitingFirstReopenedSocketActivity = true;
       _lastStreamingActivity = DateTime.now();
     }
+    _engageReopenedTailMonitor(state.last.id);
+  }
+
+  void _engageReopenedTailMonitor(String messageId) {
+    _reopenedStreamingMessageId = messageId;
     _ensureRemoteTaskMonitor();
-    // `_ensureRemoteTaskMonitor` may retire a monitor left by an offline probe;
-    // retain the recovery owner after that teardown/re-arm.
-    _reopenedStreamingMessageId = state.last.id;
+    // `_ensureRemoteTaskMonitor` may retire a monitor left by an earlier probe
+    // and clear the recovery owner while it re-arms.
+    _reopenedStreamingMessageId = messageId;
   }
 
   bool _stillOwnsReopenedTail(
@@ -3900,6 +3930,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     bool persist = false,
   }) async {
     try {
+      _lastReopenedSnapshotAt = DateTime.now();
       final serverConversation = await api.getConversation(owner.chatId);
       if (!_stillOwnsReopenedTail(owner, expectedLocalMessageId)) {
         return false;
@@ -4177,6 +4208,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _taskStatusGeneration++;
     _observedRemoteTask = false;
     _tasksDoneGracePolls = 0;
+    _unobservedReopenedEmptyPolls = 0;
     _reopenedStreamingMessageId = null;
     _reopenedSocketCatchUpPollsRemaining = 0;
     _awaitingFirstReopenedSocketActivity = false;
@@ -4220,13 +4252,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       if (hasActiveTasks) {
         _observedRemoteTask = true;
+        _unobservedReopenedEmptyPolls = 0;
+      } else if (reopenedTail && !_observedRemoteTask) {
+        _unobservedReopenedEmptyPolls++;
+      } else {
+        _unobservedReopenedEmptyPolls = 0;
       }
 
       // A reopened checkpoint may have completed before this process observed
-      // any task. In that case zero tasks still requires one authoritative
-      // terminal fetch; otherwise the persisted `isStreaming` flag is immortal.
+      // any task. If the initial task lookup failed, require two consecutive
+      // empty registry observations before treating that checkpoint as done.
+      // This retains eventual settlement without racing task registration.
       final tasksDone =
-          !hasActiveTasks && (_observedRemoteTask || reopenedTail);
+          !hasActiveTasks &&
+          (_observedRemoteTask ||
+              (reopenedTail &&
+                  _unobservedReopenedEmptyPolls >
+                      _unobservedReopenedEmptyPollGrace));
       DebugLogger.log(
         'Remote task recovery status',
         scope: 'chat/resume',
@@ -4265,6 +4307,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   (_lastReopenedSnapshotAt == null ||
                       now.difference(_lastReopenedSnapshotAt!) >=
                           _reopenedSocketStallThreshold)));
+      final unprotectedResumeNeedsSnapshot =
+          reopenedTail &&
+          !_shouldProtectLocalStreamingState &&
+          (_lastReopenedSnapshotAt == null ||
+              now.difference(_lastReopenedSnapshotAt!) >=
+                  _reopenedSocketStallThreshold);
 
       // Resume case: reconcile the complete authoritative branch while the
       // server task runs. A reattached socket only sees future events, so its
@@ -4272,22 +4320,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // accumulated while another chat (or no app process) owned the screen.
       if (_hasStreamingAssistant &&
           hasActiveTasks &&
-          ((reopenedTail && !_shouldProtectLocalStreamingState) ||
-              protectedResumeNeedsSnapshot)) {
+          (unprotectedResumeNeedsSnapshot || protectedResumeNeedsSnapshot)) {
         final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
-        final reconciled = await _refreshReopenedStreamFromServer(
+        if (_shouldProtectLocalStreamingState &&
+            _reopenedSocketCatchUpPollsRemaining > 0) {
+          // Consume the finite catch-up budget on attempt, even when the
+          // fetched snapshot cannot bind to the local assistant branch.
+          _reopenedSocketCatchUpPollsRemaining--;
+        }
+        await _refreshReopenedStreamFromServer(
           api: api,
           owner: owner,
           expectedLocalMessageId: expectedMessageId,
           streaming: true,
           source: 'active task poll',
         );
-        if (reconciled && _shouldProtectLocalStreamingState) {
-          if (_reopenedSocketCatchUpPollsRemaining > 0) {
-            _reopenedSocketCatchUpPollsRemaining--;
-          }
-          _lastReopenedSnapshotAt = DateTime.now();
-        }
         if (_disposed ||
             generation != _taskStatusGeneration ||
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
@@ -4514,6 +4561,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _activeStreamingTransportMessageId = messageId;
     _socketSubscriptions.addAll(subscriptions);
     _socketTeardown = onDispose;
+    if (subscriptions.isNotEmpty && _isReopenedStreamingTail) {
+      _reopenedSocketCatchUpPollsRemaining = math.max(
+        _reopenedSocketCatchUpPollsRemaining,
+        1,
+      );
+    }
   }
 
   void cancelSocketSubscriptions() {

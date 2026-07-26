@@ -11,6 +11,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
+import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../hermes/providers/hermes_providers.dart';
@@ -182,10 +183,10 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
   final result = await showCreateChannelFormDialog(context);
   if (result == null ||
       !context.mounted ||
-      !identical(ref.read(apiServiceProvider), api) ||
-      !identical(
-        ref.read(openWebUiAuthSessionEpochProvider),
-        authSessionEpoch,
+      !isChannelRequestOwnerCurrent(
+        ref: ref,
+        api: api,
+        authSessionEpoch: authSessionEpoch,
       )) {
     return;
   }
@@ -199,10 +200,10 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
     );
 
     if (!context.mounted ||
-        !identical(ref.read(apiServiceProvider), api) ||
-        !identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
         )) {
       return;
     }
@@ -216,10 +217,10 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
       stackTrace: stackTrace,
     );
     if (!context.mounted ||
-        !identical(ref.read(apiServiceProvider), api) ||
-        !identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
         )) {
       return;
     }

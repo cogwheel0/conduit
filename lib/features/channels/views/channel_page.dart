@@ -33,6 +33,7 @@ import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
 import '../providers/channel_socket_handler.dart';
+import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import '../widgets/channel_form_dialog.dart';
 import '../widgets/channel_message_content.dart';
@@ -76,8 +77,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   ) =>
       mounted &&
       widget.channelId == channelId &&
-      identical(ref.read(apiServiceProvider), api) &&
-      identical(ref.read(openWebUiAuthSessionEpochProvider), authSessionEpoch);
+      isChannelRequestOwnerCurrent(
+        ref: ref,
+        api: api,
+        authSessionEpoch: authSessionEpoch,
+      );
 
   void _setReplyTo(ChannelMessage message) {
     setState(() => _replyToMessage = message);

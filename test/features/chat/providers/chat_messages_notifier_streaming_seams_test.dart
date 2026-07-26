@@ -3439,7 +3439,13 @@ void main() {
         final visible = container.read(chatMessagesProvider).single;
         check(visible.id).equals('copied-assistant');
         check(visible.content).equals('B untouched');
-        check(visible.isStreaming).isTrue();
+        // Conversation B has no live registry projection or durable run ID, so
+        // switching to it settles its orphaned checkpoint without allowing
+        // conversation A's dispatch to mutate the copied message identity.
+        check(visible.isStreaming).isFalse();
+        check(
+          visible.error?.content,
+        ).equals('Hermes checkpoint is missing its recovery identifier.');
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -5627,6 +5633,73 @@ void main() {
         check(recovered.content).equals('Authoritative recovered answer');
         check(recovered.isStreaming).isFalse();
         check(recovered.error).isNull();
+      },
+    );
+
+    test(
+      'switching into an unrecoverable Hermes checkpoint settles it',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_other', const <ChatMessage>[]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        await pumpEventQueue();
+
+        final assistant = _assistantMessage(
+          id: 'missing-run-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesSessionId': 'session-missing-run',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-missing-run', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final settled = container.read(chatMessagesProvider).single;
+        check(service.getRunCalls).equals(0);
+        check(settled.content).equals('Retained Hermes partial');
+        check(
+          settled.error?.content,
+        ).equals('Hermes checkpoint is missing its recovery identifier.');
       },
     );
 

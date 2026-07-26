@@ -15,6 +15,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../providers/channel_providers.dart';
+import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
 
 /// Sidebar tab that lists all channels with search and create support.
@@ -116,20 +117,20 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     );
     if (!confirmed ||
         !mounted ||
-        !identical(ref.read(apiServiceProvider), api) ||
-        !identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
         )) {
       return;
     }
     try {
       await api.updateMemberActiveStatus(channel.id, isActive: false);
       if (!mounted ||
-          !identical(ref.read(apiServiceProvider), api) ||
-          !identical(
-            ref.read(openWebUiAuthSessionEpochProvider),
-            authSessionEpoch,
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
           )) {
         return;
       }
@@ -146,10 +147,10 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         stackTrace: stackTrace,
       );
       if (!mounted ||
-          !identical(ref.read(apiServiceProvider), api) ||
-          !identical(
-            ref.read(openWebUiAuthSessionEpochProvider),
-            authSessionEpoch,
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
           )) {
         return;
       }
@@ -165,10 +166,10 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     final result = await showEditChannelFormDialog(context, channel: channel);
     if (result == null ||
         !mounted ||
-        !identical(ref.read(apiServiceProvider), api) ||
-        !identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
         )) {
       return;
     }
@@ -181,10 +182,10 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       );
       final updated = Channel.fromJson(json);
       if (!mounted ||
-          !identical(ref.read(apiServiceProvider), api) ||
-          !identical(
-            ref.read(openWebUiAuthSessionEpochProvider),
-            authSessionEpoch,
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
           )) {
         return;
       }
@@ -201,10 +202,10 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         stackTrace: stackTrace,
       );
       if (!mounted ||
-          !identical(ref.read(apiServiceProvider), api) ||
-          !identical(
-            ref.read(openWebUiAuthSessionEpochProvider),
-            authSessionEpoch,
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
           )) {
         return;
       }

@@ -157,6 +157,7 @@ class _FakeApiService extends ApiService {
   set conversation(Conversation value) => _conversation = value;
 
   List<String> taskIds = const <String>[];
+  int taskIdFailuresRemaining = 0;
 
   int getConversationCalls = 0;
   int getTaskIdsCalls = 0;
@@ -170,6 +171,10 @@ class _FakeApiService extends ApiService {
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
     getTaskIdsCalls++;
+    if (taskIdFailuresRemaining > 0) {
+      taskIdFailuresRemaining--;
+      throw StateError('transient task registry failure');
+    }
     return taskIds;
   }
 }
@@ -1423,6 +1428,168 @@ void main() {
       ).equals('Final answer');
       check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
     });
+
+    test(
+      'offline reopened tail waits for a second empty task poll before finalizing',
+      () async {
+        final timestamp = DateTime.now();
+        final checkpoint = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage(
+            'assistant-1',
+            'Partial',
+            timestamp,
+          ).copyWith(isStreaming: true),
+        ];
+        final finished = [
+          checkpoint.first,
+          _assistantMessage('assistant-1', 'Final answer', timestamp),
+        ];
+        final api =
+            _FakeApiService(_conversation('chat-1', finished, timestamp))
+              ..taskIds = const <String>[]
+              ..taskIdFailuresRemaining = 1;
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', checkpoint, timestamp));
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+
+        check(api.getTaskIdsCalls).equals(2);
+        check(api.getConversationCalls).equals(0);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        await notifier.debugSyncRemoteTaskStatus();
+
+        check(api.getTaskIdsCalls).equals(3);
+        check(api.getConversationCalls).equals(1);
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Final answer');
+        check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'poll-only reopened snapshots are throttled between full fetches',
+      () async {
+        final timestamp = DateTime.now();
+        final messages = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('assistant-1', 'Partial', timestamp),
+        ];
+        final api = _FakeApiService(
+          _conversation('chat-1', messages, timestamp),
+        )..taskIds = const <String>['task-1'];
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', messages, timestamp));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+
+        notifier.debugPrimeReopenedSnapshotAttempt();
+        api.getConversationCalls = 0;
+        await notifier.debugSyncRemoteTaskStatus();
+        await notifier.debugSyncRemoteTaskStatus();
+
+        check(api.getConversationCalls).equals(1);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      },
+    );
+
+    test(
+      'failed protected snapshots still consume the catch-up budget',
+      () async {
+        final timestamp = DateTime.now();
+        final messages = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('assistant-1', 'Partial', timestamp),
+        ];
+        final socket = _FakeSocketService()..connected = true;
+        final api = _FakeApiService(
+          _conversation('chat-1', messages, timestamp),
+        )..taskIds = const <String>['task-1'];
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', messages, timestamp));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+        check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+
+        api.conversation = _conversation('chat-1', [
+          _userMessage('unrelated-user', 'Different prompt', timestamp),
+          _assistantMessage(
+            'unrelated-assistant',
+            'Different answer',
+            timestamp,
+          ),
+        ], timestamp);
+        notifier.debugPrimeReopenedSnapshotAttempt(catchUpPolls: 1);
+        api.getConversationCalls = 0;
+
+        await notifier.debugSyncRemoteTaskStatus();
+        check(api.getConversationCalls).equals(1);
+        check(notifier.debugReopenedSocketCatchUpPollsRemaining).equals(0);
+
+        await notifier.debugSyncRemoteTaskStatus();
+        check(api.getConversationCalls).equals(1);
+        check(
+          container.read(chatMessagesProvider).last.id,
+        ).equals('assistant-1');
+      },
+    );
 
     test('finishStreaming releases stale socket subscriptions', () async {
       final timestamp = DateTime.now();

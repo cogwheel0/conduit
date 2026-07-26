@@ -18,6 +18,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
+import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import 'channel_message_content.dart';
 
@@ -72,13 +73,13 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
         parentId: parentMessageId,
       );
       if (!mounted ||
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
+          ) ||
           widget.channelId != channelId ||
-          widget.parentMessage.id != parentMessageId ||
-          !identical(ref.read(apiServiceProvider), api) ||
-          !identical(
-            ref.read(openWebUiAuthSessionEpochProvider),
-            authSessionEpoch,
-          )) {
+          widget.parentMessage.id != parentMessageId) {
         return;
       }
       final message = ChannelMessage.fromJson(json);
