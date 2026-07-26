@@ -141,6 +141,32 @@ class _FakeSocketService extends SocketService {
   }
 }
 
+class _GatedReconnectSocketService extends _FakeSocketService {
+  final reconnectStarted = Completer<void>();
+  final allowReconnect = Completer<void>();
+  var _connectedCheckPassed = false;
+  var _reconnected = false;
+
+  @override
+  bool get isConnected {
+    if (!_connectedCheckPassed) {
+      _connectedCheckPassed = true;
+      return true;
+    }
+    return _reconnected;
+  }
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (!reconnectStarted.isCompleted) reconnectStarted.complete();
+    await allowReconnect.future;
+    _reconnected = true;
+    return true;
+  }
+}
+
 class _FakeApiService extends ApiService {
   _FakeApiService(this._conversation)
     : super(
@@ -879,6 +905,44 @@ void main() {
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
       },
     );
+
+    test('resume monitor is armed while a dropped socket reconnects', () async {
+      final timestamp = DateTime.now();
+      final messages = [
+        _userMessage('user-1', 'Hi', timestamp),
+        _assistantMessage('assistant-1', 'Partial', timestamp),
+      ];
+      final socket = _GatedReconnectSocketService();
+      final api = _FakeApiService(_conversation('chat-1', messages, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(socket),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', messages, timestamp));
+
+      await socket.reconnectStarted.future.timeout(const Duration(seconds: 1));
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      socket.allowReconnect.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+    });
 
     test(
       'active task poll cannot roll back content already delivered by socket',

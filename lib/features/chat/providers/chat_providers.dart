@@ -3874,6 +3874,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Pre-seed so the monitor's tasksDone finalization resolves once the server
     // task disappears (otherwise tasksDone could never become true).
     _observedRemoteTask = true;
+    // Arm the authoritative fallback before socket attachment. The connection
+    // can drop between the optimistic connected check and transport binding,
+    // which may otherwise leave this chat without deltas or polling while the
+    // socket reconnect attempt waits.
+    _engageReopenedTailMonitor(state.last.id);
     // Attach a socket resume stream so deltas render token-by-token (mirroring
     // Open WebUI) instead of waiting on the 1s poll. The poll stays armed as a
     // safety-net fallback below. When no connected socket is available the
@@ -4164,6 +4169,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         messageNotifier: this,
         ownsActiveConversation: () =>
             activeOpenWebUiChatIdForMutation(ref, resumeOwner) != null,
+        ownsPendingPlaceholder: () =>
+            _hasStreamingAssistant &&
+            _stillOwnsReopenedTail(resumeOwner, last.id),
       );
     } catch (error) {
       DebugLogger.log(
