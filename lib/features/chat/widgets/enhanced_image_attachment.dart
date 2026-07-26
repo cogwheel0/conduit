@@ -450,6 +450,13 @@ class EnhancedImageAttachment extends ConsumerStatefulWidget {
 class _EnhancedImageAttachmentState
     extends ConsumerState<EnhancedImageAttachment>
     with AutomaticKeepAliveClientMixin {
+  static const _defaultPreviewConstraints = BoxConstraints(
+    minWidth: 200,
+    maxWidth: 300,
+    minHeight: 150,
+    maxHeight: 300,
+  );
+
   String? _cachedImageData;
   Uint8List? _cachedBytes;
   bool _isLoading = true;
@@ -658,24 +665,26 @@ class _EnhancedImageAttachmentState
   bool _isRemoteContent(String data) => _isRemoteContentValue(data);
 
   RasterDecodeTarget _cacheDimensions(BuildContext context) {
-    final constraints =
-        widget.constraints ??
-        const BoxConstraints(maxWidth: 400, maxHeight: 400);
     final target = RasterMediaPolicy.forBox(
       context,
       profile: RasterDecodeProfile.inline,
-      constraints: constraints,
+      constraints: _previewConstraints,
     );
     return target;
   }
 
+  BoxConstraints get _previewConstraints =>
+      widget.constraints ?? _defaultPreviewConstraints;
+
   Size get _stablePreviewSize {
-    final constraints =
-        widget.constraints ??
-        const BoxConstraints(maxWidth: 400, maxHeight: 400);
+    final constraints = _previewConstraints;
     return Size(
-      constraints.hasBoundedWidth ? constraints.maxWidth : 400,
-      constraints.hasBoundedHeight ? constraints.maxHeight : 400,
+      constraints.hasBoundedWidth
+          ? constraints.maxWidth
+          : _defaultPreviewConstraints.maxWidth,
+      constraints.hasBoundedHeight
+          ? constraints.maxHeight
+          : _defaultPreviewConstraints.maxHeight,
     );
   }
 
@@ -815,21 +824,15 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildLoadingState() {
-    final constraints =
-        widget.constraints ??
-        const BoxConstraints(
-          maxWidth: 300,
-          maxHeight: 300,
-          minHeight: 150,
-          minWidth: 200,
-        );
-
     return KeyedSubtree(
       key: const ValueKey('loading'),
-      child: _buildSkeletonPlaceholder(
-        constraints: constraints,
-        showProgressIndicator: true,
-        includeMarkdownMargin: true,
+      child: SizedBox.fromSize(
+        size: _stablePreviewSize,
+        child: _buildSkeletonPlaceholder(
+          constraints: _previewConstraints,
+          showProgressIndicator: true,
+          includeMarkdownMargin: true,
+        ),
       ),
     );
   }
@@ -1004,9 +1007,7 @@ class _EnhancedImageAttachmentState
 
   Widget _wrapImage(Widget imageWidget) {
     final wrappedImage = Container(
-      constraints:
-          widget.constraints ??
-          const BoxConstraints(maxWidth: 400, maxHeight: 400),
+      constraints: _previewConstraints,
       margin: widget.isMarkdownFormat
           ? const EdgeInsets.symmetric(vertical: Spacing.sm)
           : EdgeInsets.zero,
