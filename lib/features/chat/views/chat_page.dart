@@ -75,6 +75,21 @@ import 'chat_timeline_render_model.dart';
 import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 
+/// Keeps the assistant row's element ancestry identical while it moves from
+/// the live-tail slot into stable history. This matters for generated images:
+/// remounting them briefly replaces the decoded image with its loading extent,
+/// which fights the follow-up prompt's scroll anchor.
+@visibleForTesting
+Widget debugBuildAssistantTimelineSlotForTesting({
+  required Widget assistantRow,
+  Widget? runningFooter,
+}) {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [assistantRow, ?runningFooter],
+  );
+}
+
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
 
 @visibleForTesting
@@ -2498,47 +2513,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         final runningFooter = timeline.runningFooterHost;
                         return KeyedSubtree(
                           key: ValueKey<String>('message-${tailAssistant.id}'),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Consumer(
-                                builder: (context, rowRef, _) {
-                                  final latestMessage = rowRef.watch(
-                                    chatMessageByIdProvider(tailAssistant.id),
-                                  );
-                                  if (latestMessage == null) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return _buildAssistantMessageRowContent(
-                                    rowRef: rowRef,
-                                    messageId: tailAssistant.id,
-                                    latestMessage: latestMessage,
-                                    rowMetadata:
-                                        layoutMetadata.rows[liveSourceIndex],
-                                    suppressStreamingHaptics:
-                                        suppressAssistantStreamingHaptics,
-                                  );
-                                },
-                              ),
-                              if (runningFooter != null)
-                                Consumer(
-                                  builder: (context, rowRef, _) {
-                                    final latestMessage = rowRef.watch(
-                                      chatMessageByIdProvider(
-                                        runningFooter.messageId,
-                                      ),
-                                    );
-                                    if (latestMessage == null) {
-                                      return const SizedBox.shrink();
-                                    }
-                                    return StreamingTurnFooter(
-                                      message: latestMessage,
-                                      suppressStreamingHaptics:
-                                          suppressAssistantStreamingHaptics,
-                                    );
-                                  },
-                                ),
-                            ],
+                          child: debugBuildAssistantTimelineSlotForTesting(
+                            assistantRow: Consumer(
+                              builder: (context, rowRef, _) {
+                                final latestMessage = rowRef.watch(
+                                  chatMessageByIdProvider(tailAssistant.id),
+                                );
+                                if (latestMessage == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return _buildAssistantMessageRowContent(
+                                  rowRef: rowRef,
+                                  messageId: tailAssistant.id,
+                                  latestMessage: latestMessage,
+                                  rowMetadata:
+                                      layoutMetadata.rows[liveSourceIndex],
+                                  suppressStreamingHaptics:
+                                      suppressAssistantStreamingHaptics,
+                                );
+                              },
+                            ),
+                            runningFooter: runningFooter == null
+                                ? null
+                                : Consumer(
+                                    builder: (context, rowRef, _) {
+                                      final latestMessage = rowRef.watch(
+                                        chatMessageByIdProvider(
+                                          runningFooter.messageId,
+                                        ),
+                                      );
+                                      if (latestMessage == null) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return StreamingTurnFooter(
+                                        message: latestMessage,
+                                        suppressStreamingHaptics:
+                                            suppressAssistantStreamingHaptics,
+                                      );
+                                    },
+                                  ),
                           ),
                         );
                       }
@@ -2597,23 +2610,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
                       return KeyedSubtree(
                         key: ValueKey<String>('message-$messageId'),
-                        child: Consumer(
-                          builder: (context, rowRef, _) {
-                            final latestMessage = rowRef.watch(
-                              chatMessageByIdProvider(messageId),
-                            );
-                            if (latestMessage == null) {
-                              return const SizedBox.shrink();
-                            }
-                            return _buildAssistantMessageRowContent(
-                              rowRef: rowRef,
-                              messageId: messageId,
-                              latestMessage: latestMessage,
-                              rowMetadata: rowMetadata,
-                              suppressStreamingHaptics:
-                                  suppressAssistantStreamingHaptics,
-                            );
-                          },
+                        child: debugBuildAssistantTimelineSlotForTesting(
+                          assistantRow: Consumer(
+                            builder: (context, rowRef, _) {
+                              final latestMessage = rowRef.watch(
+                                chatMessageByIdProvider(messageId),
+                              );
+                              if (latestMessage == null) {
+                                return const SizedBox.shrink();
+                              }
+                              return _buildAssistantMessageRowContent(
+                                rowRef: rowRef,
+                                messageId: messageId,
+                                latestMessage: latestMessage,
+                                rowMetadata: rowMetadata,
+                                suppressStreamingHaptics:
+                                    suppressAssistantStreamingHaptics,
+                              );
+                            },
+                          ),
                         ),
                       );
                     },
