@@ -1514,11 +1514,12 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
       try {
         final bytes = base64Decode(inline.split(',').last);
         return wrap(
-          Image.memory(
-            bytes,
+          Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(bytes),
+              decodeTarget,
+            ),
             fit: BoxFit.cover,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
           ),
         );
       } catch (_) {
@@ -1534,12 +1535,12 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
           ? ConduitUserAgent.mergeHeaders()
           : null;
       return wrap(
-        Image.network(
-          inline,
+        Image(
+          image: RasterMediaPolicy.resizeProvider(
+            NetworkImage(inline, headers: headers),
+            decodeTarget,
+          ),
           fit: BoxFit.cover,
-          headers: headers,
-          cacheWidth: decodeTarget.width,
-          cacheHeight: decodeTarget.height,
           errorBuilder: (_, _, _) => placeholder,
         ),
       );
@@ -1561,11 +1562,12 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
         final data = snapshot.data;
         if (data == null || data.isEmpty) return placeholder;
         return wrap(
-          Image.memory(
-            Uint8List.fromList(data),
+          Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(Uint8List.fromList(data)),
+              decodeTarget,
+            ),
             fit: BoxFit.cover,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
             errorBuilder: (_, _, _) => placeholder,
           ),
         );

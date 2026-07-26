@@ -759,11 +759,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         width: 520,
         height: 360,
         child: InteractiveViewer(
-          child: Image.memory(
-            preview.bytes!,
+          child: Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(preview.bytes!),
+              decodeTarget,
+            ),
             fit: BoxFit.contain,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
           ),
         ),
       );

@@ -50,12 +50,13 @@ class AvatarImage extends ConsumerWidget {
       if (content != null) {
         return ClipRRect(
           borderRadius: _radius,
-          child: Image.memory(
-            content,
+          child: Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(content),
+              decodeTarget,
+            ),
             width: size,
             height: size,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) =>
                 fallbackBuilder(context, size),
@@ -74,18 +75,24 @@ class AvatarImage extends ConsumerWidget {
 
     return ClipRRect(
       borderRadius: _radius,
-      child: CachedNetworkImage(
-        imageUrl: url,
-        cacheKey: cacheKey,
+      child: Image(
+        image: RasterMediaPolicy.resizeProvider(
+          CachedNetworkImageProvider(
+            url,
+            cacheKey: cacheKey,
+            cacheManager: cacheManager,
+            headers: headers,
+          ),
+          decodeTarget,
+        ),
         width: size,
         height: size,
         fit: BoxFit.cover,
-        cacheManager: cacheManager,
-        httpHeaders: headers,
-        memCacheWidth: decodeTarget.width,
-        memCacheHeight: decodeTarget.height,
-        placeholder: (context, _) =>
-            (placeholderBuilder ?? _defaultPlaceholder)(context, size),
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          return wasSynchronouslyLoaded || frame != null
+              ? child
+              : (placeholderBuilder ?? _defaultPlaceholder)(context, size);
+        },
         errorBuilder: (context, error, stackTrace) =>
             fallbackBuilder(context, size),
       ),

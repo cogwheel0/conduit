@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -312,6 +313,12 @@ class SocketService with WidgetsBindingObserver {
     _eventBuffer.clear();
     _replayGapTombstones.clear();
     _replayGapByAlias.clear();
+  }
+
+  void _dropBufferedScopesForReplayGap(SocketReplayGapReason reason) {
+    for (final scope in _bufferScopes.toList(growable: false)) {
+      _dropBufferScope(scope, reason);
+    }
   }
 
   /// Start buffering events for a pending send before the streaming handler
@@ -836,7 +843,11 @@ class SocketService with WidgetsBindingObserver {
   /// If connected, emits a best-effort rejoin with the new token.
   void updateAuthToken(String? token) {
     if (_authToken != token) {
-      _clearBufferedReplayState();
+      // Token refresh can happen while a send is between dispatch and handler
+      // attachment. The old buffered deltas cannot be trusted under the new
+      // credential, but silently clearing them would leave the eventual
+      // handler unaware that it needs an authoritative snapshot.
+      _dropBufferedScopesForReplayGap(SocketReplayGapReason.scopeEvicted);
     }
     _authToken = token;
     if (_socket?.connected == true &&
@@ -1476,9 +1487,16 @@ class SocketService with WidgetsBindingObserver {
     Map<String, dynamic> event,
     void Function(dynamic)? ack,
   ) {
+    final remainingScopeBytes = math.max(
+      0,
+      maxBufferedBytesPerScope - scope.estimatedBytes,
+    );
     final estimatedBytes = _estimateRetainedPayloadBytes(
       event,
-      stopAfter: maxBufferedEventBytes,
+      // Measure far enough to classify the independent per-event and
+      // per-scope bounds correctly even if their constants change relative to
+      // one another.
+      stopAfter: math.max(maxBufferedEventBytes, remainingScopeBytes),
     );
     if (estimatedBytes > maxBufferedEventBytes) {
       _dropBufferScope(

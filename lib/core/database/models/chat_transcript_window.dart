@@ -80,6 +80,28 @@ final class ChatTranscriptPagingState {
       error: clearError ? null : error ?? this.error,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is ChatTranscriptPagingState &&
+            other.hasOlder == hasOlder &&
+            other.isLoadingOlder == isLoadingOlder &&
+            other.loadedCount == loadedCount &&
+            other.oldestMessageId == oldestMessageId &&
+            other.generation == generation &&
+            other.error == error;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    hasOlder,
+    isLoadingOlder,
+    loadedCount,
+    oldestMessageId,
+    generation,
+    error,
+  );
 }
 
 @immutable

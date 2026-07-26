@@ -70,8 +70,25 @@ abstract final class RasterMediaPolicy {
     }
 
     return RasterDecodeTarget(
-      width: physicalWidth.round().clamp(1, profile.maxLongestEdge),
-      height: physicalHeight.round().clamp(1, profile.maxLongestEdge),
+      width: physicalWidth.round().clamp(1, profile.maxLongestEdge).toInt(),
+      height: physicalHeight.round().clamp(1, profile.maxLongestEdge).toInt(),
+    );
+  }
+
+  /// Applies both decode bounds while preserving the source aspect ratio.
+  ///
+  /// Flutter's default two-dimensional resize policy is exact and can stretch
+  /// images. `fit` instead asks the codec for the largest intrinsic-aspect
+  /// decode that fits inside this profile's physical-pixel box.
+  static ImageProvider<Object> resizeProvider(
+    ImageProvider<Object> provider,
+    RasterDecodeTarget target,
+  ) {
+    return ResizeImage(
+      provider,
+      width: target.width,
+      height: target.height,
+      policy: ResizeImagePolicy.fit,
     );
   }
 

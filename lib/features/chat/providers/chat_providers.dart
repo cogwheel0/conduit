@@ -157,6 +157,9 @@ final chatTranscriptPagingProvider =
 final chatHistoryReaderProvider = Provider<ChatHistoryReader>((ref) {
   return ChatHistoryReader(
     repository: ref.watch(chatDatabaseRepositoryProvider),
+    authoritativeLoader: (conversation) => ref.read(
+      loadConversationProvider(conversationScopedId(conversation)).future,
+    ),
     offload: (envelope) => ref
         .read(workerManagerProvider)
         .schedule(
@@ -2893,9 +2896,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       return;
     }
 
-    final service = ref.read(hermesApiServiceProvider);
-    if (service == null) return;
     final owner = _HermesConversationOwner.capture(ref, conversation);
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) {
+      if (settleUnrecoverable) {
+        _settleColdHermesCheckpoint(
+          owner,
+          checkpoint,
+          error: const ChatMessageError(
+            content: 'Hermes recovery service is unavailable.',
+          ),
+        );
+      }
+      return;
+    }
     if (!_canRecoverHermesCheckpointFromProvider(conversation, checkpoint)) {
       if (settleUnrecoverable) {
         _settleColdHermesCheckpoint(

@@ -679,11 +679,12 @@ class ConduitMarkdown {
         constraints: const BoxConstraints(maxWidth: 480, maxHeight: 480),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          child: Image.memory(
-            imageBytes,
+          child: Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(imageBytes),
+              decodeTarget,
+            ),
             fit: BoxFit.contain,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
             errorBuilder: (context, error, stackTrace) {
               return buildImageError(context, theme);
             },
@@ -715,33 +716,41 @@ class ConduitMarkdown {
           logicalHeight: 480,
         );
 
-        return CachedNetworkImage(
-          imageUrl: url,
-          cacheKey: cacheKey,
-          cacheManager: cacheManager,
-          httpHeaders: headers,
-          memCacheWidth: decodeTarget.width,
-          memCacheHeight: decodeTarget.height,
-          placeholder: (context, _) => Container(
-            height: 200,
-            decoration: BoxDecoration(
-              color: theme.surfaceBackground.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            ),
-            child: Center(
-              child: CircularProgressIndicator(
-                color: theme.loadingIndicator,
-                strokeWidth: 2,
-              ),
+        final placeholder = Container(
+          height: 200,
+          decoration: BoxDecoration(
+            color: theme.surfaceBackground.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          ),
+          child: Center(
+            child: CircularProgressIndicator(
+              color: theme.loadingIndicator,
+              strokeWidth: 2,
             ),
           ),
-          errorBuilder: (context, error, stackTrace) =>
-              buildImageError(context, theme),
-          imageBuilder: (context, imageProvider) => Container(
-            margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
+        );
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: Image(
+              image: RasterMediaPolicy.resizeProvider(
+                CachedNetworkImageProvider(
+                  url,
+                  cacheKey: cacheKey,
+                  cacheManager: cacheManager,
+                  headers: headers,
+                ),
+                decodeTarget,
+              ),
+              fit: BoxFit.contain,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                return wasSynchronouslyLoaded || frame != null
+                    ? child
+                    : placeholder;
+              },
+              errorBuilder: (context, error, stackTrace) =>
+                  buildImageError(context, theme),
             ),
           ),
         );

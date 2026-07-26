@@ -16,6 +16,9 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     with _$MessagesDaoMixin {
   MessagesDao(super.db);
 
+  static const int _semanticSiblingRowCap = 200;
+  static const int _siblingPredicateChunkSize = 200;
+
   /// WHERE chatId = ? ORDER BY createdAt ASC, orderIndex ASC. Never a watched
   /// SELECT without the chatId predicate (REQ §10.2).
   Stream<List<MessageRow>> watchForChat(String chatId) {
@@ -45,25 +48,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       before: before,
       limit: safeLimit + 1,
     );
-    final hasOlder = primaryRows.length > safeLimit;
-    final selectedNewestFirst = hasOlder
-        ? primaryRows.sublist(0, safeLimit)
-        : primaryRows;
-    final selected = selectedNewestFirst.reversed.toList(growable: false);
-    final expanded = await _withVersionSiblings(
-      chatId,
-      selected,
-      maxSiblingRows: 200,
-    );
-    return MessageRowWindow(
-      primaryRows: List.unmodifiable(selected),
-      rows: List.unmodifiable(expanded.rows),
-      hasOlder: hasOlder,
-      olderCursor: selected.isEmpty
-          ? null
-          : MessageWindowCursor(selected.first.id),
-      semanticBoundaryTruncated: expanded.truncated,
-    );
+    return _assembleWindow(chatId, primaryRows, safeLimit: safeLimit);
   }
 
   /// Watches a bounded latest window. Drift invalidates this query for changes
@@ -88,25 +73,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       final primaryRows = rawRows
           .map((row) => messages.map(row.data))
           .toList(growable: false);
-      final hasOlder = primaryRows.length > safeLimit;
-      final selectedNewestFirst = hasOlder
-          ? primaryRows.sublist(0, safeLimit)
-          : primaryRows;
-      final selected = selectedNewestFirst.reversed.toList(growable: false);
-      final expanded = await _withVersionSiblings(
-        chatId,
-        selected,
-        maxSiblingRows: 200,
-      );
-      return MessageRowWindow(
-        primaryRows: List.unmodifiable(selected),
-        rows: List.unmodifiable(expanded.rows),
-        hasOlder: hasOlder,
-        olderCursor: selected.isEmpty
-            ? null
-            : MessageWindowCursor(selected.first.id),
-        semanticBoundaryTruncated: expanded.truncated,
-      );
+      return _assembleWindow(chatId, primaryRows, safeLimit: safeLimit);
     });
   }
 
@@ -125,6 +92,32 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       primary,
       maxSiblingRows: null,
     )).rows;
+  }
+
+  Future<MessageRowWindow> _assembleWindow(
+    String chatId,
+    List<MessageRow> newestFirstRows, {
+    required int safeLimit,
+  }) async {
+    final hasOlder = newestFirstRows.length > safeLimit;
+    final selectedNewestFirst = hasOlder
+        ? newestFirstRows.sublist(0, safeLimit)
+        : newestFirstRows;
+    final selected = selectedNewestFirst.reversed.toList(growable: false);
+    final expanded = await _withVersionSiblings(
+      chatId,
+      selected,
+      maxSiblingRows: _semanticSiblingRowCap,
+    );
+    return MessageRowWindow(
+      primaryRows: List.unmodifiable(selected),
+      rows: List.unmodifiable(expanded.rows),
+      hasOlder: hasOlder,
+      olderCursor: selected.isEmpty
+          ? null
+          : MessageWindowCursor(selected.first.id),
+      semanticBoundaryTruncated: expanded.truncated,
+    );
   }
 
   /// Marks an assistant placeholder as submitted/completed without changing its
@@ -343,7 +336,17 @@ WITH RECURSIVE branch(id, parent_id, depth, path) AS (
         WHERE cursor_row.chat_id = owner.id
           AND cursor_row.id = ?
       ),
-      owner.current_message_id
+      owner.current_message_id,
+      (
+        SELECT fallback.id
+        FROM messages AS fallback
+        WHERE fallback.chat_id = owner.id
+        ORDER BY
+          fallback.created_at DESC,
+          fallback.order_index DESC,
+          fallback.id DESC
+        LIMIT 1
+      )
     )
 
   UNION ALL
@@ -402,30 +405,59 @@ LIMIT ?
     if (primaryRows.isEmpty) {
       return (rows: const <MessageRow>[], truncated: false);
     }
-    final clauses = <String>[];
-    final variables = <Variable>[Variable.withString(chatId)];
-    for (final row in primaryRows) {
-      if (row.parentId == null) {
-        clauses.add('(parent_id IS NULL AND role = ?)');
-      } else {
-        clauses.add('(parent_id = ? AND role = ?)');
-        variables.add(Variable.withString(row.parentId!));
+    final siblingGroups = <(String?, String)>{
+      for (final row in primaryRows) (row.parentId, row.role),
+    }.toList(growable: false);
+    final siblingRows = <QueryRow>[];
+    var truncated = false;
+
+    for (
+      var offset = 0;
+      offset < siblingGroups.length;
+      offset += _siblingPredicateChunkSize
+    ) {
+      if (maxSiblingRows != null && siblingRows.length > maxSiblingRows) {
+        truncated = true;
+        break;
       }
-      variables.add(Variable.withString(row.role));
+      final chunk = siblingGroups.sublist(
+        offset,
+        (offset + _siblingPredicateChunkSize)
+            .clamp(0, siblingGroups.length)
+            .toInt(),
+      );
+      final clauses = <String>[];
+      final variables = <Variable>[Variable.withString(chatId)];
+      for (final group in chunk) {
+        final (parentId, role) = group;
+        if (parentId == null) {
+          clauses.add('(parent_id IS NULL AND role = ?)');
+        } else {
+          clauses.add('(parent_id = ? AND role = ?)');
+          variables.add(Variable.withString(parentId));
+        }
+        variables.add(Variable.withString(role));
+      }
+      final remaining = maxSiblingRows == null
+          ? null
+          : maxSiblingRows + 1 - siblingRows.length;
+      final siblingLimitClause = remaining == null ? '' : ' LIMIT $remaining';
+      siblingRows.addAll(
+        await customSelect(
+          'SELECT * FROM messages '
+          'WHERE chat_id = ? AND (${clauses.join(' OR ')}) '
+          'ORDER BY created_at ASC, order_index ASC, id ASC'
+          '$siblingLimitClause',
+          variables: variables,
+          readsFrom: {messages},
+        ).get(),
+      );
     }
-    final siblingLimitClause = maxSiblingRows == null
-        ? ''
-        : ' LIMIT ${maxSiblingRows + 1}';
-    final siblingRows = await customSelect(
-      'SELECT * FROM messages WHERE chat_id = ? AND (${clauses.join(' OR ')}) '
-      'ORDER BY created_at ASC, order_index ASC, id ASC$siblingLimitClause',
-      variables: variables,
-      readsFrom: {messages},
-    ).get();
-    final truncated =
-        maxSiblingRows != null && siblingRows.length > maxSiblingRows;
+    if (maxSiblingRows != null && siblingRows.length > maxSiblingRows) {
+      truncated = true;
+    }
     final retainedSiblingRows = truncated
-        ? siblingRows.take(maxSiblingRows)
+        ? siblingRows.take(maxSiblingRows!)
         : siblingRows;
     final byId = <String, MessageRow>{
       for (final row in primaryRows) row.id: row,

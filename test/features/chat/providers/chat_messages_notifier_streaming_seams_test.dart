@@ -5637,6 +5637,43 @@ void main() {
     );
 
     test(
+      'cold Hermes checkpoint settles when its recovery service is unavailable',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-no-service',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-no-service',
+            'hermesSessionId': 'session-no-service',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_no-service', <ChatMessage>[assistant]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final settled = container.read(chatMessagesProvider).single;
+        check(settled.content).equals('Retained Hermes partial');
+        check(
+          settled.error?.content,
+        ).equals('Hermes recovery service is unavailable.');
+      },
+    );
+
+    test(
       'switching into an unrecoverable Hermes checkpoint settles it',
       () async {
         final service = _RecoveredHermesApi();

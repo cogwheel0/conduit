@@ -50,8 +50,12 @@ class _DiscreteStreamingDotsState extends State<DiscreteStreamingDots>
   @override
   void didUpdateWidget(covariant DiscreteStreamingDots oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.animate != oldWidget.animate ||
-        widget.stepInterval != oldWidget.stepInterval) {
+    final intervalChanged = widget.stepInterval != oldWidget.stepInterval;
+    if (intervalChanged) {
+      _stepTimer?.cancel();
+      _stepTimer = null;
+    }
+    if (widget.animate != oldWidget.animate || intervalChanged) {
       _syncTimer(rebuildOnReset: false);
     }
   }

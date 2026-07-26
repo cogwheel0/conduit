@@ -123,4 +123,30 @@ void main() {
     expect(_dotColor(tester, 1), color);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('restarts an active timer when the step interval changes', (
+    tester,
+  ) async {
+    const color = Color(0xFF3355AA);
+
+    Widget build(Duration interval) => Directionality(
+      textDirection: TextDirection.ltr,
+      child: Center(
+        child: DiscreteStreamingDots(
+          color: color,
+          size: 28,
+          stepInterval: interval,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(build(const Duration(milliseconds: 400)));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpWidget(build(const Duration(milliseconds: 100)));
+    await tester.pump(const Duration(milliseconds: 99));
+    expect(_dotColor(tester, 0), color);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(_dotColor(tester, 1), color);
+  });
 }

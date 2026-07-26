@@ -205,6 +205,40 @@ void main() {
       check(page.primaryRows).isEmpty();
       check(page.hasOlder).isFalse();
     });
+
+    test(
+      'missing current tip falls back to the newest deterministic row',
+      () async {
+        await seedChain(chatId: 'window-null-tip', count: 75);
+        await (db.update(db.chats)
+              ..where((row) => row.id.equals('window-null-tip')))
+            .write(const ChatsCompanion(currentMessageId: Value(null)));
+
+        final page = await db.messagesDao.getActiveBranchPage(
+          'window-null-tip',
+        );
+
+        check(page.primaryRows.length).equals(50);
+        check(page.primaryRows.first.id).equals('m25');
+        check(page.primaryRows.last.id).equals('m74');
+        check(page.hasOlder).isTrue();
+      },
+    );
+
+    test(
+      'complete reads chunk sibling predicates below SQLite limits',
+      () async {
+        await seedChain(chatId: 'window-large-chain', count: 1200);
+
+        final rows = await db.messagesDao.getCompleteActiveBranchRows(
+          'window-large-chain',
+        );
+
+        check(rows.length).equals(1200);
+        check(rows.first.id).equals('m0');
+        check(rows.last.id).equals('m1199');
+      },
+    );
   });
 
   group('ordering (createdAt ASC, orderIndex ASC)', () {

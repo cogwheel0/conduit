@@ -217,7 +217,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const int _initialBottomSettleMaxAttempts = 8;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const String _composerSpacerListKey = 'chat-composer-spacer';
-  static const double _streamingFollowDistanceThreshold = 48.0;
   static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
 
   final ItemScrollController _itemScrollController = ItemScrollController();
@@ -329,6 +328,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
 
   void _handlePositionedItemsChanged() {
+    if (!mounted || _isDeactivated) return;
     _updateScrollToBottomVisibility();
     _maybeLoadOlderMessages();
     if (!_shouldSmoothFollowStreamingGrowth) return;
@@ -433,6 +433,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     resetHermesForNewChat(ref);
     clearSelectedFiltersForConversationBoundary(ref);
 
+    _saveCurrentScrollAnchor();
+
     // Clear current conversation
     ref.read(chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).clear();
@@ -446,7 +448,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
 
-    _saveCurrentScrollAnchor();
     if (_itemScrollController.isAttached) {
       _itemScrollController.jumpTo(index: 0);
     }
@@ -1349,7 +1350,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _updateBottomAnchorTracking() {
     final hasScrollableContent = _hasScrollableContentForBottomButton();
-    final distanceFromBottom = _isAtLatestPosition() ? 0.0 : 301.0;
+    final distanceFromBottom = _positionedDistanceFromLatest();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
@@ -1393,7 +1394,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _updateScrollToBottomVisibility() {
     if (!mounted || _isDeactivated) return;
 
-    final distanceFromBottom = _isAtLatestPosition() ? 0.0 : 301.0;
+    final distanceFromBottom = _positionedDistanceFromLatest();
     final bool hasScrollableContent = _hasScrollableContentForBottomButton();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
@@ -1484,6 +1485,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _itemScrollController.jumpTo(index: 0);
       _updateScrollToBottomVisibility();
     }
+  }
+
+  double _positionedDistanceFromLatest() {
+    return _isAtLatestPosition() ? 0.0 : _scrollButtonShowThreshold + 1;
   }
 
   void _beginScrollProfile(String interaction) {
@@ -1590,9 +1595,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final visibleCount = math.min(paging.loadedCount, messages.length);
     if (visibleCount == 0) return;
     final visible = messages.sublist(messages.length - visibleCount);
-    final candidates = positions.where(
-      (position) => position.index >= 0 && position.index < visible.length,
-    );
+    final timeline = ChatTimelineRenderModel.fromMessages(visible);
+    final candidates = positions.where((position) {
+      final message = timeline.messageAtPositionedIndex(position.index);
+      return message != null && message.metadata?['archivedVariant'] != true;
+    });
     if (candidates.isEmpty) return;
     final position = candidates.reduce(
       (left, right) =>
@@ -1600,11 +1607,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ? left
           : right,
     );
-    final chronologicalIndex = visible.length - 1 - position.index;
-    if (chronologicalIndex < 0 || chronologicalIndex >= visible.length) return;
+    final message = timeline.messageAtPositionedIndex(position.index);
+    if (message == null) return;
     _savedScrollAnchors.remove(id);
     _savedScrollAnchors[id] = ChatScrollAnchor(
-      messageId: visible[chronologicalIndex].id,
+      messageId: message.id,
       itemLeadingEdge: position.itemLeadingEdge.clamp(0.0, 1.0),
       loadedCount: visibleCount,
     );
@@ -1629,16 +1636,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final paging = ref.read(chatTranscriptPagingProvider);
       final visibleCount = math.min(paging.loadedCount, messages.length);
       final visible = messages.sublist(messages.length - visibleCount);
-      final chronologicalIndex = visible.indexWhere(
-        (message) => message.id == anchor.messageId,
+      final timeline = ChatTimelineRenderModel.fromMessages(visible);
+      final positionedIndex = timeline.positionedIndexForMessageId(
+        anchor.messageId,
       );
-      if (chronologicalIndex < 0) {
+      if (positionedIndex == null) {
         _scrollToBottom(smooth: false);
         return;
       }
       _itemScrollController.jumpTo(
-        index: visible.length - 1 - chronologicalIndex,
-        alignment: 1 - anchor.itemLeadingEdge,
+        index: positionedIndex,
+        alignment: anchor.itemLeadingEdge,
       );
       _updateScrollToBottomVisibility();
     });
@@ -1991,15 +1999,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     Widget appendNewestSpacer(Widget row, int positionedIndex) {
-      if (positionedIndex != 0) return row;
+      final isNewest = positionedIndex == 0;
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           row,
           SizedBox(
-            key: const ValueKey<String>(_composerSpacerListKey),
-            height:
-                bottomPadding + (_wantsPinToTop ? _pinToTopEndSpaceExtent : 0),
+            key: isNewest
+                ? const ValueKey<String>(_composerSpacerListKey)
+                : null,
+            height: isNewest
+                ? bottomPadding + (_wantsPinToTop ? _pinToTopEndSpaceExtent : 0)
+                : 0,
           ),
         ],
       );
@@ -3642,17 +3653,6 @@ bool debugShouldSmoothFollowStreamingForTesting({
       pinPositionSettled &&
       pinEndSpaceExtent.isFinite &&
       pinEndSpaceExtent <= 1;
-}
-
-@visibleForTesting
-bool debugShouldAnimateStreamingFollowForTesting({
-  required double distanceFromBottom,
-  required bool reduceMotion,
-}) {
-  return !reduceMotion &&
-      distanceFromBottom.isFinite &&
-      distanceFromBottom > 0 &&
-      distanceFromBottom <= _ChatPageState._streamingFollowDistanceThreshold;
 }
 
 double _scrollAnimationStartOffset({

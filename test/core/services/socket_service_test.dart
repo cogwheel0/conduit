@@ -749,6 +749,7 @@ void main() {
       'stopBuffering and dispose release buffered events and tombstones',
       () {
         final service = SocketService(serverConfig: _serverConfig);
+        addTearDown(service.dispose);
         service.startBuffering('chat-stop');
         service.debugHandleChatEvent(event('chat-stop', 0));
         service.stopBuffering('chat-stop');
@@ -770,6 +771,26 @@ void main() {
         expect(service.debugReplayGapCount, 0);
       },
     );
+
+    test('token rotation reports a replay gap to pending handlers', () {
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        authToken: 'old-token',
+      );
+      addTearDown(service.dispose);
+      service.startBuffering('chat-token');
+      service.debugHandleChatEvent(event('chat-token', 0));
+
+      service.updateAuthToken('new-token');
+
+      SocketReplayGapReason? reason;
+      service.addChatEventHandler(
+        conversationId: 'chat-token',
+        onReplayGap: (value) => reason = value,
+        handler: (_, _) => fail('token-rotated deltas must not replay'),
+      );
+      expect(reason, SocketReplayGapReason.scopeEvicted);
+    });
   });
 
   test('active stream lease keeps reconnect enabled in background', () async {

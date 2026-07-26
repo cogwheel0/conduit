@@ -657,7 +657,7 @@ class _EnhancedImageAttachmentState
 
   bool _isRemoteContent(String data) => _isRemoteContentValue(data);
 
-  ({int? width, int? height}) _cacheDimensions(BuildContext context) {
+  RasterDecodeTarget _cacheDimensions(BuildContext context) {
     final constraints =
         widget.constraints ??
         const BoxConstraints(maxWidth: 400, maxHeight: 400);
@@ -666,7 +666,7 @@ class _EnhancedImageAttachmentState
       profile: RasterDecodeProfile.inline,
       constraints: constraints,
     );
-    return (width: target.width, height: target.height);
+    return target;
   }
 
   @override
@@ -889,25 +889,23 @@ class _EnhancedImageAttachmentState
     final dimensions = _cacheDimensions(context);
 
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
-    final imageWidget = CachedNetworkImage(
+    final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      imageUrl: _cachedImageData!,
-      cacheKey: networkCacheKey,
+      image: RasterMediaPolicy.resizeProvider(
+        CachedNetworkImageProvider(
+          _cachedImageData!,
+          cacheKey: networkCacheKey,
+          cacheManager: cacheManager,
+          headers: headers,
+        ),
+        dimensions,
+      ),
       fit: BoxFit.cover,
-      cacheManager: cacheManager,
-      httpHeaders: headers,
-      memCacheWidth: dimensions.width,
-      memCacheHeight: dimensions.height,
-      // A short opacity reveal remains safe under Reduce Motion and avoids an
-      // abrupt placeholder swap in OctoImage. Spatial Hero motion is disabled
-      // separately below.
-      fadeInDuration: widget.disableAnimation
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      fadeOutDuration: widget.disableAnimation
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      placeholder: (context, url) => _buildSkeletonPlaceholder(),
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        return wasSynchronouslyLoaded || frame != null
+            ? child
+            : _buildSkeletonPlaceholder();
+      },
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = error.toString();
         return _buildErrorState();
@@ -954,12 +952,10 @@ class _EnhancedImageAttachmentState
     }
     final dimensions = _cacheDimensions(context);
 
-    final imageWidget = Image.memory(
+    final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      bytes,
+      image: RasterMediaPolicy.resizeProvider(MemoryImage(bytes), dimensions),
       fit: BoxFit.cover,
-      cacheWidth: dimensions.width,
-      cacheHeight: dimensions.height,
       gaplessPlayback: true, // Prevents flashing during rebuilds
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = AppLocalizations.of(context)!.failedToDecodeImage;
@@ -1119,11 +1115,12 @@ class FullScreenImageViewer extends ConsumerWidget {
           ),
         );
       } else {
-        imageWidget = Image.memory(
-          imageBytes!,
+        imageWidget = Image(
+          image: RasterMediaPolicy.resizeProvider(
+            MemoryImage(imageBytes!),
+            decodeTarget,
+          ),
           fit: BoxFit.contain,
-          cacheWidth: decodeTarget.width,
-          cacheHeight: decodeTarget.height,
         );
       }
     } else if (imageData != null && imageData!.startsWith('http')) {
@@ -1159,19 +1156,26 @@ class FullScreenImageViewer extends ConsumerWidget {
         );
       } else {
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
-        imageWidget = CachedNetworkImage(
-          imageUrl: imageData!,
-          cacheKey: networkCacheKey,
-          fit: BoxFit.contain,
-          cacheManager: cacheManager,
-          httpHeaders: headers,
-          memCacheWidth: decodeTarget.width,
-          memCacheHeight: decodeTarget.height,
-          placeholder: (context, url) => Center(
-            child: CircularProgressIndicator(
-              color: context.conduitTheme.buttonPrimary,
+        imageWidget = Image(
+          image: RasterMediaPolicy.resizeProvider(
+            CachedNetworkImageProvider(
+              imageData!,
+              cacheKey: networkCacheKey,
+              cacheManager: cacheManager,
+              headers: headers,
             ),
+            decodeTarget,
           ),
+          fit: BoxFit.contain,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            return wasSynchronouslyLoaded || frame != null
+                ? child
+                : Center(
+                    child: CircularProgressIndicator(
+                      color: context.conduitTheme.buttonPrimary,
+                    ),
+                  );
+          },
           errorBuilder: (context, error, stackTrace) => Center(
             child: Icon(
               Icons.error_outline,
@@ -1209,11 +1213,12 @@ class FullScreenImageViewer extends ConsumerWidget {
             ),
           );
         } else {
-          imageWidget = Image.memory(
-            decodedBytes,
+          imageWidget = Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(decodedBytes),
+              decodeTarget,
+            ),
             fit: BoxFit.contain,
-            cacheWidth: decodeTarget.width,
-            cacheHeight: decodeTarget.height,
           );
         }
       } catch (e) {

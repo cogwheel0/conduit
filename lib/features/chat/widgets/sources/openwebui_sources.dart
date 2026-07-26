@@ -712,9 +712,7 @@ class _SourceFaviconState extends State<_SourceFavicon> {
         child: _waitingForGroundingRedirect
             ? _fallback(theme)
             : Image(
-                image: ResizeImage.resizeIfNeeded(
-                  decodeTarget.width,
-                  decodeTarget.height,
+                image: RasterMediaPolicy.resizeProvider(
                   widget.imageProvider?.call(
                         'https://www.google.com/s2/favicons'
                         '?sz=32&domain=$_domain',
@@ -723,6 +721,7 @@ class _SourceFaviconState extends State<_SourceFavicon> {
                         'https://www.google.com/s2/favicons'
                         '?sz=32&domain=$_domain',
                       ),
+                  decodeTarget,
                 ),
                 width: widget.size - 2,
                 height: widget.size - 2,

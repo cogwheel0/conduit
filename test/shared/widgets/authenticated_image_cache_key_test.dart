@@ -50,10 +50,17 @@ Widget _buildHost(ProviderContainer container) => UncontrolledProviderScope(
   ),
 );
 
-List<String?> _cacheKeys(WidgetTester tester) => tester
-    .widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage))
-    .map((widget) => widget.cacheKey)
+List<CachedNetworkImageProvider> _cachedProviders(WidgetTester tester) => tester
+    .widgetList<Image>(find.byType(Image))
+    .map((widget) => widget.image)
+    .whereType<ResizeImage>()
+    .map((provider) => provider.imageProvider)
+    .whereType<CachedNetworkImageProvider>()
     .toList(growable: false);
+
+List<String?> _cacheKeys(WidgetTester tester) => _cachedProviders(
+  tester,
+).map((provider) => provider.cacheKey).toList(growable: false);
 
 void main() {
   testWidgets(
@@ -88,6 +95,14 @@ void main() {
 
       final firstKeys = _cacheKeys(tester);
       expect(firstKeys, hasLength(2));
+      expect(
+        tester
+            .widgetList<Image>(find.byType(Image))
+            .map((widget) => widget.image)
+            .whereType<ResizeImage>()
+            .every((provider) => provider.policy == ResizeImagePolicy.fit),
+        isTrue,
+      );
       expect(firstKeys.every((key) => key != null), isTrue);
       expect(firstKeys.toSet(), hasLength(1));
       expect(firstKeys.first, isNot(contains('account-a-token')));

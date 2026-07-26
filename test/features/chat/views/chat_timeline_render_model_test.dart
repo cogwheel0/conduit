@@ -33,6 +33,10 @@ void main() {
     ).deepEquals({'message-user-1': 0, 'message-assistant-1': 1});
     check(timeline.listItemCount).equals(2);
     check(timeline.tailAssistantListIndex).equals(1);
+    check(timeline.messageAtPositionedIndex(0)?.id).equals('assistant-1');
+    check(timeline.messageAtPositionedIndex(1)?.id).equals('user-1');
+    check(timeline.positionedIndexForMessageId('assistant-1')).equals(0);
+    check(timeline.positionedIndexForMessageId('user-1')).equals(1);
   });
 
   test('extracts the active tail assistant from stable history', () {

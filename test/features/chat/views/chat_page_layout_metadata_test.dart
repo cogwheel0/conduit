@@ -1089,27 +1089,6 @@ void main() {
     ).isFalse();
   });
 
-  test('only small streaming deltas animate', () {
-    check(
-      debugShouldAnimateStreamingFollowForTesting(
-        distanceFromBottom: 48,
-        reduceMotion: false,
-      ),
-    ).isTrue();
-    check(
-      debugShouldAnimateStreamingFollowForTesting(
-        distanceFromBottom: 49,
-        reduceMotion: false,
-      ),
-    ).isFalse();
-    check(
-      debugShouldAnimateStreamingFollowForTesting(
-        distanceFromBottom: 24,
-        reduceMotion: true,
-      ),
-    ).isFalse();
-  });
-
   test(
     'keyboard inset growth ignores pin-to-top mode and manual scrolling',
     () {

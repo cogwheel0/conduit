@@ -86,17 +86,19 @@ void main() {
       devicePixelRatio: 2,
       logicalScreenSize: const Size(390, 844),
     );
-    final thumbnailProvider = ResizeImage.resizeIfNeeded(
-      thumbnail.width,
-      thumbnail.height,
+    final thumbnailProvider = RasterMediaPolicy.resizeProvider(
       provider,
+      thumbnail,
     );
-    final fullScreenProvider = ResizeImage.resizeIfNeeded(
-      fullScreen.width,
-      fullScreen.height,
+    final fullScreenProvider = RasterMediaPolicy.resizeProvider(
       provider,
+      fullScreen,
     );
 
+    check(thumbnailProvider).isA<ResizeImage>();
+    check(
+      (thumbnailProvider as ResizeImage).policy,
+    ).equals(ResizeImagePolicy.fit);
     final thumbnailKey = await thumbnailProvider.obtainKey(
       ImageConfiguration.empty,
     );

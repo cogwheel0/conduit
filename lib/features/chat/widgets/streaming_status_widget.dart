@@ -527,12 +527,16 @@ class _MinimalSourceLinks extends StatelessWidget {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(2),
-                      child: Image.network(
-                        'https://www.google.com/s2/favicons?sz=16&domain=$domain',
+                      child: Image(
+                        image: RasterMediaPolicy.resizeProvider(
+                          NetworkImage(
+                            'https://www.google.com/s2/favicons'
+                            '?sz=16&domain=$domain',
+                          ),
+                          faviconTarget,
+                        ),
                         width: 12,
                         height: 12,
-                        cacheWidth: faviconTarget.width,
-                        cacheHeight: faviconTarget.height,
                         errorBuilder: (context, error, stackTrace) => Icon(
                           Icons.public_rounded,
                           size: 12,

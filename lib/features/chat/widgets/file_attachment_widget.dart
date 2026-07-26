@@ -293,11 +293,9 @@ class _FileAttachmentCard extends ConsumerWidget {
       logicalWidth: 320,
       logicalHeight: 240,
     );
-    final Widget basePreview = Image.file(
-      file,
+    final Widget basePreview = Image(
+      image: RasterMediaPolicy.resizeProvider(FileImage(file), decodeTarget),
       fit: BoxFit.cover,
-      cacheWidth: decodeTarget.width,
-      cacheHeight: decodeTarget.height,
       filterQuality: FilterQuality.medium,
       errorBuilder: (context, error, stackTrace) =>
           _buildPreviewPlaceholderContent(context),

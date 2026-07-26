@@ -57,12 +57,10 @@ class ChatTimelineRenderModel {
   final ChatTurnPhase tailAssistantPhase;
   final ChatTurnFooterHost? runningFooterHost;
 
-  /// Stable indices for every message row in the single managed sliver.
+  /// Stable chronological indices for every row in the positioned list.
   ///
   /// The live assistant remains outside [historyMessages] so streamed chunks
-  /// do not rebuild stable history, but it occupies the next list slot. Keeping
-  /// both regions in one sliver lets its render object preserve the trailing
-  /// edge during live size changes without driving a scroll animation.
+  /// do not rebuild stable history, but it occupies the next list slot.
   final Map<String, int> listIndexByMessageKey;
 
   bool get hasTailAssistant => tailAssistant != null;
@@ -70,6 +68,24 @@ class ChatTimelineRenderModel {
   int get listItemCount => historyMessages.length + (hasTailAssistant ? 1 : 0);
   int? get tailAssistantListIndex =>
       hasTailAssistant ? historyMessages.length : null;
+
+  ChatMessage? messageAtListIndex(int listIndex) {
+    if (listIndex < 0 || listIndex >= listItemCount) return null;
+    if (listIndex < historyMessages.length) {
+      return historyMessages[listIndex];
+    }
+    return tailAssistant;
+  }
+
+  ChatMessage? messageAtPositionedIndex(int positionedIndex) {
+    if (positionedIndex < 0 || positionedIndex >= listItemCount) return null;
+    return messageAtListIndex(listItemCount - 1 - positionedIndex);
+  }
+
+  int? positionedIndexForMessageId(String messageId) {
+    final listIndex = listIndexByMessageKey['message-$messageId'];
+    return listIndex == null ? null : listItemCount - 1 - listIndex;
+  }
 }
 
 int? _tailAssistantIndex(List<ChatMessage> messages) {

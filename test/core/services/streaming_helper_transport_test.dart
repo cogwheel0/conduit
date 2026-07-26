@@ -533,7 +533,16 @@ void main() {
       'socket replay gaps request an authoritative conversation snapshot',
       () async {
         final log = _CallbackLog(
-          initialMessages: fakeStreamingAssistantMessages(content: 'partial'),
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'partial',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              error: const ChatMessageError(content: 'stale local error'),
+            ),
+          ],
         );
         final registrar = FakeSocketInjector();
         var snapshotPulls = 0;
@@ -574,6 +583,8 @@ void main() {
 
         check(snapshotPulls).equals(1);
         check(log.messages.last.content).equals('authoritative response');
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.error).isNull();
       },
     );
 

@@ -366,6 +366,7 @@ class _AssistantServerPatch {
     this.mergeMetadata = false,
     this.isStreaming,
     this.error,
+    this.clearError = false,
   });
 
   final String? content;
@@ -380,6 +381,7 @@ class _AssistantServerPatch {
   final bool mergeMetadata;
   final bool? isStreaming;
   final ChatMessageError? error;
+  final bool clearError;
 }
 
 /// Helper to handle reconnect recovery asynchronously with proper error handling.
@@ -1819,7 +1821,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? <String, dynamic>{...?current.metadata, ...patch.metadata!}
               : Map<String, dynamic>.from(patch.metadata!);
           final nextIsStreaming = patch.isStreaming ?? current.isStreaming;
-          final nextError = patch.error ?? current.error;
+          final nextError = patch.clearError
+              ? null
+              : patch.error ?? current.error;
           if (current.content == nextContent &&
               listEquals(current.followUps, nextFollowUps) &&
               _statusHistoriesEquivalent(
@@ -2040,6 +2044,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               assistant.sources.isNotEmpty || !current.isStreaming
               ? assistant.sources
               : current.sources;
+          final authoritativeTerminal =
+              assistant.error != null ||
+              assistant.metadata?['responseDone'] == true;
           return _AssistantServerPatch(
             content: recoverAuthoritativeState ? assistant.content : null,
             followUps: nextFollowUps,
@@ -2048,12 +2055,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             metadata: assistant.metadata,
             mergeMetadata: true,
             usage: effectiveUsage,
+            // Persisted Open WebUI snapshots commonly omit the transient
+            // streaming flag. During replay-gap recovery, preserve an active
+            // local task until an explicit terminal marker/error or the normal
+            // completion watchdog authoritatively settles it.
             isStreaming: recoverAuthoritativeState
-                ? assistant.isStreaming
+                ? current.isStreaming && !authoritativeTerminal
+                      ? true
+                      : assistant.isStreaming
                 : null,
-            error: recoverAuthoritativeState
-                ? assistant.error ?? const ChatMessageError(content: null)
-                : null,
+            error: recoverAuthoritativeState ? assistant.error : null,
+            clearError: recoverAuthoritativeState && assistant.error == null,
           );
         },
       );
