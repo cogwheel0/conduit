@@ -263,6 +263,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   double _inputHeight = 0;
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
+  int _conversationOwnerGeneration = 0;
   final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
       LinkedHashMap<String, ChatScrollAnchor>();
   Timer? _markdownPrewarmTimer;
@@ -292,6 +293,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _streamingFollowPending = false;
   bool _streamingFollowInFlight = false;
   int _streamingFollowGeneration = 0;
+  bool _isPreparingMessageSend = false;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -382,14 +384,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!paging.hasOlder || paging.isLoadingOlder) return;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return;
+    final completeMessages = ref.read(chatMessagesProvider);
+    final renderedMessages = _renderedTranscriptWindow(
+      completeMessages,
+      paging,
+    );
+    final renderedItemCount = ChatTimelineRenderModel.fromMessages(
+      renderedMessages,
+    ).listItemCount;
     final oldestVisible = positions
         .map((position) => position.index)
         .reduce((left, right) => left > right ? left : right);
-    if (oldestVisible < paging.loadedCount - 3) return;
+    if (!debugShouldLoadOlderPositionedPageForTesting(
+      oldestVisibleIndex: oldestVisible,
+      renderedItemCount: renderedItemCount,
+    )) {
+      return;
+    }
     unawaited(
       ref
           .read(chatTranscriptPagingProvider.notifier)
-          .fetchOlder(totalMessages: ref.read(chatMessagesProvider).length),
+          .fetchOlder(totalMessages: completeMessages.length),
     );
   }
 
@@ -500,16 +515,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// into a permanent conversation.
   Future<void> _saveTemporaryChat() async {
     if (_isSavingTemporary) return;
-    if (ref.read(isChatStreamingProvider)) return;
-    _isSavingTemporary = true;
+    if (_isPreparingMessageSend || ref.read(isChatStreamingProvider)) return;
+    final sourceConversation = ref.read(activeConversationProvider);
+    final sourceApi = ref.read(apiServiceProvider);
+    if (sourceConversation == null || sourceApi == null) return;
+    final sourceConversationId = conversationScopedId(sourceConversation);
+    final sourceConversationGeneration = _conversationOwnerGeneration;
+    final sourceAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    setState(() {
+      _isSavingTemporary = true;
+    });
     try {
       final messages = (await readCompleteActiveChatHistory(ref)).messages;
       if (messages.isEmpty) return;
-
-      final api = ref.read(apiServiceProvider);
-      if (api == null) return;
-      final activeConversation = ref.read(activeConversationProvider);
-      if (activeConversation == null) return;
+      if (!_ownsDeferredConversationMutation(
+        api: sourceApi,
+        authSessionEpoch: sourceAuthSessionEpoch,
+        conversationId: sourceConversationId,
+        conversationGeneration: sourceConversationGeneration,
+      )) {
+        return;
+      }
 
       // Generate title from first user message
       final firstUserMsg = messages.firstWhere(
@@ -523,13 +549,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : firstUserMsg.content;
 
       final selectedModel = ref.read(selectedModelProvider);
-      final serverConversation = await api.createConversation(
+      final serverConversation = await sourceApi.createConversation(
         title: title,
         messages: messages,
         model: selectedModel?.id ?? '',
-        systemPrompt: activeConversation.systemPrompt,
-        folderId: activeConversation.folderId,
+        systemPrompt: sourceConversation.systemPrompt,
+        folderId: sourceConversation.folderId,
       );
+      if (!_ownsDeferredConversationMutation(
+        api: sourceApi,
+        authSessionEpoch: sourceAuthSessionEpoch,
+        conversationId: sourceConversationId,
+        conversationGeneration: sourceConversationGeneration,
+      )) {
+        return;
+      }
 
       // Transition to permanent chat
       final updatedConversation = serverConversation.copyWith(
@@ -555,15 +589,57 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
         );
       }
-    } catch (e) {
-      if (mounted) {
+    } catch (e, stackTrace) {
+      if (mounted &&
+          _ownsDeferredConversationMutation(
+            api: sourceApi,
+            authSessionEpoch: sourceAuthSessionEpoch,
+            conversationId: sourceConversationId,
+            conversationGeneration: sourceConversationGeneration,
+          )) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.chatSaveFailed)),
         );
       }
+      DebugLogger.error(
+        'temporary-chat-save-failed',
+        scope: 'chat/page',
+        error: e,
+        stackTrace: stackTrace,
+      );
     } finally {
-      _isSavingTemporary = false;
+      if (mounted) {
+        setState(() {
+          _isSavingTemporary = false;
+        });
+      } else {
+        _isSavingTemporary = false;
+      }
     }
+  }
+
+  bool _ownsDeferredConversationMutation({
+    required ApiService api,
+    required Object authSessionEpoch,
+    required String conversationId,
+    required int conversationGeneration,
+  }) {
+    if (!mounted) return false;
+    final activeConversation = ref.read(activeConversationProvider);
+    return debugShouldApplyDeferredConversationMutationForTesting(
+          isMounted: true,
+          scheduledConversationId: conversationId,
+          activeConversationId: activeConversation == null
+              ? null
+              : conversationScopedId(activeConversation),
+          scheduledGeneration: conversationGeneration,
+          activeGeneration: _conversationOwnerGeneration,
+        ) &&
+        identical(ref.read(apiServiceProvider), api) &&
+        identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        );
   }
 
   Future<void> _checkAndAutoSelectModel() async {
@@ -772,10 +848,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     String text, {
     required bool includeComposerContext,
   }) async {
-    if (ref.read(isLoadingConversationProvider)) {
+    if (!debugCanSubmitChatMessageForTesting(
+      isLoadingConversation: ref.read(isLoadingConversationProvider),
+      isSavingTemporary: _isSavingTemporary,
+      isPreparingMessageSend: _isPreparingMessageSend,
+    )) {
       return;
     }
+    _isPreparingMessageSend = true;
+    try {
+      await _sendMessageAfterAdmission(
+        text,
+        includeComposerContext: includeComposerContext,
+      );
+    } finally {
+      _isPreparingMessageSend = false;
+    }
+  }
 
+  Future<void> _sendMessageAfterAdmission(
+    String text, {
+    required bool includeComposerContext,
+  }) async {
     dynamic selectedModel = ref.read(selectedModelProvider);
 
     // Resolve model on-demand if none selected yet
@@ -837,6 +931,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onAssistantPlaceholderCreated: (handle) {
+          _isPreparingMessageSend = false;
           pendingSend = handle;
           _activatePinToTopAnchor(handle);
         },
@@ -1467,7 +1562,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       });
     }
 
-    final messages = ref.read(chatMessagesProvider);
+    final completeMessages = ref.read(chatMessagesProvider);
+    final paging = ref.read(chatTranscriptPagingProvider);
+    final messages = _renderedTranscriptWindow(completeMessages, paging);
     if (messages.isEmpty) {
       return;
     }
@@ -1611,6 +1708,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _handleConversationChanged(String? conversationId) {
     if (conversationId == _lastConversationId) return;
+    _conversationOwnerGeneration += 1;
 
     final outgoingId = _lastConversationId;
     if (isActiveConversationInPlaceRemap(ref, outgoingId, conversationId)) {
@@ -1955,11 +2053,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final messages = _renderedTranscriptWindow(completeMessages, paging);
     if (paging.loadedCount != requestedCount ||
         paging.hasOlder != (requestedCount < completeMessages.length)) {
+      final scheduledConversation = watchRef.read(activeConversationProvider);
+      final scheduledConversationId = scheduledConversation == null
+          ? null
+          : conversationScopedId(scheduledConversation);
+      final scheduledConversationGeneration = _conversationOwnerGeneration;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        final activeConversation = ref.read(activeConversationProvider);
+        if (!debugShouldApplyDeferredConversationMutationForTesting(
+          isMounted: true,
+          scheduledConversationId: scheduledConversationId,
+          activeConversationId: activeConversation == null
+              ? null
+              : conversationScopedId(activeConversation),
+          scheduledGeneration: scheduledConversationGeneration,
+          activeGeneration: _conversationOwnerGeneration,
+        )) {
+          return;
+        }
+        final currentMessageCount = ref.read(chatMessagesProvider).length;
         ref
             .read(chatTranscriptPagingProvider.notifier)
-            .ensureTotal(completeMessages.length);
+            .ensureTotal(currentMessageCount);
       });
     }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
@@ -2773,7 +2889,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   );
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
-                    enabled: !isLoadingConversation,
+                    enabled: debugCanSubmitChatMessageForTesting(
+                      isLoadingConversation: isLoadingConversation,
+                      isSavingTemporary: _isSavingTemporary,
+                      isPreparingMessageSend: _isPreparingMessageSend,
+                    ),
                     bottomPadding: 0,
                     managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
@@ -3192,7 +3312,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
         iconColor: tintColor,
-        onPressed: _saveTemporaryChat,
+        onPressed: _isSavingTemporary ? null : _saveTemporaryChat,
       );
     }
 
@@ -3802,6 +3922,40 @@ bool debugShouldApplyConversationScrollRestoreForTesting({
   required String? activeConversationId,
 }) {
   return isMounted && scheduledConversationId == activeConversationId;
+}
+
+@visibleForTesting
+bool debugShouldApplyDeferredConversationMutationForTesting({
+  required bool isMounted,
+  required String? scheduledConversationId,
+  required String? activeConversationId,
+  required int scheduledGeneration,
+  required int activeGeneration,
+}) {
+  return isMounted &&
+      scheduledConversationId != null &&
+      scheduledConversationId == activeConversationId &&
+      scheduledGeneration == activeGeneration;
+}
+
+@visibleForTesting
+bool debugShouldLoadOlderPositionedPageForTesting({
+  required int oldestVisibleIndex,
+  required int renderedItemCount,
+}) {
+  if (renderedItemCount <= 0) return false;
+  return oldestVisibleIndex >= math.max(0, renderedItemCount - 3);
+}
+
+@visibleForTesting
+bool debugCanSubmitChatMessageForTesting({
+  required bool isLoadingConversation,
+  required bool isSavingTemporary,
+  required bool isPreparingMessageSend,
+}) {
+  return !isLoadingConversation &&
+      !isSavingTemporary &&
+      !isPreparingMessageSend;
 }
 
 @visibleForTesting

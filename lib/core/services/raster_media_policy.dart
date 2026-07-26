@@ -22,6 +22,16 @@ final class RasterDecodeTarget {
 
   final int width;
   final int height;
+
+  @override
+  bool operator ==(Object other) {
+    return other is RasterDecodeTarget &&
+        other.width == width &&
+        other.height == height;
+  }
+
+  @override
+  int get hashCode => Object.hash(width, height);
 }
 
 /// One memory policy for raster images. Source/disk bytes remain original;
@@ -173,18 +183,12 @@ final class RasterCoverResizeImageKey {
   bool operator ==(Object other) {
     return other is RasterCoverResizeImageKey &&
         other.providerCacheKey == providerCacheKey &&
-        other.target.width == target.width &&
-        other.target.height == target.height &&
+        other.target == target &&
         other.maxLongestEdge == maxLongestEdge;
   }
 
   @override
-  int get hashCode => Object.hash(
-    providerCacheKey,
-    target.width,
-    target.height,
-    maxLongestEdge,
-  );
+  int get hashCode => Object.hash(providerCacheKey, target, maxLongestEdge);
 }
 
 /// Aspect-preserving bounded decode wrapper for images rendered with cover.
@@ -206,14 +210,12 @@ final class RasterCoverResizeImage
     return identical(this, other) ||
         other is RasterCoverResizeImage &&
             other.imageProvider == imageProvider &&
-            other.target.width == target.width &&
-            other.target.height == target.height &&
+            other.target == target &&
             other.maxLongestEdge == maxLongestEdge;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(imageProvider, target.width, target.height, maxLongestEdge);
+  int get hashCode => Object.hash(imageProvider, target, maxLongestEdge);
 
   @visibleForTesting
   RasterDecodeTarget targetForIntrinsic(int width, int height) {

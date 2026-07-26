@@ -290,6 +290,118 @@ void main() {
     },
   );
 
+  test('older paging threshold uses rendered positioned-row coordinates', () {
+    expect(
+      debugShouldLoadOlderPositionedPageForTesting(
+        oldestVisibleIndex: 37,
+        renderedItemCount: 40,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldLoadOlderPositionedPageForTesting(
+        oldestVisibleIndex: 36,
+        renderedItemCount: 40,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldLoadOlderPositionedPageForTesting(
+        oldestVisibleIndex: 47,
+        renderedItemCount: 50,
+      ),
+      isTrue,
+    );
+  });
+
+  test('deferred chat mutations are fenced to the scheduled conversation', () {
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-b',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: false,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: null,
+        activeConversationId: null,
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 9,
+      ),
+      isFalse,
+    );
+  });
+
+  test('temporary-chat save blocks composer and send submission', () {
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: false,
+        isPreparingMessageSend: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: true,
+        isPreparingMessageSend: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: true,
+        isSavingTemporary: false,
+        isPreparingMessageSend: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: false,
+        isPreparingMessageSend: true,
+      ),
+      isFalse,
+    );
+  });
+
   test('latest button follows manual detachment but not automatic pinning', () {
     expect(
       debugShouldExposeScrollToLatestForTesting(

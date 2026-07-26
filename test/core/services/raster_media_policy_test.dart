@@ -48,6 +48,37 @@ void main() {
     check(target.height).equals(1536);
   });
 
+  test('decode targets use value equality across bounded cover shapes', () {
+    const destination = RasterDecodeTarget(width: 900, height: 900);
+    final landscape = RasterMediaPolicy.coverDecodeTarget(
+      intrinsicWidth: 3200,
+      intrinsicHeight: 1800,
+      destination: destination,
+      maxLongestEdge: RasterDecodeProfile.inline.maxLongestEdge,
+    );
+    final portrait = RasterMediaPolicy.coverDecodeTarget(
+      intrinsicWidth: 1800,
+      intrinsicHeight: 3200,
+      destination: destination,
+      maxLongestEdge: RasterDecodeProfile.inline.maxLongestEdge,
+    );
+    final noUpscale = RasterMediaPolicy.coverDecodeTarget(
+      intrinsicWidth: 100,
+      intrinsicHeight: 60,
+      destination: destination,
+      maxLongestEdge: RasterDecodeProfile.inline.maxLongestEdge,
+    );
+
+    check(landscape).equals(const RasterDecodeTarget(width: 1536, height: 864));
+    check(
+      landscape.hashCode,
+    ).equals(const RasterDecodeTarget(width: 1536, height: 864).hashCode);
+    check(portrait).equals(const RasterDecodeTarget(width: 864, height: 1536));
+    check(noUpscale).equals(const RasterDecodeTarget(width: 100, height: 60));
+    check(landscape == portrait).isFalse();
+    check(landscape == noUpscale).isFalse();
+  });
+
   test('full-screen target uses physical screen size under the 3072 cap', () {
     final target = RasterMediaPolicy.target(
       profile: RasterDecodeProfile.fullScreen,

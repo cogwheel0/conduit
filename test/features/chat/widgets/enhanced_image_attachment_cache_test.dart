@@ -62,7 +62,12 @@ void main() {
     );
     final equivalentNetwork = RasterMediaPolicy.resizeProviderForCover(
       const NetworkImage('https://example.test/wide.png'),
-      destination,
+      RasterMediaPolicy.target(
+        profile: RasterDecodeProfile.inline,
+        devicePixelRatio: 3,
+        logicalWidth: 300,
+        logicalHeight: 300,
+      ),
       profile: RasterDecodeProfile.inline,
     );
 
@@ -78,11 +83,14 @@ void main() {
       1800,
       3200,
     );
+    final small = network.targetForIntrinsic(100, 60);
 
     check(wide.width).equals(RasterDecodeProfile.inline.maxLongestEdge);
     check(wide.height).equals(864);
     check(tall.width).equals(864);
     check(tall.height).equals(RasterDecodeProfile.inline.maxLongestEdge);
+    check(small.width).equals(100);
+    check(small.height).equals(60);
   });
 
   test('same-origin image metadata cannot override the Conduit identity', () {
