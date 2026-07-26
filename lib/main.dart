@@ -442,6 +442,24 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'sherpa-stt-model') {
+        unawaited(
+          NavigationService.router.push<void>(
+            Routes.sherpaModelsFor(forTts: false),
+          ),
+        );
+        return;
+      }
+
+      if (event.id == 'sherpa-tts-model') {
+        unawaited(
+          NavigationService.router.push<void>(
+            Routes.sherpaModelsFor(forTts: true),
+          ),
+        );
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;
@@ -605,6 +623,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               forTts: false,
             );
             if (!activated) {
+              try {
+                await NativeSheetBridge.instance.dismiss();
+              } catch (error, stackTrace) {
+                DebugLogger.warning(
+                  'native-sherpa-stt-sheet-dismiss-failed',
+                  scope: 'native/sheet',
+                  data: {'error': error, 'stackTrace': stackTrace},
+                );
+              }
               unawaited(
                 NavigationService.router.push<void>(
                   Routes.sherpaModelsFor(forTts: false),
@@ -650,6 +677,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               forTts: true,
             );
             if (!activated) {
+              try {
+                await NativeSheetBridge.instance.dismiss();
+              } catch (error, stackTrace) {
+                DebugLogger.warning(
+                  'native-sherpa-tts-sheet-dismiss-failed',
+                  scope: 'native/sheet',
+                  data: {'error': error, 'stackTrace': stackTrace},
+                );
+              }
               unawaited(
                 NavigationService.router.push<void>(
                   Routes.sherpaModelsFor(forTts: true),

@@ -158,6 +158,22 @@ class AudioSettingsPage extends ConsumerWidget {
             ],
           ),
         ),
+        if (settings.sttPreference == SttPreference.sherpa &&
+            selectedSherpaModel != null) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.waveform,
+                android: Icons.graphic_eq,
+              ),
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.sherpaChooseSpeechModel,
+            subtitle: selectedSherpaModel.displayName,
+            onTap: () => context.push(Routes.sherpaModelsFor(forTts: false)),
+          ),
+        ],
         if (shouldShowDeviceSttLanguageSetting(
           defaultTargetPlatform,
           settings.sttPreference,
@@ -368,6 +384,22 @@ class AudioSettingsPage extends ConsumerWidget {
         ),
         const SizedBox(height: Spacing.sm),
         if (settings.ttsEngine == TtsEngine.sherpa &&
+            selectedSherpaModel != null) ...[
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.speaker_2,
+                android: Icons.record_voice_over,
+              ),
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.sherpaChooseVoiceModel,
+            subtitle: selectedSherpaModel.displayName,
+            onTap: () => context.push(Routes.sherpaModelsFor(forTts: true)),
+          ),
+          const SizedBox(height: Spacing.sm),
+        ],
+        if (settings.ttsEngine == TtsEngine.sherpa &&
             selectedSherpaModel != null &&
             selectedSherpaModel.languages.length > 1) ...[
           CustomizationTile(
@@ -478,13 +510,11 @@ class AudioSettingsPage extends ConsumerWidget {
     if (settings.ttsEngine == TtsEngine.sherpa) {
       final model = sherpaModelById(settings.sherpaTtsModelId);
       final speaker = int.tryParse(settings.sherpaTtsSpeakerId ?? '');
-      final metadata =
-          speaker == null ||
-              model == null ||
-              speaker < 0 ||
-              speaker >= model.speakers.length
+      final metadata = speaker == null || model == null
           ? null
-          : model.speakers[speaker];
+          : model.speakers
+                .where((candidate) => candidate.id == speaker)
+                .firstOrNull;
       return metadata?.name ??
           (speaker == null
               ? l10n.sherpaChooseVoice
@@ -648,10 +678,9 @@ class AudioSettingsPage extends ConsumerWidget {
       await context.push(Routes.sherpaModelsFor(forTts: true));
       return;
     }
-    final selected = await showModalBottomSheet<int>(
+    final selected = await showSettingsSheet<int>(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => _SherpaSpeakerSheet(
+      builder: (sheetContext) => _SherpaSpeakerSheet(
         model: model,
         selectedId: settings.sherpaTtsSpeakerId,
       ),
@@ -779,7 +808,14 @@ class _SherpaSpeakerSheet extends StatefulWidget {
 }
 
 class _SherpaSpeakerSheetState extends State<_SherpaSpeakerSheet> {
+  final _searchController = TextEditingController();
   var _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -790,54 +826,52 @@ class _SherpaSpeakerSheetState extends State<_SherpaSpeakerSheet> {
           return name.toLowerCase().contains(_query.toLowerCase());
         })
         .toList(growable: false);
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                l10n.ttsSelectVoice,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
+    return SettingsSelectorSheet(
+      title: l10n.ttsSelectVoice,
+      description: widget.model.displayName,
+      itemCount: speakers.length + 1,
+      initialChildSize: 0.72,
+      minChildSize: 0.45,
+      maxChildSize: 0.92,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: Spacing.sm),
+            child: ConduitInput(
+              controller: _searchController,
+              autofocus: widget.model.speakers.length > 20,
+              onChanged: (value) => setState(() => _query = value),
+              hint: l10n.sherpaChooseVoice,
+              semanticLabel: l10n.sherpaChooseVoice,
+              prefixIcon: Icon(
+                context.usesCupertinoChrome
+                    ? CupertinoIcons.search
+                    : Icons.search,
+                size: IconSize.small,
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                autofocus: widget.model.speakers.length > 20,
-                onChanged: (value) => setState(() => _query = value),
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search),
-                  hintText: l10n.sherpaChooseVoice,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                itemCount: speakers.length,
-                itemBuilder: (context, index) {
-                  final speaker = speakers[index];
-                  return ListTile(
-                    title: Text(
-                      speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : ConduitIconButton(
+                      icon: context.usesCupertinoChrome
+                          ? CupertinoIcons.xmark_circle_fill
+                          : Icons.clear,
+                      tooltip: l10n.clear,
+                      isCompact: true,
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _query = '');
+                      },
                     ),
-                    trailing: widget.selectedId == speaker.id.toString()
-                        ? const Icon(Icons.check)
-                        : null,
-                    onTap: () => Navigator.pop(context, speaker.id),
-                  );
-                },
-              ),
             ),
-          ],
-        ),
-      ),
+          );
+        }
+        final speaker = speakers[index - 1];
+        return SettingsSelectorTile(
+          title: speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1),
+          selected: widget.selectedId == speaker.id.toString(),
+          onTap: () => Navigator.of(context).pop(speaker.id),
+        );
+      },
     );
   }
 }

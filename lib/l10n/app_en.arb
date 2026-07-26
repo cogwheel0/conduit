@@ -5190,6 +5190,10 @@
   "@sherpaNoModelsMatch": {
     "description": "Empty state for filtered Sherpa models."
   },
+  "sherpaNoModelsMatchHint": "Try adjusting your search or filters.",
+  "@sherpaNoModelsMatchHint": {
+    "description": "Guidance shown when no Sherpa models match search and filters."
+  },
   "sherpaActive": "Active",
   "@sherpaActive": {
     "description": "Sherpa model manager active section and state label."
@@ -5242,5 +5246,86 @@
   "sherpaCheckingModels": "Checking installed models…",
   "@sherpaCheckingModels": {
     "description": "Loading label while installed Sherpa models are read."
+  },
+  "sherpaFilterType": "STT / TTS",
+  "sherpaFilterMode": "Mode",
+  "sherpaFilterSize": "Size",
+  "sherpaFilterFamily": "Family",
+  "sherpaFilterAny": "Any",
+  "sherpaStreaming": "Streaming",
+  "sherpaOffline": "Offline",
+  "sherpaRecommended": "Recommended",
+  "sherpaVoices": "{count, plural, =1{1 voice} other{{count} voices}}",
+  "@sherpaVoices": {
+    "description": "Number of voices included in a Sherpa model.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sherpaPreparing": "Preparing…",
+  "sherpaInstallPhase": "{phase, select, queued{Queued} downloading{Downloading} verifying{Verifying} extracting{Extracting} validating{Validating model} installed{Installed} failed{Installation failed} other{Preparing}}",
+  "@sherpaInstallPhase": {
+    "description": "Current Sherpa model installation phase.",
+    "placeholders": {
+      "phase": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaLargeModelWarning": "Large models require a 64-bit device and can increase memory use, latency, battery drain, and heat.",
+  "sherpaMeteredNetworkWarning": "Your current network is metered.",
+  "sherpaPhysicalMemory": "{size} physical memory",
+  "@sherpaPhysicalMemory": {
+    "description": "Physical memory reported by the device.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaFreeStorage": "{size} free storage",
+  "@sherpaFreeStorage": {
+    "description": "Free storage reported by the device.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaDeviceCapacity": "This device reports {capacity}.",
+  "@sherpaDeviceCapacity": {
+    "description": "Summary of device capacity warnings for a Large model.",
+    "placeholders": {
+      "capacity": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaLargeDownloadTitle": "Download a Large model?",
+  "sherpaMeteredDownloadTitle": "Use metered data?",
+  "sherpaDownloadSizeSummary": "{downloadSize} download and {installedSize} installed.",
+  "@sherpaDownloadSizeSummary": {
+    "description": "Compressed download size and installed model size.",
+    "placeholders": {
+      "downloadSize": {
+        "type": "String"
+      },
+      "installedSize": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaDeleteActiveModel": "Choose another model before deleting the active model.",
+  "sherpaDeleteModelTitle": "Delete model?",
+  "sherpaDeleteModelMessage": "{modelName} will be removed from this device.",
+  "@sherpaDeleteModelMessage": {
+    "description": "Confirmation message before deleting an installed Sherpa model.",
+    "placeholders": {
+      "modelName": {
+        "type": "String"
+      }
+    }
   }
 }

@@ -4497,7 +4497,7 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(
                 cell,
                 item: item,
-                showsDisclosure: item.url != nil || canNavigate(item)
+                showsDisclosure: item.url != nil || item.dismissOnSelect || canNavigate(item)
             )
         }
     }

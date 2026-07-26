@@ -98,6 +98,8 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   AppLocalizations l10n,
   AppSettings appSettings, {
   List<Map<String, dynamic>> ttsVoices = const <Map<String, dynamic>>[],
+  int? installedModelCount,
+  int installedModelBytes = 0,
 }) {
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
@@ -146,6 +148,13 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     placeholder: l10n.sttTranscriptionLanguagePlaceholder,
   );
   final sherpaSttModel = sherpaModelById(appSettings.sherpaSttModelId);
+  final sherpaSttModelNav = NativeSheetItemConfig(
+    id: 'sherpa-stt-model',
+    title: l10n.sherpaChooseSpeechModel,
+    subtitle: sherpaSttModel?.displayName ?? l10n.sherpaModelsSubtitle,
+    sfSymbol: 'waveform',
+    dismissOnSelect: true,
+  );
   final allowAutomaticSherpaLanguage =
       sherpaSttModel?.family == SherpaModelFamily.nemotron ||
       sherpaSttModel?.family == SherpaModelFamily.whisper ||
@@ -192,6 +201,13 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   );
 
   final sherpaTtsModel = sherpaModelById(appSettings.sherpaTtsModelId);
+  final sherpaTtsModelNav = NativeSheetItemConfig(
+    id: 'sherpa-tts-model',
+    title: l10n.sherpaChooseVoiceModel,
+    subtitle: sherpaTtsModel?.displayName ?? l10n.sherpaModelsSubtitle,
+    sfSymbol: 'speaker.wave.2',
+    dismissOnSelect: true,
+  );
   final voiceOptions = appSettings.ttsEngine == TtsEngine.sherpa
       ? [
           for (final speaker in sherpaTtsModel?.speakers ?? const [])
@@ -255,12 +271,19 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   final sherpaModelsNav = NativeSheetItemConfig(
     id: 'sherpa-models',
     title: l10n.sherpaModelsTitle,
-    subtitle: l10n.sherpaModelsSubtitle,
+    subtitle: installedModelCount == null
+        ? l10n.sherpaModelsSubtitle
+        : l10n.sherpaInstalledSummary(
+            installedModelCount,
+            formatModelBytes(installedModelBytes),
+          ),
     sfSymbol: 'arrow.down.circle',
+    dismissOnSelect: true,
   );
 
   final sttItems = <NativeSheetItemConfig>[
     sttSegment,
+    if (appSettings.sttPreference == SttPreference.sherpa) sherpaSttModelNav,
     if (appSettings.sttPreference == SttPreference.serverOnly) sttLanguageField,
     if (appSettings.sttPreference == SttPreference.sherpa &&
         (sherpaSttModel?.languages.length ?? 0) > 1)
@@ -272,6 +295,7 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 
   final ttsItems = <NativeSheetItemConfig>[
     ttsSegment,
+    if (appSettings.ttsEngine == TtsEngine.sherpa) sherpaTtsModelNav,
     if (appSettings.ttsEngine != TtsEngine.sherpa || voiceOptions.isNotEmpty)
       voicePickerNav,
     if (appSettings.ttsEngine == TtsEngine.device || isSherpaTts)

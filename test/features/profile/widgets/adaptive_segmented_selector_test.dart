@@ -56,5 +56,60 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    testWidgets('keeps labels and drops icons in compact ${platform.name}', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: const Center(
+            child: SizedBox(
+              width: 320,
+              child: AdaptiveSegmentedSelector<int>(
+                value: 1,
+                onChanged: _ignoreSelection,
+                options: [
+                  (
+                    value: 1,
+                    label: 'Device',
+                    cupertinoIcon: CupertinoIcons.device_phone_portrait,
+                    materialIcon: Icons.phone_android,
+                    enabled: true,
+                  ),
+                  (
+                    value: 2,
+                    label: 'Server',
+                    cupertinoIcon: CupertinoIcons.cloud,
+                    materialIcon: Icons.cloud,
+                    enabled: true,
+                  ),
+                  (
+                    value: 3,
+                    label: 'Sherpa',
+                    cupertinoIcon: CupertinoIcons.waveform,
+                    materialIcon: Icons.graphic_eq,
+                    enabled: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Device'), findsOneWidget);
+      expect(find.text('Server'), findsOneWidget);
+      expect(find.text('Sherpa'), findsOneWidget);
+      expect(find.byIcon(Icons.phone_android), findsNothing);
+      expect(find.byIcon(Icons.cloud), findsNothing);
+      expect(find.byIcon(Icons.graphic_eq), findsNothing);
+      expect(find.byIcon(CupertinoIcons.device_phone_portrait), findsNothing);
+      expect(find.byIcon(CupertinoIcons.cloud), findsNothing);
+      expect(find.byIcon(CupertinoIcons.waveform), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   }
 }
+
+void _ignoreSelection(int _) {}

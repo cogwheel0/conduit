@@ -1338,13 +1338,17 @@ class ConduitChip extends StatelessWidget {
               ),
               SizedBox(width: Spacing.iconSpacing),
             ],
-            Text(
-              label,
-              style: AppTypography.small.copyWith(
-                color: isSelected
-                    ? context.conduitTheme.buttonPrimary
-                    : context.conduitTheme.textSecondary,
-                fontWeight: FontWeight.w500,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.small.copyWith(
+                  color: isSelected
+                      ? context.conduitTheme.buttonPrimary
+                      : context.conduitTheme.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
