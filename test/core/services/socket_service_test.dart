@@ -594,6 +594,184 @@ void main() {
     },
   );
 
+  group('bounded pre-handler replay', () {
+    Map<String, dynamic> event(
+      String chatId,
+      int sequence, {
+      String payload = '',
+      String? sessionId,
+      String? messageId,
+    }) {
+      return {
+        'chat_id': chatId,
+        'session_id': ?sessionId,
+        'message_id': ?messageId,
+        'data': {
+          'type': 'chat:message:delta',
+          'data': {'sequence': sequence, 'content': payload},
+        },
+      };
+    }
+
+    test('replays in order and matches conversation/session aliases', () {
+      final service = SocketService(serverConfig: _serverConfig);
+      addTearDown(service.dispose);
+      service.startBuffering(
+        'chat-ordered',
+        sessionId: 'session-ordered',
+        messageId: 'message-ordered',
+      );
+      final acknowledged = <int>[];
+      for (var index = 0; index < 3; index += 1) {
+        service.debugHandleChatEvent(
+          event(
+            'chat-ordered',
+            index,
+            sessionId: 'session-ordered',
+            messageId: 'message-ordered',
+          ),
+          (dynamic _) => acknowledged.add(index),
+        );
+      }
+      final replayed = <int>[];
+
+      service.addChatEventHandler(
+        sessionId: 'session-ordered',
+        handler: (socketEvent, ack) {
+          replayed.add(
+            (socketEvent['data']['data']['sequence'] as num).toInt(),
+          );
+          ack?.call('ack');
+        },
+      );
+
+      expect(replayed, [0, 1, 2]);
+      expect(acknowledged, [0, 1, 2]);
+      expect(service.debugBufferedScopeCount, 0);
+    });
+
+    test('event count overflow drops the entire sequence and reports once', () {
+      final service = SocketService(serverConfig: _serverConfig);
+      addTearDown(service.dispose);
+      service.startBuffering('chat-count');
+      for (
+        var index = 0;
+        index <= SocketService.maxBufferedEventsPerScope;
+        index += 1
+      ) {
+        service.debugHandleChatEvent(event('chat-count', index));
+      }
+      final reasons = <SocketReplayGapReason>[];
+      var replayed = 0;
+
+      service.addChatEventHandler(
+        conversationId: 'chat-count',
+        handler: (_, _) => replayed += 1,
+      );
+      service.addChatEventHandler(
+        conversationId: 'chat-count',
+        onReplayGap: reasons.add,
+        handler: (_, _) => replayed += 1,
+      );
+      service.addChatEventHandler(
+        conversationId: 'chat-count',
+        onReplayGap: reasons.add,
+        handler: (_, _) => replayed += 1,
+      );
+
+      expect(replayed, 0);
+      expect(reasons, [SocketReplayGapReason.eventLimit]);
+    });
+
+    test('byte overflow and oversized events report distinct gaps', () {
+      final service = SocketService(serverConfig: _serverConfig);
+      addTearDown(service.dispose);
+      service.startBuffering('chat-bytes');
+      final boundedPayload = 'x' * 210000;
+      for (var index = 0; index < 6; index += 1) {
+        service.debugHandleChatEvent(
+          event('chat-bytes', index, payload: boundedPayload),
+        );
+      }
+      SocketReplayGapReason? byteReason;
+      service.addChatEventHandler(
+        conversationId: 'chat-bytes',
+        onReplayGap: (reason) => byteReason = reason,
+        handler: (_, _) => fail('partial byte-overflow replay'),
+      );
+      expect(byteReason, SocketReplayGapReason.byteLimit);
+
+      service.startBuffering('chat-large');
+      service.debugHandleChatEvent(
+        event('chat-large', 0, payload: 'x' * 300000),
+      );
+      SocketReplayGapReason? largeReason;
+      service.addChatEventHandler(
+        conversationId: 'chat-large',
+        onReplayGap: (reason) => largeReason = reason,
+        handler: (_, _) => fail('oversized event replay'),
+      );
+      expect(largeReason, SocketReplayGapReason.eventTooLarge);
+    });
+
+    test('expired scopes and ninth-scope eviction leave gap tombstones', () {
+      var now = DateTime(2026);
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        now: () => now,
+      );
+      addTearDown(service.dispose);
+      service.startBuffering('chat-expired');
+      service.debugHandleChatEvent(event('chat-expired', 0));
+      now = now.add(const Duration(seconds: 31));
+      SocketReplayGapReason? expiredReason;
+      service.addChatEventHandler(
+        conversationId: 'chat-expired',
+        onReplayGap: (reason) => expiredReason = reason,
+        handler: (_, _) => fail('expired event replay'),
+      );
+      expect(expiredReason, SocketReplayGapReason.expired);
+
+      for (var index = 0; index < 9; index += 1) {
+        service.startBuffering('scope-$index');
+      }
+      expect(service.debugBufferedScopeCount, 8);
+      SocketReplayGapReason? evictionReason;
+      service.addChatEventHandler(
+        conversationId: 'scope-0',
+        onReplayGap: (reason) => evictionReason = reason,
+        handler: (_, _) => fail('evicted event replay'),
+      );
+      expect(evictionReason, SocketReplayGapReason.scopeEvicted);
+    });
+
+    test(
+      'stopBuffering and dispose release buffered events and tombstones',
+      () {
+        final service = SocketService(serverConfig: _serverConfig);
+        service.startBuffering('chat-stop');
+        service.debugHandleChatEvent(event('chat-stop', 0));
+        service.stopBuffering('chat-stop');
+        var replayed = false;
+        service.addChatEventHandler(
+          conversationId: 'chat-stop',
+          onReplayGap: (_) => fail('normal stop must not report a gap'),
+          handler: (_, _) => replayed = true,
+        );
+        expect(replayed, isFalse);
+
+        service.startBuffering('chat-dispose');
+        service.debugHandleChatEvent(
+          event('chat-dispose', 0, payload: 'x' * 300000),
+        );
+        expect(service.debugReplayGapCount, 1);
+        service.dispose();
+        expect(service.debugBufferedScopeCount, 0);
+        expect(service.debugReplayGapCount, 0);
+      },
+    );
+  });
+
   test('active stream lease keeps reconnect enabled in background', () async {
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(

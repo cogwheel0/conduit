@@ -721,6 +721,7 @@ final class _FakeSocketService implements SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     final captured = _CapturedRegistration(

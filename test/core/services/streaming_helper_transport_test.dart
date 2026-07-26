@@ -399,11 +399,16 @@ ActiveChatStream _attach({
 class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _lastHandler;
+  SocketReplayGapCallback? _replayGap;
   final _channelHandlers = <String, void Function(dynamic)>{};
   final _lastChannelHandlers = <String, void Function(dynamic)>{};
 
   bool get hasChatHandler => _handler != null;
   int get channelHandlerCount => _channelHandlers.length;
+
+  void emitReplayGap(SocketReplayGapReason reason) {
+    _replayGap?.call(reason);
+  }
 
   /// Injects a socket chat event with the given [type] and [payload].
   void emitChatEvent(
@@ -467,14 +472,17 @@ class _MockSocketService implements SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     lastChatKeepsAliveInBackground = keepsAliveInBackground;
     _injector._handler = handler;
     _injector._lastHandler = handler;
+    _injector._replayGap = onReplayGap;
     return SocketEventSubscription(() {
       chatSubscriptionDisposeCount++;
       _injector._handler = null;
+      _injector._replayGap = null;
     }, handlerId: 'test');
   }
 
@@ -521,6 +529,54 @@ class _MockSocketService implements SocketService {
 
 void main() {
   group('attachUnifiedChunkedStreaming transport dispatch', () {
+    test(
+      'socket replay gaps request an authoritative conversation snapshot',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'partial'),
+        );
+        final registrar = FakeSocketInjector();
+        var snapshotPulls = 0;
+        final now = DateTime.now();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+          pullChatSnapshot: (_) async {
+            snapshotPulls += 1;
+            return Conversation(
+              id: 'conv-1',
+              title: 'Recovered',
+              createdAt: now,
+              updatedAt: now,
+              messages: [
+                ChatMessage(
+                  id: 'msg-1',
+                  role: 'assistant',
+                  content: 'authoritative response',
+                  timestamp: now,
+                  isStreaming: false,
+                ),
+              ],
+            );
+          },
+        );
+
+        registrar.emitReplayGap(SocketReplayGapReason.byteLimit);
+        for (var index = 0; index < 10; index += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(snapshotPulls).equals(1);
+        check(log.messages.last.content).equals('authoritative response');
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 1. httpStream sessions append deltas and finish once
     // -----------------------------------------------------------------------

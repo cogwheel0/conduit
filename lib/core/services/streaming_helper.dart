@@ -1944,10 +1944,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   bool refreshingSnapshot = false;
   bool queuedSnapshotRefresh = false;
-  Future<void> refreshConversationSnapshot() async {
+  bool queuedAuthoritativeSnapshotRecovery = false;
+  Future<void> refreshConversationSnapshot({
+    bool recoverAuthoritativeState = false,
+  }) async {
     if (isObsoleteStream || ownsStreamContext?.call() == false) return;
     if (refreshingSnapshot) {
       queuedSnapshotRefresh = true;
+      queuedAuthoritativeSnapshotRecovery |= recoverAuthoritativeState;
       return;
     }
     final chatId = activeConversationId;
@@ -2037,12 +2041,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? assistant.sources
               : current.sources;
           return _AssistantServerPatch(
+            content: recoverAuthoritativeState ? assistant.content : null,
             followUps: nextFollowUps,
             statusHistory: nextStatusHistory,
             sources: nextSources,
             metadata: assistant.metadata,
             mergeMetadata: true,
             usage: effectiveUsage,
+            isStreaming: recoverAuthoritativeState
+                ? assistant.isStreaming
+                : null,
+            error: recoverAuthoritativeState
+                ? assistant.error ?? const ChatMessageError(content: null)
+                : null,
           );
         },
       );
@@ -2051,8 +2062,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     } finally {
       refreshingSnapshot = false;
       if (queuedSnapshotRefresh && !isObsoleteStream) {
+        final recoverQueuedAuthoritativeState =
+            queuedAuthoritativeSnapshotRecovery;
         queuedSnapshotRefresh = false;
-        unawaited(refreshConversationSnapshot());
+        queuedAuthoritativeSnapshotRecovery = false;
+        unawaited(
+          refreshConversationSnapshot(
+            recoverAuthoritativeState: recoverQueuedAuthoritativeState,
+          ),
+        );
       }
     }
   }
@@ -3699,6 +3717,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       messageId: assistantMessageId,
       requireFocus: false,
       keepsAliveInBackground: true,
+      onReplayGap: (reason) {
+        DebugLogger.log(
+          'socket replay gap; requesting authoritative snapshot',
+          scope: 'streaming/helper',
+          data: {'reason': reason.name},
+        );
+        unawaited(refreshConversationSnapshot(recoverAuthoritativeState: true));
+      },
       handler: chatHandler,
     );
     if (localResourcesDisposed) {
