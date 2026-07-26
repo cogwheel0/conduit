@@ -688,21 +688,36 @@ class VoiceInputService with WidgetsBindingObserver {
     if (pendingStop != null) {
       await pendingStop;
     }
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
+    final preparationGeneration = _listenGeneration;
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
     }
     if (_preference == SttPreference.sherpa && !_sherpaSttAvailable) {
       await _prepareSherpaStt();
+      if (_disposeFuture != null ||
+          _listenGeneration != preparationGeneration) {
+        return const Stream<String>.empty();
+      }
     }
 
     if (_startingLocalStt != null) {
       try {
         await _startingLocalStt;
       } catch (_) {}
+      if (_disposeFuture != null ||
+          _listenGeneration != preparationGeneration) {
+        return const Stream<String>.empty();
+      }
     }
 
     if (_isListening) {
       await stopListening();
+    }
+    if (_disposeFuture != null) {
+      return const Stream<String>.empty();
     }
     final listenGeneration = ++_listenGeneration;
 
