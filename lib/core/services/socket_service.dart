@@ -557,11 +557,12 @@ class SocketService with WidgetsBindingObserver {
         .setRememberUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
         .setUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
         // Tune reconnect/backoff and timeouts
-        // Note: In socket_io_client, pass a very large number for "unlimited" attempts.
-        // Using double.maxFinite.toInt() ensures unlimited reconnection attempts.
+        // Keep eventual recovery, but let a persistently unavailable Socket.IO
+        // endpoint cool down. Foreground and connectivity transitions still
+        // force an immediate reconnect through the lifecycle policy above.
         .setReconnectionAttempts(double.maxFinite.toInt())
         .setReconnectionDelay(1000)
-        .setReconnectionDelayMax(5000)
+        .setReconnectionDelayMax(60000)
         .setRandomizationFactor(0.5)
         .setTimeout(20000)
         .setPath(path);

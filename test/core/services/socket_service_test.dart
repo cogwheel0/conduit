@@ -280,6 +280,21 @@ void main() {
     },
   );
 
+  test('connect backs repeated Socket.IO retries off to one minute', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+
+    final options = socketFactory.handshakeOptions.single;
+    expect(options['reconnectionDelay'], 1000);
+    expect(options['reconnectionDelayMax'], 60000);
+  });
+
   test('native handshake sends one Conduit User-Agent value', () async {
     await HttpOverrides.runWithHttpOverrides(() async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -656,6 +671,7 @@ class _RecordingSocketService extends SocketService {
 class _RecordingSocketFactory {
   final List<io.Socket> sockets = <io.Socket>[];
   final List<Map<String, String>> handshakeHeaders = <Map<String, String>>[];
+  final List<Map<String, dynamic>> handshakeOptions = <Map<String, dynamic>>[];
 
   io.Socket create(
     String base,
@@ -663,6 +679,7 @@ class _RecordingSocketFactory {
     ServerConfig serverConfig,
   ) {
     final options = builder.build();
+    handshakeOptions.add(Map<String, dynamic>.from(options));
     handshakeHeaders.add(
       Map<String, String>.from(
         options['extraHeaders'] as Map<dynamic, dynamic>? ?? const {},

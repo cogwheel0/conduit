@@ -409,6 +409,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const int _initialBottomSettleMaxAttempts = 8;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const String _composerSpacerListKey = 'chat-composer-spacer';
+  static const double _streamingFollowDistanceThreshold = 48.0;
+  static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
 
   final ScrollController _scrollController = ScrollController();
   final ListController _messageListController = ListController();
@@ -457,6 +459,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   List<String>? _pendingManagedTimelineExtentKeys;
   bool _timelineExtentReconciliationScheduled = false;
   bool? _lastProfiledMessageCacheStreamingState;
+  bool _streamingFollowScheduled = false;
+  bool _streamingFollowPending = false;
+  bool _streamingFollowInFlight = false;
+  int _streamingFollowGeneration = 0;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -523,7 +529,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// intentional gesture or prompt positioning.
   void _syncLayoutBottomAnchor() {
     if (_wantsPinToTop) {
-      _messageListController.stickTarget = resolveChatPinStickTargetForTesting(
+      final target = resolveChatPinStickTargetForTesting(
         anchorIndex: _pinnedUserMessageListIndex,
         anchorAlignment: _pinnedUserMessageViewportAlignment,
         isAutoFollowing: _shouldAutoFollowPinnedTurn,
@@ -531,13 +537,131 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         isPositionSettled: _pinToTopPositionSettled,
         anchoredEndSpaceExtent: _pinToTopEndSpaceExtent,
       );
+      _messageListController.stickTarget =
+          target?.isBottom == true && _shouldSmoothFollowStreamingGrowth
+          ? null
+          : target;
       return;
     }
     final shouldAnchor = _bottomAnchorController
         .shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: _wantsPinToTop);
-    _messageListController.stickTarget = shouldAnchor
+    _messageListController.stickTarget =
+        shouldAnchor && !_shouldSmoothFollowStreamingGrowth
         ? const StickTarget.bottom()
         : null;
+  }
+
+  bool get _shouldSmoothFollowStreamingGrowth =>
+      debugShouldSmoothFollowStreamingForTesting(
+        hasRunningTurn: _hasActiveStreamingAssistant(
+          ref.read(chatMessagesProvider),
+        ),
+        isAnchoredToBottom: _isAnchoredToBottom,
+        isUserInteracting: _isUserInteractingWithScroll,
+        wantsPinToTop: _wantsPinToTop,
+        pinAutoFollowing: _shouldAutoFollowPinnedTurn,
+        pinPositionSettled: _pinToTopPositionSettled,
+        pinEndSpaceExtent: _pinToTopEndSpaceExtent,
+      );
+
+  void _handleManagedMessageExtentsChanged() {
+    if (!_shouldSmoothFollowStreamingGrowth) return;
+    _streamingFollowPending = true;
+    _scheduleSmoothStreamingFollow();
+  }
+
+  void _scheduleSmoothStreamingFollow() {
+    if (_streamingFollowScheduled || _streamingFollowInFlight) return;
+    _streamingFollowScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _streamingFollowScheduled = false;
+      if (!mounted ||
+          _isDeactivated ||
+          !_streamingFollowPending ||
+          !_shouldSmoothFollowStreamingGrowth ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      _runSmoothStreamingFollow();
+    });
+  }
+
+  void _runSmoothStreamingFollow() {
+    _streamingFollowPending = false;
+    final target = _bottomScrollOffset();
+    final distance = _distanceFromBottom();
+    if (!target.isFinite ||
+        target <= 0 ||
+        !distance.isFinite ||
+        distance < _scrollCorrectionEpsilon) {
+      return;
+    }
+
+    _bottomAnchorController.requestBottomAnchor();
+    _syncLayoutBottomAnchor();
+    if (!debugShouldAnimateStreamingFollowForTesting(
+      distanceFromBottom: distance,
+      reduceMotion: context.reduceMotion,
+    )) {
+      _bottomScrollSettler.cancel();
+      _scrollController.jumpTo(target);
+      _updateScrollToBottomVisibility();
+      if (_streamingFollowPending) _scheduleSmoothStreamingFollow();
+      return;
+    }
+
+    final generation = ++_streamingFollowGeneration;
+    _streamingFollowInFlight = true;
+    PerformanceProfiler.instance.instant(
+      'chat_streaming_follow',
+      scope: 'chat',
+      data: {
+        'distance': distance.toStringAsFixed(1),
+        'targetOffset': target.toStringAsFixed(1),
+      },
+    );
+    unawaited(
+      _bottomScrollSettler
+          .animateToLatestBottom(
+            initialBottom: target,
+            animateTo: (nextTarget) => _scrollController.animateTo(
+              nextTarget,
+              duration: _streamingFollowDuration,
+              curve: Curves.easeOutCubic,
+            ),
+            canSettle: () =>
+                mounted &&
+                !_isDeactivated &&
+                _scrollController.hasClients &&
+                !_isUserInteractingWithScroll &&
+                _shouldSmoothFollowStreamingGrowth,
+            rearmBottomAnchor: () {
+              _bottomAnchorController.requestBottomAnchor();
+              _syncLayoutBottomAnchor();
+            },
+            latestBottom: _bottomScrollOffset,
+            currentOffset: () => _scrollController.offset,
+            jumpTo: _scrollController.jumpTo,
+            onSettled: _updateScrollToBottomVisibility,
+            correctionEpsilon: _scrollCorrectionEpsilon,
+          )
+          .whenComplete(() {
+            if (generation != _streamingFollowGeneration) return;
+            _streamingFollowInFlight = false;
+            _syncLayoutBottomAnchor();
+            if (_streamingFollowPending) {
+              _scheduleSmoothStreamingFollow();
+            }
+          }),
+    );
+  }
+
+  void _cancelSmoothStreamingFollow() {
+    _bottomScrollSettler.cancel();
+    _streamingFollowGeneration += 1;
+    _streamingFollowScheduled = false;
+    _streamingFollowPending = false;
+    _streamingFollowInFlight = false;
   }
 
   bool validateFileSize(int fileSize, int maxSizeMB) {
@@ -735,6 +859,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Listen to scroll events to show/hide scroll to bottom button
     _scrollController.addListener(_onScroll);
+    _messageListController.extentsChangedListenable.addListener(
+      _handleManagedMessageExtentsChanged,
+    );
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -792,7 +919,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
     _bottomScrollSettler.cancel();
+    _cancelSmoothStreamingFollow();
     _endScrollProfile(reason: 'disposed');
+    _messageListController.extentsChangedListenable.removeListener(
+      _handleManagedMessageExtentsChanged,
+    );
     _messageListController.dispose();
     _scrollController.dispose();
     _scrollDebounceTimer?.cancel();
@@ -803,6 +934,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void deactivate() {
     _isDeactivated = true;
     _bottomScrollSettler.cancel();
+    _cancelSmoothStreamingFollow();
     _scrollDebounceTimer?.cancel();
     super.deactivate();
   }
@@ -830,6 +962,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!mounted || userMessageId == null) return;
 
     _bottomScrollSettler.cancel();
+    _cancelSmoothStreamingFollow();
     _cancelPendingInitialBottomSettle();
     final generation = ++_pinPositionGeneration;
     final topInset =
@@ -1719,6 +1852,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
+    _cancelSmoothStreamingFollow();
     _bottomAnchorController.requestBottomAnchor();
     _syncLayoutBottomAnchor();
     if (_wantsPinToTop) {
@@ -1846,6 +1980,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _bottomScrollSettler.cancel();
+    _cancelSmoothStreamingFollow();
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     if (outgoingId != null && _scrollController.hasClients) {
@@ -2415,6 +2550,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             if (!_isUserInteractingWithScroll) {
               _cancelPinnedTurnAutomaticFollow();
               _bottomScrollSettler.cancel();
+              _cancelSmoothStreamingFollow();
               _cancelPendingInitialBottomSettle();
               _beginScrollProfile('user_drag');
             }
@@ -4046,6 +4182,35 @@ bool _shouldTreatScrollUpdateAsUserDriven({
   // which marks the interaction active. Programmatic updates have neither and
   // must not detach the bottom layout anchor.
   return hasDragDetails || isUserInteractingWithScroll;
+}
+
+@visibleForTesting
+bool debugShouldSmoothFollowStreamingForTesting({
+  required bool hasRunningTurn,
+  required bool isAnchoredToBottom,
+  required bool isUserInteracting,
+  required bool wantsPinToTop,
+  required bool pinAutoFollowing,
+  required bool pinPositionSettled,
+  required double pinEndSpaceExtent,
+}) {
+  if (!hasRunningTurn || isUserInteracting) return false;
+  if (!wantsPinToTop) return isAnchoredToBottom;
+  return pinAutoFollowing &&
+      pinPositionSettled &&
+      pinEndSpaceExtent.isFinite &&
+      pinEndSpaceExtent <= 1;
+}
+
+@visibleForTesting
+bool debugShouldAnimateStreamingFollowForTesting({
+  required double distanceFromBottom,
+  required bool reduceMotion,
+}) {
+  return !reduceMotion &&
+      distanceFromBottom.isFinite &&
+      distanceFromBottom > 0 &&
+      distanceFromBottom <= _ChatPageState._streamingFollowDistanceThreshold;
 }
 
 double _scrollAnimationStartOffset({

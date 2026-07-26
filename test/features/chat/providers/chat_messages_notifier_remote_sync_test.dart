@@ -13,6 +13,7 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -278,6 +279,66 @@ ProviderContainer _modelRebindContainer({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('remote task poll cadence', () {
+    test('uses a short bounded fast-recovery window', () {
+      check(
+        debugRemoteTaskPollDelayForTesting(
+          fastPollsRemaining: 10,
+          consecutiveFailures: 0,
+          consecutiveCompletionMisses: 0,
+          hasActiveTask: true,
+        ),
+      ).equals(const Duration(seconds: 1));
+      check(
+        debugRemoteTaskPollDelayForTesting(
+          fastPollsRemaining: 0,
+          consecutiveFailures: 0,
+          consecutiveCompletionMisses: 0,
+          hasActiveTask: true,
+        ),
+      ).equals(const Duration(seconds: 3));
+      check(
+        debugRemoteTaskPollDelayForTesting(
+          fastPollsRemaining: 0,
+          consecutiveFailures: 0,
+          consecutiveCompletionMisses: 0,
+          hasActiveTask: false,
+        ),
+      ).equals(const Duration(seconds: 5));
+    });
+
+    test('backs failures and incomplete authoritative bodies off to 30s', () {
+      const expected = <Duration>[
+        Duration(seconds: 2),
+        Duration(seconds: 4),
+        Duration(seconds: 8),
+        Duration(seconds: 16),
+        Duration(seconds: 30),
+        Duration(seconds: 30),
+      ];
+
+      for (var index = 0; index < expected.length; index += 1) {
+        final step = index + 1;
+        check(
+          debugRemoteTaskPollDelayForTesting(
+            fastPollsRemaining: 10,
+            consecutiveFailures: step,
+            consecutiveCompletionMisses: 0,
+            hasActiveTask: false,
+          ),
+        ).equals(expected[index]);
+        check(
+          debugRemoteTaskPollDelayForTesting(
+            fastPollsRemaining: 10,
+            consecutiveFailures: 0,
+            consecutiveCompletionMisses: step,
+            hasActiveTask: false,
+          ),
+        ).equals(expected[index]);
+      }
+    });
+  });
 
   group('ChatMessagesNotifier remote sync', () {
     test(
@@ -943,6 +1004,44 @@ void main() {
 
       check(notifier.debugHasRemoteTaskMonitor).isTrue();
       check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+    });
+
+    test('inactive transition wakes a monitor paused in background', () async {
+      final timestamp = DateTime.now();
+      final messages = [
+        _userMessage('user-1', 'Hi', timestamp),
+        _assistantMessage('assistant-1', 'Partial', timestamp),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', messages, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', messages, timestamp));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+
+      notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+      check(notifier.debugHasRemoteTaskPollScheduled).isFalse();
+
+      notifier.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      check(notifier.debugHasRemoteTaskPollScheduled).isTrue();
+      notifier.debugCancelRemoteTaskMonitorTimer();
     });
 
     test(

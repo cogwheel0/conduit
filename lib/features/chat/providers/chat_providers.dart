@@ -9,6 +9,8 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
@@ -1371,9 +1373,40 @@ enum _StreamingContentFlushReason {
   replacement,
 }
 
+@visibleForTesting
+Duration debugRemoteTaskPollDelayForTesting({
+  required int fastPollsRemaining,
+  required int consecutiveFailures,
+  required int consecutiveCompletionMisses,
+  required bool hasActiveTask,
+}) {
+  final backoffStep = math.max(
+    consecutiveFailures,
+    consecutiveCompletionMisses,
+  );
+  if (backoffStep > 0) {
+    const delays = <Duration>[
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 8),
+      Duration(seconds: 16),
+      Duration(seconds: 30),
+    ];
+    return delays[math.min(backoffStep, delays.length) - 1];
+  }
+  if (fastPollsRemaining > 0) {
+    return const Duration(seconds: 1);
+  }
+  return hasActiveTask
+      ? const Duration(seconds: 3)
+      : const Duration(seconds: 5);
+}
+
 // Chat messages notifier class
-class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
+class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
+    with WidgetsBindingObserver {
   static const _passiveRefreshDebounce = Duration(milliseconds: 350);
+  static const int _remoteTaskFastPollCount = 10;
 
   StreamingResponseController? _messageStream;
   ProviderSubscription? _conversationListener;
@@ -1400,6 +1433,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   int _streamingCoalescedUpdateCount = 0;
   Timer? _taskStatusTimer;
   String? _remoteTaskMonitorMessageId;
+  StreamSubscription<void>? _remoteTaskReconnectSubscription;
+  SocketService? _remoteTaskWakeSocket;
+  int _remoteTaskFastPollsRemaining = 0;
+  int _remoteTaskConsecutiveFailures = 0;
+  int _remoteTaskCompletionMisses = 0;
+  bool _isAppForeground = true;
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   int _taskStatusGeneration = 0;
@@ -1409,8 +1448,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   // for a short grace window so the socket's own `done` finalize wins and we
   // never double-finalize. Reset whenever tasks are active again.
   int _tasksDoneGracePolls = 0;
-  // Polls to wait after `tasksDone` before the poll force-adopts server state
-  // over a still-protected socket resume stream (~2s at the 1s cadence).
+  // Consecutive `tasksDone` observations to wait before the poll force-adopts
+  // server state over a still-protected socket resume stream.
   static const int _tasksDoneSocketGracePolls = 2;
   // Consecutive empty task-registry polls observed for a reopened tail whose
   // task lookup previously failed. Requiring a second empty observation keeps
@@ -1470,6 +1509,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   List<ChatMessage> build() {
     if (!_initialized) {
       _initialized = true;
+      WidgetsBinding.instance.addObserver(this);
+      _isAppForeground = _isLifecycleForeground(
+        WidgetsBinding.instance.lifecycleState,
+      );
       _captureActiveOpenWebUiContext();
       ref.listen(appDatabaseProvider, (_, _) => _onOpenWebUiContextChanged());
       ref.listen(apiServiceProvider, (_, _) => _onOpenWebUiContextChanged());
@@ -1619,6 +1662,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       ref.onDispose(() {
         _disposed = true;
+        WidgetsBinding.instance.removeObserver(this);
         for (final subscription in _subscriptions) {
           subscription.cancel();
         }
@@ -3621,13 +3665,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _lastReopenedSnapshotAt = null;
   }
 
-  /// Test-only entry point that drives a single remote-task poll iteration,
-  /// mirroring exactly one tick of the 1s monitor. Lets grace-window regression
-  /// tests exercise [_syncRemoteTaskStatus] deterministically.
+  /// Test-only entry point that drives one remote-task monitor iteration. Lets
+  /// grace-window regression tests exercise [_syncRemoteTaskStatus]
+  /// deterministically.
   @visibleForTesting
-  Future<void> debugSyncRemoteTaskStatus() => _syncRemoteTaskStatus();
+  Future<void> debugSyncRemoteTaskStatus() =>
+      _syncRemoteTaskStatus(scheduleNext: false);
 
-  /// Test-only hook that cancels just the periodic 1s poll timer without
+  /// Test-only hook that cancels just the scheduled poll timer without
   /// clearing observed-task / grace state, so a test can drive poll iterations
   /// manually via [debugSyncRemoteTaskStatus] without the timer racing them.
   @visibleForTesting
@@ -3637,7 +3682,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   @visibleForTesting
-  bool get debugHasRemoteTaskMonitor => _taskStatusTimer != null;
+  bool get debugHasRemoteTaskMonitor => _remoteTaskMonitorMessageId != null;
+
+  @visibleForTesting
+  bool get debugHasRemoteTaskPollScheduled =>
+      _taskStatusTimer?.isActive ?? false;
 
   @visibleForTesting
   String? get debugBoundRemoteMessageId => _boundRemoteMessageId;
@@ -3657,11 +3706,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool get debugTaskStatusCheckInFlight => _taskStatusCheckInFlight;
 
   /// True while streaming was re-engaged for a reopened, server-active chat
-  /// (typing indicator + 1s poll) with no genuine local transport. The
+  /// (typing indicator + recovery monitor) with no genuine local transport. The
   /// progressive poll owns content updates during this window; passive server
   /// refreshes must not clobber the streaming state and end it prematurely.
   bool get _isResumeStreamingActive =>
-      _taskStatusTimer != null &&
+      _remoteTaskMonitorMessageId != null &&
       _hasStreamingAssistant &&
       !_shouldProtectLocalStreamingState;
 
@@ -3880,8 +3929,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // socket reconnect attempt waits.
     _engageReopenedTailMonitor(state.last.id);
     // Attach a socket resume stream so deltas render token-by-token (mirroring
-    // Open WebUI) instead of waiting on the 1s poll. The poll stays armed as a
-    // safety-net fallback below. When no connected socket is available the
+    // Open WebUI) instead of waiting on the recovery poll. The poll stays armed
+    // as a safety-net fallback below. When no connected socket is available the
     // attach is a no-op and behaviour is identical to today's poll-only resume.
     await _attachResumeSocketStream(
       currentConversation ?? conversation,
@@ -4209,31 +4258,85 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     final messageId = state.last.id;
-    if (_taskStatusTimer != null) {
-      if (_remoteTaskMonitorMessageId == messageId) {
-        return;
+    if (_remoteTaskMonitorMessageId == messageId) {
+      _bindRemoteTaskMonitorWakeups();
+      if (_taskStatusTimer == null &&
+          !_taskStatusCheckInFlight &&
+          _isAppForeground) {
+        _scheduleRemoteTaskPoll(Duration.zero);
       }
+      return;
+    }
+    if (_remoteTaskMonitorMessageId != null || _taskStatusTimer != null) {
       _stopRemoteTaskMonitor(retiringMessageId: _remoteTaskMonitorMessageId);
     }
-    // Poll every second for fast recovery from missed socket events.
-    // This is a lightweight API call and provides the best UX for stuck streaming.
+
+    // Recover aggressively for the first few seconds, then move to a bounded
+    // cadence. A one-shot timer allows errors and server-body lag to back off
+    // without leaving a fixed one-second radio wake running indefinitely.
     _remoteTaskMonitorMessageId = messageId;
-    _taskStatusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _remoteTaskFastPollsRemaining = _remoteTaskFastPollCount;
+    _remoteTaskConsecutiveFailures = 0;
+    _remoteTaskCompletionMisses = 0;
+    _bindRemoteTaskMonitorWakeups();
+    _scheduleRemoteTaskPoll(Duration.zero);
+  }
+
+  void _scheduleRemoteTaskPoll(Duration delay, {bool replace = false}) {
+    if (_disposed || !_isAppForeground || _remoteTaskMonitorMessageId == null) {
+      return;
+    }
+    if (!replace && (_taskStatusTimer?.isActive ?? false)) return;
+    _taskStatusTimer?.cancel();
+    _taskStatusTimer = Timer(delay, () {
+      _taskStatusTimer = null;
       if (!_taskStatusCheckInFlight) {
         unawaited(_syncRemoteTaskStatus());
       }
     });
-    if (!_taskStatusCheckInFlight) {
-      unawaited(_syncRemoteTaskStatus());
+  }
+
+  void _bindRemoteTaskMonitorWakeups() {
+    final socket = ref.read(socketServiceProvider);
+    if (identical(socket, _remoteTaskWakeSocket) &&
+        _remoteTaskReconnectSubscription != null) {
+      return;
     }
+    unawaited(_remoteTaskReconnectSubscription?.cancel());
+    _remoteTaskReconnectSubscription = null;
+    _remoteTaskWakeSocket = socket;
+    if (socket == null) return;
+    _remoteTaskReconnectSubscription = socket.onReconnect.listen((_) {
+      _wakeRemoteTaskMonitor();
+    });
+  }
+
+  void _wakeRemoteTaskMonitor() {
+    if (_disposed ||
+        !_isAppForeground ||
+        _remoteTaskMonitorMessageId == null ||
+        !_hasOpenWebUiTaskRecoverableTail(
+          ref.read(activeConversationProvider),
+        )) {
+      return;
+    }
+    _remoteTaskFastPollsRemaining = math.max(_remoteTaskFastPollsRemaining, 2);
+    _remoteTaskConsecutiveFailures = 0;
+    _scheduleRemoteTaskPoll(Duration.zero, replace: true);
   }
 
   void _stopRemoteTaskMonitor({String? retiringMessageId}) {
     _taskStatusTimer?.cancel();
     _taskStatusTimer = null;
+    unawaited(_remoteTaskReconnectSubscription?.cancel());
+    _remoteTaskReconnectSubscription = null;
+    _remoteTaskWakeSocket = null;
     _remoteTaskMonitorMessageId = null;
     _taskStatusCheckInFlight = false;
     _taskStatusGeneration++;
+    _remoteTaskFastPollsRemaining = 0;
+    _remoteTaskConsecutiveFailures = 0;
+    _remoteTaskCompletionMisses = 0;
     _observedRemoteTask = false;
     _tasksDoneGracePolls = 0;
     _unobservedReopenedEmptyPolls = 0;
@@ -4244,7 +4347,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _clearBoundRemoteMessageId(ownedByMessageId: retiringMessageId);
   }
 
-  Future<void> _syncRemoteTaskStatus() async {
+  Future<void> _syncRemoteTaskStatus({bool scheduleNext = true}) async {
     if (_taskStatusCheckInFlight) {
       return;
     }
@@ -4268,14 +4371,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
 
     _taskStatusCheckInFlight = true;
+    var hasActiveTasks = false;
+    var taskLookupSucceeded = false;
+    var completionNeedsRetry = false;
+    var completionGraceActive = false;
     try {
       // Check both task status and server message state
       final taskIds = await api.getTaskIdsByChat(activeConversation.id);
+      taskLookupSucceeded = true;
       if (generation != _taskStatusGeneration ||
           activeOpenWebUiChatIdForMutation(ref, owner) == null) {
         return;
       }
-      final hasActiveTasks = taskIds.isNotEmpty;
+      hasActiveTasks = taskIds.isNotEmpty;
       final reopenedTail = _isReopenedStreamingTail;
 
       if (hasActiveTasks) {
@@ -4324,6 +4432,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _shouldProtectLocalStreamingState &&
           _tasksDoneGracePolls > 0 &&
           _tasksDoneGracePolls <= _tasksDoneSocketGracePolls;
+      completionGraceActive = socketResumeGraceActive;
       final now = DateTime.now();
       final protectedResumeNeedsSnapshot =
           reopenedTail &&
@@ -4400,14 +4509,52 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
         if (reconciled) {
           _cancelMessageStream();
+        } else {
+          completionNeedsRetry = true;
         }
       }
     } catch (err, stack) {
-      DebugLogger.log('Task status poll failed: $err', scope: 'chat/provider');
-      debugPrintStack(stackTrace: stack);
+      // Any failure in the iteration, including authoritative transcript
+      // reconciliation after a successful task lookup, should cool the monitor
+      // down rather than re-entering the steady cadence.
+      taskLookupSucceeded = false;
+      DebugLogger.error(
+        'remote-task-poll-failed',
+        scope: 'chat/resume',
+        error: err,
+        stackTrace: stack,
+      );
     } finally {
       if (generation == _taskStatusGeneration) {
         _taskStatusCheckInFlight = false;
+        if (taskLookupSucceeded) {
+          _remoteTaskConsecutiveFailures = 0;
+          _remoteTaskCompletionMisses = completionNeedsRetry
+              ? _remoteTaskCompletionMisses + 1
+              : 0;
+        } else {
+          _remoteTaskConsecutiveFailures++;
+        }
+        if (scheduleNext &&
+            _remoteTaskMonitorMessageId != null &&
+            _hasOpenWebUiTaskRecoverableTail(
+              ref.read(activeConversationProvider),
+            )) {
+          final delay = completionGraceActive
+              ? const Duration(seconds: 1)
+              : debugRemoteTaskPollDelayForTesting(
+                  fastPollsRemaining: _remoteTaskFastPollsRemaining,
+                  consecutiveFailures: _remoteTaskConsecutiveFailures,
+                  consecutiveCompletionMisses: _remoteTaskCompletionMisses,
+                  hasActiveTask: hasActiveTasks,
+                );
+          if (_remoteTaskConsecutiveFailures == 0 &&
+              _remoteTaskCompletionMisses == 0 &&
+              _remoteTaskFastPollsRemaining > 0) {
+            _remoteTaskFastPollsRemaining--;
+          }
+          _scheduleRemoteTaskPoll(delay, replace: true);
+        }
       }
     }
   }
@@ -4447,7 +4594,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     if (_hasStreamingAssistant) {
       // Reset observed flag each time a new streaming session starts.
-      if (_taskStatusTimer == null) {
+      if (_remoteTaskMonitorMessageId == null) {
         _observedRemoteTask = false;
       }
       _ensureRemoteTaskMonitor();
@@ -4455,6 +4602,34 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _stopRemoteTaskMonitor();
     }
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _isAppForeground = false;
+      _taskStatusTimer?.cancel();
+      _taskStatusTimer = null;
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      final wasForeground = _isAppForeground;
+      _isAppForeground = true;
+      if (!wasForeground) _wakeRemoteTaskMonitor();
+      return;
+    }
+    if (state == AppLifecycleState.inactive) {
+      final wasForeground = _isAppForeground;
+      _isAppForeground = true;
+      if (!wasForeground) _wakeRemoteTaskMonitor();
+    }
+  }
+
+  bool _isLifecycleForeground(AppLifecycleState? state) =>
+      state == null ||
+      state == AppLifecycleState.resumed ||
+      state == AppLifecycleState.inactive;
 
   // Enhanced streaming recovery method similar to OpenWebUI's approach
   void recoverStreamingIfNeeded() {

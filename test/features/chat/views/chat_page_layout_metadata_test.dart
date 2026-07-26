@@ -1298,6 +1298,69 @@ void main() {
   });
 
   test(
+    'streaming follow waits until pin-to-top reserved space is consumed',
+    () {
+      check(
+        debugShouldSmoothFollowStreamingForTesting(
+          hasRunningTurn: true,
+          isAnchoredToBottom: true,
+          isUserInteracting: false,
+          wantsPinToTop: true,
+          pinAutoFollowing: true,
+          pinPositionSettled: true,
+          pinEndSpaceExtent: 120,
+        ),
+      ).isFalse();
+      check(
+        debugShouldSmoothFollowStreamingForTesting(
+          hasRunningTurn: true,
+          isAnchoredToBottom: true,
+          isUserInteracting: false,
+          wantsPinToTop: true,
+          pinAutoFollowing: true,
+          pinPositionSettled: true,
+          pinEndSpaceExtent: 0,
+        ),
+      ).isTrue();
+    },
+  );
+
+  test('streaming follow yields immediately to manual navigation', () {
+    check(
+      debugShouldSmoothFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: true,
+        isUserInteracting: true,
+        wantsPinToTop: false,
+        pinAutoFollowing: false,
+        pinPositionSettled: false,
+        pinEndSpaceExtent: 0,
+      ),
+    ).isFalse();
+  });
+
+  test('only small streaming deltas animate', () {
+    check(
+      debugShouldAnimateStreamingFollowForTesting(
+        distanceFromBottom: 48,
+        reduceMotion: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldAnimateStreamingFollowForTesting(
+        distanceFromBottom: 49,
+        reduceMotion: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldAnimateStreamingFollowForTesting(
+        distanceFromBottom: 24,
+        reduceMotion: true,
+      ),
+    ).isFalse();
+  });
+
+  test(
     'keyboard inset growth ignores pin-to-top mode and manual scrolling',
     () {
       final whilePinnedToTop =
