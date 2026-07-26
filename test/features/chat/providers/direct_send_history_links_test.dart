@@ -175,10 +175,13 @@ final class _GatedProfiles extends DirectConnectionProfilesController {
 }
 
 final class _Adapter implements DirectProviderAdapter {
+  _Adapter({this.adapterKey = 'test-adapter'});
+
+  final String adapterKey;
   var startCalls = 0;
 
   @override
-  String get key => 'test-adapter';
+  String get key => adapterKey;
 
   @override
   Future<List<DirectRemoteModel>> listModels(
@@ -1422,8 +1425,8 @@ void main() {
       final profile = DirectConnectionProfile(
         id: 'profile',
         name: 'Provider',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11434',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
       );
       final registry = DirectModelRegistry();
       final models = registry.replaceProfileModels(profile, [
@@ -1432,7 +1435,7 @@ void main() {
       ]);
       final modelA = models[0];
       final modelB = models[1];
-      final adapter = _Adapter();
+      final adapter = _Adapter(adapterKey: kOpenAiCompatibleAdapterKey);
       final api = _DeferredAttachmentApi();
       final chat = await _seedDirectConversation(
         db: db,
@@ -1462,6 +1465,8 @@ void main() {
       container.read(selectedModelProvider.notifier).set(modelA);
       container.read(activeConversationProvider.notifier).set(chat);
       container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+      container.read(imageGenerationEnabledProvider.notifier).set(true);
+      check(container.read(imageGenerationAvailableProvider)).isTrue();
 
       final send = sendMessageWithContainer(
         container,
@@ -1477,6 +1482,7 @@ void main() {
       expect(registry.resolve(modelA), isNotNull);
       expect(registry.resolve(modelB), isNotNull);
       expect(adapter.startCalls, 0);
+      check(container.read(imageGenerationEnabledProvider)).isTrue();
       final visibleAssistant = container
           .read(chatMessagesProvider)
           .lastWhere((message) => message.role == 'assistant');
@@ -3539,6 +3545,35 @@ void main() {
         messages.where((message) => message.role == 'assistant').last.content,
         'I can help refine it.',
       );
+    },
+  );
+
+  test(
+    'OpenRouter image generation is consumed when regeneration submits',
+    () async {
+      final harness = await _createGatedDirectHarness(
+        'openrouter-image-regeneration-one-shot',
+        profileBaseUrl: kOpenRouterApiBaseUrl,
+        profileAdapterKey: kOpenAiCompatibleAdapterKey,
+      );
+      harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
+      check(harness.container.read(imageGenerationAvailableProvider)).isTrue();
+
+      final started = harness.adapter.nextRun();
+      final regeneration = regenerateMessage(
+        harness.container,
+        harness.chat.messages.first.content,
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+
+      check(harness.adapter.lastRequest?.enableImageGeneration).equals(true);
+      check(harness.container.read(imageGenerationEnabledProvider)).isFalse();
+      run
+        ..add(const DirectContentDelta('Regenerated response'))
+        ..add(const DirectStreamDone());
+      await regeneration.timeout(const Duration(seconds: 1));
     },
   );
 

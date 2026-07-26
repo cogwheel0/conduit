@@ -14212,6 +14212,16 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     maxWorkUnits: streamLimits.maxWorkUnits,
   );
   late final DirectCompletionRun run;
+  final consumesImageGenerationAction =
+      route.profile.isOpenRouter &&
+      enableImageGeneration &&
+      ref.read(imageGenerationEnabledProvider);
+  if (consumesImageGenerationAction) {
+    // OpenRouter image generation is a one-shot composer action. Consume it
+    // at the provider submission boundary so canceled preflight keeps the
+    // user's intent, while send and regeneration share the same behavior.
+    ref.read(imageGenerationEnabledProvider.notifier).set(false);
+  }
   try {
     run = adapter.startCompletion(
       route.profile,
@@ -14235,6 +14245,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     // A runtime adapter can supply an arbitrary StackTrace. Throw the
     // normalized failure from this local boundary so downstream diagnostics
     // never persist or log provider-controlled stack text.
+    if (consumesImageGenerationAction) {
+      ref.read(imageGenerationEnabledProvider.notifier).set(true);
+    }
     throw _normalizeDirectDispatcherFailure(
       error,
       sensitiveValues: sensitiveProviderValues,
@@ -15045,13 +15058,6 @@ Future<void> _sendMessageInternal(
     });
   }
   messagesNotifier.addMessages([userMessage, assistantPlaceholder]);
-  if (imageGenerationAtSendStart && directRoute?.profile.isOpenRouter == true) {
-    // OpenRouter image generation is a one-shot composer action. Leaving it
-    // enabled would route every conversational follow-up back through
-    // `/images`, repeatedly expanding the transcript and replaying streaming
-    // haptics instead of asking the parent chat model.
-    ref.read(imageGenerationEnabledProvider.notifier).set(false);
-  }
   final optimisticTurnMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,

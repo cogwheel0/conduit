@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io' show HttpClient, HttpHeaders, Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -15,9 +16,20 @@ import '../../../../shared/widgets/sheet_handle.dart';
 import '../../../../shared/widgets/themed_sheets.dart';
 
 typedef SourceFaviconDomainResolver = Future<String> Function(String url);
+typedef SourceGroundingRedirectResolver = Future<Uri?> Function(Uri source);
 
 const _googleGroundingRedirectHost = 'vertexaisearch.cloud.google.com';
 const _googleGroundingRedirectPath = '/grounding-api-redirect';
+const _sourceFaviconDomainCacheLimit = 256;
+
+typedef _SourceFaviconDomainCacheKey = ({
+  String sourceUrl,
+  SourceGroundingRedirectResolver? redirectResolver,
+});
+
+final LinkedHashMap<_SourceFaviconDomainCacheKey, Future<String>>
+_sourceFaviconDomainCache =
+    LinkedHashMap<_SourceFaviconDomainCacheKey, Future<String>>();
 
 bool _isGoogleGroundingRedirect(Uri? uri) =>
     uri != null &&
@@ -34,7 +46,29 @@ bool _isGoogleGroundingRedirect(Uri? uri) =>
 /// credentials to the cited site.
 Future<String> resolveSourceFaviconDomain(
   String sourceUrl, {
-  Future<Uri?> Function(Uri source)? redirectResolver,
+  SourceGroundingRedirectResolver? redirectResolver,
+}) {
+  final key = (sourceUrl: sourceUrl.trim(), redirectResolver: redirectResolver);
+  final cached = _sourceFaviconDomainCache.remove(key);
+  if (cached != null) {
+    _sourceFaviconDomainCache[key] = cached;
+    return cached;
+  }
+
+  final result = _resolveSourceFaviconDomainUncached(
+    sourceUrl,
+    redirectResolver: redirectResolver,
+  );
+  _sourceFaviconDomainCache[key] = result;
+  while (_sourceFaviconDomainCache.length > _sourceFaviconDomainCacheLimit) {
+    _sourceFaviconDomainCache.remove(_sourceFaviconDomainCache.keys.first);
+  }
+  return result;
+}
+
+Future<String> _resolveSourceFaviconDomainUncached(
+  String sourceUrl, {
+  SourceGroundingRedirectResolver? redirectResolver,
 }) async {
   final source = Uri.tryParse(sourceUrl);
   final fallback = SourceReferenceHelper.extractDomain(sourceUrl).trim();
@@ -60,6 +94,11 @@ Future<String> resolveSourceFaviconDomain(
   } catch (_) {
     return fallback;
   }
+}
+
+@visibleForTesting
+void debugResetSourceFaviconDomainCache() {
+  _sourceFaviconDomainCache.clear();
 }
 
 Future<Uri?> _resolveGroundingRedirect(Uri source) async {

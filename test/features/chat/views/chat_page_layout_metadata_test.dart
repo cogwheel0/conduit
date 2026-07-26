@@ -49,13 +49,13 @@ void main() {
       }
 
       await tester.pumpWidget(build(includeRunningFooter: true));
-      expect(mounts, 1);
-      expect(disposals, 0);
+      check(mounts).equals(1);
+      check(disposals).equals(0);
 
       await tester.pumpWidget(build(includeRunningFooter: false));
 
-      expect(mounts, 1);
-      expect(disposals, 0);
+      check(mounts).equals(1);
+      check(disposals).equals(0);
     },
   );
 

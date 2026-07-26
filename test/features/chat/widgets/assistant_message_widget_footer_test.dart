@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
@@ -278,6 +279,46 @@ void main() {
       completion('vertexaisearch.cloud.google.com'),
     );
   });
+
+  test(
+    'favicon resolver shares in-flight and completed grounding lookups',
+    () async {
+      debugResetSourceFaviconDomainCache();
+      addTearDown(debugResetSourceFaviconDomainCache);
+      const groundingUrl =
+          'https://vertexaisearch.cloud.google.com/'
+          'grounding-api-redirect/cache-test';
+      var calls = 0;
+      final gate = Completer<Uri?>();
+
+      Future<Uri?> resolver(Uri _) {
+        calls += 1;
+        return gate.future;
+      }
+
+      final first = resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: resolver,
+      );
+      final second = resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: resolver,
+      );
+      check(calls).equals(1);
+
+      gate.complete(Uri.parse('https://www.help.openai.com/en/articles/'));
+      check(
+        await Future.wait([first, second]),
+      ).deepEquals(['help.openai.com', 'help.openai.com']);
+      check(
+        await resolveSourceFaviconDomain(
+          groundingUrl,
+          redirectResolver: resolver,
+        ),
+      ).equals('help.openai.com');
+      check(calls).equals(1);
+    },
+  );
 
   testWidgets('assistant footer caps inline actions and overflows extras', (
     tester,

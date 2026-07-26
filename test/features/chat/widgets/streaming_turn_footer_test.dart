@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
@@ -485,7 +486,7 @@ void main() {
         _buildHarness(container: container, message: running),
       );
       await tester.pump();
-      expect(_lightImpactCalls(calls), hasLength(1));
+      check(_lightImpactCalls(calls)).length.equals(1);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
@@ -494,7 +495,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(_lightImpactCalls(calls), hasLength(1));
+      check(_lightImpactCalls(calls)).length.equals(1);
     } finally {
       messenger.setMockMethodCallHandler(SystemChannels.platform, null);
       debugDefaultTargetPlatformOverride = null;
