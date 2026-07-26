@@ -122,6 +122,7 @@ class VoiceInputService with WidgetsBindingObserver {
   Future<void>? _stopListeningInFlight;
   Future<void>? _vadRecordingStartup;
   int _listenGeneration = 0;
+  int? _stoppingVadGeneration;
   StreamController<String>? _textStreamController;
   StreamController<VoiceTranscriptEvent>? _transcriptEventController;
   String _currentText = '';
@@ -883,6 +884,7 @@ class VoiceInputService with WidgetsBindingObserver {
   }
 
   Future<void> _stopListeningInternal() async {
+    final stoppedGeneration = _listenGeneration;
     final stopGeneration = ++_listenGeneration;
     final wasListening = _isListening;
     final wasUsingServerStt = _usingServerStt;
@@ -891,6 +893,7 @@ class VoiceInputService with WidgetsBindingObserver {
     final pendingStartup = _vadRecordingStartup;
     Future<void>? pendingVadStop;
     if (wasUsingVad) {
+      _stoppingVadGeneration = stoppedGeneration;
       _isListening = false;
       pendingVadStop = _stopVadRecording().catchError((_) {});
     }
@@ -902,6 +905,9 @@ class VoiceInputService with WidgetsBindingObserver {
       }
     }
     await pendingVadStop;
+    if (_stoppingVadGeneration == stoppedGeneration) {
+      _stoppingVadGeneration = null;
+    }
     if (!wasListening || _listenGeneration != stopGeneration) {
       return;
     }
@@ -1109,11 +1115,12 @@ class VoiceInputService with WidgetsBindingObserver {
   Future<void> _setupVadStreams({required int generation}) async {
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = _vadRecorder.onSpeechEnd.listen((samples) {
-      if (!_isCurrentListeningGeneration(generation)) return;
+      final isCurrent = _isCurrentListeningGeneration(generation);
+      if (!isCurrent && _stoppingVadGeneration != generation) return;
       if (!_usingServerStt && !_usingSherpaStt) return;
       if (samples.isEmpty) return;
       _vadPendingSamples = samples;
-      unawaited(_stopListening());
+      if (isCurrent) unawaited(_stopListening());
     });
 
     await _vadFrameSub?.cancel();
