@@ -13,6 +13,7 @@ import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart'
     show
         debugDecodeCachedResolvedImageAttachment,
         debugDecodeCachedResolvedImageAttachmentError,
+        debugImagePreviewDecodeTargetForTesting,
         debugLoadImageAttachmentError,
         debugMergeImageHeaders,
         debugStableImagePreviewSizeForTesting;
@@ -38,6 +39,12 @@ void main() {
       debugStableImagePreviewSizeForTesting(const BoxConstraints()),
       const Size(300, 300),
     );
+    final unboundedDecode = debugImagePreviewDecodeTargetForTesting(
+      constraints: const BoxConstraints(),
+      devicePixelRatio: 3,
+    );
+    expect(unboundedDecode.width, 900);
+    expect(unboundedDecode.height, 900);
   });
 
   test('same-origin image metadata cannot override the Conduit identity', () {

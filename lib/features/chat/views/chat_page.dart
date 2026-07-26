@@ -1402,7 +1402,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  void _updateBottomAnchorTracking() {
+  ({bool hasScrollableContent, double distanceFromBottom})
+  _recomputeBottomAnchorState() {
     final hasScrollableContent = _hasScrollableTranscriptContent();
     final distanceFromBottom = _positionedDistanceFromLatest();
     _bottomAnchorController.updateAnchor(
@@ -1410,6 +1411,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       distanceFromBottom: distanceFromBottom,
     );
     _syncLayoutBottomAnchor();
+    return (
+      hasScrollableContent: hasScrollableContent,
+      distanceFromBottom: distanceFromBottom,
+    );
+  }
+
+  void _updateBottomAnchorTracking() {
+    _recomputeBottomAnchorState();
   }
 
   Future<void> _refreshActiveConversation() async {
@@ -1448,15 +1457,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _updateScrollToBottomVisibility() {
     if (!mounted || _isDeactivated) return;
 
-    final distanceFromBottom = _positionedDistanceFromLatest();
-    final hasScrollableContent = _hasScrollableTranscriptContent();
-    _bottomAnchorController.updateAnchor(
-      hasScrollableContent: hasScrollableContent,
-      distanceFromBottom: distanceFromBottom,
-    );
-    _syncLayoutBottomAnchor();
+    final anchorState = _recomputeBottomAnchorState();
     final showButton =
-        hasScrollableContent && _shouldExposeScrollToBottomButton();
+        anchorState.hasScrollableContent && _shouldExposeScrollToBottomButton();
 
     if (showButton != _showScrollToBottom) {
       setState(() {
@@ -1488,9 +1491,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  int _renderedTranscriptCount(
+    List<ChatMessage> completeMessages,
+    ChatTranscriptPagingState paging,
+  ) {
+    return paging.loadedCount == 0 && completeMessages.isNotEmpty
+        ? math.min(kChatTranscriptPageSize, completeMessages.length)
+        : math.min(paging.loadedCount, completeMessages.length);
+  }
+
+  List<ChatMessage> _renderedTranscriptWindow(
+    List<ChatMessage> completeMessages,
+    ChatTranscriptPagingState paging,
+  ) {
+    return latestTranscriptWindow(
+      completeMessages,
+      _renderedTranscriptCount(completeMessages, paging),
+    );
+  }
+
   bool _hasScrollableTranscriptContent() {
-    final messages = ref.read(chatMessagesProvider);
     final paging = ref.read(chatTranscriptPagingProvider);
+    final completeMessages = ref.read(chatMessagesProvider);
+    final messages = _renderedTranscriptWindow(completeMessages, paging);
     final timeline = ChatTimelineRenderModel.fromMessages(messages);
     return debugHasScrollablePositionedContentForTesting(
       positions: _itemPositionsListener.itemPositions.value,
@@ -1930,11 +1953,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = watchRef.watch(isChatStreamingProvider);
     final completeMessages = watchRef.read(chatMessagesProvider);
     final paging = watchRef.watch(chatTranscriptPagingProvider);
-    final requestedCount =
-        paging.loadedCount == 0 && completeMessages.isNotEmpty
-        ? math.min(kChatTranscriptPageSize, completeMessages.length)
-        : math.min(paging.loadedCount, completeMessages.length);
-    final messages = latestTranscriptWindow(completeMessages, requestedCount);
+    final requestedCount = _renderedTranscriptCount(completeMessages, paging);
+    final messages = _renderedTranscriptWindow(completeMessages, paging);
     if (paging.loadedCount != requestedCount ||
         paging.hasOlder != (requestedCount < completeMessages.length)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

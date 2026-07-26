@@ -442,6 +442,20 @@ Size debugStableImagePreviewSizeForTesting(BoxConstraints? constraints) {
   );
 }
 
+@visibleForTesting
+RasterDecodeTarget debugImagePreviewDecodeTargetForTesting({
+  required BoxConstraints? constraints,
+  required double devicePixelRatio,
+}) {
+  final previewSize = debugStableImagePreviewSizeForTesting(constraints);
+  return RasterMediaPolicy.target(
+    profile: RasterDecodeProfile.inline,
+    devicePixelRatio: devicePixelRatio,
+    logicalWidth: previewSize.width,
+    logicalHeight: previewSize.height,
+  );
+}
+
 class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final String attachmentId;
   final bool isMarkdownFormat;
@@ -678,12 +692,10 @@ class _EnhancedImageAttachmentState
   bool _isRemoteContent(String data) => _isRemoteContentValue(data);
 
   RasterDecodeTarget _cacheDimensions(BuildContext context) {
-    final target = RasterMediaPolicy.forBox(
-      context,
-      profile: RasterDecodeProfile.inline,
+    return debugImagePreviewDecodeTargetForTesting(
       constraints: _previewConstraints,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
     );
-    return target;
   }
 
   BoxConstraints get _previewConstraints =>
