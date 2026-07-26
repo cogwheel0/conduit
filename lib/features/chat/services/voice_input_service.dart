@@ -148,6 +148,7 @@ class VoiceInputService with WidgetsBindingObserver {
   StreamSubscription<SherpaSttEvent>? _sherpaSttSub;
   Timer? _nativeDictationSettleTimer;
   bool _observingLifecycle = false;
+  AppLifecycleState? _lifecycleState;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
   @protected
@@ -1264,6 +1265,7 @@ class VoiceInputService with WidgetsBindingObserver {
       if (_listenGeneration != listenGeneration) return;
       _handleSherpaResult(result);
     } catch (error) {
+      if (_listenGeneration != listenGeneration) return;
       _reportRecognitionError(error);
     }
   }
@@ -1543,13 +1545,16 @@ class VoiceInputService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
     if (state != AppLifecycleState.paused || _isListening) return;
+    unawaited(_serializeSherpaLifecycle(_unloadIdleLargeSherpaRecognizerNow));
+  }
+
+  Future<void> _unloadIdleLargeSherpaRecognizerNow() async {
+    if (_lifecycleState != AppLifecycleState.paused || _isListening) return;
     final model = sherpaModelById(_loadedSherpaSttModelId);
     if (model?.tier != SherpaModelTier.large) return;
-    _loadedSherpaSttModelId = null;
-    _loadedSherpaSttLanguageCode = null;
-    _sherpaSttAvailable = false;
-    unawaited(_unloadSherpaRecognizer());
+    await _invalidateSherpaRecognizerNow(forceUnload: true);
   }
 }
 
