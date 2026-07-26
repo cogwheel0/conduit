@@ -101,8 +101,9 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      for (var index = 0; index < 12; index++) {
-        final api = _FakeApiService(
+      final apis = List<_FakeApiService>.generate(
+        12,
+        (index) => _FakeApiService(
           serverId: 'server-$index',
           bases: [
             KnowledgeBase(
@@ -112,12 +113,28 @@ void main() {
               updatedAt: DateTime.utc(2026, 1, 2),
             ),
           ],
-        );
+        ),
+      );
+      for (final api in apis.take(8)) {
         container.read(_activeKnowledgeApiProvider.notifier).set(api);
         await container.read(knowledgeCacheProvider.notifier).ensureBases();
       }
 
+      container.read(_activeKnowledgeApiProvider.notifier).set(apis[0]);
+      await container.read(knowledgeCacheProvider.notifier).ensureBases();
+      for (final api in apis.skip(8)) {
+        container.read(_activeKnowledgeApiProvider.notifier).set(api);
+        await container.read(knowledgeCacheProvider.notifier).ensureBases();
+      }
       check(KnowledgeCacheManager().stats()['scopes']).equals(8);
+
+      container.read(_activeKnowledgeApiProvider.notifier).set(apis[0]);
+      await container.read(knowledgeCacheProvider.notifier).ensureBases();
+      check(apis[0].basesCallCount).equals(1);
+
+      container.read(_activeKnowledgeApiProvider.notifier).set(apis[1]);
+      await container.read(knowledgeCacheProvider.notifier).ensureBases();
+      check(apis[1].basesCallCount).equals(2);
     });
 
     test('ensureBases loads knowledge bases from the API', () async {
