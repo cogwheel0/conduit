@@ -402,6 +402,23 @@ void main() {
     );
   });
 
+  test('older send cleanup cannot release a newer send admission', () {
+    final guard = ChatMessageSendAdmissionGuard();
+    final firstSend = guard.tryAcquire();
+    expect(firstSend, isNotNull);
+    expect(guard.isHeld, isTrue);
+    expect(guard.tryAcquire(), isNull);
+
+    expect(guard.release(firstSend!), isTrue);
+    final secondSend = guard.tryAcquire();
+    expect(secondSend, isNotNull);
+
+    expect(guard.release(firstSend), isFalse);
+    expect(guard.isHeld, isTrue);
+    expect(guard.release(secondSend!), isTrue);
+    expect(guard.isHeld, isFalse);
+  });
+
   test('latest button follows manual detachment but not automatic pinning', () {
     expect(
       debugShouldExposeScrollToLatestForTesting(

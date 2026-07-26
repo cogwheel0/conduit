@@ -293,7 +293,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _streamingFollowPending = false;
   bool _streamingFollowInFlight = false;
   int _streamingFollowGeneration = 0;
-  bool _isPreparingMessageSend = false;
+  final ChatMessageSendAdmissionGuard _messageSendAdmission =
+      ChatMessageSendAdmissionGuard();
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -515,7 +516,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// into a permanent conversation.
   Future<void> _saveTemporaryChat() async {
     if (_isSavingTemporary) return;
-    if (_isPreparingMessageSend || ref.read(isChatStreamingProvider)) return;
+    if (_messageSendAdmission.isHeld || ref.read(isChatStreamingProvider)) {
+      return;
+    }
     final sourceConversation = ref.read(activeConversationProvider);
     final sourceApi = ref.read(apiServiceProvider);
     if (sourceConversation == null || sourceApi == null) return;
@@ -851,24 +854,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
       isSavingTemporary: _isSavingTemporary,
-      isPreparingMessageSend: _isPreparingMessageSend,
+      isPreparingMessageSend: _messageSendAdmission.isHeld,
     )) {
       return;
     }
-    _isPreparingMessageSend = true;
+    final sendOwner = _messageSendAdmission.tryAcquire();
+    if (sendOwner == null) return;
+    if (mounted) setState(() {});
     try {
       await _sendMessageAfterAdmission(
         text,
         includeComposerContext: includeComposerContext,
+        sendOwner: sendOwner,
       );
     } finally {
-      _isPreparingMessageSend = false;
+      _releaseMessageSendAdmission(sendOwner);
     }
   }
 
   Future<void> _sendMessageAfterAdmission(
     String text, {
     required bool includeComposerContext,
+    required Object sendOwner,
   }) async {
     dynamic selectedModel = ref.read(selectedModelProvider);
 
@@ -931,7 +938,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onAssistantPlaceholderCreated: (handle) {
-          _isPreparingMessageSend = false;
+          _releaseMessageSendAdmission(sendOwner);
           pendingSend = handle;
           _activatePinToTopAnchor(handle);
         },
@@ -976,6 +983,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
       recoverFailedChatSend(ref, e, pendingSend);
     }
+  }
+
+  void _releaseMessageSendAdmission(Object sendOwner) {
+    if (!_messageSendAdmission.release(sendOwner)) return;
+    if (mounted) setState(() {});
   }
 
   // Inline voice input now handled directly inside ModernChatInput.
@@ -2892,7 +2904,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
                       isSavingTemporary: _isSavingTemporary,
-                      isPreparingMessageSend: _isPreparingMessageSend,
+                      isPreparingMessageSend: _messageSendAdmission.isHeld,
                     ),
                     bottomPadding: 0,
                     managesSystemKeyboardInset: Platform.isAndroid,
@@ -3956,6 +3968,29 @@ bool debugCanSubmitChatMessageForTesting({
   return !isLoadingConversation &&
       !isSavingTemporary &&
       !isPreparingMessageSend;
+}
+
+/// Owns the short admission window before a durable send has captured its
+/// composer attachments. Releases are identity-fenced so completion of an
+/// older send cannot unlock a newer send's admission window.
+@visibleForTesting
+final class ChatMessageSendAdmissionGuard {
+  Object? _owner;
+
+  bool get isHeld => _owner != null;
+
+  Object? tryAcquire() {
+    if (_owner != null) return null;
+    final owner = Object();
+    _owner = owner;
+    return owner;
+  }
+
+  bool release(Object owner) {
+    if (!identical(_owner, owner)) return false;
+    _owner = null;
+    return true;
+  }
 }
 
 @visibleForTesting
