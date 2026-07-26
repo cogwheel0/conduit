@@ -335,6 +335,9 @@ void main() {
           directProviderAdapterRegistryProvider.overrideWithValue(
             DirectProviderAdapterRegistry([adapter]),
           ),
+          directDeviceTrustKeyProvider.overrideWith(
+            (ref) async => List<int>.generate(32, (index) => index),
+          ),
           hermesConfigProvider.overrideWith(
             () => _FixedHermesConfig(const HermesConfig()),
           ),

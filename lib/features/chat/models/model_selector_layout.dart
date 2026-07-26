@@ -13,6 +13,7 @@ ModelSelectorLayout buildModelSelectorLayout({
   required Iterable<Model> models,
   required Iterable<String> pinnedModelIds,
   String? defaultModelId,
+  String? selectedModelId,
 }) {
   final all = List<Model>.unmodifiable(models);
   final byId = <String, Model>{for (final model in all) model.id: model};
@@ -34,6 +35,10 @@ ModelSelectorLayout buildModelSelectorLayout({
     if (defaultModel != null && featuredIds.add(defaultModel.id)) {
       featured.add(defaultModel);
     }
+  }
+  final selectedModel = byId[selectedModelId];
+  if (selectedModel != null && featuredIds.add(selectedModel.id)) {
+    featured.add(selectedModel);
   }
 
   return ModelSelectorLayout(

@@ -11,6 +11,9 @@ const String kOpenAiCompatibleAdapterKey = 'openai-compatible';
 /// Built-in adapter key for Ollama's native HTTP API.
 const String kOllamaAdapterKey = 'ollama';
 
+/// Canonical first-party OpenRouter API root.
+const String kOpenRouterApiBaseUrl = 'https://openrouter.ai/api/v1';
+
 /// OpenAI-family completion protocol selected for one connection profile.
 ///
 /// This remains profile data rather than a separate adapter key so OpenAI,
@@ -144,6 +147,19 @@ final class DirectConnectionProfile {
       adapterKey == kOllamaAdapterKey && isOllamaCloudApiBaseUrl(baseUrl);
 
   bool get supportsOllamaCloudWebSearch => isOllamaCloud;
+
+  /// OpenRouter intentionally shares the OpenAI-compatible adapter. Provider
+  /// identity is bound to the exact HTTPS API root before Conduit enables
+  /// OpenRouter-owned tools or sends OpenRouter-specific request fields.
+  bool get isOpenRouter =>
+      adapterKey == kOpenAiCompatibleAdapterKey &&
+      isOpenRouterApiBaseUrl(baseUrl);
+
+  bool get supportsOpenRouterWebSearch =>
+      isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
+  bool get supportsOpenRouterImageGeneration => isOpenRouter;
+  bool get supportsOpenRouterPdfInputs =>
+      isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
 
   /// Ollama Cloud executes models remotely and does not expose the local
   /// `/api/ps` RAM/VRAM lifecycle used by self-hosted Ollama servers.
@@ -488,6 +504,23 @@ bool isOllamaCloudApiBaseUrl(String value) {
     return false;
   }
   return uri.path.isEmpty || uri.path == '/';
+}
+
+bool isOpenRouterApiBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      !const <String>{
+        'openrouter.ai',
+        'eu.openrouter.ai',
+      }.contains(uri.host.toLowerCase()) ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
+  return uri.path == '/api/v1' || uri.path == '/api/v1/';
 }
 
 /// Versioned envelope used for the single secure-storage profile document.

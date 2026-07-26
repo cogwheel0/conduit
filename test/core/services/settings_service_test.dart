@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
@@ -38,6 +38,10 @@ void main() {
 
       test('defaultModel defaults to null', () {
         check(settings.defaultModel).isNull();
+      });
+
+      test('OpenRouter image generation model defaults to null', () {
+        check(settings.openRouterImageGenerationModel).isNull();
       });
 
       test('voiceLocaleId defaults to null', () {
@@ -192,6 +196,7 @@ void main() {
         const original = AppSettings();
         final modified = original.copyWith(
           defaultModel: 'gpt-4',
+          openRouterImageGenerationModel: 'openai/gpt-5-image-mini',
           voiceLocaleId: 'en_US',
           sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
@@ -201,6 +206,9 @@ void main() {
         );
 
         check(modified.defaultModel).equals('gpt-4');
+        check(
+          modified.openRouterImageGenerationModel,
+        ).equals('openai/gpt-5-image-mini');
         check(modified.voiceLocaleId).equals('en_US');
         check(modified.sttLanguageCode).equals('pl');
         check(modified.ttsVoice).equals('voice1');
@@ -212,6 +220,7 @@ void main() {
       test('can set nullable fields back to null', () {
         final original = const AppSettings().copyWith(
           defaultModel: 'gpt-4',
+          openRouterImageGenerationModel: 'openai/gpt-5-image-mini',
           voiceLocaleId: 'en_US',
           sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
@@ -222,6 +231,7 @@ void main() {
 
         final cleared = original.copyWith(
           defaultModel: null,
+          openRouterImageGenerationModel: null,
           voiceLocaleId: null,
           sttLanguageCode: null,
           ttsVoice: null,
@@ -231,6 +241,7 @@ void main() {
         );
 
         check(cleared.defaultModel).isNull();
+        check(cleared.openRouterImageGenerationModel).isNull();
         check(cleared.voiceLocaleId).isNull();
         check(cleared.sttLanguageCode).isNull();
         check(cleared.ttsVoice).isNull();
@@ -577,6 +588,64 @@ void main() {
         check(container.read(appSettingsProvider).sherpaTtsSpeed).equals(0.5);
       },
     );
+  });
+
+  group('SettingsService OpenRouter image model persistence', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('trims, round-trips, and clears the model id', () async {
+      await SettingsService.setOpenRouterImageGenerationModel(
+        '  openai/gpt-5-image-mini  ',
+      );
+      check(
+        (await SettingsService.loadSettings()).openRouterImageGenerationModel,
+      ).equals('openai/gpt-5-image-mini');
+
+      await SettingsService.setOpenRouterImageGenerationModel('   ');
+      check(
+        PreferencesStore.containsKey(
+          PreferenceKeys.openRouterImageGenerationModel,
+        ),
+      ).isFalse();
+    });
+  });
+
+  group('AppSettingsNotifier OpenRouter image model startup writes', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.openRouterImageGenerationModel: 'openai/gpt-5-image',
+      });
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('waits for hydration before applying a new model id', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      check(
+        container.read(appSettingsProvider).openRouterImageGenerationModel,
+      ).isNull();
+
+      await container
+          .read(appSettingsProvider.notifier)
+          .setOpenRouterImageGenerationModel('openai/gpt-5-image-mini');
+
+      check(
+        container.read(appSettingsProvider).openRouterImageGenerationModel,
+      ).equals('openai/gpt-5-image-mini');
+      check(
+        PreferencesStore.getString(
+          PreferenceKeys.openRouterImageGenerationModel,
+        ),
+      ).equals('openai/gpt-5-image-mini');
+    });
   });
 
   group('SettingsService.normalizeSttLanguageCode', () {

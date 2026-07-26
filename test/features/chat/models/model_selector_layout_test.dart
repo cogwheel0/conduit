@@ -51,4 +51,33 @@ void main() {
       layout.more.map((model) => model.id).toList(),
     ).deepEquals(['model-4', 'model-5']);
   });
+
+  test('promotes a selected model from more into the featured group', () {
+    final layout = buildModelSelectorLayout(
+      models: models,
+      pinnedModelIds: const ['model-5', 'model-2'],
+      defaultModelId: 'model-6',
+      selectedModelId: 'model-4',
+    );
+
+    check(
+      layout.featured.map((model) => model.id).toList(),
+    ).deepEquals(['model-5', 'model-2', 'model-4']);
+    check(
+      layout.more.map((model) => model.id).toList(),
+    ).deepEquals(['model-0', 'model-1', 'model-3', 'model-6']);
+  });
+
+  test('does not duplicate a selected model that is already featured', () {
+    final layout = buildModelSelectorLayout(
+      models: models,
+      pinnedModelIds: const [],
+      defaultModelId: 'model-6',
+      selectedModelId: 'model-2',
+    );
+
+    check(
+      layout.featured.map((model) => model.id).toList(),
+    ).deepEquals(['model-0', 'model-1', 'model-2', 'model-3', 'model-6']);
+  });
 }

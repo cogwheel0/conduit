@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/sherpa/sherpa_catalog.dart';
 import 'package:conduit/core/sherpa/sherpa_model.dart';
@@ -51,5 +52,39 @@ void main() {
     check(sttChooser.dismissOnSelect).isTrue();
     check(ttsChooser.subtitle).equals(tts.displayName);
     check(ttsChooser.dismissOnSelect).isTrue();
+  });
+
+  test('OpenRouter image model item is exposed for the native Chats sheet', () {
+    final item = buildNativeOpenRouterImageGenerationModelItem(
+      l10n,
+      models: const [
+        Model(
+          id: 'direct:openrouter:model',
+          name: 'OpenRouter model',
+          capabilities: {'openrouter': true, 'image_generation': true},
+        ),
+      ],
+      selectedModelId: 'openai/gpt-5-image-mini',
+    );
+
+    check(item).isNotNull();
+    check(item!.id).equals('default-image-generation-model');
+    check(item.subtitle).equals('openai/gpt-5-image-mini');
+  });
+
+  test('native image model item stays hidden without the OpenRouter tool', () {
+    final item = buildNativeOpenRouterImageGenerationModelItem(
+      l10n,
+      models: const [
+        Model(
+          id: 'openwebui:model',
+          name: 'OpenWebUI model',
+          capabilities: {'openrouter': false, 'image_generation': true},
+        ),
+      ],
+      selectedModelId: null,
+    );
+
+    check(item).isNull();
   });
 }

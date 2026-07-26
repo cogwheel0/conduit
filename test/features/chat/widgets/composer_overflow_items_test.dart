@@ -113,6 +113,7 @@ void main() {
       ComposerOverflowActionIds.photo,
       ComposerOverflowActionIds.camera,
       ComposerOverflowActionIds.webSearch,
+      ComposerOverflowActionIds.imageGeneration,
     ]);
     expect(actionIds(hermesMode: true, directMode: false), [
       ComposerOverflowActionIds.file,
