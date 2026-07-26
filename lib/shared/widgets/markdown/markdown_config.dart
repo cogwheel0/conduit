@@ -717,6 +717,7 @@ class ConduitMarkdown {
         );
 
         final placeholder = Container(
+          width: double.infinity,
           height: 200,
           decoration: BoxDecoration(
             color: theme.surfaceBackground.withValues(alpha: 0.5),
@@ -744,6 +745,7 @@ class ConduitMarkdown {
                 ),
                 decodeTarget,
               ),
+              width: double.infinity,
               fit: BoxFit.contain,
               frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
                 return wasSynchronouslyLoaded || frame != null

@@ -669,6 +669,16 @@ class _EnhancedImageAttachmentState
     return target;
   }
 
+  Size get _stablePreviewSize {
+    final constraints =
+        widget.constraints ??
+        const BoxConstraints(maxWidth: 400, maxHeight: 400);
+    return Size(
+      constraints.hasBoundedWidth ? constraints.maxWidth : 400,
+      constraints.hasBoundedHeight ? constraints.maxHeight : 400,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
@@ -887,6 +897,7 @@ class _EnhancedImageAttachmentState
       effectiveHeaders: headers,
     );
     final dimensions = _cacheDimensions(context);
+    final previewSize = _stablePreviewSize;
 
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
     final imageWidget = Image(
@@ -900,12 +911,17 @@ class _EnhancedImageAttachmentState
         ),
         dimensions,
       ),
+      width: previewSize.width,
+      height: previewSize.height,
       fit: BoxFit.cover,
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         return wasSynchronouslyLoaded || frame != null
             ? child
-            : _buildSkeletonPlaceholder();
+            : SizedBox.fromSize(
+                size: previewSize,
+                child: _buildSkeletonPlaceholder(),
+              );
       },
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = error.toString();
@@ -1096,6 +1112,7 @@ class FullScreenImageViewer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Widget imageWidget;
+    final viewportSize = MediaQuery.sizeOf(context);
     final decodeTarget = RasterMediaPolicy.forBox(
       context,
       profile: RasterDecodeProfile.fullScreen,
@@ -1167,13 +1184,18 @@ class FullScreenImageViewer extends ConsumerWidget {
             ),
             decodeTarget,
           ),
+          width: viewportSize.width,
+          height: viewportSize.height,
           fit: BoxFit.contain,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             return wasSynchronouslyLoaded || frame != null
                 ? child
-                : Center(
-                    child: CircularProgressIndicator(
-                      color: context.conduitTheme.buttonPrimary,
+                : SizedBox.fromSize(
+                    size: viewportSize,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: context.conduitTheme.buttonPrimary,
+                      ),
                     ),
                   );
           },

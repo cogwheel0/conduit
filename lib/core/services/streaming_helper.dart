@@ -2050,7 +2050,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final preserveActiveLocalStream =
               current.isStreaming && !authoritativeTerminal;
           final recoveredStreamingState =
-              preserveActiveLocalStream || assistant.isStreaming;
+              !authoritativeTerminal &&
+              (preserveActiveLocalStream || assistant.isStreaming);
           return _AssistantServerPatch(
             content: recoverAuthoritativeState ? assistant.content : null,
             followUps: nextFollowUps,

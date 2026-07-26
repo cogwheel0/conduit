@@ -588,6 +588,60 @@ void main() {
       },
     );
 
+    test(
+      'socket replay terminal snapshots override stale streaming flags',
+      () async {
+        final now = DateTime.now();
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'partial',
+              timestamp: now,
+              isStreaming: true,
+            ),
+          ],
+        );
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+          pullChatSnapshot: (_) async => Conversation(
+            id: 'conv-1',
+            title: 'Recovered',
+            createdAt: now,
+            updatedAt: now,
+            messages: [
+              ChatMessage(
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'complete response',
+                timestamp: now,
+                isStreaming: true,
+                metadata: const {'responseDone': true},
+              ),
+            ],
+          ),
+        );
+
+        registrar.emitReplayGap(SocketReplayGapReason.byteLimit);
+        for (var index = 0; index < 10; index += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('complete response');
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.metadata?['responseDone']).equals(true);
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 1. httpStream sessions append deltas and finish once
     // -----------------------------------------------------------------------
