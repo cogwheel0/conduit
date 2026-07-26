@@ -23,6 +23,7 @@ import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/image_attachment_cache_service.dart';
 import '../../../core/services/performance_profiler.dart';
+import '../../../core/services/raster_media_policy.dart';
 import '../../../core/services/worker_manager.dart';
 
 export '../../../core/services/image_attachment_cache_service.dart'
@@ -660,19 +661,12 @@ class _EnhancedImageAttachmentState
     final constraints =
         widget.constraints ??
         const BoxConstraints(maxWidth: 400, maxHeight: 400);
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-
-    int? normalize(double value) {
-      if (!value.isFinite || value <= 0) {
-        return null;
-      }
-      return (value * devicePixelRatio).round().clamp(64, 2048);
-    }
-
-    return (
-      width: normalize(constraints.maxWidth),
-      height: normalize(constraints.maxHeight),
+    final target = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.inline,
+      constraints: constraints,
     );
+    return (width: target.width, height: target.height);
   }
 
   @override
@@ -904,8 +898,6 @@ class _EnhancedImageAttachmentState
       httpHeaders: headers,
       memCacheWidth: dimensions.width,
       memCacheHeight: dimensions.height,
-      maxWidthDiskCache: dimensions.width,
-      maxHeightDiskCache: dimensions.height,
       // A short opacity reveal remains safe under Reduce Motion and avoids an
       // abrupt placeholder swap in OctoImage. Spatial Hero motion is disabled
       // separately below.
@@ -1107,6 +1099,10 @@ class FullScreenImageViewer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Widget imageWidget;
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.fullScreen,
+    );
 
     // If we have raw bytes, use them directly
     if (imageData == null && imageBytes != null) {
@@ -1123,7 +1119,12 @@ class FullScreenImageViewer extends ConsumerWidget {
           ),
         );
       } else {
-        imageWidget = Image.memory(imageBytes!, fit: BoxFit.contain);
+        imageWidget = Image.memory(
+          imageBytes!,
+          fit: BoxFit.contain,
+          cacheWidth: decodeTarget.width,
+          cacheHeight: decodeTarget.height,
+        );
       }
     } else if (imageData != null && imageData!.startsWith('http')) {
       final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
@@ -1164,6 +1165,8 @@ class FullScreenImageViewer extends ConsumerWidget {
           fit: BoxFit.contain,
           cacheManager: cacheManager,
           httpHeaders: headers,
+          memCacheWidth: decodeTarget.width,
+          memCacheHeight: decodeTarget.height,
           placeholder: (context, url) => Center(
             child: CircularProgressIndicator(
               color: context.conduitTheme.buttonPrimary,
@@ -1206,7 +1209,12 @@ class FullScreenImageViewer extends ConsumerWidget {
             ),
           );
         } else {
-          imageWidget = Image.memory(decodedBytes, fit: BoxFit.contain);
+          imageWidget = Image.memory(
+            decodedBytes,
+            fit: BoxFit.contain,
+            cacheWidth: decodeTarget.width,
+            cacheHeight: decodeTarget.height,
+          );
         }
       } catch (e) {
         imageWidget = Center(

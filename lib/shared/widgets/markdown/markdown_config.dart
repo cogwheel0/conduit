@@ -28,6 +28,7 @@ import '../../theme/theme_extensions.dart';
 import 'renderer/markdown_style.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
+import 'package:conduit/core/services/raster_media_policy.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 
@@ -666,6 +667,12 @@ class ConduitMarkdown {
 
       final base64String = dataUrl.substring(commaIndex + 1);
       final imageBytes = base64.decode(base64String);
+      final decodeTarget = RasterMediaPolicy.forBox(
+        context,
+        profile: RasterDecodeProfile.inline,
+        logicalWidth: math.min(MediaQuery.sizeOf(context).width, 480),
+        logicalHeight: 480,
+      );
 
       return Container(
         margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
@@ -675,6 +682,8 @@ class ConduitMarkdown {
           child: Image.memory(
             imageBytes,
             fit: BoxFit.contain,
+            cacheWidth: decodeTarget.width,
+            cacheHeight: decodeTarget.height,
             errorBuilder: (context, error, stackTrace) {
               return buildImageError(context, theme);
             },
@@ -699,12 +708,20 @@ class ConduitMarkdown {
         final headers = buildImageHeadersForUrlFromWidgetRef(ref, url);
         final cacheKey = buildImageCacheKeyForUrlFromWidgetRef(ref, url);
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
+        final decodeTarget = RasterMediaPolicy.forBox(
+          context,
+          profile: RasterDecodeProfile.inline,
+          logicalWidth: math.min(MediaQuery.sizeOf(context).width, 480),
+          logicalHeight: 480,
+        );
 
         return CachedNetworkImage(
           imageUrl: url,
           cacheKey: cacheKey,
           cacheManager: cacheManager,
           httpHeaders: headers,
+          memCacheWidth: decodeTarget.width,
+          memCacheHeight: decodeTarget.height,
           placeholder: (context, _) => Container(
             height: 200,
             decoration: BoxDecoration(

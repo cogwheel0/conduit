@@ -7,6 +7,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/raster_media_policy.dart';
 import '../services/brand_service.dart';
 import '../theme/theme_extensions.dart';
 
@@ -37,6 +38,12 @@ class AvatarImage extends ConsumerWidget {
     if (url == null || url.isEmpty) {
       return fallbackBuilder(context, size);
     }
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.avatar,
+      logicalWidth: size,
+      logicalHeight: size,
+    );
 
     if (url.startsWith('data:image')) {
       final content = _decodeDataImage(url);
@@ -47,6 +54,8 @@ class AvatarImage extends ConsumerWidget {
             content,
             width: size,
             height: size,
+            cacheWidth: decodeTarget.width,
+            cacheHeight: decodeTarget.height,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) =>
                 fallbackBuilder(context, size),
@@ -73,6 +82,8 @@ class AvatarImage extends ConsumerWidget {
         fit: BoxFit.cover,
         cacheManager: cacheManager,
         httpHeaders: headers,
+        memCacheWidth: decodeTarget.width,
+        memCacheHeight: decodeTarget.height,
         placeholder: (context, _) =>
             (placeholderBuilder ?? _defaultPlaceholder)(context, size),
         errorBuilder: (context, error, stackTrace) =>

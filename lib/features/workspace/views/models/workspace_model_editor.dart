@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/raster_media_policy.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
@@ -1484,6 +1485,12 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.avatar,
+      logicalWidth: 56,
+      logicalHeight: 56,
+    );
     final draftImage = widget.draftImage;
     final modelId = widget.modelId;
     final placeholder = Container(
@@ -1506,7 +1513,14 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
     if (inline != null && inline.startsWith('data:image')) {
       try {
         final bytes = base64Decode(inline.split(',').last);
-        return wrap(Image.memory(bytes, fit: BoxFit.cover));
+        return wrap(
+          Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            cacheWidth: decodeTarget.width,
+            cacheHeight: decodeTarget.height,
+          ),
+        );
       } catch (_) {
         return placeholder;
       }
@@ -1524,6 +1538,8 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
           inline,
           fit: BoxFit.cover,
           headers: headers,
+          cacheWidth: decodeTarget.width,
+          cacheHeight: decodeTarget.height,
           errorBuilder: (_, _, _) => placeholder,
         ),
       );
@@ -1548,6 +1564,8 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
           Image.memory(
             Uint8List.fromList(data),
             fit: BoxFit.cover,
+            cacheWidth: decodeTarget.width,
+            cacheHeight: decodeTarget.height,
             errorBuilder: (_, _, _) => placeholder,
           ),
         );

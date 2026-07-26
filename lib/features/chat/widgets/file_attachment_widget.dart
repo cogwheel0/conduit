@@ -9,6 +9,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../services/file_attachment_service.dart';
 import '../../../core/services/share_receiver_service.dart';
 import '../../../core/services/media_upload_controller.dart';
+import '../../../core/services/raster_media_policy.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 
@@ -286,9 +287,17 @@ class _FileAttachmentCard extends ConsumerWidget {
 
   Widget _buildImagePreview(BuildContext context, Widget removeButton) {
     final File file = fileState.file;
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.thumbnail,
+      logicalWidth: 320,
+      logicalHeight: 240,
+    );
     final Widget basePreview = Image.file(
       file,
       fit: BoxFit.cover,
+      cacheWidth: decodeTarget.width,
+      cacheHeight: decodeTarget.height,
       filterQuality: FilterQuality.medium,
       errorBuilder: (context, error, stackTrace) =>
           _buildPreviewPlaceholderContent(context),
