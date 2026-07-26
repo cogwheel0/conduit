@@ -115,12 +115,31 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     }
   }
 
+  void _clearTransientChannelState(String channelId, {bool notify = false}) {
+    final threadParent = _threadParent;
+    if (threadParent != null) {
+      ref.invalidate(threadMessagesProvider(channelId, threadParent.id));
+    }
+
+    void reset() {
+      _threadParent = null;
+      _replyToMessage = null;
+      _editingMessageId = null;
+      _editController.clear();
+    }
+
+    if (notify) {
+      setState(reset);
+    } else {
+      reset();
+    }
+  }
+
   @override
   void didUpdateWidget(covariant ChannelPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.channelId != oldWidget.channelId) {
-      _threadParent = null;
-      _replyToMessage = null;
+      _clearTransientChannelState(oldWidget.channelId);
       _loadChannel();
       // Defer subscribe — unsubscribe clears ChannelTypingUsers
       // state which is not allowed during the build phase.
@@ -156,6 +175,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _channelReloadScheduled = false;
       if (!mounted) return;
+      _clearTransientChannelState(widget.channelId, notify: true);
       unawaited(_loadChannel());
     });
   }
