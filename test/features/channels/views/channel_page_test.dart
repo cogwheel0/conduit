@@ -99,6 +99,15 @@ void main() {
             .any((field) => field.controller?.text == 'Original message'),
       ).isTrue();
 
+      unawaited(
+        messageMenu.actions
+            .singleWhere((action) => action.label == 'React')
+            .onSelected(),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('👍'), findsOneWidget);
+
       final firstSend =
           tester
                   .widget<ModernChatInput>(find.byType(ModernChatInput).first)
@@ -124,6 +133,19 @@ void main() {
             .widgetList<TextField>(find.byType(TextField))
             .any((field) => field.controller?.text == 'Original message'),
       ).isFalse();
+      tester
+          .widget<GestureDetector>(
+            find
+                .ancestor(
+                  of: find.text('👍'),
+                  matching: find.byType(GestureDetector),
+                )
+                .first,
+          )
+          .onTap!();
+      await tester.pump(const Duration(milliseconds: 300));
+      check(firstApi.addMessageReactionCalls).equals(0);
+      check(replacementApi.addMessageReactionCalls).equals(0);
 
       final replacementComposer = tester.widget<ModernChatInput>(
         find.byType(ModernChatInput).first,
@@ -252,6 +274,7 @@ class _ChannelApi extends ApiService {
   final List<Map<String, dynamic>> messages;
   int getChannelCalls = 0;
   int postChannelMessageCalls = 0;
+  int addMessageReactionCalls = 0;
 
   @override
   Future<Map<String, dynamic>> getChannel(String channelId) {
@@ -288,6 +311,16 @@ class _ChannelApi extends ApiService {
     postChannelMessageCalls += 1;
     return sendResponse?.future ??
         Future<Map<String, dynamic>>.value(_messageJson(content));
+  }
+
+  @override
+  Future<bool> addMessageReaction(
+    String channelId,
+    String messageId,
+    String name,
+  ) async {
+    addMessageReactionCalls += 1;
+    return true;
   }
 
   @override

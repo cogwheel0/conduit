@@ -756,6 +756,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _showEmojiPicker(ChannelMessage message) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final channelId = widget.channelId;
+
     if (Platform.isIOS) {
       try {
         final emoji = await NativeSheetBridge.instance.presentOptionsSelector(
@@ -770,8 +775,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ],
           rethrowErrors: true,
         );
-        if (emoji != null) {
-          _toggleReaction(message, emoji);
+        if (emoji != null &&
+            _ownsChannelRequest(api, authSessionEpoch, channelId)) {
+          unawaited(_toggleReaction(message, emoji));
         }
         return;
       } catch (_) {
@@ -801,7 +807,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             behavior: HitTestBehavior.opaque,
             onTap: () {
               Navigator.pop(ctx);
-              _toggleReaction(message, emoji);
+              if (_ownsChannelRequest(api, authSessionEpoch, channelId)) {
+                unawaited(_toggleReaction(message, emoji));
+              }
             },
             child: Padding(
               padding: const EdgeInsets.all(Spacing.sm),
