@@ -467,6 +467,48 @@ void main() {
       ).isNull();
     });
 
+    test(
+      'authenticated OpenWebUI server errors settle on connection issue',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            activeServerProvider.overrideWith(
+              (_) => Future<ServerConfig?>.error(StateError('storage failed')),
+            ),
+            preferredBackendProvider.overrideWith(
+              _UnsetPreferredBackendController.new,
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(const HermesConfig()),
+            ),
+            authStateManagerProvider.overrideWith(
+              _AuthenticatedAuthStateManager.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(authStateManagerProvider.future);
+        await expectLater(
+          container.read(activeServerProvider.future),
+          throwsStateError,
+        );
+
+        final state = _MockGoRouterState();
+        final notifier = container.read(routerNotifierProvider);
+        when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
+        check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
+
+        when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
+        check(
+          notifier.redirect(_MockBuildContext(), state),
+        ).equals(Routes.connectionIssue);
+
+        when(() => state.uri).thenReturn(Uri.parse(Routes.connectionIssue));
+        check(notifier.redirect(_MockBuildContext(), state)).isNull();
+      },
+    );
+
     test('authenticated Hermes escapes auth while OWUI loads', () async {
       final pendingServer = Completer<ServerConfig?>();
       final container = ProviderContainer(

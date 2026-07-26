@@ -183,7 +183,8 @@ class RouterNotifier extends ChangeNotifier {
     // route while their optional server provider is still loading. Do not let
     // the accountless fallback below strand a completed sign-in on that page.
     if (authState == AuthNavigationState.authenticated &&
-        _isAuthLocation(location)) {
+        _isAuthLocation(location) &&
+        location != Routes.connectionIssue) {
       return Routes.chat;
     }
 
