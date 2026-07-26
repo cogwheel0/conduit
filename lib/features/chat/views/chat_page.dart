@@ -1353,6 +1353,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _recordPinnedRowExtent({double? userExtent, double? tailExtent}) {
+    if (!mounted) return;
     if (!_wantsPinToTop) return;
     var measurementChanged = false;
     if (userExtent != null) {
@@ -1402,7 +1403,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _updateBottomAnchorTracking() {
-    final hasScrollableContent = _shouldExposeScrollToBottomButton();
+    final hasScrollableContent = _hasScrollableTranscriptContent();
     final distanceFromBottom = _positionedDistanceFromLatest();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
@@ -1448,17 +1449,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!mounted || _isDeactivated) return;
 
     final distanceFromBottom = _positionedDistanceFromLatest();
-    final bool hasScrollableContent = _shouldExposeScrollToBottomButton();
+    final hasScrollableContent = _hasScrollableTranscriptContent();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
     );
     _syncLayoutBottomAnchor();
-    final showButton = _bottomAnchorController.shouldShowScrollToBottom(
-      currentlyShowing: _showScrollToBottom,
-      hasScrollableContent: hasScrollableContent,
-      distanceFromBottom: distanceFromBottom,
-    );
+    final showButton =
+        hasScrollableContent && _shouldExposeScrollToBottomButton();
 
     if (showButton != _showScrollToBottom) {
       setState(() {
@@ -1487,6 +1485,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       pinAutoFollowing: _shouldAutoFollowPinnedTurn,
       userDetached: _bottomAnchorController.isUserDetachedFromBottom,
       isAtLatest: _isAtLatestPosition(),
+    );
+  }
+
+  bool _hasScrollableTranscriptContent() {
+    final messages = ref.read(chatMessagesProvider);
+    final paging = ref.read(chatTranscriptPagingProvider);
+    final timeline = ChatTimelineRenderModel.fromMessages(messages);
+    return debugHasScrollablePositionedContentForTesting(
+      positions: _itemPositionsListener.itemPositions.value,
+      itemCount: timeline.listItemCount + (paging.isLoadingOlder ? 1 : 0),
+      viewportExtent: MediaQuery.sizeOf(context).height,
     );
   }
 
@@ -1628,7 +1637,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             totalMessages: totalMessages,
             loadedCount: anchor.loadedCount,
           );
-      _scheduleScrollAnchorRestore(anchor);
+      _scheduleScrollAnchorRestore(anchor, conversationId: conversationId!);
     } else {
       ref
           .read(chatTranscriptPagingProvider.notifier)
@@ -1677,13 +1686,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _scheduleScrollAnchorRestore(
     ChatScrollAnchor anchor, {
+    required String conversationId,
     int attempt = 0,
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!debugShouldApplyConversationScrollRestoreForTesting(
+        isMounted: mounted,
+        scheduledConversationId: conversationId,
+        activeConversationId: _lastConversationId,
+      )) {
+        return;
+      }
       if (!_itemScrollController.isAttached) {
         if (attempt < 4) {
-          _scheduleScrollAnchorRestore(anchor, attempt: attempt + 1);
+          _scheduleScrollAnchorRestore(
+            anchor,
+            conversationId: conversationId,
+            attempt: attempt + 1,
+          );
         }
         return;
       }
@@ -2357,11 +2377,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
+    final viewport = _resolveMarkdownPrewarmViewport(
+      messages: messages,
+      layoutMetadata: layoutMetadata,
+      positions: _itemPositionsListener.itemPositions.value,
+      fallbackViewportHeight: MediaQuery.sizeOf(context).height,
+    );
     final candidateIndices = _selectMarkdownPrewarmCandidateIndices(
       messages: messages,
       layoutMetadata: layoutMetadata,
-      viewportTop: null,
-      viewportHeight: null,
+      viewportTop: viewport.viewportTop,
+      viewportHeight: viewport.viewportHeight,
       maxCount: 6,
     );
     final filteredCandidateIndices = <int>[];
@@ -2775,7 +2801,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Keyboard visibility - use viewInsetsOf for more efficient partial subscription
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     // Whether the messages list can actually scroll (avoids showing button when not needed)
-    final canScroll = _shouldExposeScrollToBottomButton();
+    final canScroll = _hasScrollableTranscriptContent();
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {
@@ -3731,6 +3757,36 @@ bool debugShouldExposeScrollToLatestForTesting({
 }
 
 @visibleForTesting
+bool debugHasScrollablePositionedContentForTesting({
+  required Iterable<ItemPosition> positions,
+  required int itemCount,
+  required double viewportExtent,
+}) {
+  if (itemCount <= 0 || positions.isEmpty) return false;
+  final tolerance = 1 / math.max(1.0, viewportExtent);
+  final visibleIndices = <int>{};
+  for (final position in positions) {
+    if (position.index >= 0 && position.index < itemCount) {
+      visibleIndices.add(position.index);
+    }
+    if (position.itemLeadingEdge < -tolerance ||
+        position.itemTrailingEdge > 1 + tolerance) {
+      return true;
+    }
+  }
+  return visibleIndices.length < itemCount;
+}
+
+@visibleForTesting
+bool debugShouldApplyConversationScrollRestoreForTesting({
+  required bool isMounted,
+  required String scheduledConversationId,
+  required String? activeConversationId,
+}) {
+  return isMounted && scheduledConversationId == activeConversationId;
+}
+
+@visibleForTesting
 bool debugShouldSmoothFollowStreamingForTesting({
   required bool hasRunningTurn,
   required bool isAnchoredToBottom,
@@ -4006,6 +4062,71 @@ List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
     viewportTop: viewportTop,
     viewportHeight: viewportHeight,
     maxCount: maxCount,
+  );
+}
+
+@visibleForTesting
+({double viewportTop, double viewportHeight})
+debugResolveMarkdownPrewarmViewportForTesting(
+  List<ChatMessage> messages, {
+  required Iterable<ItemPosition> positions,
+  double crossAxisExtent = 400,
+  double fallbackViewportHeight = 700,
+}) {
+  final metadata = _buildChatListStableLayoutMetadata(
+    messages: messages,
+    models: null,
+    apiService: null,
+    crossAxisExtent: crossAxisExtent,
+  );
+  return _resolveMarkdownPrewarmViewport(
+    messages: messages,
+    layoutMetadata: metadata,
+    positions: positions,
+    fallbackViewportHeight: fallbackViewportHeight,
+  );
+}
+
+({double viewportTop, double viewportHeight}) _resolveMarkdownPrewarmViewport({
+  required List<ChatMessage> messages,
+  required _ChatListStableLayoutMetadata layoutMetadata,
+  required Iterable<ItemPosition> positions,
+  required double fallbackViewportHeight,
+}) {
+  final timeline = ChatTimelineRenderModel.fromMessages(messages);
+  var viewportTop = double.infinity;
+  var viewportBottom = double.negativeInfinity;
+  for (final position in positions) {
+    final message = timeline.messageAtPositionedIndex(position.index);
+    if (message == null) continue;
+    final messageIndex = layoutMetadata.indexByMessageId[message.id];
+    if (messageIndex == null) continue;
+    final row = layoutMetadata.rows[messageIndex];
+    if (row.isArchivedVariant || row.estimatedExtent <= 0) continue;
+    viewportTop = math.min(viewportTop, row.leadingOffset);
+    viewportBottom = math.max(
+      viewportBottom,
+      row.leadingOffset + row.estimatedExtent,
+    );
+  }
+  if (viewportTop.isFinite && viewportBottom.isFinite) {
+    return (
+      viewportTop: viewportTop,
+      viewportHeight: math.max(1.0, viewportBottom - viewportTop),
+    );
+  }
+
+  final safeFallbackHeight =
+      fallbackViewportHeight.isFinite && fallbackViewportHeight > 0
+      ? fallbackViewportHeight
+      : 1.0;
+  final totalEstimatedExtent = layoutMetadata.rows.isEmpty
+      ? 0.0
+      : layoutMetadata.rows.last.leadingOffset +
+            layoutMetadata.rows.last.estimatedExtent;
+  return (
+    viewportTop: math.max(0, totalEstimatedExtent - safeFallbackHeight),
+    viewportHeight: safeFallbackHeight,
   );
 }
 

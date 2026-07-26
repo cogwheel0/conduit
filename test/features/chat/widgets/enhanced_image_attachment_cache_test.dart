@@ -14,7 +14,8 @@ import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart'
         debugDecodeCachedResolvedImageAttachment,
         debugDecodeCachedResolvedImageAttachmentError,
         debugLoadImageAttachmentError,
-        debugMergeImageHeaders;
+        debugMergeImageHeaders,
+        debugStableImagePreviewSizeForTesting;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,20 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   setUp(debugResetImageAttachmentCaches);
   tearDown(debugResetImageAttachmentCaches);
+
+  test('all image preview states share one bounded default geometry', () {
+    expect(debugStableImagePreviewSizeForTesting(null), const Size(300, 300));
+    expect(
+      debugStableImagePreviewSizeForTesting(
+        const BoxConstraints(maxWidth: 124, maxHeight: 93),
+      ),
+      const Size(124, 93),
+    );
+    expect(
+      debugStableImagePreviewSizeForTesting(const BoxConstraints()),
+      const Size(300, 300),
+    );
+  });
 
   test('same-origin image metadata cannot override the Conduit identity', () {
     final headers = debugMergeImageHeaders(

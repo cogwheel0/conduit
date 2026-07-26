@@ -326,6 +326,81 @@ void main() {
   });
 
   test(
+    'positioned content overflow is independent from button eligibility',
+    () {
+      const newest = ItemPosition(
+        index: 0,
+        itemLeadingEdge: 0,
+        itemTrailingEdge: 0.4,
+      );
+      const older = ItemPosition(
+        index: 1,
+        itemLeadingEdge: 0.4,
+        itemTrailingEdge: 0.8,
+      );
+
+      expect(
+        debugHasScrollablePositionedContentForTesting(
+          positions: const [newest, older],
+          itemCount: 2,
+          viewportExtent: 600,
+        ),
+        isFalse,
+      );
+      expect(
+        debugHasScrollablePositionedContentForTesting(
+          positions: const [newest],
+          itemCount: 2,
+          viewportExtent: 600,
+        ),
+        isTrue,
+      );
+      expect(
+        debugHasScrollablePositionedContentForTesting(
+          positions: const [
+            ItemPosition(
+              index: 0,
+              itemLeadingEdge: -0.1,
+              itemTrailingEdge: 0.3,
+            ),
+            older,
+          ],
+          itemCount: 2,
+          viewportExtent: 600,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('scroll anchor restore is fenced to its scheduled conversation', () {
+    expect(
+      debugShouldApplyConversationScrollRestoreForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldApplyConversationScrollRestoreForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-b',
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyConversationScrollRestoreForTesting(
+        isMounted: false,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+      ),
+      isFalse,
+    );
+  });
+
+  test(
     'bottom anchor controller hysteresis keeps the button shown across the band',
     () {
       final controller = ChatBottomAnchorController(
@@ -921,6 +996,69 @@ void main() {
     );
 
     expect(indices, <int>[4]);
+  });
+
+  test('markdown prewarm derives metrics from reversed visible positions', () {
+    final messages = List<ChatMessage>.generate(6, (index) {
+      return ChatMessage(
+        id: 'assistant-$index',
+        role: 'assistant',
+        content: 'Visible response $index',
+        timestamp: DateTime(2026),
+      );
+    });
+    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+    final viewport = debugResolveMarkdownPrewarmViewportForTesting(
+      messages,
+      positions: const [
+        ItemPosition(index: 0, itemLeadingEdge: 0, itemTrailingEdge: 0.4),
+        ItemPosition(index: 1, itemLeadingEdge: 0.4, itemTrailingEdge: 0.8),
+      ],
+      fallbackViewportHeight: 220,
+    );
+
+    expect(viewport.viewportTop, summary[4].leadingOffset);
+    expect(
+      viewport.viewportHeight,
+      summary[4].estimatedExtent + summary[5].estimatedExtent,
+    );
+    expect(
+      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        viewportTop: viewport.viewportTop,
+        viewportHeight: viewport.viewportHeight,
+        maxCount: 2,
+      ),
+      <int>[5, 4],
+    );
+  });
+
+  test('markdown prewarm falls back to the latest estimated viewport', () {
+    final messages = List<ChatMessage>.generate(8, (index) {
+      return ChatMessage(
+        id: 'assistant-$index',
+        role: 'assistant',
+        content: 'Fallback response $index',
+        timestamp: DateTime(2026),
+      );
+    });
+    final viewport = debugResolveMarkdownPrewarmViewportForTesting(
+      messages,
+      positions: const [],
+      fallbackViewportHeight: 220,
+    );
+
+    expect(viewport.viewportTop, greaterThan(0));
+    expect(viewport.viewportHeight, 220);
+    expect(
+      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        viewportTop: viewport.viewportTop,
+        viewportHeight: viewport.viewportHeight,
+        maxCount: 2,
+      ),
+      isNotEmpty,
+    );
   });
 
   test('markdown prewarm returns no candidates without viewport metrics', () {

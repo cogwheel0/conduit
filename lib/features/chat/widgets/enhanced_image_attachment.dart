@@ -422,6 +422,26 @@ Map<String, String>? debugMergeImageHeaders(
   Map<String, String>? overrides,
 ) => _mergeHeaders(defaults, overrides);
 
+const _defaultImagePreviewConstraints = BoxConstraints(
+  minWidth: 200,
+  maxWidth: 300,
+  minHeight: 150,
+  maxHeight: 300,
+);
+
+@visibleForTesting
+Size debugStableImagePreviewSizeForTesting(BoxConstraints? constraints) {
+  final effective = constraints ?? _defaultImagePreviewConstraints;
+  return Size(
+    effective.hasBoundedWidth
+        ? effective.maxWidth
+        : _defaultImagePreviewConstraints.maxWidth,
+    effective.hasBoundedHeight
+        ? effective.maxHeight
+        : _defaultImagePreviewConstraints.maxHeight,
+  );
+}
+
 class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final String attachmentId;
   final bool isMarkdownFormat;
@@ -450,13 +470,6 @@ class EnhancedImageAttachment extends ConsumerStatefulWidget {
 class _EnhancedImageAttachmentState
     extends ConsumerState<EnhancedImageAttachment>
     with AutomaticKeepAliveClientMixin {
-  static const _defaultPreviewConstraints = BoxConstraints(
-    minWidth: 200,
-    maxWidth: 300,
-    minHeight: 150,
-    maxHeight: 300,
-  );
-
   String? _cachedImageData;
   Uint8List? _cachedBytes;
   bool _isLoading = true;
@@ -674,19 +687,10 @@ class _EnhancedImageAttachmentState
   }
 
   BoxConstraints get _previewConstraints =>
-      widget.constraints ?? _defaultPreviewConstraints;
+      widget.constraints ?? _defaultImagePreviewConstraints;
 
-  Size get _stablePreviewSize {
-    final constraints = _previewConstraints;
-    return Size(
-      constraints.hasBoundedWidth
-          ? constraints.maxWidth
-          : _defaultPreviewConstraints.maxWidth,
-      constraints.hasBoundedHeight
-          ? constraints.maxHeight
-          : _defaultPreviewConstraints.maxHeight,
-    );
-  }
+  Size get _stablePreviewSize =>
+      debugStableImagePreviewSizeForTesting(widget.constraints);
 
   @override
   Widget build(BuildContext context) {
@@ -838,47 +842,43 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildErrorState() {
-    final error = Container(
+    final error = SizedBox.fromSize(
       key: const ValueKey('error'),
-      constraints:
-          widget.constraints ??
-          const BoxConstraints(
-            maxWidth: 300,
-            maxHeight: 150,
-            minHeight: 100,
-            minWidth: 200,
+      size: _stablePreviewSize,
+      child: Container(
+        constraints: _previewConstraints,
+        margin: const EdgeInsets.only(bottom: Spacing.xs),
+        decoration: BoxDecoration(
+          color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          border: Border.all(
+            color: context.conduitTheme.error.withValues(alpha: 0.3),
+            width: BorderWidth.thin,
           ),
-      margin: const EdgeInsets.only(bottom: Spacing.xs),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        border: Border.all(
-          color: context.conduitTheme.error.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
         ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.broken_image_outlined,
-            color: context.conduitTheme.error,
-            size: 32,
-          ),
-          const SizedBox(height: Spacing.xs),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-            child: Text(
-              _errorMessage!,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: context.conduitTheme.error,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.broken_image_outlined,
+              color: context.conduitTheme.error,
+              size: 32,
             ),
-          ),
-        ],
+            const SizedBox(height: Spacing.xs),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              child: Text(
+                _errorMessage!,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: context.conduitTheme.error,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
     if (widget.disableAnimation || context.reduceMotion) {
@@ -962,7 +962,9 @@ class _EnhancedImageAttachmentState
       },
     );
 
-    return _wrapImage(svgWidget);
+    return _wrapImage(
+      SizedBox.fromSize(size: _stablePreviewSize, child: svgWidget),
+    );
   }
 
   Widget _buildBase64Image() {
@@ -971,10 +973,13 @@ class _EnhancedImageAttachmentState
       return _buildLoadingState();
     }
     final dimensions = _cacheDimensions(context);
+    final previewSize = _stablePreviewSize;
 
     final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
       image: RasterMediaPolicy.resizeProvider(MemoryImage(bytes), dimensions),
+      width: previewSize.width,
+      height: previewSize.height,
       fit: BoxFit.cover,
       gaplessPlayback: true, // Prevents flashing during rebuilds
       errorBuilder: (context, error, stackTrace) {
@@ -1002,7 +1007,9 @@ class _EnhancedImageAttachmentState
       },
     );
 
-    return _wrapImage(svgWidget);
+    return _wrapImage(
+      SizedBox.fromSize(size: _stablePreviewSize, child: svgWidget),
+    );
   }
 
   Widget _wrapImage(Widget imageWidget) {
