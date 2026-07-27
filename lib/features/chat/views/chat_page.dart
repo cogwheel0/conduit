@@ -66,6 +66,7 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/measure_size.dart';
+import '../../../shared/widgets/server_version_warning_card.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
@@ -3024,6 +3025,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       temporaryChatNotice,
                     ],
                   ],
+                  const ServerVersionWarningCard(),
                 ],
               ),
             ),

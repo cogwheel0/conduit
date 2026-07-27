@@ -38,48 +38,138 @@ void main() {
       check(adapter.requestCount).equals(0);
     });
 
-    test('404 degrades to empty and is cached (no re-probe)', () async {
-      final adapter = _ActiveChatsAdapter(statusCode: 404, body: const {});
+    test(
+      '404 uses an empty list fallback and caches the removed route',
+      () async {
+        final adapter = _ActiveChatsAdapter(
+          statusCode: 404,
+          body: const {},
+          responsesByPath: const {
+            '/api/v1/chats/': [],
+            '/api/v1/chats/archived': [],
+          },
+        );
+        final api = _buildApiService(adapter);
+
+        final first = await api.checkActiveChats(['a']);
+        final second = await api.checkActiveChats(['a', 'b']);
+
+        check(first).isEmpty();
+        check(second).isEmpty();
+        // Only the first call probes the removed task route. Both calls use the
+        // replacement chat-list contract.
+        check(
+          adapter.requestPaths
+              .where((path) => path == '/api/v1/tasks/active/chats')
+              .length,
+        ).equals(1);
+        check(
+          adapter.requestPaths.where((path) => path == '/api/v1/chats/').length,
+        ).equals(2);
+      },
+    );
+
+    test('404 falls back to the 0.11 active field on chat lists', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 404,
+        body: const {},
+        responsesByPath: const {
+          '/api/v1/chats/': [
+            {'id': 'a', 'active': true},
+            {'id': 'b', 'active': false},
+            {'id': 'c', 'active': true},
+          ],
+        },
+      );
+      final api = _buildApiService(adapter);
+
+      final first = await api.checkActiveChats(['a', 'b', 'c']);
+      final second = await api.checkActiveChats(['b', 'c']);
+
+      check(first).deepEquals({'a', 'c'});
+      check(second).deepEquals({'c'});
+      check(
+        adapter.requestPaths
+            .where((path) => path == '/api/v1/tasks/active/chats')
+            .length,
+      ).equals(1);
+      check(
+        adapter.requestPaths.where((path) => path == '/api/v1/chats/').length,
+      ).equals(2);
+    });
+
+    test(
+      '0.11 fallback also checks archived chats not in the main list',
+      () async {
+        final adapter = _ActiveChatsAdapter(
+          statusCode: 404,
+          body: const {},
+          responsesByPath: const {
+            '/api/v1/chats/': [
+              {'id': 'regular', 'active': false},
+            ],
+            '/api/v1/chats/archived': [
+              {'id': 'archived', 'active': true},
+            ],
+          },
+        );
+        final api = _buildApiService(adapter);
+
+        final active = await api.checkActiveChats(['regular', 'archived']);
+
+        check(active).deepEquals({'archived'});
+        check(adapter.requestPaths).deepEquals([
+          '/api/v1/tasks/active/chats',
+          '/api/v1/chats/',
+          '/api/v1/chats/archived',
+        ]);
+      },
+    );
+
+    test('405 selects the 0.11 list fallback and caches the route', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 405,
+        body: const {'detail': 'Method Not Allowed'},
+        responsesByPath: const {
+          '/api/v1/chats/': [
+            {'id': 'a', 'active': true},
+          ],
+        },
+      );
       final api = _buildApiService(adapter);
 
       final first = await api.checkActiveChats(['a']);
-      final second = await api.checkActiveChats(['a', 'b']);
+      final second = await api.checkActiveChats(['a']);
 
-      check(first).isEmpty();
-      check(second).isEmpty();
-      // Only the first call hits the network; the 404 is cached.
-      check(adapter.requestCount).equals(1);
-    });
-
-    test('405 degrades to empty and retries after a brief pause', () async {
-      var now = DateTime(2026);
-      final adapter = _ActiveChatsAdapter(statusCode: 405, body: const {});
-      final api = _buildApiService(adapter, now: () => now);
-
-      final first = await api.checkActiveChats(['a']);
-      final second = await api.checkActiveChats(['a', 'b']);
-      now = now.add(const Duration(minutes: 1, seconds: 1));
-      final third = await api.checkActiveChats(['a', 'b', 'c']);
-
-      check(first).isEmpty();
-      check(second).isEmpty();
-      check(third).isEmpty();
-      // The immediate retry is paused, but 405 does not disable the probe for
-      // the whole session.
-      check(adapter.requestCount).equals(2);
+      check(first).deepEquals({'a'});
+      check(second).deepEquals({'a'});
+      check(
+        adapter.requestPaths
+            .where((path) => path == '/api/v1/tasks/active/chats')
+            .length,
+      ).equals(1);
+      check(
+        adapter.requestPaths.where((path) => path == '/api/v1/chats/').length,
+      ).equals(2);
     });
   });
 }
 
 class _ActiveChatsAdapter implements HttpClientAdapter {
-  _ActiveChatsAdapter({required this.statusCode, required this.body});
+  _ActiveChatsAdapter({
+    required this.statusCode,
+    required this.body,
+    this.responsesByPath = const {},
+  });
 
   final int statusCode;
-  final Map<String, dynamic> body;
+  final Object? body;
+  final Map<String, Object?> responsesByPath;
 
   int requestCount = 0;
   String? lastPath;
   Map<String, dynamic>? lastBody;
+  final List<String> requestPaths = [];
 
   @override
   Future<ResponseBody> fetch(
@@ -89,6 +179,7 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
   ) async {
     requestCount += 1;
     lastPath = options.path;
+    requestPaths.add(options.path);
     final data = options.data;
     if (data is Map) {
       lastBody = Map<String, dynamic>.from(data);
@@ -96,9 +187,11 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
       lastBody = Map<String, dynamic>.from(jsonDecode(data) as Map);
     }
 
+    final hasPathResponse = responsesByPath.containsKey(options.path);
+    final responseBody = hasPathResponse ? responsesByPath[options.path] : body;
     return ResponseBody(
-      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(body)))),
-      statusCode,
+      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(responseBody)))),
+      hasPathResponse ? 200 : statusCode,
       headers: {
         'content-type': ['application/json'],
       },
@@ -109,10 +202,7 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-ApiService _buildApiService(
-  HttpClientAdapter adapter, {
-  DateTime Function()? now,
-}) {
+ApiService _buildApiService(HttpClientAdapter adapter) {
   final service = ApiService(
     serverConfig: const ServerConfig(
       id: 'test',
@@ -120,7 +210,6 @@ ApiService _buildApiService(
       url: 'http://localhost:0',
     ),
     workerManager: WorkerManager(),
-    now: now,
   );
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();
