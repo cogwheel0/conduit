@@ -327,6 +327,19 @@ void main() {
     ).isFalse();
   });
 
+  test('undispatched screen context retries use bounded backoff', () {
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 0),
+    ).equals(const Duration(milliseconds: 250));
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 1),
+    ).equals(const Duration(milliseconds: 500));
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 2),
+    ).equals(const Duration(seconds: 1));
+    check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
+  });
+
   test('latest button appears only after manual detachment', () {
     check(
       debugShouldExposeScrollToLatestForTesting(

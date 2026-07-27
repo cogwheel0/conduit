@@ -336,6 +336,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ChatMessageSendAdmissionGuard();
   bool _screenContextSubmissionScheduled = false;
   String? _screenContextInFlight;
+  Timer? _screenContextRetryTimer;
+  String? _screenContextRetryContext;
+  int _screenContextRetryAttempts = 0;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -733,7 +736,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.initState();
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
-      if (next == null || next.isEmpty) return;
+      if (next == null || next.isEmpty) {
+        _resetScreenContextRetry();
+        return;
+      }
+      if (next != _screenContextRetryContext) {
+        _resetScreenContextRetry(context: next);
+      }
       _scheduleScreenContextSubmission();
     });
     _conversationLoadingSub = ref.listenManual(isLoadingConversationProvider, (
@@ -810,6 +819,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _apiOwnerSub?.close();
     _databaseOwnerSub?.close();
     _markdownPrewarmTimer?.cancel();
+    _screenContextRetryTimer?.cancel();
     _cancelStreamingEndCorrection();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
@@ -867,6 +877,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         submittedContext: screenContext,
         currentContext: currentContext,
       )) {
+        _resetScreenContextRetry();
         ref.read(screenContextProvider.notifier).setContext(null);
         return;
       }
@@ -878,8 +889,38 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         isSavingTemporary: _isSavingTemporary,
         isLoadingConversation: ref.read(isLoadingConversationProvider),
       )) {
-        _scheduleScreenContextSubmission();
+        if (currentContext != screenContext) {
+          if (currentContext != null && currentContext.isNotEmpty) {
+            _scheduleScreenContextSubmission();
+          }
+        } else if (!result.dispatched) {
+          _scheduleScreenContextRetry(screenContext);
+        }
       }
+    });
+  }
+
+  void _resetScreenContextRetry({String? context}) {
+    _screenContextRetryTimer?.cancel();
+    _screenContextRetryTimer = null;
+    _screenContextRetryContext = context;
+    _screenContextRetryAttempts = 0;
+  }
+
+  void _scheduleScreenContextRetry(String screenContext) {
+    if (_screenContextRetryContext != screenContext) {
+      _resetScreenContextRetry(context: screenContext);
+    }
+    if (_screenContextRetryTimer != null) return;
+    final delay = debugScreenContextRetryDelayForTesting(
+      completedRetries: _screenContextRetryAttempts,
+    );
+    if (delay == null) return;
+    _screenContextRetryAttempts += 1;
+    _screenContextRetryTimer = Timer(delay, () {
+      _screenContextRetryTimer = null;
+      if (!mounted || ref.read(screenContextProvider) != screenContext) return;
+      _scheduleScreenContextSubmission();
     });
   }
 
@@ -4100,6 +4141,18 @@ bool debugShouldRetryScreenContextForTesting({
       !sendAdmissionHeld &&
       !isSavingTemporary &&
       !isLoadingConversation;
+}
+
+@visibleForTesting
+Duration? debugScreenContextRetryDelayForTesting({
+  required int completedRetries,
+}) {
+  return switch (completedRetries) {
+    0 => const Duration(milliseconds: 250),
+    1 => const Duration(milliseconds: 500),
+    2 => const Duration(seconds: 1),
+    _ => null,
+  };
 }
 
 /// Owns the short admission window before a durable send has captured its
