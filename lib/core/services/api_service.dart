@@ -8394,7 +8394,10 @@ class ApiService {
   /// Depending on the deployment's web fallback, the removed POST can surface
   /// as either status, so subsequent refreshes go straight to the list fallback.
   bool _activeChatsEndpointUnsupported = false;
-  static const int _activeChatsListFallbackPageBudget = 20;
+  // Keep the total fallback ceiling at 20 requests while reserving capacity
+  // for archived chats instead of allowing the regular list to consume all of
+  // it before the archived endpoint is attempted.
+  static const int _activeChatsListFallbackPageBudgetPerEndpoint = 10;
 
   /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
@@ -8446,21 +8449,20 @@ class ApiService {
     final active = <String>{};
     if (remaining.isEmpty) return active;
 
-    var pageBudget = _activeChatsListFallbackPageBudget;
-    pageBudget = await _collectActiveChatsFromPagedList(
+    await _collectActiveChatsFromPagedList(
       endpoint: '/api/v1/chats/',
       remaining: remaining,
       active: active,
       queryParameters: const {'include_pinned': true, 'include_folders': true},
-      pageBudget: pageBudget,
+      pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
     );
-    if (remaining.isNotEmpty && pageBudget > 0) {
+    if (remaining.isNotEmpty) {
       await _collectActiveChatsFromPagedList(
         endpoint: '/api/v1/chats/archived',
         remaining: remaining,
         active: active,
         queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
-        pageBudget: pageBudget,
+        pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
       );
     }
     return active;

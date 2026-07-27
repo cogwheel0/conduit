@@ -212,7 +212,7 @@ void main() {
       ).deepEquals([1, 2, 3, 4, 5, 6]);
     });
 
-    test('list fallback shares a 20-page budget across endpoints', () async {
+    test('list fallback reserves a 10-page budget for each endpoint', () async {
       final adapter = _ActiveChatsAdapter(
         statusCode: 404,
         body: const {},
@@ -221,7 +221,7 @@ void main() {
             return _jsonResponse(const {}, statusCode: 404);
           }
           final page = int.parse(options.queryParameters['page'].toString());
-          if (page > 20) {
+          if (page > 10) {
             throw StateError('requested page $page beyond the safety ceiling');
           }
           return _jsonResponse(
@@ -244,12 +244,12 @@ void main() {
         adapter.requests
             .where((request) => request.path == '/api/v1/chats/')
             .length,
-      ).equals(20);
+      ).equals(10);
       check(
         adapter.requests
             .where((request) => request.path == '/api/v1/chats/archived')
             .length,
-      ).equals(0);
+      ).equals(10);
     });
   });
 }

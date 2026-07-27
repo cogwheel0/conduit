@@ -319,6 +319,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
+  ProviderSubscription<bool>? _conversationLoadingSub;
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
   ProviderSubscription<Object>? _authEpochSub;
@@ -333,6 +334,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ChatScrollAnchor? _initialScrollAnchor;
   final ChatMessageSendAdmissionGuard _messageSendAdmission =
       ChatMessageSendAdmissionGuard();
+  bool _screenContextSubmissionScheduled = false;
+  String? _screenContextInFlight;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -622,6 +625,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         setState(() {
           _isSavingTemporary = false;
         });
+        _scheduleScreenContextSubmission();
       } else {
         _isSavingTemporary = false;
       }
@@ -730,13 +734,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ref.read(screenContextProvider.notifier).setContext(null);
-        _handleMessageSend(
-          'Here is the content of my screen:\n\n$next\n\nCan you summarize this?',
-        );
-      });
+      _scheduleScreenContextSubmission();
+    });
+    _conversationLoadingSub = ref.listenManual(isLoadingConversationProvider, (
+      _,
+      isLoading,
+    ) {
+      if (!isLoading) _scheduleScreenContextSubmission();
     });
     _reviewerModeSub = ref.listenManual(reviewerModeProvider, (_, next) {
       if (!next || ref.read(selectedModelProvider) != null) return;
@@ -799,6 +803,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void dispose() {
     markConversationRead(ref, _lastConversationId);
     _screenContextSub?.close();
+    _conversationLoadingSub?.close();
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
     _authEpochSub?.close();
@@ -828,11 +833,51 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _timelineViewportController.requestLayoutMaintenance();
   }
 
-  Future<void> _handleMessageSend(String text) =>
-      _sendMessage(text, includeComposerContext: true);
+  Future<void> _handleMessageSend(String text) async {
+    await _sendMessage(text, includeComposerContext: true);
+  }
 
-  Future<void> _handleFollowUpSend(String text) =>
-      _sendMessage(text, includeComposerContext: false);
+  Future<void> _handleFollowUpSend(String text) async {
+    await _sendMessage(text, includeComposerContext: false);
+  }
+
+  void _scheduleScreenContextSubmission() {
+    if (_screenContextSubmissionScheduled || _screenContextInFlight != null) {
+      return;
+    }
+    _screenContextSubmissionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _screenContextSubmissionScheduled = false;
+      if (!mounted || _screenContextInFlight != null) return;
+      final screenContext = ref.read(screenContextProvider);
+      if (screenContext == null || screenContext.isEmpty) return;
+
+      _screenContextInFlight = screenContext;
+      final accepted = await _sendMessage(
+        'Here is the content of my screen:\n\n$screenContext\n\n'
+        'Can you summarize this?',
+        includeComposerContext: true,
+      );
+      if (!mounted) return;
+
+      final currentContext = ref.read(screenContextProvider);
+      _screenContextInFlight = null;
+      if (debugShouldConsumeScreenContextForTesting(
+        sendAccepted: accepted,
+        submittedContext: screenContext,
+        currentContext: currentContext,
+      )) {
+        ref.read(screenContextProvider.notifier).setContext(null);
+        return;
+      }
+      if (accepted ||
+          (!_messageSendAdmission.isHeld &&
+              !_isSavingTemporary &&
+              !ref.read(isLoadingConversationProvider))) {
+        _scheduleScreenContextSubmission();
+      }
+    });
+  }
 
   void _activatePinToTopAnchor(
     ChatSendPlaceholderHandle handle, {
@@ -887,7 +932,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _syncLayoutBottomAnchor();
   }
 
-  Future<void> _sendMessage(
+  Future<bool> _sendMessage(
     String text, {
     required bool includeComposerContext,
   }) async {
@@ -896,10 +941,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isSavingTemporary: _isSavingTemporary,
       isPreparingMessageSend: _messageSendAdmission.isHeld,
     )) {
-      return;
+      return false;
     }
     final sendOwner = _messageSendAdmission.tryAcquire();
-    if (sendOwner == null) return;
+    if (sendOwner == null) return false;
     if (mounted) setState(() {});
     try {
       await _sendMessageAfterAdmission(
@@ -910,6 +955,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } finally {
       _releaseMessageSendAdmission(sendOwner);
     }
+    return true;
   }
 
   Future<void> _sendMessageAfterAdmission(
@@ -1034,6 +1080,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _releaseMessageSendAdmission(Object sendOwner) {
     if (!_messageSendAdmission.release(sendOwner)) return;
     if (mounted) setState(() {});
+    _scheduleScreenContextSubmission();
   }
 
   // Inline voice input now handled directly inside ModernChatInput.
@@ -4016,6 +4063,15 @@ bool debugCanSubmitChatMessageForTesting({
   return !isLoadingConversation &&
       !isSavingTemporary &&
       !isPreparingMessageSend;
+}
+
+@visibleForTesting
+bool debugShouldConsumeScreenContextForTesting({
+  required bool sendAccepted,
+  required String submittedContext,
+  required String? currentContext,
+}) {
+  return sendAccepted && currentContext == submittedContext;
 }
 
 /// Owns the short admission window before a durable send has captured its

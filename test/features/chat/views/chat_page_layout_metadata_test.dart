@@ -260,6 +260,30 @@ void main() {
     expect(guard.isHeld, isFalse);
   });
 
+  test('screen context is consumed only by its accepted send', () {
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendAccepted: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+      ),
+    ).isFalse();
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendAccepted: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-b',
+      ),
+    ).isFalse();
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendAccepted: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+      ),
+    ).isTrue();
+  });
+
   test('latest button appears only after manual detachment', () {
     check(
       debugShouldExposeScrollToLatestForTesting(
