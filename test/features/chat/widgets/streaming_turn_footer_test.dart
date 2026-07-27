@@ -2,7 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
-import 'package:conduit/features/chat/widgets/discrete_streaming_dots.dart';
+import 'package:conduit/features/chat/widgets/conduit_streaming_orbit.dart';
 import 'package:conduit/features/chat/widgets/streaming_turn_footer.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -149,7 +149,7 @@ void main() {
     await tester.pump();
 
     final indicatorLeft = tester
-        .getTopLeft(find.byType(DiscreteStreamingDots))
+        .getTopLeft(find.byType(ConduitStreamingOrbit))
         .dx;
     expect(indicatorLeft, lessThan(48));
   });
@@ -281,7 +281,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(DiscreteStreamingDots), findsNothing);
+    expect(find.byType(ConduitStreamingOrbit), findsNothing);
     expect(find.byKey(const ValueKey('typing')), findsNothing);
   });
 

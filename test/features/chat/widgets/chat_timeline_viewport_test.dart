@@ -745,6 +745,62 @@ void main() {
     check(controller.rowRect('user')!.top).isCloseTo(settled, 1);
   });
 
+  _viewportTest(
+    'latest action restores the pinned row and streaming growth keeps it fixed',
+    (tester) async {
+      final controller = _controller(tester);
+      final ids = [
+        ...List<String>.generate(18, (index) => 'history-$index'),
+        'user',
+        'assistant',
+      ];
+      var pinAutomatic = false;
+      var assistantHeight = 80.0;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: ids,
+                pinnedUserMessageId: 'user',
+                pinAutomatic: pinAutomatic,
+                maintainVisibleAnchor: !pinAutomatic,
+                followLatest: false,
+                rowHeight: (id) => id == 'assistant' ? assistantHeight : 52,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(await controller.jumpMessageToTop('history-8')).isTrue();
+      await tester.pump();
+
+      rebuild(() => pinAutomatic = true);
+      await tester.pump();
+      final navigation = controller.animateMessageToTop(
+        'user',
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      await tester.pumpAndSettle();
+      check(await navigation).isTrue();
+
+      final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+      final settledTop = controller.rowRect('user')!.top;
+      check(settledTop).isCloseTo(viewportTop + _topContentInset, 1);
+
+      rebuild(() => assistantHeight = 240);
+      await tester.pump();
+      await tester.pump();
+      check(controller.rowRect('user')!.top).isCloseTo(settledTop, 1);
+    },
+  );
+
   _viewportTest('deep-history pin staging stays one viewport from latest', (
     tester,
   ) async {

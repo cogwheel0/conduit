@@ -9,7 +9,7 @@ import '../providers/queued_completion_provider.dart';
 import '../views/chat_turn_render_state.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
-import 'discrete_streaming_dots.dart';
+import 'conduit_streaming_orbit.dart';
 
 class StreamingTurnFooter extends ConsumerStatefulWidget {
   const StreamingTurnFooter({
@@ -125,7 +125,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
                       bottom: Spacing.xs,
                     ),
                     child: RepaintBoundary(
-                      child: DiscreteStreamingDots(
+                      child: ConduitStreamingOrbit(
                         size: 28,
                         color: context.conduitTheme.textSecondary.withValues(
                           alpha: 0.75,

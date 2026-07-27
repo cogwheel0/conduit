@@ -327,8 +327,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
   bool _viewportOwnerChangeScheduled = false;
   bool? _lastProfiledMessageCacheStreamingState;
-  bool _streamingFollowScheduled = false;
-  bool _streamingFollowPending = false;
   bool _explicitLatestNavigationInFlight = false;
   int _explicitLatestNavigationGeneration = 0;
   ChatScrollAnchor? _initialScrollAnchor;
@@ -381,8 +379,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _syncLayoutBottomAnchor() {
     if (_shouldFollowStreamingGrowth) {
-      _streamingFollowPending = true;
-      _scheduleStreamingEndCorrection();
+      _timelineViewportController.requestLayoutMaintenance();
     }
   }
 
@@ -410,14 +407,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         !_hasPrewarmedAttachedViewport && metrics.visibleMessageIds.isNotEmpty;
     if (shouldPrewarm) _hasPrewarmedAttachedViewport = true;
     _scheduleScrollToBottomVisibilitySync(prewarm: shouldPrewarm);
-    if (!_shouldFollowStreamingGrowth) return;
-    _streamingFollowPending = true;
-    _scheduleStreamingEndCorrection();
   }
-
-  bool _isAtLatestPosition() =>
-      _timelineViewportController.distanceFromLatest <=
-      _scrollCorrectionEpsilon;
 
   void _maybeLoadOlderMessages() {
     final paging = ref.read(chatTranscriptPagingProvider);
@@ -436,47 +426,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .read(chatTranscriptPagingProvider.notifier)
           .fetchOlder(totalMessages: completeMessages.length),
     );
-  }
-
-  void _scheduleStreamingEndCorrection() {
-    if (_streamingFollowScheduled) return;
-    _streamingFollowScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _streamingFollowScheduled = false;
-      if (!mounted ||
-          _isDeactivated ||
-          !_streamingFollowPending ||
-          !_shouldFollowStreamingGrowth ||
-          !_timelineViewportController.hasClients) {
-        return;
-      }
-      _runStreamingEndCorrection();
-    });
-  }
-
-  void _runStreamingEndCorrection() {
-    _streamingFollowPending = false;
-    if (!_timelineViewportController.hasClients || _isAtLatestPosition()) {
-      return;
-    }
-
-    _bottomAnchorController.requestBottomAnchor();
-    // T3 Code separates the one animated user navigation from live data
-    // maintenance. Streaming corrections are immediate so a chain of easing
-    // animations cannot make the viewport creep upward as each chunk lands.
-    PerformanceProfiler.instance.instant(
-      'chat_streaming_follow',
-      scope: 'chat',
-      data: const {'target': 'latest', 'animated': false},
-    );
-    _timelineViewportController.jumpToLatest();
-    _scheduleScrollToBottomVisibilitySync();
-    if (_streamingFollowPending) _scheduleStreamingEndCorrection();
-  }
-
-  void _cancelStreamingEndCorrection() {
-    _streamingFollowScheduled = false;
-    _streamingFollowPending = false;
   }
 
   void _cancelExplicitLatestNavigation() {
@@ -820,7 +769,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _databaseOwnerSub?.close();
     _markdownPrewarmTimer?.cancel();
     _screenContextRetryTimer?.cancel();
-    _cancelStreamingEndCorrection();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     _endScrollProfile(reason: 'disposed');
@@ -831,7 +779,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void deactivate() {
     _isDeactivated = true;
-    _cancelStreamingEndCorrection();
     _cancelExplicitLatestNavigation();
     super.deactivate();
   }
@@ -932,7 +879,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!mounted || userMessageId == null) return;
 
     _cancelExplicitLatestNavigation();
-    _cancelStreamingEndCorrection();
     _cancelPendingViewportNavigation();
     _bottomAnchorController.requestBottomAnchor();
     final generation = ++_pinPositionGeneration;
@@ -1780,9 +1726,73 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    _cancelStreamingEndCorrection();
+    final pinnedTarget = debugLatestActionPinnedTargetForTesting(
+      wantsPinToTop: _wantsPinToTop,
+      pinnedUserMessageId: _pinnedUserMessageId,
+      pinEndSpaceAvailable: _pinToTopEndSpaceExtent > _pinnedMeasurementEpsilon,
+    );
     _resumeLatestPresentation();
+    if (pinnedTarget != null) {
+      _scrollPinnedTurnToTop(pinnedTarget);
+      return;
+    }
     _scrollToBottom(smooth: true, explicitNavigation: true);
+  }
+
+  void _scrollPinnedTurnToTop(String messageId) {
+    if (_isUserInteractingWithScroll ||
+        !_timelineViewportController.hasClients) {
+      return;
+    }
+    _bottomAnchorController.requestBottomAnchor();
+    final navigationGeneration = ++_explicitLatestNavigationGeneration;
+    _explicitLatestNavigationInFlight = true;
+    final shouldAnimate = !context.reduceMotion;
+
+    PerformanceProfiler.instance.instant(
+      'chat_auto_scroll',
+      scope: 'chat',
+      data: {'smooth': shouldAnimate, 'target': 'pinned-turn'},
+    );
+
+    final movement = shouldAnimate
+        ? _timelineViewportController.animateMessageToTop(
+            messageId,
+            duration: _pinTransitionDuration,
+            curve: Curves.easeOutCubic,
+          )
+        : _timelineViewportController.jumpMessageToTop(messageId);
+    unawaited(
+      movement.then(
+        (moved) {
+          if (!mounted ||
+              !debugCompletionOwnsExplicitLatestNavigationForTesting(
+                completedGeneration: navigationGeneration,
+                currentGeneration: _explicitLatestNavigationGeneration,
+              )) {
+            return;
+          }
+          _explicitLatestNavigationInFlight = false;
+          if (moved) _markPinToTopPositionSettled(_pinPositionGeneration);
+          _scheduleScrollToBottomVisibilitySync(prewarm: true);
+          _syncLayoutBottomAnchor();
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (!mounted ||
+              navigationGeneration != _explicitLatestNavigationGeneration) {
+            return;
+          }
+          _explicitLatestNavigationInFlight = false;
+          DebugLogger.error(
+            'latest-pin-navigation-failed',
+            scope: 'chat/scroll',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          _scheduleScrollToBottomVisibilitySync();
+        },
+      ),
+    );
   }
 
   void _scrollToBottom({
@@ -1846,12 +1856,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _resumeLatestPresentation() {
     final shouldResumePin = _wantsPinToTop && !_shouldAutoFollowPinnedTurn;
+    final usesPinnedTarget =
+        debugLatestActionPinnedTargetForTesting(
+          wantsPinToTop: _wantsPinToTop,
+          pinnedUserMessageId: _pinnedUserMessageId,
+          pinEndSpaceAvailable:
+              _pinToTopEndSpaceExtent > _pinnedMeasurementEpsilon,
+        ) !=
+        null;
     final shouldRebuild =
-        _timelineScrollMode != _ChatTimelineScrollMode.followingLatest ||
+        _timelineScrollMode !=
+            (usesPinnedTarget
+                ? _ChatTimelineScrollMode.anchoringNewTurn
+                : _ChatTimelineScrollMode.followingLatest) ||
         shouldResumePin;
 
     void updateState() {
-      _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
+      _timelineScrollMode = usesPinnedTarget
+          ? _ChatTimelineScrollMode.anchoringNewTurn
+          : _ChatTimelineScrollMode.followingLatest;
       if (shouldResumePin) {
         _pinToTopState = _pinToTopState.resumeAutomaticFollow();
         _pinShouldSettleImmediately = false;
@@ -1916,7 +1939,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _conversationOwnerGeneration += 1;
-    _cancelStreamingEndCorrection();
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     _saveCurrentScrollAnchor(conversationId: outgoingId);
@@ -1963,7 +1985,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _initialScrollAnchor = null;
     _hasPrewarmedAttachedViewport = false;
     _conversationOwnerGeneration += 1;
-    _cancelStreamingEndCorrection();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     setState(() {
@@ -2444,13 +2465,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             _shouldAutoFollowPinnedTurn) {
           _cancelPinnedTurnAutomaticFollow();
         }
-        _cancelStreamingEndCorrection();
       },
       onUserDragStart: () {
         _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
           _cancelPinnedTurnAutomaticFollow();
-          _cancelStreamingEndCorrection();
           _cancelPendingViewportNavigation();
           _beginScrollProfile('user_drag');
         }
@@ -4196,6 +4215,15 @@ bool debugShouldFollowStreamingForTesting({
   }
   if (!wantsPinToTop) return isAnchoredToBottom;
   return pinnedEndSpaceExhausted;
+}
+
+@visibleForTesting
+String? debugLatestActionPinnedTargetForTesting({
+  required bool wantsPinToTop,
+  required String? pinnedUserMessageId,
+  required bool pinEndSpaceAvailable,
+}) {
+  return wantsPinToTop && pinEndSpaceAvailable ? pinnedUserMessageId : null;
 }
 
 @visibleForTesting

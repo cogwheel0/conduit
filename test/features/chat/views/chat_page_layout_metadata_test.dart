@@ -1209,6 +1209,37 @@ void main() {
     ).isTrue();
   });
 
+  test('latest action restores an active pinned turn by message ID', () {
+    check(
+      debugLatestActionPinnedTargetForTesting(
+        wantsPinToTop: true,
+        pinnedUserMessageId: 'user-message',
+        pinEndSpaceAvailable: true,
+      ),
+    ).equals('user-message');
+    check(
+      debugLatestActionPinnedTargetForTesting(
+        wantsPinToTop: false,
+        pinnedUserMessageId: 'user-message',
+        pinEndSpaceAvailable: true,
+      ),
+    ).isNull();
+    check(
+      debugLatestActionPinnedTargetForTesting(
+        wantsPinToTop: true,
+        pinnedUserMessageId: null,
+        pinEndSpaceAvailable: true,
+      ),
+    ).isNull();
+    check(
+      debugLatestActionPinnedTargetForTesting(
+        wantsPinToTop: true,
+        pinnedUserMessageId: 'user-message',
+        pinEndSpaceAvailable: false,
+      ),
+    ).isNull();
+  });
+
   test(
     'keyboard inset growth ignores pin-to-top mode and manual scrolling',
     () {
