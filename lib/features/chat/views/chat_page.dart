@@ -853,7 +853,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (screenContext == null || screenContext.isEmpty) return;
 
       _screenContextInFlight = screenContext;
-      final accepted = await _sendMessage(
+      final result = await _sendMessage(
         'Here is the content of my screen:\n\n$screenContext\n\n'
         'Can you summarize this?',
         includeComposerContext: true,
@@ -863,17 +863,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final currentContext = ref.read(screenContextProvider);
       _screenContextInFlight = null;
       if (debugShouldConsumeScreenContextForTesting(
-        sendAccepted: accepted,
+        sendDispatched: result.dispatched,
         submittedContext: screenContext,
         currentContext: currentContext,
       )) {
         ref.read(screenContextProvider.notifier).setContext(null);
         return;
       }
-      if (accepted ||
-          (!_messageSendAdmission.isHeld &&
-              !_isSavingTemporary &&
-              !ref.read(isLoadingConversationProvider))) {
+      if (!result.admitted &&
+          !_messageSendAdmission.isHeld &&
+          !_isSavingTemporary &&
+          !ref.read(isLoadingConversationProvider)) {
         _scheduleScreenContextSubmission();
       }
     });
@@ -932,7 +932,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _syncLayoutBottomAnchor();
   }
 
-  Future<bool> _sendMessage(
+  Future<({bool admitted, bool dispatched})> _sendMessage(
     String text, {
     required bool includeComposerContext,
   }) async {
@@ -941,13 +941,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isSavingTemporary: _isSavingTemporary,
       isPreparingMessageSend: _messageSendAdmission.isHeld,
     )) {
-      return false;
+      return (admitted: false, dispatched: false);
     }
     final sendOwner = _messageSendAdmission.tryAcquire();
-    if (sendOwner == null) return false;
+    if (sendOwner == null) return (admitted: false, dispatched: false);
     if (mounted) setState(() {});
+    late final bool dispatched;
     try {
-      await _sendMessageAfterAdmission(
+      dispatched = await _sendMessageAfterAdmission(
         text,
         includeComposerContext: includeComposerContext,
         sendOwner: sendOwner,
@@ -955,10 +956,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } finally {
       _releaseMessageSendAdmission(sendOwner);
     }
-    return true;
+    return (admitted: true, dispatched: dispatched);
   }
 
-  Future<void> _sendMessageAfterAdmission(
+  Future<bool> _sendMessageAfterAdmission(
     String text, {
     required bool includeComposerContext,
     required Object sendOwner,
@@ -985,12 +986,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       } catch (_) {
         // If models cannot be resolved, bail out without sending
-        return;
+        return false;
       }
-      if (selectedModel == null) return;
+      if (selectedModel == null) return false;
     }
 
     ChatSendPlaceholderHandle? pendingSend;
+    var didDispatch = false;
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
       final attachedFiles = includeComposerContext
@@ -1027,6 +1029,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onAssistantPlaceholderCreated: (handle) {
+          didDispatch = true;
           _releaseMessageSendAdmission(sendOwner);
           pendingSend = handle;
           _activatePinToTopAnchor(
@@ -1035,6 +1038,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           );
         },
       );
+      didDispatch = true;
 
       // Clear only after durableSend has transferred every attachment needed
       // by the message/outbox. Retire only the exact identities/generations
@@ -1075,6 +1079,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
       recoverFailedChatSend(ref, e, pendingSend);
     }
+    return didDispatch;
   }
 
   void _releaseMessageSendAdmission(Object sendOwner) {
@@ -4067,11 +4072,11 @@ bool debugCanSubmitChatMessageForTesting({
 
 @visibleForTesting
 bool debugShouldConsumeScreenContextForTesting({
-  required bool sendAccepted,
+  required bool sendDispatched,
   required String submittedContext,
   required String? currentContext,
 }) {
-  return sendAccepted && currentContext == submittedContext;
+  return sendDispatched && currentContext == submittedContext;
 }
 
 /// Owns the short admission window before a durable send has captured its

@@ -263,21 +263,21 @@ void main() {
   test('screen context is consumed only by its accepted send', () {
     check(
       debugShouldConsumeScreenContextForTesting(
-        sendAccepted: false,
+        sendDispatched: false,
         submittedContext: 'screen-a',
         currentContext: 'screen-a',
       ),
     ).isFalse();
     check(
       debugShouldConsumeScreenContextForTesting(
-        sendAccepted: true,
+        sendDispatched: true,
         submittedContext: 'screen-a',
         currentContext: 'screen-b',
       ),
     ).isFalse();
     check(
       debugShouldConsumeScreenContextForTesting(
-        sendAccepted: true,
+        sendDispatched: true,
         submittedContext: 'screen-a',
         currentContext: 'screen-a',
       ),
