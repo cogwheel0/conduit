@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/utils/debug_logger.dart';
 import 'chat_turn_render_state.dart';
 
 @immutable
@@ -11,7 +12,9 @@ class ChatTimelineRenderModel {
     required this.tailAssistantSourceIndex,
     required this.tailAssistantPhase,
     required this.runningFooterHost,
-    required this.listIndexByMessageKey,
+    required this.listIndexByMessageId,
+    required this.messageIds,
+    required this.sourceIndexByRenderIndex,
   });
 
   factory ChatTimelineRenderModel.fromMessages(List<ChatMessage> messages) {
@@ -27,15 +30,39 @@ class ChatTimelineRenderModel {
     final footerHost = tailAssistant == null
         ? null
         : ChatTurnFooterHost(messageId: tailAssistant.id);
-    final listIndexByMessageKey = <String, int>{};
+    final listIndexByMessageId = <String, int>{};
+    final messageIds = <String>[];
+    final sourceIndexByRenderIndex = <int>[];
+    var duplicateCount = 0;
 
     for (var index = 0; index < historyMessages.length; index += 1) {
       final messageId = historyMessages[index].id;
-      listIndexByMessageKey['message-$messageId'] = index;
+      if (listIndexByMessageId.containsKey(messageId)) {
+        duplicateCount += 1;
+        continue;
+      }
+      listIndexByMessageId[messageId] = messageIds.length;
+      messageIds.add(messageId);
+      sourceIndexByRenderIndex.add(index);
     }
-    if (tailAssistant != null) {
-      listIndexByMessageKey['message-${tailAssistant.id}'] = historyLength;
+    if (tailAssistant != null &&
+        !listIndexByMessageId.containsKey(tailAssistant.id)) {
+      listIndexByMessageId[tailAssistant.id] = messageIds.length;
+      messageIds.add(tailAssistant.id);
+      sourceIndexByRenderIndex.add(historyLength);
+    } else if (tailAssistant != null) {
+      duplicateCount += 1;
     }
+    assert(() {
+      if (duplicateCount > 0) {
+        DebugLogger.log(
+          'timeline-duplicate-message-ids',
+          scope: 'chat/layout',
+          data: {'duplicateCount': duplicateCount},
+        );
+      }
+      return true;
+    }());
 
     return ChatTimelineRenderModel._(
       historyMessages: historyMessages,
@@ -45,8 +72,10 @@ class ChatTimelineRenderModel {
       runningFooterHost: chatTurnPhaseShowsRunningFooter(tailAssistantPhase)
           ? footerHost
           : null,
-      listIndexByMessageKey: Map<String, int>.unmodifiable(
-        listIndexByMessageKey,
+      listIndexByMessageId: Map<String, int>.unmodifiable(listIndexByMessageId),
+      messageIds: List<String>.unmodifiable(messageIds),
+      sourceIndexByRenderIndex: List<int>.unmodifiable(
+        sourceIndexByRenderIndex,
       ),
     );
   }
@@ -57,35 +86,62 @@ class ChatTimelineRenderModel {
   final ChatTurnPhase tailAssistantPhase;
   final ChatTurnFooterHost? runningFooterHost;
 
-  /// Stable chronological indices for every row in the positioned list.
+  /// Stable chronological indices for every rendered timeline row.
   ///
   /// The live assistant remains outside [historyMessages] so streamed chunks
   /// do not rebuild stable history, but it occupies the next list slot.
-  final Map<String, int> listIndexByMessageKey;
+  final Map<String, int> listIndexByMessageId;
+
+  /// Unique source message IDs in stable chronological order.
+  ///
+  /// Malformed duplicate IDs retain their first render row in
+  /// [listIndexByMessageId]. [historyMessages] remains complete for explicit
+  /// source-index access, while the live assistant is appended only when its
+  /// ID is not already present.
+  final List<String> messageIds;
+
+  /// Original message-list index for each row in [messageIds].
+  final List<int> sourceIndexByRenderIndex;
 
   bool get hasTailAssistant => tailAssistant != null;
   bool get hasRunningTurn => runningFooterHost != null;
-  int get listItemCount => historyMessages.length + (hasTailAssistant ? 1 : 0);
-  int? get tailAssistantListIndex =>
-      hasTailAssistant ? historyMessages.length : null;
+  int get listItemCount => messageIds.length;
+
+  /// Physical index in the deduplicated viewport, not the original source.
+  /// Use [sourceIndexAtRenderIndex] when resolving layout metadata.
+  int? get tailAssistantRenderIndex {
+    final tail = tailAssistant;
+    if (tail == null) {
+      return null;
+    }
+    final renderIndex = listIndexByMessageId[tail.id];
+    if (renderIndex == null ||
+        sourceIndexAtRenderIndex(renderIndex) != tailAssistantSourceIndex) {
+      return null;
+    }
+    return renderIndex;
+  }
 
   ChatMessage? messageAtListIndex(int listIndex) {
     if (listIndex < 0 || listIndex >= listItemCount) return null;
-    if (listIndex < historyMessages.length) {
-      return historyMessages[listIndex];
+    final sourceIndex = sourceIndexByRenderIndex[listIndex];
+    if (sourceIndex == tailAssistantSourceIndex) {
+      return tailAssistant;
     }
-    return tailAssistant;
+    if (sourceIndex < historyMessages.length) {
+      return historyMessages[sourceIndex];
+    }
+    return null;
   }
 
-  ChatMessage? messageAtPositionedIndex(int positionedIndex) {
-    if (positionedIndex < 0 || positionedIndex >= listItemCount) return null;
-    return messageAtListIndex(listItemCount - 1 - positionedIndex);
+  int? sourceIndexAtRenderIndex(int renderIndex) {
+    if (renderIndex < 0 || renderIndex >= sourceIndexByRenderIndex.length) {
+      return null;
+    }
+    return sourceIndexByRenderIndex[renderIndex];
   }
 
-  int? positionedIndexForMessageId(String messageId) {
-    final listIndex = listIndexByMessageKey['message-$messageId'];
-    return listIndex == null ? null : listItemCount - 1 - listIndex;
-  }
+  int? indexForMessageId(String messageId) => listIndexByMessageId[messageId];
 }
 
 int? _tailAssistantIndex(List<ChatMessage> messages) {

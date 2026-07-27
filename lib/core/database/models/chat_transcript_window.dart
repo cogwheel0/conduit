@@ -104,15 +104,21 @@ final class ChatTranscriptPagingState {
   );
 }
 
+/// An in-session viewport anchor.
+///
+/// Anchors live only in ChatPage's bounded in-memory LRU. They are never
+/// serialized to Drift, shared preferences, or secure storage, so changing
+/// their coordinate representation does not require a persisted-data
+/// migration and cannot reinterpret legacy item-edge fractions.
 @immutable
 final class ChatScrollAnchor {
   const ChatScrollAnchor({
     required this.messageId,
-    required this.itemLeadingEdge,
+    required this.offsetWithinMessage,
     required this.loadedCount,
   });
 
   final String messageId;
-  final double itemLeadingEdge;
+  final double offsetWithinMessage;
   final int loadedCount;
 }

@@ -18,7 +18,6 @@ import 'package:conduit/features/hermes/services/hermes_session_provenance.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 void main() {
   test('message cache shrinks only while streaming', () {
@@ -57,144 +56,6 @@ void main() {
       check(disposals).equals(0);
     },
   );
-
-  testWidgets('bottom scroll settles against response and composer growth', (
-    tester,
-  ) async {
-    final scrollController = ScrollController();
-    final liveHeight = ValueNotifier<double>(240);
-    final composerHeight = ValueNotifier<double>(72);
-    final settler = ChatBottomScrollSettler();
-    final anchor = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    )..detachByUser();
-    var settled = false;
-    addTearDown(scrollController.dispose);
-    addTearDown(liveHeight.dispose);
-    addTearDown(composerHeight.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 320,
-          child: CustomScrollView(
-            controller: scrollController,
-            slivers: [
-              const SliverToBoxAdapter(child: SizedBox(height: 640)),
-              SliverToBoxAdapter(
-                child: ValueListenableBuilder<double>(
-                  valueListenable: liveHeight,
-                  builder: (context, height, _) => SizedBox(height: height),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: ValueListenableBuilder<double>(
-                  valueListenable: composerHeight,
-                  builder: (context, height, _) => SizedBox(height: height),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    final initialBottom = scrollController.position.maxScrollExtent;
-    check(anchor.isAnchoredToBottom).isFalse();
-
-    final settleFuture = settler.animateToLatestBottom(
-      initialBottom: initialBottom,
-      animateTo: (target) => scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.linear,
-      ),
-      canSettle: () => true,
-      rearmBottomAnchor: anchor.requestBottomAnchor,
-      latestBottom: () => scrollController.position.maxScrollExtent,
-      currentOffset: () => scrollController.offset,
-      jumpTo: scrollController.jumpTo,
-      onSettled: () => settled = true,
-      correctionEpsilon: 1,
-    );
-    await tester.pump(const Duration(milliseconds: 100));
-
-    liveHeight.value += 180;
-    composerHeight.value += 48;
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 220));
-    await tester.pump();
-    await settleFuture;
-
-    check(settled).isTrue();
-    check(anchor.isAnchoredToBottom).isTrue();
-    check(
-      scrollController.offset,
-    ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-  });
-
-  testWidgets('user interaction cancels a pending bottom settle', (
-    tester,
-  ) async {
-    final scrollController = ScrollController();
-    final settler = ChatBottomScrollSettler();
-    var userIsInteracting = false;
-    var rearmCount = 0;
-    addTearDown(scrollController.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 320,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              if (notification is ScrollStartNotification &&
-                  notification.dragDetails != null) {
-                userIsInteracting = true;
-                settler.cancel();
-              }
-              return false;
-            },
-            child: CustomScrollView(
-              controller: scrollController,
-              slivers: const [
-                SliverToBoxAdapter(child: SizedBox(height: 1400)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final settleFuture = settler.animateToLatestBottom(
-      initialBottom: scrollController.position.maxScrollExtent,
-      animateTo: (target) => scrollController.animateTo(
-        target,
-        duration: const Duration(seconds: 2),
-        curve: Curves.linear,
-      ),
-      canSettle: () => !userIsInteracting,
-      rearmBottomAnchor: () => rearmCount += 1,
-      latestBottom: () => scrollController.position.maxScrollExtent,
-      currentOffset: () => scrollController.offset,
-      jumpTo: scrollController.jumpTo,
-      onSettled: () {},
-      correctionEpsilon: 1,
-    );
-    await tester.pump(const Duration(milliseconds: 80));
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
-    await tester.pump();
-    await settleFuture;
-    final interruptedOffset = scrollController.offset;
-    await tester.pump(const Duration(milliseconds: 300));
-
-    check(userIsInteracting).isTrue();
-    check(rearmCount).equals(0);
-    check(scrollController.offset).isCloseTo(interruptedOffset, 0.01);
-    check(
-      scrollController.offset,
-    ).isLessThan(scrollController.position.maxScrollExtent);
-  });
 
   test('bottom anchor controller separates anchored and detached states', () {
     final controller = ChatBottomAnchorController(
@@ -251,67 +112,47 @@ void main() {
     );
   });
 
-  test(
-    'reversed latest detection requires the newest edge at the viewport',
-    () {
-      const atLatest = ItemPosition(
-        index: 0,
-        itemLeadingEdge: 0,
-        itemTrailingEdge: 0.4,
-      );
-      const scrolledAwayWithNewestStillVisible = ItemPosition(
-        index: 0,
-        itemLeadingEdge: -0.08,
-        itemTrailingEdge: 0.48,
-      );
-      const olderRowAtViewportEdge = ItemPosition(
-        index: 1,
-        itemLeadingEdge: 0,
-        itemTrailingEdge: 0.4,
-      );
-
-      expect(
-        debugIsAtLatestPositionForTesting(
-          positions: const [atLatest],
-          viewportExtent: 600,
-        ),
-        isTrue,
-      );
-      expect(
-        debugIsAtLatestPositionForTesting(
-          positions: const [
-            scrolledAwayWithNewestStillVisible,
-            olderRowAtViewportEdge,
-          ],
-          viewportExtent: 600,
-        ),
-        isFalse,
-      );
-    },
-  );
-
-  test('older paging threshold uses rendered positioned-row coordinates', () {
-    expect(
-      debugShouldLoadOlderPositionedPageForTesting(
-        oldestVisibleIndex: 37,
-        renderedItemCount: 40,
+  test('older paging requires navigation, history, and an oldest row', () {
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
       ),
-      isTrue,
-    );
-    expect(
-      debugShouldLoadOlderPositionedPageForTesting(
-        oldestVisibleIndex: 36,
-        renderedItemCount: 40,
+    ).isTrue();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: false,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
       ),
-      isFalse,
-    );
-    expect(
-      debugShouldLoadOlderPositionedPageForTesting(
-        oldestVisibleIndex: 47,
-        renderedItemCount: 50,
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: false,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
       ),
-      isTrue,
-    );
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: true,
+        anyOldestLoadedRowVisible: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: false,
+      ),
+    ).isFalse();
   });
 
   test('deferred chat mutations are fenced to the scheduled conversation', () {
@@ -419,13 +260,14 @@ void main() {
     expect(guard.isHeld, isFalse);
   });
 
-  test('latest button appears for pinned overflow or manual detachment', () {
+  test('latest button appears only after manual detachment', () {
     check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: false,
         pinAutoFollowing: true,
         userDetached: false,
-        isAtLatest: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
       ),
     ).isFalse();
     check(
@@ -433,15 +275,26 @@ void main() {
         hasScrollableContent: true,
         pinAutoFollowing: true,
         userDetached: false,
-        isAtLatest: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
       ),
-    ).isTrue();
+    ).isFalse();
     check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
-        isAtLatest: false,
+        currentlyShowing: false,
+        distanceFromLatest: 48,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        userDetached: true,
+        currentlyShowing: false,
+        distanceFromLatest: 49,
       ),
     ).isTrue();
     check(
@@ -449,7 +302,8 @@ void main() {
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: false,
-        isAtLatest: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
       ),
     ).isFalse();
     check(
@@ -457,18 +311,19 @@ void main() {
         hasScrollableContent: true,
         pinAutoFollowing: false,
         userDetached: true,
-        isAtLatest: true,
+        currentlyShowing: true,
+        distanceFromLatest: 12,
       ),
     ).isFalse();
     check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
-        pinAutoFollowing: false,
+        pinAutoFollowing: true,
         userDetached: true,
-        isAtLatest: true,
-        hasDetachedPresentation: true,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
       ),
-    ).isTrue();
+    ).isFalse();
   });
 
   test('only the first turn settles its pin without animation', () {
@@ -503,130 +358,35 @@ void main() {
     );
   });
 
-  test('initial bottom settlement never competes with pin-to-top', () {
+  test('deep-history pin prepositions once after the controller attaches', () {
     check(
-      debugShouldRunInitialBottomSettleForTesting(
-        isMounted: true,
-        ownsGeneration: true,
-        hasActiveStreamingAssistant: false,
-        allowDuringStreaming: false,
-        isUserInteractingWithScroll: false,
-        wantsPinToTop: false,
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: false,
+        targetRowMounted: false,
+        prepositionAttempted: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: false,
+        prepositionAttempted: false,
       ),
     ).isTrue();
     check(
-      debugShouldRunInitialBottomSettleForTesting(
-        isMounted: true,
-        ownsGeneration: true,
-        hasActiveStreamingAssistant: true,
-        allowDuringStreaming: true,
-        isUserInteractingWithScroll: false,
-        wantsPinToTop: true,
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: false,
+        prepositionAttempted: true,
       ),
     ).isFalse();
     check(
-      debugShouldRunInitialBottomSettleForTesting(
-        isMounted: true,
-        ownsGeneration: true,
-        hasActiveStreamingAssistant: true,
-        allowDuringStreaming: false,
-        isUserInteractingWithScroll: false,
-        wantsPinToTop: false,
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: true,
+        prepositionAttempted: false,
       ),
     ).isFalse();
-  });
-
-  test('detachment freezes the OpenWebUI responseDone settlement gap', () {
-    final settlingTail = ChatMessage(
-      id: 'assistant-settling',
-      role: 'assistant',
-      content: 'Still receiving visible updates',
-      timestamp: DateTime(2026),
-      isStreaming: true,
-      metadata: const {'responseDone': true},
-    );
-
-    check(debugCanFreezeStreamingTailForTesting(settlingTail)).isTrue();
-    check(
-      debugCanFreezeStreamingTailForTesting(
-        settlingTail.copyWith(isStreaming: false),
-      ),
-    ).isFalse();
-  });
-
-  test(
-    'positioned content overflow is independent from button eligibility',
-    () {
-      const newest = ItemPosition(
-        index: 0,
-        itemLeadingEdge: 0,
-        itemTrailingEdge: 0.4,
-      );
-      const older = ItemPosition(
-        index: 1,
-        itemLeadingEdge: 0.4,
-        itemTrailingEdge: 0.8,
-      );
-
-      expect(
-        debugHasScrollablePositionedContentForTesting(
-          positions: const [newest, older],
-          itemCount: 2,
-          viewportExtent: 600,
-        ),
-        isFalse,
-      );
-      expect(
-        debugHasScrollablePositionedContentForTesting(
-          positions: const [newest],
-          itemCount: 2,
-          viewportExtent: 600,
-        ),
-        isTrue,
-      );
-      expect(
-        debugHasScrollablePositionedContentForTesting(
-          positions: const [
-            ItemPosition(
-              index: 0,
-              itemLeadingEdge: -0.1,
-              itemTrailingEdge: 0.3,
-            ),
-            older,
-          ],
-          itemCount: 2,
-          viewportExtent: 600,
-        ),
-        isTrue,
-      );
-    },
-  );
-
-  test('scroll anchor restore is fenced to its scheduled conversation', () {
-    expect(
-      debugShouldApplyConversationScrollRestoreForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-      ),
-      isTrue,
-    );
-    expect(
-      debugShouldApplyConversationScrollRestoreForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-b',
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyConversationScrollRestoreForTesting(
-        isMounted: false,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-      ),
-      isFalse,
-    );
   });
 
   test(
@@ -720,36 +480,6 @@ void main() {
     },
   );
 
-  test(
-    'scroll update classifier handles touch and pointer input but ignores programmatic updates',
-    () {
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: true,
-          isUserInteractingWithScroll: false,
-        ),
-        isTrue,
-        reason: 'touch updates carry drag details',
-      );
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: false,
-          isUserInteractingWithScroll: true,
-        ),
-        isTrue,
-        reason: 'wheel/trackpad updates follow a user-direction notification',
-      );
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: false,
-          isUserInteractingWithScroll: false,
-        ),
-        isFalse,
-        reason: 'programmatic updates have neither user signal',
-      );
-    },
-  );
-
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -776,82 +506,6 @@ void main() {
     final summary = debugBuildChatListLayoutSummaryForTesting(messages);
 
     expect(summary[1].isArchivedVariant, isTrue);
-    expect(summary[1].estimatedExtent, 0);
-    expect(summary[2].leadingOffset, summary[0].estimatedExtent);
-  });
-
-  test('long assistant responses estimate beyond the old 2400 clamp', () {
-    final longContent = List<String>.filled(
-      400,
-      'This is a sentence in a long streamed response.',
-    ).join(' ');
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-long',
-        role: 'assistant',
-        content: longContent,
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // The pathological 2400 cap made tall rows estimate far below their real
-    // height, producing a large scroll-offset correction (jump that skipped the
-    // prompt) on first reveal during upward scroll.
-    expect(summary.single.estimatedExtent, greaterThan(2400));
-  });
-
-  test('a generated data-uri image does not over-estimate row extent', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-image',
-        role: 'assistant',
-        content: '![](data:image/png;base64,$base64Payload)',
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // The huge base64 payload must be excluded from the line estimate so the
-    // raised clamp ceiling can't inflate an image to image-as-text height.
-    expect(summary.single.estimatedExtent, lessThan(2000));
-  });
-
-  test('a raw standalone base64 image line estimates its rendered height', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-raw-image',
-        role: 'assistant',
-        content: 'Here is the image:\n\ndata:image/png;base64,$base64Payload',
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // A raw base64 line (no markdown wrapper) is rendered as an image, so it
-    // must add a per-image height term rather than estimating as ~one line of
-    // text (which would under-estimate and re-introduce the scroll jump).
-    final extent = summary.single.estimatedExtent;
-    expect(extent, greaterThan(220));
-    expect(extent, lessThan(2000));
-  });
-
-  test('image markup inside a fenced code block counts as verbatim text', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final codeSample =
-        '```\n![alt](https://example.com/x.png)\ndata:image/png;base64,$base64Payload\n```';
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-code',
-        role: 'assistant',
-        content: codeSample,
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // The code block renders its content (including the base64) verbatim, so the
-    // estimate must reflect that large text height — not strip the base64 and
-    // treat the markup as a couple of small images (which would under-estimate).
-    expect(summary.single.estimatedExtent, greaterThan(2400));
   });
 
   test(
@@ -1097,48 +751,6 @@ void main() {
     expect(completedSignature, streamingSignature);
   });
 
-  test('layout estimate ignores the streaming flag but reacts to completion '
-      'content growth', () {
-    final streamingMessage = ChatMessage(
-      id: 'assistant-streaming',
-      role: 'assistant',
-      content: 'Final response with enough text to get a real height estimate.',
-      timestamp: DateTime(2026),
-      model: 'model-a',
-      isStreaming: true,
-    );
-    // Flipping only the streaming flag must not change the estimate: the
-    // estimator intentionally does not read message.isStreaming.
-    final completedMessage = streamingMessage.copyWith(isStreaming: false);
-
-    final streamingExtent = debugEstimateMessageListExtentForTesting([
-      streamingMessage,
-    ], index: 0);
-    final completedExtent = debugEstimateMessageListExtentForTesting([
-      completedMessage,
-    ], index: 0);
-
-    expect(completedExtent, streamingExtent);
-
-    // Positive control: the real completion-driven layout shift is content
-    // growing from a short stream to a full response. The estimator consumes
-    // content length, so a longer completed body must produce a larger
-    // extent. This proves the estimator is not inert and guards against the
-    // stability assertion above passing vacuously.
-    final grownMessage = completedMessage.copyWith(
-      content:
-          '${completedMessage.content}\n\n'
-          'A substantially longer follow-up paragraph that adds several more '
-          'lines of content so the estimated height must increase relative to '
-          'the shorter streaming body above.',
-    );
-    final grownExtent = debugEstimateMessageListExtentForTesting([
-      grownMessage,
-    ], index: 0);
-
-    expect(grownExtent, greaterThan(completedExtent));
-  });
-
   test('layout signature changes for structural layout inputs', () {
     final baseMessage = ChatMessage(
       id: 'assistant-1',
@@ -1182,115 +794,61 @@ void main() {
     );
   });
 
-  test(
-    'markdown prewarm candidates prioritize the visible viewport window',
-    () {
-      final messages = List<ChatMessage>.generate(8, (index) {
-        return ChatMessage(
-          id: 'assistant-$index',
-          role: 'assistant',
-          content: 'Short response $index',
-          timestamp: DateTime(2026),
-        );
-      });
-
-      final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
-        messages,
-        viewportTop: 0,
-        viewportHeight: 220,
-        maxCount: 3,
-      );
-
-      expect(indices, <int>[1, 0]);
-    },
-  );
-
-  test('markdown prewarm only returns rows intersecting the viewport', () {
-    final messages = List<ChatMessage>.generate(6, (index) {
-      return ChatMessage(
-        id: 'assistant-$index',
-        role: 'assistant',
-        content: 'Visible response $index',
-        timestamp: DateTime(2026),
-      );
-    });
-
-    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
-    final targetRow = summary[4];
-    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
-      messages,
-      viewportTop: targetRow.leadingOffset + 1,
-      viewportHeight: targetRow.estimatedExtent - 2,
-      maxCount: 6,
-    );
-
-    expect(indices, <int>[4]);
-  });
-
-  test('markdown prewarm derives metrics from reversed visible positions', () {
-    final messages = List<ChatMessage>.generate(6, (index) {
-      return ChatMessage(
-        id: 'assistant-$index',
-        role: 'assistant',
-        content: 'Visible response $index',
-        timestamp: DateTime(2026),
-      );
-    });
-    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
-    final viewport = debugResolveMarkdownPrewarmViewportForTesting(
-      messages,
-      positions: const [
-        ItemPosition(index: 0, itemLeadingEdge: 0, itemTrailingEdge: 0.4),
-        ItemPosition(index: 1, itemLeadingEdge: 0.4, itemTrailingEdge: 0.8),
-      ],
-      fallbackViewportHeight: 220,
-    );
-
-    expect(viewport.viewportTop, summary[4].leadingOffset);
-    expect(
-      viewport.viewportHeight,
-      summary[4].estimatedExtent + summary[5].estimatedExtent,
-    );
-    expect(
-      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
-        messages,
-        viewportTop: viewport.viewportTop,
-        viewportHeight: viewport.viewportHeight,
-        maxCount: 2,
-      ),
-      <int>[5, 4],
-    );
-  });
-
-  test('markdown prewarm falls back to the latest estimated viewport', () {
+  test('markdown prewarm candidates prioritize exact visible message IDs', () {
     final messages = List<ChatMessage>.generate(8, (index) {
       return ChatMessage(
         id: 'assistant-$index',
         role: 'assistant',
-        content: 'Fallback response $index',
+        content: 'Short response $index',
         timestamp: DateTime(2026),
       );
     });
-    final viewport = debugResolveMarkdownPrewarmViewportForTesting(
+
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      positions: const [],
-      fallbackViewportHeight: 220,
+      visibleMessageIds: const ['assistant-3', 'assistant-4'],
+      maxCount: 3,
     );
 
-    expect(viewport.viewportTop, greaterThan(0));
-    expect(viewport.viewportHeight, 220);
-    expect(
-      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
-        messages,
-        viewportTop: viewport.viewportTop,
-        viewportHeight: viewport.viewportHeight,
-        maxCount: 2,
-      ),
-      isNotEmpty,
-    );
+    // Reverse-visible seeds come first, then outward neighbors with forward
+    // indices preferred before backward indices.
+    expect(indices, <int>[4, 3, 5]);
+
+    final cappedVisibleSeeds =
+        debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+          messages,
+          visibleMessageIds: const [
+            'assistant-2',
+            'assistant-3',
+            'assistant-4',
+          ],
+          maxCount: 2,
+        );
+    expect(cappedVisibleSeeds, <int>[4, 3]);
   });
 
-  test('markdown prewarm returns no candidates without viewport metrics', () {
+  test('markdown prewarm expands from visible rows to adjacent rows', () {
+    final messages = List<ChatMessage>.generate(6, (index) {
+      return ChatMessage(
+        id: 'assistant-$index',
+        role: 'assistant',
+        content: 'Visible response $index',
+        timestamp: DateTime(2026),
+      );
+    });
+
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+      messages,
+      visibleMessageIds: const ['assistant-4'],
+      maxCount: 3,
+    );
+
+    // Reverse-visible seeds come first, then outward neighbors with forward
+    // indices preferred before backward indices.
+    expect(indices, <int>[4, 5, 3]);
+  });
+
+  test('markdown prewarm returns no candidates without visible IDs', () {
     final messages = <ChatMessage>[
       ChatMessage(
         id: 'assistant-1',
@@ -1320,7 +878,7 @@ void main() {
 
     final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      viewportHeight: 0,
+      visibleMessageIds: const [],
       maxCount: 2,
     );
 
@@ -1346,8 +904,7 @@ void main() {
 
     final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      viewportTop: 0,
-      viewportHeight: 300,
+      visibleMessageIds: const ['assistant-1', 'assistant-2'],
       maxCount: 2,
     );
 
@@ -1395,31 +952,6 @@ void main() {
       expect(shouldKeepBottomAnchored, isFalse);
     },
   );
-
-  test('message list extent returns zero for null global fallback', () {
-    final messages = <ChatMessage>[
-      ChatMessage(
-        id: 'user-1',
-        role: 'user',
-        content: 'Short prompt',
-        timestamp: DateTime(2026),
-      ),
-      ChatMessage(
-        id: 'assistant-1',
-        role: 'assistant',
-        content:
-            'A much longer assistant response that should have a larger estimated extent.',
-        timestamp: DateTime(2026),
-      ),
-    ];
-
-    final extent = debugEstimateMessageListExtentForTesting(
-      messages,
-      index: null,
-    );
-
-    expect(extent, 0);
-  });
 
   test('message content growth preserves bottom anchor when already pinned', () {
     final shouldKeepBottomAnchored =
@@ -1638,42 +1170,6 @@ void main() {
 
     expect(whilePinnedToTop, isFalse);
     expect(whileUserScrolling, isFalse);
-  });
-
-  test('long scrolls animate only their final viewport', () {
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 0,
-        targetOffset: 2000,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      1400,
-    );
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 2000,
-        targetOffset: 200,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      800,
-    );
-  });
-
-  test('nearby scroll targets animate from the current position', () {
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 900,
-        targetOffset: 1300,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      900,
-    );
   });
 
   test(

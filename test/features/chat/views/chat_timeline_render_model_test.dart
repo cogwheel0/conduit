@@ -29,14 +29,19 @@ void main() {
     expect(timeline.tailAssistantPhase, ChatTurnPhase.completed);
     expect(timeline.runningFooterHost, isNull);
     check(
-      timeline.listIndexByMessageKey,
-    ).deepEquals({'message-user-1': 0, 'message-assistant-1': 1});
+      timeline.listIndexByMessageId,
+    ).deepEquals({'user-1': 0, 'assistant-1': 1});
     check(timeline.listItemCount).equals(2);
-    check(timeline.tailAssistantListIndex).equals(1);
-    check(timeline.messageAtPositionedIndex(0)?.id).equals('assistant-1');
-    check(timeline.messageAtPositionedIndex(1)?.id).equals('user-1');
-    check(timeline.positionedIndexForMessageId('assistant-1')).equals(0);
-    check(timeline.positionedIndexForMessageId('user-1')).equals(1);
+    check(timeline.messageIds).deepEquals(['user-1', 'assistant-1']);
+    check(timeline.sourceIndexByRenderIndex).deepEquals([0, 1]);
+    check(timeline.tailAssistantRenderIndex).equals(1);
+    check(timeline.messageAtListIndex(0)?.id).equals('user-1');
+    check(timeline.messageAtListIndex(1)?.id).equals('assistant-1');
+    check(timeline.indexForMessageId('user-1')).equals(0);
+    check(timeline.indexForMessageId('assistant-1')).equals(1);
+    check(timeline.messageAtListIndex(-1)).isNull();
+    check(timeline.messageAtListIndex(2)).isNull();
+    check(timeline.indexForMessageId('missing')).isNull();
   });
 
   test('extracts the active tail assistant from stable history', () {
@@ -64,11 +69,86 @@ void main() {
     expect(timeline.tailAssistantPhase, ChatTurnPhase.running);
     expect(timeline.runningFooterHost?.messageId, 'assistant-live');
     check(
-      timeline.listIndexByMessageKey,
-    ).deepEquals({'message-user-1': 0, 'message-assistant-live': 1});
+      timeline.listIndexByMessageId,
+    ).deepEquals({'user-1': 0, 'assistant-live': 1});
     check(timeline.listItemCount).equals(2);
-    check(timeline.tailAssistantListIndex).equals(1);
+    check(timeline.tailAssistantRenderIndex).equals(1);
   });
+
+  test(
+    'duplicate ids keep the first render row and complete source history',
+    () {
+      final duplicate = ChatMessage(
+        id: 'duplicate',
+        role: 'user',
+        content: 'First',
+        timestamp: DateTime(2026),
+      );
+      final historyDuplicate = ChatTimelineRenderModel.fromMessages([
+        duplicate,
+        duplicate.copyWith(content: 'Malformed duplicate'),
+      ]);
+      check(historyDuplicate.messageIds).deepEquals(['duplicate']);
+      check(historyDuplicate.sourceIndexByRenderIndex).deepEquals([0]);
+      check(historyDuplicate.listIndexByMessageId).deepEquals({'duplicate': 0});
+      check(historyDuplicate.listItemCount).equals(1);
+      check(historyDuplicate.historyMessages).length.equals(2);
+      check(historyDuplicate.messageAtListIndex(0)?.content).equals('First');
+      check(historyDuplicate.messageAtListIndex(1)).isNull();
+
+      final tailDuplicate = ChatTimelineRenderModel.fromMessages([
+        duplicate,
+        ChatMessage(
+          id: 'distinct',
+          role: 'user',
+          content: 'Newest prompt',
+          timestamp: DateTime(2026),
+        ),
+        ChatMessage(
+          id: 'duplicate',
+          role: 'assistant',
+          content: 'Malformed live tail',
+          timestamp: DateTime(2026),
+          isStreaming: true,
+        ),
+      ]);
+      check(tailDuplicate.messageIds).deepEquals(['duplicate', 'distinct']);
+      check(
+        tailDuplicate.listIndexByMessageId,
+      ).deepEquals({'duplicate': 0, 'distinct': 1});
+      check(tailDuplicate.sourceIndexByRenderIndex).deepEquals([0, 1]);
+      check(tailDuplicate.listItemCount).equals(2);
+      check(tailDuplicate.tailAssistant?.content).equals('Malformed live tail');
+      check(tailDuplicate.tailAssistantRenderIndex).isNull();
+      check(tailDuplicate.indexForMessageId('duplicate')).equals(0);
+
+      final uniqueTailAfterDuplicate = ChatTimelineRenderModel.fromMessages([
+        duplicate,
+        duplicate.copyWith(content: 'Malformed duplicate'),
+        ChatMessage(
+          id: 'assistant-live',
+          role: 'assistant',
+          content: 'Valid live tail',
+          timestamp: DateTime(2026),
+          isStreaming: true,
+        ),
+      ]);
+      check(
+        uniqueTailAfterDuplicate.messageIds,
+      ).deepEquals(['duplicate', 'assistant-live']);
+      check(
+        uniqueTailAfterDuplicate.sourceIndexByRenderIndex,
+      ).deepEquals([0, 2]);
+      check(uniqueTailAfterDuplicate.tailAssistantSourceIndex).equals(2);
+      check(uniqueTailAfterDuplicate.tailAssistantRenderIndex).equals(1);
+      check(
+        uniqueTailAfterDuplicate.indexForMessageId('assistant-live'),
+      ).equals(1);
+      check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(1)).equals(2);
+      check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(-1)).isNull();
+      check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(2)).isNull();
+    },
+  );
 
   test('keeps the same tail slot when a stream completes', () {
     final streamingMessages = <ChatMessage>[
@@ -146,8 +226,11 @@ void main() {
       'user-final',
     ]);
     check(
-      nonTailTimeline.listIndexByMessageKey,
-    ).deepEquals({'message-assistant-streaming': 0, 'message-user-final': 1});
+      nonTailTimeline.listIndexByMessageId,
+    ).deepEquals({'assistant-streaming': 0, 'user-final': 1});
+    check(
+      nonTailTimeline.messageIds,
+    ).deepEquals(['assistant-streaming', 'user-final']);
   });
 
   test(
@@ -232,8 +315,8 @@ void main() {
       'assistant-archived',
     ]);
     check(
-      timeline.listIndexByMessageKey,
-    ).deepEquals({'message-user-1': 0, 'message-assistant-archived': 1});
+      timeline.listIndexByMessageId,
+    ).deepEquals({'user-1': 0, 'assistant-archived': 1});
   });
 
   test('fromMessages([]) yields an empty, tail-less timeline', () {
@@ -246,9 +329,10 @@ void main() {
     expect(timeline.runningFooterHost, isNull);
     expect(timeline.hasTailAssistant, isFalse);
     expect(timeline.hasRunningTurn, isFalse);
-    check(timeline.listIndexByMessageKey).isEmpty();
+    check(timeline.listIndexByMessageId).isEmpty();
+    check(timeline.messageIds).isEmpty();
     check(timeline.listItemCount).equals(0);
-    check(timeline.tailAssistantListIndex).isNull();
+    check(timeline.tailAssistantRenderIndex).isNull();
   });
 
   test(
