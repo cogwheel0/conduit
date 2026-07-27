@@ -66,6 +66,7 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/measure_size.dart';
+import '../../../shared/widgets/server_version_warning_card.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
@@ -88,6 +89,43 @@ Widget debugBuildAssistantTimelineSlotForTesting({
     mainAxisSize: MainAxisSize.min,
     children: [assistantRow, ?runningFooter],
   );
+}
+
+@visibleForTesting
+Widget debugBuildChatEmptyStateViewportForTesting({
+  required EdgeInsetsGeometry padding,
+  required List<Widget> children,
+}) => _ScrollableCenteredEmptyState(padding: padding, children: children);
+
+class _ScrollableCenteredEmptyState extends StatelessWidget {
+  const _ScrollableCenteredEmptyState({
+    required this.padding,
+    required this.children,
+  });
+
+  final EdgeInsetsGeometry padding;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        key: const ValueKey('chat-empty-state-scroll-view'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: padding,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: children,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
@@ -2950,82 +2988,78 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: SizedBox(
             width: double.infinity,
             height: constraints.maxHeight,
-            child: Padding(
+            child: _ScrollableCenteredEmptyState(
               padding: EdgeInsets.fromLTRB(
                 Spacing.lg,
                 topPadding,
                 Spacing.lg,
                 bottomPadding,
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisSize: MainAxisSize.max,
-                children: [
-                  if (pendingFolder != null) ...[
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          l10n.newChat,
+              children: [
+                if (pendingFolder != null) ...[
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        l10n.newChat,
+                        style: greetingStyle,
+                        textAlign: TextAlign.center,
+                      ),
+                      if (isTemporary) ...[
+                        const SizedBox(height: Spacing.md),
+                        temporaryChatNotice,
+                      ],
+                      const SizedBox(height: Spacing.sm),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.folder_fill
+                                : Icons.folder_rounded,
+                            size: 14,
+                            color: context.conduitTheme.textSecondary,
+                          ),
+                          const SizedBox(width: Spacing.xs),
+                          Text(
+                            pendingFolder.name,
+                            style: AppTypography.small.copyWith(
+                              color: context.conduitTheme.textSecondary,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: greetingHeight),
+                    child: AnimatedOpacity(
+                      duration: context.motionDuration(
+                        const Duration(milliseconds: 260),
+                      ),
+                      curve: Curves.easeOutCubic,
+                      opacity: _greetingReady ? 1 : 0,
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: Text(
+                          _greetingReady ? greetingDisplay : '',
                           style: greetingStyle,
                           textAlign: TextAlign.center,
                         ),
-                        if (isTemporary) ...[
-                          const SizedBox(height: Spacing.md),
-                          temporaryChatNotice,
-                        ],
-                        const SizedBox(height: Spacing.sm),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Platform.isIOS
-                                  ? CupertinoIcons.folder_fill
-                                  : Icons.folder_rounded,
-                              size: 14,
-                              color: context.conduitTheme.textSecondary,
-                            ),
-                            const SizedBox(width: Spacing.xs),
-                            Text(
-                              pendingFolder.name,
-                              style: AppTypography.small.copyWith(
-                                color: context.conduitTheme.textSecondary,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: greetingHeight),
-                      child: AnimatedOpacity(
-                        duration: context.motionDuration(
-                          const Duration(milliseconds: 260),
-                        ),
-                        curve: Curves.easeOutCubic,
-                        opacity: _greetingReady ? 1 : 0,
-                        child: Align(
-                          alignment: Alignment.center,
-                          child: Text(
-                            _greetingReady ? greetingDisplay : '',
-                            style: greetingStyle,
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
                       ),
                     ),
-                    if (isTemporary) ...[
-                      const SizedBox(height: Spacing.md),
-                      temporaryChatNotice,
-                    ],
+                  ),
+                  if (isTemporary) ...[
+                    const SizedBox(height: Spacing.md),
+                    temporaryChatNotice,
                   ],
                 ],
-              ),
+                const ServerVersionWarningCard(),
+              ],
             ),
           ),
         );

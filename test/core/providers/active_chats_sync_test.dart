@@ -94,6 +94,7 @@ class _FakeApiService extends ApiService {
       );
 
   Set<String> nextActive = const <String>{};
+  Object? nextError;
   int checkActiveChatsCalls = 0;
   List<String>? lastCheckedIds;
 
@@ -101,6 +102,8 @@ class _FakeApiService extends ApiService {
   Future<Set<String>> checkActiveChats(List<String> chatIds) async {
     checkActiveChatsCalls += 1;
     lastCheckedIds = chatIds;
+    final error = nextError;
+    if (error != null) throw error;
     return nextActive;
   }
 }
@@ -343,6 +346,25 @@ void main() {
         check(container.read(activeChatIdsProvider)).deepEquals({'c1'});
       },
     );
+
+    test('transient reconciliation failure preserves active state', () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final api = _FakeApiService()..nextError = StateError('offline');
+      final container = _makeContainer(
+        socket: socket,
+        api: api,
+        conversations: [_conv('c1')],
+      );
+      container.read(activeChatIdsProvider.notifier).setActive('c1');
+
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      check(api.checkActiveChatsCalls).equals(1);
+      check(container.read(activeChatIdsProvider)).deepEquals({'c1'});
+    });
   });
 
   group('ActiveChatsSync — logout / socket teardown', () {
