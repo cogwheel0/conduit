@@ -82,7 +82,7 @@ void main() {
       expect(message.style?.decoration, TextDecoration.none);
     });
 
-    testWidgets('short large-text empty state scrolls without overflow', (
+    testWidgets('oversized empty-state insets remain scrollable', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(390, 420));
@@ -98,7 +98,7 @@ void main() {
               textScaler: TextScaler.linear(2),
             ),
             child: debugBuildChatEmptyStateViewportForTesting(
-              padding: const EdgeInsets.fromLTRB(24, 88, 24, 140),
+              padding: const EdgeInsets.fromLTRB(24, 260, 24, 280),
               children: const [
                 Text(
                   'How can I help you today?',
@@ -123,6 +123,7 @@ void main() {
         matching: find.byType(Scrollable),
       );
       final state = tester.state<ScrollableState>(scrollable);
+      expect(state.position.viewportDimension, greaterThan(0));
       expect(state.position.maxScrollExtent, greaterThan(0));
     });
 
