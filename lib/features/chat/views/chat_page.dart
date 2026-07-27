@@ -870,10 +870,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ref.read(screenContextProvider.notifier).setContext(null);
         return;
       }
-      if (!result.admitted &&
-          !_messageSendAdmission.isHeld &&
-          !_isSavingTemporary &&
-          !ref.read(isLoadingConversationProvider)) {
+      if (debugShouldRetryScreenContextForTesting(
+        sendDispatched: result.dispatched,
+        submittedContext: screenContext,
+        currentContext: currentContext,
+        sendAdmissionHeld: _messageSendAdmission.isHeld,
+        isSavingTemporary: _isSavingTemporary,
+        isLoadingConversation: ref.read(isLoadingConversationProvider),
+      )) {
         _scheduleScreenContextSubmission();
       }
     });
@@ -4077,6 +4081,25 @@ bool debugShouldConsumeScreenContextForTesting({
   required String? currentContext,
 }) {
   return sendDispatched && currentContext == submittedContext;
+}
+
+@visibleForTesting
+bool debugShouldRetryScreenContextForTesting({
+  required bool sendDispatched,
+  required String submittedContext,
+  required String? currentContext,
+  required bool sendAdmissionHeld,
+  required bool isSavingTemporary,
+  required bool isLoadingConversation,
+}) {
+  return !debugShouldConsumeScreenContextForTesting(
+        sendDispatched: sendDispatched,
+        submittedContext: submittedContext,
+        currentContext: currentContext,
+      ) &&
+      !sendAdmissionHeld &&
+      !isSavingTemporary &&
+      !isLoadingConversation;
 }
 
 /// Owns the short admission window before a durable send has captured its

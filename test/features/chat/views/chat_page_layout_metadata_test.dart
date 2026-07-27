@@ -284,6 +284,49 @@ void main() {
     ).isTrue();
   });
 
+  test('pending screen context retries after non-consumption', () {
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-b',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: true,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isFalse();
+  });
+
   test('latest button appears only after manual detachment', () {
     check(
       debugShouldExposeScrollToLatestForTesting(
