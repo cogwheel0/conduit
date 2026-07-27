@@ -178,6 +178,69 @@ void main() {
   });
 
   _viewportTest(
+    'live footer is a separate sliver and cannot resize the assistant row',
+    (tester) async {
+      final controller = _controller(tester);
+      var footerHeight = 28.0;
+      var footerVisible = true;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: const ['user', 'assistant'],
+                followLatest: false,
+                pinnedUserMessageId: 'user',
+                pinAutomatic: true,
+                liveFooter: footerVisible
+                    ? SizedBox(
+                        key: const ValueKey('live-footer'),
+                        height: footerHeight,
+                      )
+                    : null,
+                rowHeight: (id) => id == 'assistant' ? 80 : 52,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(await controller.jumpMessageToTop('user')).isTrue();
+      await tester.pump();
+
+      final assistantHeight = controller.rowRect('assistant')!.height;
+      final promptTop = controller.rowRect('user')!.top;
+      check(assistantHeight).isCloseTo(80, 0.1);
+      expect(
+        find.ancestor(
+          of: find.byKey(const ValueKey('live-footer')),
+          matching: find.byType(SliverToBoxAdapter),
+        ),
+        findsOneWidget,
+      );
+
+      rebuild(() => footerHeight = 60);
+      await tester.pump();
+      await tester.pump();
+      check(
+        controller.rowRect('assistant')!.height,
+      ).isCloseTo(assistantHeight, 0.1);
+      check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
+
+      rebuild(() => footerVisible = false);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('live-footer')), findsNothing);
+      check(controller.rowRect('assistant')!.height).isCloseTo(80, 0.1);
+      check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
+    },
+  );
+
+  _viewportTest(
     'enabling free-scroll maintenance captures before same-frame insertion',
     (tester) async {
       final controller = _controller(tester);
@@ -630,6 +693,42 @@ void main() {
     check(reportedPinSpaces.last).equals(0);
   });
 
+  _viewportTest('pin space exhaustion never moves the prompt', (tester) async {
+    final controller = _controller(tester);
+    var assistantHeight = 80.0;
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: const ['user', 'assistant'],
+              pinnedUserMessageId: 'user',
+              pinAutomatic: true,
+              followLatest: false,
+              rowHeight: (id) => id == 'assistant' ? assistantHeight : 64,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(await controller.jumpMessageToTop('user')).isTrue();
+    await tester.pump();
+    final promptTop = controller.rowRect('user')!.top;
+
+    for (final height in <double>[240, 480, 720, 960, 1200]) {
+      rebuild(() => assistantHeight = height);
+      await tester.pump();
+      await tester.pump();
+      check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
+    }
+    check(controller.hasRealContentOverflow).isTrue();
+  });
+
   _viewportTest('missing pin geometry reports one terminal value', (
     tester,
   ) async {
@@ -793,6 +892,7 @@ void main() {
       final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
       final settledTop = controller.rowRect('user')!.top;
       check(settledTop).isCloseTo(viewportTop + _topContentInset, 1);
+      check(controller.distanceFromMessageTop('user')!).isLessThan(1);
 
       rebuild(() => assistantHeight = 240);
       await tester.pump();
@@ -800,6 +900,37 @@ void main() {
       check(controller.rowRect('user')!.top).isCloseTo(settledTop, 1);
     },
   );
+
+  _viewportTest('pinned latest distance follows the prompt target', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = <String>[
+      'user',
+      ...List<String>.generate(8, (index) => 'message-$index'),
+    ];
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          pinnedUserMessageId: 'user',
+          pinAutomatic: true,
+          followLatest: false,
+          rowHeight: (_) => 64,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(await controller.jumpMessageToTop('user')).isTrue();
+    await tester.pump();
+    check(controller.distanceFromMessageTop('user')!).isLessThan(1);
+
+    check(await controller.jumpMessageToTop('message-5')).isTrue();
+    await tester.pump();
+    check(controller.distanceFromMessageTop('user')!).isGreaterThan(48);
+  });
 
   _viewportTest('deep-history pin staging stays one viewport from latest', (
     tester,
@@ -1695,6 +1826,7 @@ Widget _viewport({
   // Defaults to the inverse so free-scroll anchor maintenance and automatic
   // latest ownership remain mutually exclusive in tests, as in ChatPage.
   bool? followLatest,
+  Widget? liveFooter,
   Widget? trailingContent,
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
@@ -1713,6 +1845,7 @@ Widget _viewport({
     messageIds: ids,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
+    liveFooter: liveFooter,
     trailingContent: trailingContent,
     topContentInset: _topContentInset,
     bottomPadding: 80,

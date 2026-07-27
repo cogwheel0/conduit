@@ -97,6 +97,9 @@ class ChatTimelineViewportController {
 
   Rect? rowRect(String messageId) => _state?._rowRect(messageId);
 
+  double? distanceFromMessageTop(String messageId) =>
+      _state?._distanceFromMessageTop(messageId);
+
   bool anyOldestLoadedRowVisible() =>
       _state?._anyOldestLoadedRowVisible() ?? false;
 
@@ -192,6 +195,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onTrailingRefresh,
     this.initialAnchor,
     this.pinnedUserMessageId,
+    this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
     super.key,
@@ -206,6 +210,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
+  final Widget? liveFooter;
   final Widget? trailingContent;
   final double topContentInset;
   final double bottomPadding;
@@ -247,15 +252,21 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   static const int _maxInitialPositionAttempts =
       debugChatTimelineInitialPositionMaxAttempts;
   static const int _oldestRowProbeCount = 3;
-  static const Key _footerDelegateKey = ValueKey<String>(
-    'chat-timeline-footer-child',
+  static const Key _liveFooterSliverKey = ValueKey<String>(
+    'chat-timeline-live-footer-sliver',
+  );
+  static const Key _trailingContentSliverKey = ValueKey<String>(
+    'chat-timeline-trailing-content-sliver',
+  );
+  static const Key _pinSpacerSliverKey = ValueKey<String>(
+    'chat-timeline-pin-spacer-sliver',
   );
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _viewportKey = GlobalKey();
   final GlobalKey _centerSliverKey = GlobalKey();
   final GlobalKey _endSentinelKey = GlobalKey();
-  final ValueNotifier<double> _pinEndSpace = ValueNotifier<double>(0);
+  final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, int> _mountedRowCounts = <String, int>{};
   Map<String, Rect>? _cachedFrameRowRects;
@@ -286,6 +297,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   bool _refreshTriggered = false;
   bool _refreshActive = false;
   bool _pinGeometryReported = false;
+  double _pinEndSpace = 0;
+  String? _cachedPinnedMessageId;
+  double? _cachedPinnedTargetOffset;
   double _trailingOverscroll = 0;
   int _anchorCorrectionAttempts = 0;
   int _pinGeometryAttempts = 0;
@@ -330,6 +344,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     if (oldWidget.pinnedUserMessageId != widget.pinnedUserMessageId) {
       _pinGeometryReported = false;
       _pinGeometryAttempts = 0;
+      _cachedPinnedMessageId = null;
+      _cachedPinnedTargetOffset = null;
     }
     if (oldWidget.isLoadingOlder && !widget.isLoadingOlder) {
       _oldestThresholdVisible = false;
@@ -370,9 +386,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     _initialEmptyFallbackVisible = false;
     _oldestThresholdVisible = false;
     _initialPositionAttempts = 0;
-    _pinEndSpace.value = 0;
+    _pinEndSpace = 0;
+    _pinSupportSpace.value = 0;
     _pinGeometryReported = false;
     _pinGeometryAttempts = 0;
+    _cachedPinnedMessageId = null;
+    _cachedPinnedTargetOffset = null;
     _resetRefreshGesture();
     _scheduleInitialPositionCallback(_restoreInitialPosition);
   }
@@ -430,7 +449,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     _scrollController
       ..removeListener(_handleControllerChanged)
       ..dispose();
-    _pinEndSpace.dispose();
+    _pinSupportSpace.dispose();
     super.dispose();
   }
 
@@ -649,7 +668,30 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   }
 
   double? _resolveLatestOffset() {
-    return _dimensionedPosition?.maxScrollExtent;
+    final position = _dimensionedPosition;
+    return position == null ? null : _contentLatestOffset(position);
+  }
+
+  double _contentLatestOffset(ScrollPosition position) {
+    return (position.maxScrollExtent - _pinSupportSpace.value)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+  }
+
+  double? _distanceFromMessageTop(String messageId) {
+    final position = _dimensionedPosition;
+    if (position == null) return null;
+    final measuredTarget = _targetOffsetForMessageTop(messageId);
+    if (measuredTarget != null) {
+      _cachedPinnedMessageId = messageId;
+      _cachedPinnedTargetOffset = measuredTarget;
+    }
+    final target =
+        measuredTarget ??
+        (_cachedPinnedMessageId == messageId
+            ? _cachedPinnedTargetOffset
+            : null);
+    return target == null ? null : (target - position.pixels).abs();
   }
 
   ChatTimelineViewportMetrics? _currentMetrics([Map<String, Rect>? rowRects]) {
@@ -664,11 +706,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   }) {
     final position = _dimensionedPosition;
     if (position == null) return null;
-    final latest = position.maxScrollExtent;
+    final latest = _contentLatestOffset(position);
     final distance = math.max(0, latest - position.pixels).toDouble();
     final realOverflow =
         (position.maxScrollExtent - position.minScrollExtent) -
-            _pinEndSpace.value -
+            _pinSupportSpace.value -
             widget.bottomPadding >
         _geometryEpsilon;
     return ChatTimelineViewportMetrics(
@@ -832,7 +874,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     final pinnedId = widget.pinnedUserMessageId;
     if (pinnedId == null) {
       _pinGeometryAttempts = 0;
-      if (_pinEndSpace.value != 0) _pinEndSpace.value = 0;
+      _cachedPinnedMessageId = null;
+      _cachedPinnedTargetOffset = null;
+      _pinEndSpace = 0;
+      if (_pinSupportSpace.value != 0) _pinSupportSpace.value = 0;
       if (!_pinGeometryReported) {
         _pinGeometryReported = true;
         widget.onPinEndSpaceChanged(0);
@@ -848,11 +893,19 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         _scheduleLayoutMaintenance();
       } else if (!_pinGeometryReported) {
         _pinGeometryReported = true;
-        widget.onPinEndSpaceChanged(_pinEndSpace.value);
+        widget.onPinEndSpaceChanged(_pinEndSpace);
       }
       return;
     }
     _pinGeometryAttempts = 0;
+    if ((viewport.height - _pinSupportSpace.value).abs() > _geometryEpsilon) {
+      _pinSupportSpace.value = viewport.height;
+    }
+    final pinnedTarget = _targetOffsetForMessageTop(pinnedId);
+    if (pinnedTarget != null) {
+      _cachedPinnedMessageId = pinnedId;
+      _cachedPinnedTargetOffset = pinnedTarget;
+    }
     final activeTurnExtent = math.max(0, sentinel.top - pinned.top).toDouble();
     final next = math
         .max(
@@ -863,8 +916,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
               widget.bottomPadding,
         )
         .toDouble();
-    final changed = (next - _pinEndSpace.value).abs() > _geometryEpsilon;
-    if (changed) _pinEndSpace.value = next;
+    final changed = (next - _pinEndSpace).abs() > _geometryEpsilon;
+    if (changed) _pinEndSpace = next;
     if (!changed && _pinGeometryReported) return;
     _pinGeometryReported = true;
     widget.onPinEndSpaceChanged(next);
@@ -994,7 +1047,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       return;
     }
     _freeAnchor = null;
-    position.jumpTo(position.maxScrollExtent);
+    position.jumpTo(_contentLatestOffset(position));
     _scheduleInitialPositionCallback(() {
       if (!_ownsInitialPosition(ownerGeneration) ||
           !_scrollController.hasClients) {
@@ -1007,7 +1060,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       }
       final sentinelReady = _renderBoxFor(_endSentinelKey) != null;
       final atLatest =
-          (position.maxScrollExtent - position.pixels).abs() <=
+          (_contentLatestOffset(position) - position.pixels).abs() <=
           _geometryEpsilon;
       if ((!sentinelReady || !atLatest) &&
           _initialPositionAttempts < _maxInitialPositionAttempts) {
@@ -1034,7 +1087,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     final position = _dimensionedPosition;
     if (position == null) return;
     _freeAnchor = null;
-    position.jumpTo(position.maxScrollExtent);
+    position.jumpTo(_contentLatestOffset(position));
   }
 
   void _prepositionOneViewportFromLatest() {
@@ -1045,11 +1098,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     void applyBoundedPosition() {
       final position = _dimensionedPosition;
       if (position == null) return;
+      final latest = _contentLatestOffset(position);
       position.jumpTo(
-        math.max(
-          position.minScrollExtent,
-          position.maxScrollExtent - position.viewportDimension,
-        ),
+        math.max(position.minScrollExtent, latest - position.viewportDimension),
       );
     }
 
@@ -1082,7 +1133,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     final generation = ++_navigationGeneration;
     _programmaticNavigationActive = true;
     try {
-      var target = position.maxScrollExtent;
+      var target = _contentLatestOffset(position);
       final distance = (target - position.pixels).abs();
       if (distance > position.viewportDimension) {
         position.jumpTo(
@@ -1097,7 +1148,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         }
         position = _dimensionedPosition;
         if (position == null) return;
-        target = position.maxScrollExtent;
+        target = _contentLatestOffset(position);
       }
       await _scrollController.animateTo(
         target,
@@ -1449,9 +1500,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   }
 
   int? _centerChildIndexForKey(Key key, int centerIndex) {
-    if (key == _footerDelegateKey) {
-      return _messageIds.length - centerIndex;
-    }
     if (key is! _TimelineRowKey) return null;
     final chronologicalIndex = _messageIndexById[key.value];
     if (chronologicalIndex == null || chronologicalIndex < centerIndex) {
@@ -1558,37 +1606,51 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
                 ),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final rowCount = _messageIds.length - centerIndex;
-                      if (index < rowCount) {
-                        return _buildRow(context, centerIndex + index);
-                      }
-                      return ValueListenableBuilder<double>(
-                        key: _footerDelegateKey,
-                        valueListenable: _pinEndSpace,
-                        builder: (context, pinEndSpace, _) {
-                          return Column(
-                            key: const ValueKey<String>('chat-composer-spacer'),
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ?widget.trailingContent,
-                              // The sentinel must remain above both spacer
-                              // terms so pin geometry is independent of its
-                              // own output and converges without oscillation.
-                              SizedBox(key: _endSentinelKey, height: 0),
-                              SizedBox(
-                                height: widget.bottomPadding + pinEndSpace,
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    },
-                    childCount: _messageIds.length - centerIndex + 1,
+                    (context, index) => _buildRow(context, centerIndex + index),
+                    childCount: _messageIds.length - centerIndex,
                     addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _centerChildIndexForKey(key, centerIndex),
                   ),
+                ),
+              ),
+              if (widget.liveFooter case final liveFooter)
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.horizontalPadding,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    key: _liveFooterSliverKey,
+                    child: liveFooter,
+                  ),
+                ),
+              if (widget.trailingContent case final trailingContent)
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.horizontalPadding,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    key: _trailingContentSliverKey,
+                    child: trailingContent,
+                  ),
+                ),
+              // Measured remaining space is metadata only. The synthetic
+              // support stays viewport-sized for the pin's lifetime; shrinking
+              // it after every streamed layout would change maxScrollExtent
+              // and make Flutter correct the transcript upward.
+              SliverToBoxAdapter(
+                child: SizedBox(key: _endSentinelKey, height: 0),
+              ),
+              SliverToBoxAdapter(
+                key: _pinSpacerSliverKey,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _pinSupportSpace,
+                  builder: (context, pinSupportSpace, _) {
+                    return SizedBox(
+                      key: const ValueKey<String>('chat-composer-spacer'),
+                      height: widget.bottomPadding + pinSupportSpace,
+                    );
+                  },
                 ),
               ),
             ],

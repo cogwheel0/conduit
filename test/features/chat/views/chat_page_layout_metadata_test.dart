@@ -33,15 +33,18 @@ void main() {
 
       Widget build({required bool includeRunningFooter}) {
         return MaterialApp(
-          home: debugBuildAssistantTimelineSlotForTesting(
-            assistantRow: _LifecycleProbe(
-              key: const ValueKey('assistant-row'),
-              onMount: () => mounts += 1,
-              onDispose: () => disposals += 1,
-            ),
-            runningFooter: includeRunningFooter
-                ? const SizedBox(key: ValueKey('running-footer'))
-                : null,
+          home: Column(
+            children: [
+              debugBuildAssistantTimelineSlotForTesting(
+                assistantRow: _LifecycleProbe(
+                  key: const ValueKey('assistant-row'),
+                  onMount: () => mounts += 1,
+                  onDispose: () => disposals += 1,
+                ),
+              ),
+              if (includeRunningFooter)
+                const SizedBox(key: ValueKey('running-footer')),
+            ],
           ),
         );
       }
@@ -1214,30 +1217,74 @@ void main() {
       debugLatestActionPinnedTargetForTesting(
         wantsPinToTop: true,
         pinnedUserMessageId: 'user-message',
-        pinEndSpaceAvailable: true,
       ),
     ).equals('user-message');
     check(
       debugLatestActionPinnedTargetForTesting(
         wantsPinToTop: false,
         pinnedUserMessageId: 'user-message',
-        pinEndSpaceAvailable: true,
       ),
     ).isNull();
     check(
       debugLatestActionPinnedTargetForTesting(
         wantsPinToTop: true,
         pinnedUserMessageId: null,
-        pinEndSpaceAvailable: true,
       ),
     ).isNull();
     check(
       debugLatestActionPinnedTargetForTesting(
         wantsPinToTop: true,
         pinnedUserMessageId: 'user-message',
-        pinEndSpaceAvailable: false,
       ),
-    ).isNull();
+    ).equals('user-message');
+  });
+
+  test('unmounted pinned latest never collapses to the physical footer', () {
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: true,
+        userDetached: true,
+        pinnedDistance: null,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(double.infinity);
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: true,
+        userDetached: true,
+        pinnedDistance: 96,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(96);
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: false,
+        userDetached: true,
+        pinnedDistance: null,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(0);
+  });
+
+  test('a real drag exposes latest for a scrollable pinned turn', () {
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: true,
+        hasScrollableContent: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: true,
+        hasScrollableContent: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: false,
+        hasScrollableContent: true,
+      ),
+    ).isFalse();
   });
 
   test(

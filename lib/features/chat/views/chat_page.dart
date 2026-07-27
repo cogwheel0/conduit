@@ -84,12 +84,8 @@ import '../widgets/chat_timeline_viewport.dart';
 @visibleForTesting
 Widget debugBuildAssistantTimelineSlotForTesting({
   required Widget assistantRow,
-  Widget? runningFooter,
 }) {
-  return Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [assistantRow, ?runningFooter],
-  );
+  return assistantRow;
 }
 
 @visibleForTesting
@@ -1572,19 +1568,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final changed =
         (extent - _pinToTopEndSpaceExtent).abs() > _pinnedMeasurementEpsilon;
     _pinToTopEndSpaceExtent = extent;
-    final shouldTransferToLatest =
-        exhausted &&
-        _timelineScrollMode == _ChatTimelineScrollMode.anchoringNewTurn &&
-        _pinToTopPositionSettled &&
-        _shouldAutoFollowPinnedTurn;
-    if (shouldTransferToLatest) {
-      // The viewport reports pin geometry from post-frame maintenance, never
-      // during its layout or paint phase, so this ownership update is safe.
-      setState(() {
-        _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
-      });
-    }
-    if (changed || shouldTransferToLatest || exhausted != wasExhausted) {
+    if (changed || exhausted != wasExhausted) {
       _scheduleScrollToBottomVisibilitySync();
       _syncLayoutBottomAnchor();
     }
@@ -1593,7 +1577,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ({bool hasScrollableContent, double distanceFromBottom})
   _recomputeBottomAnchorState() {
     final hasScrollableContent = _hasScrollableTranscriptContent();
-    final distanceFromBottom = _timelineViewportController.distanceFromLatest;
+    final distanceFromBottom = _latestPresentationDistance();
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
@@ -1603,6 +1587,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
     );
+  }
+
+  double _latestPresentationDistance() {
+    final pinnedDistance = _pinnedPresentationDistance();
+    return debugResolveLatestPresentationDistanceForTesting(
+      pinnedTurnActive: _wantsPinToTop,
+      userDetached: _bottomAnchorController.isUserDetachedFromBottom,
+      pinnedDistance: pinnedDistance,
+      physicalLatestDistance: _timelineViewportController.distanceFromLatest,
+    );
+  }
+
+  double? _pinnedPresentationDistance() {
+    final pinnedMessageId = _wantsPinToTop ? _pinnedUserMessageId : null;
+    return pinnedMessageId == null
+        ? null
+        : _timelineViewportController.distanceFromMessageTop(pinnedMessageId);
   }
 
   void _updateBottomAnchorTracking() {
@@ -1729,7 +1730,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final pinnedTarget = debugLatestActionPinnedTargetForTesting(
       wantsPinToTop: _wantsPinToTop,
       pinnedUserMessageId: _pinnedUserMessageId,
-      pinEndSpaceAvailable: _pinToTopEndSpaceExtent > _pinnedMeasurementEpsilon,
     );
     _resumeLatestPresentation();
     if (pinnedTarget != null) {
@@ -1860,8 +1860,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         debugLatestActionPinnedTargetForTesting(
           wantsPinToTop: _wantsPinToTop,
           pinnedUserMessageId: _pinnedUserMessageId,
-          pinEndSpaceAvailable:
-              _pinToTopEndSpaceExtent > _pinnedMeasurementEpsilon,
         ) !=
         null;
     final shouldRebuild =
@@ -2190,15 +2188,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _pinToTopPositionSettled) {
       return;
     }
-    setState(() {
-      _pinToTopPositionSettled = true;
-      if (_pinToTopEndSpaceExtent <= _pinnedMeasurementEpsilon) {
-        _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
-      }
-    });
-    if (_pinToTopEndSpaceExtent <= _pinnedMeasurementEpsilon) {
-      _timelineViewportController.requestLayoutMaintenance();
-    }
+    setState(() => _pinToTopPositionSettled = true);
   }
 
   void _clearPinToTopAnchor() {
@@ -2446,6 +2436,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       messageIds: messageIds,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
+      liveFooter: timeline.runningFooterHost == null
+          ? null
+          : Consumer(
+              builder: (context, rowRef, _) {
+                final latestMessage = rowRef.watch(
+                  chatMessageByIdProvider(
+                    timeline.runningFooterHost!.messageId,
+                  ),
+                );
+                if (latestMessage == null) return const SizedBox.shrink();
+                return StreamingTurnFooter(
+                  message: latestMessage,
+                  suppressStreamingHaptics: suppressAssistantStreamingHaptics,
+                );
+              },
+            ),
       trailingContent: const ServerVersionWarningCard(),
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
@@ -2475,6 +2481,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
         _isUserInteractingWithScroll = true;
         _bottomAnchorController.detachByUser();
+        if (debugShouldExposePinnedLatestOnDragForTesting(
+              pinnedTurnActive: _wantsPinToTop,
+              hasScrollableContent: _hasScrollableTranscriptContent(),
+            ) &&
+            !_showScrollToBottom) {
+          setState(() => _showScrollToBottom = true);
+        }
         try {
           ref.read(composerAutofocusEnabledProvider.notifier).set(false);
         } catch (_) {}
@@ -2484,8 +2497,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _isUserInteractingWithScroll = false;
         _updateBottomAnchorTracking();
         _scheduleScrollToBottomVisibilitySync(prewarm: true);
-        if (_timelineViewportController.distanceFromLatest <=
-            _scrollButtonHideThreshold) {
+        final naturallyReturnedToLatest = _wantsPinToTop
+            ? (_pinnedPresentationDistance() ?? double.infinity) <=
+                  _scrollButtonHideThreshold
+            : _timelineViewportController.distanceFromLatest <=
+                  _scrollButtonHideThreshold;
+        if (naturallyReturnedToLatest) {
           _resumeLatestPresentation();
         }
         _maybeLoadOlderMessages();
@@ -2577,7 +2594,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       tailRowMetadata.messageId == tailAssistant.id,
       'stable-layout tail metadata must resolve to the rendered message',
     );
-    final runningFooter = timeline.runningFooterHost;
     return debugBuildAssistantTimelineSlotForTesting(
       assistantRow: Consumer(
         builder: (context, rowRef, _) {
@@ -2594,20 +2610,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           );
         },
       ),
-      runningFooter: runningFooter == null
-          ? null
-          : Consumer(
-              builder: (context, rowRef, _) {
-                final latestMessage = rowRef.watch(
-                  chatMessageByIdProvider(runningFooter.messageId),
-                );
-                if (latestMessage == null) return const SizedBox.shrink();
-                return StreamingTurnFooter(
-                  message: latestMessage,
-                  suppressStreamingHaptics: suppressStreamingHaptics,
-                );
-              },
-            ),
     );
   }
 
@@ -4221,10 +4223,33 @@ bool debugShouldFollowStreamingForTesting({
 String? debugLatestActionPinnedTargetForTesting({
   required bool wantsPinToTop,
   required String? pinnedUserMessageId,
-  required bool pinEndSpaceAvailable,
 }) {
-  return wantsPinToTop && pinEndSpaceAvailable ? pinnedUserMessageId : null;
+  // An active pin owns latest navigation even after its synthetic space is
+  // exhausted. Falling through to the physical footer would scroll the
+  // prompt beneath the floating app bar while the response is still live.
+  return wantsPinToTop ? pinnedUserMessageId : null;
 }
+
+@visibleForTesting
+double debugResolveLatestPresentationDistanceForTesting({
+  required bool pinnedTurnActive,
+  required bool userDetached,
+  required double? pinnedDistance,
+  required double physicalLatestDistance,
+}) {
+  if (pinnedDistance != null) return pinnedDistance;
+  // A lazily unmounted pinned row is still the semantic latest target. Never
+  // reinterpret the physical footer as latest and silently clear a real user
+  // detachment while that target is temporarily unmeasurable.
+  if (pinnedTurnActive && userDetached) return double.infinity;
+  return physicalLatestDistance;
+}
+
+@visibleForTesting
+bool debugShouldExposePinnedLatestOnDragForTesting({
+  required bool pinnedTurnActive,
+  required bool hasScrollableContent,
+}) => pinnedTurnActive && hasScrollableContent;
 
 @visibleForTesting
 bool debugCompletionOwnsExplicitLatestNavigationForTesting({
