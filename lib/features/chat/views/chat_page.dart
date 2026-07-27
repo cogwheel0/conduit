@@ -4292,7 +4292,7 @@ bool debugShouldReleasePinnedTurnForTesting({
   if (!pinActive) return false;
   return userDragStarted ||
       latestRequested ||
-      (assistantPhase != null && assistantPhase != ChatTurnPhase.running);
+      assistantPhase != ChatTurnPhase.running;
 }
 
 @visibleForTesting

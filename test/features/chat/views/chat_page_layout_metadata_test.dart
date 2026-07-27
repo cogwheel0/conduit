@@ -1241,6 +1241,14 @@ void main() {
     check(
       debugShouldReleasePinnedTurnForTesting(
         pinActive: true,
+        assistantPhase: null,
+        userDragStarted: false,
+        latestRequested: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
         assistantPhase: ChatTurnPhase.running,
         userDragStarted: false,
         latestRequested: false,
