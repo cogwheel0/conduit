@@ -1106,14 +1106,6 @@ void main() {
     expect(state.userMessageId, 'user-message');
   });
 
-  test('latest action releases pin ownership for the real footer', () {
-    final state = debugPinStateAfterScrollToLatestForTesting();
-
-    expect(state.anchorActive, isFalse);
-    expect(state.autoFollowing, isFalse);
-    expect(state.userMessageId, isNull);
-  });
-
   test('streaming follow never replaces an active pin-to-top anchor', () {
     check(
       debugShouldFollowStreamingForTesting(
@@ -1260,6 +1252,41 @@ void main() {
         assistantPhase: ChatTurnPhase.completed,
         userDragStarted: false,
         latestRequested: true,
+      ),
+    ).isFalse();
+  });
+
+  test('a user interaction fences both deferred pin-release continuations', () {
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isTrue();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: true,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isFalse();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: true,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isFalse();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 8,
       ),
     ).isFalse();
   });

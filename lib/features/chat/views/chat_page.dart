@@ -1750,8 +1750,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final releaseGeneration = _pinPositionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
-          _wantsPinToTop ||
-          releaseGeneration != _pinPositionGeneration) {
+          !debugShouldContinuePinReleaseForTesting(
+            pinActive: _wantsPinToTop,
+            isUserInteracting: _isUserInteractingWithScroll,
+            releaseGeneration: releaseGeneration,
+            currentGeneration: _pinPositionGeneration,
+          )) {
         return;
       }
       _scrollToBottom(
@@ -1759,8 +1763,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         explicitNavigation: explicitNavigation,
         onSettled: () {
           if (!mounted ||
-              _wantsPinToTop ||
-              releaseGeneration != _pinPositionGeneration) {
+              !debugShouldContinuePinReleaseForTesting(
+                pinActive: _wantsPinToTop,
+                isUserInteracting: _isUserInteractingWithScroll,
+                releaseGeneration: releaseGeneration,
+                currentGeneration: _pinPositionGeneration,
+              )) {
             return;
           }
           setState(
@@ -4288,6 +4296,18 @@ bool debugShouldReleasePinnedTurnForTesting({
 }
 
 @visibleForTesting
+bool debugShouldContinuePinReleaseForTesting({
+  required bool pinActive,
+  required bool isUserInteracting,
+  required int releaseGeneration,
+  required int currentGeneration,
+}) {
+  return !pinActive &&
+      !isUserInteracting &&
+      releaseGeneration == currentGeneration;
+}
+
+@visibleForTesting
 double debugResolveLatestPresentationDistanceForTesting({
   required bool pinnedTurnActive,
   required bool userDetached,
@@ -4420,17 +4440,6 @@ debugPinStateAfterManualNavigationForTesting() {
     anchorActive: manual.isActive,
     autoFollowing: manual.isAutoFollowing,
     userMessageId: manual.userMessageId,
-  );
-}
-
-@visibleForTesting
-({bool anchorActive, bool autoFollowing, String? userMessageId})
-debugPinStateAfterScrollToLatestForTesting() {
-  const resumed = _PinToTopState.inactive();
-  return (
-    anchorActive: resumed.isActive,
-    autoFollowing: resumed.isAutoFollowing,
-    userMessageId: resumed.userMessageId,
   );
 }
 
