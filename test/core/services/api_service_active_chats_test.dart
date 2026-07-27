@@ -152,6 +152,105 @@ void main() {
         adapter.requestPaths.where((path) => path == '/api/v1/chats/').length,
       ).equals(2);
     });
+
+    test('list fallback propagates transient failures', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 404,
+        body: const {},
+        responseHandler: (options) {
+          if (options.path == '/api/v1/tasks/active/chats') {
+            return _jsonResponse(const {}, statusCode: 404);
+          }
+          if (options.path == '/api/v1/chats/') {
+            return _jsonResponse(const [
+              {'id': 'regular', 'active': true},
+            ]);
+          }
+          return _jsonResponse(const {
+            'detail': 'temporarily unavailable',
+          }, statusCode: 503);
+        },
+      );
+      final api = _buildApiService(adapter);
+
+      await check(
+        api.checkActiveChats(['regular', 'archived']),
+      ).throws<DioException>();
+    });
+
+    test('0.11 pagination continues after a full 60-row page', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 404,
+        body: const {},
+        responseHandler: (options) {
+          if (options.path == '/api/v1/tasks/active/chats') {
+            return _jsonResponse(const {}, statusCode: 404);
+          }
+          final page = int.parse(options.queryParameters['page'].toString());
+          if (options.path == '/api/v1/chats/' && page == 1) {
+            return _jsonResponse(
+              List.generate(
+                60,
+                (index) => {'id': 'regular-$index', 'active': false},
+              ),
+            );
+          }
+          return _jsonResponse(const [
+            {'id': 'target', 'active': true},
+          ]);
+        },
+      );
+      final api = _buildApiService(adapter);
+
+      final active = await api.checkActiveChats(['target']);
+
+      check(active).deepEquals({'target'});
+      check(
+        adapter.requests
+            .where((request) => request.path == '/api/v1/chats/')
+            .map((request) => request.queryParameters['page']),
+      ).deepEquals([1, 2]);
+    });
+
+    test('list fallback stops after 100 full pages per endpoint', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 404,
+        body: const {},
+        responseHandler: (options) {
+          if (options.path == '/api/v1/tasks/active/chats') {
+            return _jsonResponse(const {}, statusCode: 404);
+          }
+          final page = int.parse(options.queryParameters['page'].toString());
+          if (page > 100) {
+            throw StateError('requested page $page beyond the safety ceiling');
+          }
+          return _jsonResponse(
+            List.generate(
+              60,
+              (index) => {
+                'id': '${options.path}-$page-$index',
+                'active': false,
+              },
+            ),
+          );
+        },
+      );
+      final api = _buildApiService(adapter);
+
+      final active = await api.checkActiveChats(['missing']);
+
+      check(active).isEmpty();
+      check(
+        adapter.requests
+            .where((request) => request.path == '/api/v1/chats/')
+            .length,
+      ).equals(100);
+      check(
+        adapter.requests
+            .where((request) => request.path == '/api/v1/chats/archived')
+            .length,
+      ).equals(100);
+    });
   });
 }
 
@@ -160,16 +259,19 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
     required this.statusCode,
     required this.body,
     this.responsesByPath = const {},
+    this.responseHandler,
   });
 
   final int statusCode;
   final Object? body;
   final Map<String, Object?> responsesByPath;
+  final ResponseBody Function(RequestOptions options)? responseHandler;
 
   int requestCount = 0;
   String? lastPath;
   Map<String, dynamic>? lastBody;
   final List<String> requestPaths = [];
+  final List<RequestOptions> requests = [];
 
   @override
   Future<ResponseBody> fetch(
@@ -180,12 +282,16 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
     requestCount += 1;
     lastPath = options.path;
     requestPaths.add(options.path);
+    requests.add(options);
     final data = options.data;
     if (data is Map) {
       lastBody = Map<String, dynamic>.from(data);
     } else if (data is String && data.isNotEmpty) {
       lastBody = Map<String, dynamic>.from(jsonDecode(data) as Map);
     }
+
+    final handler = responseHandler;
+    if (handler != null) return handler(options);
 
     final hasPathResponse = responsesByPath.containsKey(options.path);
     final responseBody = hasPathResponse ? responsesByPath[options.path] : body;
@@ -201,6 +307,15 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
   @override
   void close({bool force = false}) {}
 }
+
+ResponseBody _jsonResponse(Object? value, {int statusCode = 200}) =>
+    ResponseBody(
+      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(value)))),
+      statusCode,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
 
 ApiService _buildApiService(HttpClientAdapter adapter) {
   final service = ApiService(

@@ -8445,35 +8445,19 @@ class ApiService {
     final active = <String>{};
     if (remaining.isEmpty) return active;
 
-    try {
+    await _collectActiveChatsFromPagedList(
+      endpoint: '/api/v1/chats/',
+      remaining: remaining,
+      active: active,
+      queryParameters: const {'include_pinned': true, 'include_folders': true},
+    );
+    if (remaining.isNotEmpty) {
       await _collectActiveChatsFromPagedList(
-        endpoint: '/api/v1/chats/',
+        endpoint: '/api/v1/chats/archived',
         remaining: remaining,
         active: active,
-        queryParameters: const {
-          'include_pinned': true,
-          'include_folders': true,
-        },
+        queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
       );
-      if (remaining.isNotEmpty) {
-        await _collectActiveChatsFromPagedList(
-          endpoint: '/api/v1/chats/archived',
-          remaining: remaining,
-          active: active,
-          queryParameters: const {
-            'order_by': 'updated_at',
-            'direction': 'desc',
-          },
-        );
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'chat-list active-state fallback failed',
-        scope: 'api/tasks',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      return <String>{};
     }
     return active;
   }
@@ -8485,8 +8469,9 @@ class ApiService {
     required Map<String, dynamic> queryParameters,
   }) async {
     const serverPageSize = 60;
+    const maxPages = 100;
     var page = 1;
-    while (remaining.isNotEmpty) {
+    while (remaining.isNotEmpty && page <= maxPages) {
       final response = await _dio.get(
         endpoint,
         queryParameters: {...queryParameters, 'page': page},
@@ -8499,6 +8484,13 @@ class ApiService {
       }
       if (rows.length < serverPageSize) return;
       page++;
+    }
+    if (remaining.isNotEmpty) {
+      DebugLogger.warning(
+        'chat-list active-state fallback reached page limit',
+        scope: 'api/tasks',
+        data: {'endpoint': endpoint, 'remaining': remaining.length},
+      );
     }
   }
 

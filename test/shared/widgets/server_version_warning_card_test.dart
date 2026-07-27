@@ -2,6 +2,7 @@ import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/server_version_warning_card.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ ServerConfig _server(String id) =>
 Widget _buildCard({
   required AuthNavigationState authState,
   required BackendConfig? config,
+  Widget? body,
 }) {
   return ProviderScope(
     overrides: [
@@ -36,7 +38,9 @@ Widget _buildCard({
       theme: ThemeData(platform: TargetPlatform.android),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const Scaffold(body: Center(child: ServerVersionWarningCard())),
+      home: Scaffold(
+        body: body ?? const Center(child: ServerVersionWarningCard()),
+      ),
     ),
   );
 }
@@ -76,6 +80,50 @@ void main() {
       final message = tester.widget<Text>(find.textContaining('0.11.1'));
       expect(title.style?.decoration, TextDecoration.none);
       expect(message.style?.decoration, TextDecoration.none);
+    });
+
+    testWidgets('short large-text empty state scrolls without overflow', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(390, 420));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.1', serverId: 'A'),
+          body: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(390, 420),
+              textScaler: TextScaler.linear(2),
+            ),
+            child: debugBuildChatEmptyStateViewportForTesting(
+              padding: const EdgeInsets.fromLTRB(24, 88, 24, 140),
+              children: const [
+                Text(
+                  'How can I help you today?',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+                ServerVersionWarningCard(),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      final scrollView = find.byKey(
+        const ValueKey('chat-empty-state-scroll-view'),
+      );
+      expect(scrollView, findsOneWidget);
+      final scrollable = find.descendant(
+        of: scrollView,
+        matching: find.byType(Scrollable),
+      );
+      final state = tester.state<ScrollableState>(scrollable);
+      expect(state.position.maxScrollExtent, greaterThan(0));
     });
 
     testWidgets('hides the warning for a supported server', (tester) async {
