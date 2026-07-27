@@ -1618,7 +1618,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
                   ),
                 ),
               ),
-              if (widget.liveFooter case final liveFooter)
+              if (widget.liveFooter case final liveFooter?)
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: widget.horizontalPadding,
@@ -1628,7 +1628,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
                     child: liveFooter,
                   ),
                 ),
-              if (widget.trailingContent case final trailingContent)
+              if (widget.trailingContent case final trailingContent?)
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: widget.horizontalPadding,

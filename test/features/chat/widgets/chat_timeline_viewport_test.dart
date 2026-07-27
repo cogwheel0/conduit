@@ -236,6 +236,10 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.byKey(const ValueKey('live-footer')), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('chat-timeline-live-footer-sliver')),
+        findsNothing,
+      );
       check(controller.rowRect('assistant')!.height).isCloseTo(80, 0.1);
       check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
     },
