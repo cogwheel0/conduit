@@ -178,6 +178,31 @@ void main() {
     check(controller.rowRect(anchorId)!.top).isCloseTo(before, 1);
   });
 
+  _viewportTest('transcript paint is clipped below the toolbar inset', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: List<String>.generate(20, (index) => 'message-$index'),
+          rowHeight: (_) => 64,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final clip = tester.widget<ClipRect>(
+      find.byKey(const ValueKey<String>('chat-timeline-content-clip')),
+    );
+    final viewportSize = tester.getSize(find.byType(CustomScrollView));
+    final paintBounds = clip.clipper!.getClip(viewportSize);
+    check(paintBounds.top).equals(_topContentInset);
+    check(paintBounds.bottom).equals(viewportSize.height);
+  });
+
   _viewportTest(
     'live footer is a separate sliver and cannot resize the assistant row',
     (tester) async {
@@ -850,7 +875,7 @@ void main() {
   });
 
   _viewportTest(
-    'latest action restores the pinned row and streaming growth keeps it fixed',
+    'latest action retires pin support and follows the real footer',
     (tester) async {
       final controller = _controller(tester);
       final ids = [
@@ -858,7 +883,9 @@ void main() {
         'user',
         'assistant',
       ];
-      var pinAutomatic = false;
+      String? pinnedUserMessageId = 'user';
+      var pinAutomatic = true;
+      var followLatest = false;
       var assistantHeight = 80.0;
       late StateSetter rebuild;
 
@@ -870,10 +897,10 @@ void main() {
               return _viewport(
                 controller: controller,
                 ids: ids,
-                pinnedUserMessageId: 'user',
+                pinnedUserMessageId: pinnedUserMessageId,
                 pinAutomatic: pinAutomatic,
-                maintainVisibleAnchor: !pinAutomatic,
-                followLatest: false,
+                maintainVisibleAnchor: false,
+                followLatest: followLatest,
                 rowHeight: (id) => id == 'assistant' ? assistantHeight : 52,
               );
             },
@@ -884,8 +911,6 @@ void main() {
       check(await controller.jumpMessageToTop('history-8')).isTrue();
       await tester.pump();
 
-      rebuild(() => pinAutomatic = true);
-      await tester.pump();
       final navigation = controller.animateMessageToTop(
         'user',
         duration: const Duration(milliseconds: 220),
@@ -899,10 +924,32 @@ void main() {
       check(settledTop).isCloseTo(viewportTop + _topContentInset, 1);
       check(controller.distanceFromMessageTop('user')!).isLessThan(1);
 
-      rebuild(() => assistantHeight = 240);
+      rebuild(() {
+        pinnedUserMessageId = null;
+        pinAutomatic = false;
+      });
       await tester.pump();
       await tester.pump();
-      check(controller.rowRect('user')!.top).isCloseTo(settledTop, 1);
+      final spacer = tester.widget<SizedBox>(
+        find.byKey(const ValueKey<String>('chat-composer-spacer')),
+      );
+      check(spacer.height).equals(80);
+
+      final latestNavigation = controller.animateToLatest(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      await tester.pumpAndSettle();
+      await latestNavigation;
+      check(controller.distanceFromLatest).isLessThan(1);
+
+      rebuild(() {
+        followLatest = true;
+        assistantHeight = 240;
+      });
+      await tester.pump();
+      await tester.pump();
+      check(controller.distanceFromLatest).isLessThan(1);
     },
   );
 

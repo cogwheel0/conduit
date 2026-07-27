@@ -308,6 +308,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   int _navigationGeneration = 0;
   int _refreshGeneration = 0;
 
+  double get _effectivePinSupportSpace =>
+      widget.pinnedUserMessageId == null ? 0 : _pinSupportSpace.value;
+
   @override
   void initState() {
     super.initState();
@@ -673,7 +676,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   }
 
   double _contentLatestOffset(ScrollPosition position) {
-    return (position.maxScrollExtent - _pinSupportSpace.value)
+    return (position.maxScrollExtent - _effectivePinSupportSpace)
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
   }
@@ -710,7 +713,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     final distance = math.max(0, latest - position.pixels).toDouble();
     final realOverflow =
         (position.maxScrollExtent - position.minScrollExtent) -
-            _pinSupportSpace.value -
+            _effectivePinSupportSpace -
             widget.bottomPadding >
         _geometryEpsilon;
     return ChatTimelineViewportMetrics(
@@ -1652,7 +1655,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
                   builder: (context, pinSupportSpace, _) {
                     return SizedBox(
                       key: const ValueKey<String>('chat-composer-spacer'),
-                      height: widget.bottomPadding + pinSupportSpace,
+                      height:
+                          widget.bottomPadding +
+                          (widget.pinnedUserMessageId == null
+                              ? 0
+                              : pinSupportSpace),
                     );
                   },
                 ),
@@ -1667,15 +1674,19 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       key: _viewportKey,
       children: [
         Positioned.fill(
-          child: Opacity(
-            key: const ValueKey<String>('sliver-transcript-visibility'),
-            opacity: shouldHide ? 0 : 1,
-            child: ExcludeSemantics(
-              excluding: shouldHide,
-              child: IgnorePointer(
-                key: const ValueKey<String>('sliver-transcript-interaction'),
-                ignoring: shouldHide,
-                child: transcript,
+          child: ClipRect(
+            key: const ValueKey<String>('chat-timeline-content-clip'),
+            clipper: _TopContentInsetClipper(widget.topContentInset),
+            child: Opacity(
+              key: const ValueKey<String>('sliver-transcript-visibility'),
+              opacity: shouldHide ? 0 : 1,
+              child: ExcludeSemantics(
+                excluding: shouldHide,
+                child: IgnorePointer(
+                  key: const ValueKey<String>('sliver-transcript-interaction'),
+                  ignoring: shouldHide,
+                  child: transcript,
+                ),
               ),
             ),
           ),
@@ -1697,6 +1708,24 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       ],
     );
   }
+}
+
+class _TopContentInsetClipper extends CustomClipper<Rect> {
+  const _TopContentInsetClipper(this.inset);
+
+  final double inset;
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(
+    0,
+    inset.clamp(0, size.height).toDouble(),
+    size.width,
+    size.height,
+  );
+
+  @override
+  bool shouldReclip(covariant _TopContentInsetClipper oldClipper) =>
+      inset != oldClipper.inset;
 }
 
 class _MountedTimelineRow extends StatefulWidget {

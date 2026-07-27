@@ -242,16 +242,6 @@ class _PinToTopState {
       streamingMessageId: streamingMessageId,
     );
   }
-
-  _PinToTopState resumeAutomaticFollow() {
-    if (!isActive || isAutoFollowing) return this;
-    return _PinToTopState._(
-      isActive: true,
-      isAutoFollowing: true,
-      userMessageId: userMessageId,
-      streamingMessageId: streamingMessageId,
-    );
-  }
 }
 
 enum _ChatTimelineScrollMode {
@@ -308,6 +298,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _pinShouldSettleImmediately = false;
   bool _pinToTopPositionSettled = false;
   bool _pinPrepositionAttempted = false;
+  int? _pinLifecycleReconciliationGeneration;
   int _pinPositionGeneration = 0;
   _ChatTimelineScrollMode _timelineScrollMode =
       _ChatTimelineScrollMode.followingLatest;
@@ -890,6 +881,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinShouldSettleImmediately = settleImmediately;
     _pinToTopPositionSettled = false;
     _pinPrepositionAttempted = false;
+    _pinLifecycleReconciliationGeneration = null;
     _timelineScrollMode = _ChatTimelineScrollMode.anchoringNewTurn;
     setState(() {
       _pinToTopState = _PinToTopState.active(
@@ -1727,72 +1719,59 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    final pinnedTarget = debugLatestActionPinnedTargetForTesting(
-      wantsPinToTop: _wantsPinToTop,
-      pinnedUserMessageId: _pinnedUserMessageId,
-    );
-    _resumeLatestPresentation();
-    if (pinnedTarget != null) {
-      _scrollPinnedTurnToTop(pinnedTarget);
+    if (debugShouldReleasePinnedTurnForTesting(
+      pinActive: _wantsPinToTop,
+      assistantPhase: null,
+      userDragStarted: false,
+      latestRequested: true,
+    )) {
+      _releasePinToRealLatest(smooth: true, explicitNavigation: true);
       return;
     }
+    _resumeLatestPresentation();
     _scrollToBottom(smooth: true, explicitNavigation: true);
   }
 
-  void _scrollPinnedTurnToTop(String messageId) {
-    if (_isUserInteractingWithScroll ||
-        !_timelineViewportController.hasClients) {
+  void _releasePinToRealLatest({
+    required bool smooth,
+    required bool explicitNavigation,
+  }) {
+    if (!_wantsPinToTop) {
+      _resumeLatestPresentation();
+      _scrollToBottom(smooth: smooth, explicitNavigation: explicitNavigation);
       return;
     }
     _bottomAnchorController.requestBottomAnchor();
-    final navigationGeneration = ++_explicitLatestNavigationGeneration;
-    _explicitLatestNavigationInFlight = true;
-    final shouldAnimate = !context.reduceMotion;
-
-    PerformanceProfiler.instance.instant(
-      'chat_auto_scroll',
-      scope: 'chat',
-      data: {'smooth': shouldAnimate, 'target': 'pinned-turn'},
-    );
-
-    final movement = shouldAnimate
-        ? _timelineViewportController.animateMessageToTop(
-            messageId,
-            duration: _pinTransitionDuration,
-            curve: Curves.easeOutCubic,
-          )
-        : _timelineViewportController.jumpMessageToTop(messageId);
-    unawaited(
-      movement.then(
-        (moved) {
+    setState(() {
+      // Keep both automatic engines off for the support-removal frame. The
+      // single real-footer navigation below becomes the only scroll owner.
+      _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.anchoringNewTurn);
+    });
+    final releaseGeneration = _pinPositionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _wantsPinToTop ||
+          releaseGeneration != _pinPositionGeneration) {
+        return;
+      }
+      _scrollToBottom(
+        smooth: smooth,
+        explicitNavigation: explicitNavigation,
+        onSettled: () {
           if (!mounted ||
-              !debugCompletionOwnsExplicitLatestNavigationForTesting(
-                completedGeneration: navigationGeneration,
-                currentGeneration: _explicitLatestNavigationGeneration,
-              )) {
+              _wantsPinToTop ||
+              releaseGeneration != _pinPositionGeneration) {
             return;
           }
-          _explicitLatestNavigationInFlight = false;
-          if (moved) _markPinToTopPositionSettled(_pinPositionGeneration);
-          _scheduleScrollToBottomVisibilitySync(prewarm: true);
+          setState(
+            () => _timelineScrollMode = _ChatTimelineScrollMode.followingLatest,
+          );
+          _bottomAnchorController.requestBottomAnchor();
           _syncLayoutBottomAnchor();
         },
-        onError: (Object error, StackTrace stackTrace) {
-          if (!mounted ||
-              navigationGeneration != _explicitLatestNavigationGeneration) {
-            return;
-          }
-          _explicitLatestNavigationInFlight = false;
-          DebugLogger.error(
-            'latest-pin-navigation-failed',
-            scope: 'chat/scroll',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          _scheduleScrollToBottomVisibilitySync();
-        },
-      ),
-    );
+      );
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   void _scrollToBottom({
@@ -1855,34 +1834,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _resumeLatestPresentation() {
-    final shouldResumePin = _wantsPinToTop && !_shouldAutoFollowPinnedTurn;
-    final usesPinnedTarget =
-        debugLatestActionPinnedTargetForTesting(
-          wantsPinToTop: _wantsPinToTop,
-          pinnedUserMessageId: _pinnedUserMessageId,
-        ) !=
-        null;
-    final shouldRebuild =
-        _timelineScrollMode !=
-            (usesPinnedTarget
-                ? _ChatTimelineScrollMode.anchoringNewTurn
-                : _ChatTimelineScrollMode.followingLatest) ||
-        shouldResumePin;
-
-    void updateState() {
-      _timelineScrollMode = usesPinnedTarget
-          ? _ChatTimelineScrollMode.anchoringNewTurn
-          : _ChatTimelineScrollMode.followingLatest;
-      if (shouldResumePin) {
-        _pinToTopState = _pinToTopState.resumeAutomaticFollow();
-        _pinShouldSettleImmediately = false;
-      }
+    if (_wantsPinToTop) {
+      _releasePinToRealLatest(smooth: false, explicitNavigation: false);
+      return;
     }
-
-    if (shouldRebuild) {
-      setState(updateState);
-    } else {
-      updateState();
+    if (_timelineScrollMode != _ChatTimelineScrollMode.followingLatest) {
+      setState(
+        () => _timelineScrollMode = _ChatTimelineScrollMode.followingLatest,
+      );
     }
     _bottomAnchorController.requestBottomAnchor();
     _syncLayoutBottomAnchor();
@@ -2046,6 +2005,85 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return _activeStreamingAssistantId(messages) != null;
   }
 
+  void _schedulePinnedTurnLifecycleReconciliation(
+    ChatTurnPhase? assistantPhase,
+  ) {
+    if (!_wantsPinToTop) return;
+    final assistantMessageId = _pinToTopState.streamingMessageId;
+    if (assistantMessageId == null) return;
+    if (!debugShouldReleasePinnedTurnForTesting(
+      pinActive: true,
+      assistantPhase: assistantPhase,
+      userDragStarted: false,
+      latestRequested: false,
+    )) {
+      return;
+    }
+
+    final scheduledGeneration = _pinPositionGeneration;
+    if (_pinLifecycleReconciliationGeneration == scheduledGeneration) return;
+    _pinLifecycleReconciliationGeneration = scheduledGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_pinLifecycleReconciliationGeneration == scheduledGeneration) {
+        _pinLifecycleReconciliationGeneration = null;
+      }
+      if (!mounted ||
+          scheduledGeneration != _pinPositionGeneration ||
+          _pinToTopState.streamingMessageId != assistantMessageId) {
+        return;
+      }
+      ChatMessage? currentAssistant;
+      for (final message in ref.read(chatMessagesProvider)) {
+        if (message.id == assistantMessageId) {
+          currentAssistant = message;
+          break;
+        }
+      }
+      final currentPhase = currentAssistant == null
+          ? null
+          : chatTurnPhaseForMessage(currentAssistant);
+      if (!debugShouldReleasePinnedTurnForTesting(
+        pinActive: _wantsPinToTop,
+        assistantPhase: currentPhase,
+        userDragStarted: false,
+        latestRequested: false,
+      )) {
+        return;
+      }
+
+      if (_shouldAutoFollowPinnedTurn &&
+          _timelineScrollMode != _ChatTimelineScrollMode.freeScrolling) {
+        _releasePinToRealLatest(smooth: false, explicitNavigation: false);
+      } else {
+        setState(() {
+          _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
+        });
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _releasePinForUserDrag() {
+    _cancelExplicitLatestNavigation();
+    final shouldReleasePin = debugShouldReleasePinnedTurnForTesting(
+      pinActive: _wantsPinToTop,
+      assistantPhase: null,
+      userDragStarted: true,
+      latestRequested: false,
+    );
+    if (!shouldReleasePin) {
+      if (_timelineScrollMode != _ChatTimelineScrollMode.freeScrolling) {
+        setState(
+          () => _timelineScrollMode = _ChatTimelineScrollMode.freeScrolling,
+        );
+      }
+      return;
+    }
+    setState(() {
+      _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
+    });
+  }
+
   void _scrollToUserMessage({required int generation, int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -2191,7 +2229,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     setState(() => _pinToTopPositionSettled = true);
   }
 
-  void _clearPinToTopAnchor() {
+  void _clearPinToTopAnchor({
+    _ChatTimelineScrollMode nextMode = _ChatTimelineScrollMode.followingLatest,
+  }) {
     _cancelExplicitLatestNavigation();
     _pinPositionGeneration += 1;
     _pinToTopState = const _PinToTopState.inactive();
@@ -2200,7 +2240,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinShouldSettleImmediately = false;
     _pinToTopPositionSettled = false;
     _pinPrepositionAttempted = false;
-    _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
+    _pinLifecycleReconciliationGeneration = null;
+    _timelineScrollMode = nextMode;
     _syncLayoutBottomAnchor();
   }
 
@@ -2242,6 +2283,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final paging = watchRef.watch(chatTranscriptPagingProvider);
     final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
+    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final pinnedAssistantPhase = pinnedAssistantId == null
+        ? null
+        : watchRef.watch(
+            chatMessageByIdProvider(pinnedAssistantId).select(
+              (message) =>
+                  message == null ? null : chatTurnPhaseForMessage(message),
+            ),
+          );
+    _schedulePinnedTurnLifecycleReconciliation(pinnedAssistantPhase);
     if (paging.loadedCount != requestedCount ||
         paging.hasOlder != (requestedCount < completeMessages.length)) {
       final scheduledConversation = watchRef.read(activeConversationProvider);
@@ -2473,16 +2524,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        final pinnedTurnWasActive = _wantsPinToTop;
         _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
-          _cancelPinnedTurnAutomaticFollow();
+          _releasePinForUserDrag();
           _cancelPendingViewportNavigation();
           _beginScrollProfile('user_drag');
         }
         _isUserInteractingWithScroll = true;
         _bottomAnchorController.detachByUser();
         if (debugShouldExposePinnedLatestOnDragForTesting(
-              pinnedTurnActive: _wantsPinToTop,
+              pinnedTurnActive: pinnedTurnWasActive,
               hasScrollableContent: _hasScrollableTranscriptContent(),
             ) &&
             !_showScrollToBottom) {
@@ -4215,19 +4267,24 @@ bool debugShouldFollowStreamingForTesting({
       !followLatestRequested) {
     return false;
   }
-  if (!wantsPinToTop) return isAnchoredToBottom;
-  return pinnedEndSpaceExhausted;
+  // A live pin is the scroll owner for its full lifetime. Even after the
+  // measured end space reaches zero, following the physical footer would
+  // advance the viewport on every streamed layout and recreate upward creep.
+  if (wantsPinToTop) return false;
+  return isAnchoredToBottom;
 }
 
 @visibleForTesting
-String? debugLatestActionPinnedTargetForTesting({
-  required bool wantsPinToTop,
-  required String? pinnedUserMessageId,
+bool debugShouldReleasePinnedTurnForTesting({
+  required bool pinActive,
+  required ChatTurnPhase? assistantPhase,
+  required bool userDragStarted,
+  required bool latestRequested,
 }) {
-  // An active pin owns latest navigation even after its synthetic space is
-  // exhausted. Falling through to the physical footer would scroll the
-  // prompt beneath the floating app bar while the response is still live.
-  return wantsPinToTop ? pinnedUserMessageId : null;
+  if (!pinActive) return false;
+  return userDragStarted ||
+      latestRequested ||
+      (assistantPhase != null && assistantPhase != ChatTurnPhase.running);
 }
 
 @visibleForTesting
@@ -4369,11 +4426,7 @@ debugPinStateAfterManualNavigationForTesting() {
 @visibleForTesting
 ({bool anchorActive, bool autoFollowing, String? userMessageId})
 debugPinStateAfterScrollToLatestForTesting() {
-  const active = _PinToTopState.active(
-    userMessageId: 'user-message',
-    streamingMessageId: 'assistant-message',
-  );
-  final resumed = active.cancelAutomaticFollow().resumeAutomaticFollow();
+  const resumed = _PinToTopState.inactive();
   return (
     anchorActive: resumed.isActive,
     autoFollowing: resumed.isAutoFollowing,

@@ -11,6 +11,7 @@ import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
@@ -1105,12 +1106,12 @@ void main() {
     expect(state.userMessageId, 'user-message');
   });
 
-  test('latest action reattaches follow without discarding pin geometry', () {
+  test('latest action releases pin ownership for the real footer', () {
     final state = debugPinStateAfterScrollToLatestForTesting();
 
-    expect(state.anchorActive, isTrue);
-    expect(state.autoFollowing, isTrue);
-    expect(state.userMessageId, 'user-message');
+    expect(state.anchorActive, isFalse);
+    expect(state.autoFollowing, isFalse);
+    expect(state.userMessageId, isNull);
   });
 
   test('streaming follow never replaces an active pin-to-top anchor', () {
@@ -1138,7 +1139,7 @@ void main() {
     ).isFalse();
   });
 
-  test('latest action follows only after pinned end space is consumed', () {
+  test('an active pin never transfers to per-chunk footer following', () {
     check(
       debugShouldFollowStreamingForTesting(
         hasRunningTurn: true,
@@ -1149,7 +1150,7 @@ void main() {
         followLatestRequested: true,
         pinnedEndSpaceExhausted: true,
       ),
-    ).isTrue();
+    ).isFalse();
     check(
       debugShouldFollowStreamingForTesting(
         hasRunningTurn: true,
@@ -1212,31 +1213,55 @@ void main() {
     ).isTrue();
   });
 
-  test('latest action restores an active pinned turn by message ID', () {
+  test('pin lifecycle releases on completion, drag, and latest', () {
     check(
-      debugLatestActionPinnedTargetForTesting(
-        wantsPinToTop: true,
-        pinnedUserMessageId: 'user-message',
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.running,
+        userDragStarted: false,
+        latestRequested: true,
       ),
-    ).equals('user-message');
+    ).isTrue();
     check(
-      debugLatestActionPinnedTargetForTesting(
-        wantsPinToTop: false,
-        pinnedUserMessageId: 'user-message',
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.running,
+        userDragStarted: true,
+        latestRequested: false,
       ),
-    ).isNull();
+    ).isTrue();
     check(
-      debugLatestActionPinnedTargetForTesting(
-        wantsPinToTop: true,
-        pinnedUserMessageId: null,
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.completed,
+        userDragStarted: false,
+        latestRequested: false,
       ),
-    ).isNull();
+    ).isTrue();
     check(
-      debugLatestActionPinnedTargetForTesting(
-        wantsPinToTop: true,
-        pinnedUserMessageId: 'user-message',
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.failed,
+        userDragStarted: false,
+        latestRequested: false,
       ),
-    ).equals('user-message');
+    ).isTrue();
+    check(
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.running,
+        userDragStarted: false,
+        latestRequested: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldReleasePinnedTurnForTesting(
+        pinActive: false,
+        assistantPhase: ChatTurnPhase.completed,
+        userDragStarted: false,
+        latestRequested: true,
+      ),
+    ).isFalse();
   });
 
   test('unmounted pinned latest never collapses to the physical footer', () {
