@@ -814,7 +814,6 @@ class ApiService {
   final Dio _dio;
   final ServerConfig serverConfig;
   final WorkerManager _workerManager;
-  final DateTime Function() _now;
   final PublicHealthAddressResolver _publicHealthAddressResolver;
   final PublicHealthSocketConnector _publicHealthSocketConnector;
   final PublicHealthSocketUpgrader _publicHealthSocketUpgrader;
@@ -842,7 +841,6 @@ class ApiService {
     String? authToken,
     bool suppressCookieCustomHeader = false,
     bool Function()? shouldSuppressCookieCustomHeader,
-    DateTime Function()? now,
     PublicHealthAddressResolver? publicHealthAddressResolver,
     PublicHealthSocketConnector? publicHealthSocketConnector,
     PublicHealthSocketUpgrader? publicHealthSocketUpgrader,
@@ -864,7 +862,6 @@ class ApiService {
          ),
        ),
        _workerManager = workerManager,
-       _now = now ?? DateTime.now,
        _publicHealthAddressResolver =
            publicHealthAddressResolver ??
            ((host) => InternetAddress.lookup(host)),
@@ -8392,33 +8389,30 @@ class ApiService {
     }
   }
 
-  /// Set once the bulk active-chats endpoint returns 404 (older servers), so we
-  /// stop probing it for the rest of the session.
+  /// Set once the bulk active-chats endpoint returns 404 or 405. Open WebUI
+  /// 0.11 removed that endpoint and exposes `active` on chat-list rows instead.
+  /// Depending on the deployment's web fallback, the removed POST can surface
+  /// as either status, so subsequent refreshes go straight to the list fallback.
   bool _activeChatsEndpointUnsupported = false;
-  DateTime? _activeChatsMethodRejectedRetryAfter;
-  static const _activeChatsMethodRejectedRetryDelay = Duration(minutes: 1);
 
   /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
-  /// Bulk query for which of [chatIds] currently have an active server task
-  /// (mirrors OpenWebUI's `checkActiveChats`). Returns an empty set when
-  /// [chatIds] is empty or the endpoint is missing on the server (cached after
-  /// the first 404 so we don't keep probing). HTTP 405 is treated as a
-  /// retryable proxy/load-balancer rejection and only pauses probing briefly.
+  /// Bulk query for which of [chatIds] currently have an active server task.
+  /// Open WebUI through 0.10 provides the dedicated task endpoint; 0.11 puts
+  /// the same state on chat-list rows. A 404 or 405 permanently selects that
+  /// list fallback for this API-service instance.
   Future<Set<String>> checkActiveChats(List<String> chatIds) async {
-    if (chatIds.isEmpty || _activeChatsEndpointUnsupported) {
+    if (chatIds.isEmpty) {
       return <String>{};
     }
-    final rejectedRetryAfter = _activeChatsMethodRejectedRetryAfter;
-    if (rejectedRetryAfter != null && _now().isBefore(rejectedRetryAfter)) {
-      return <String>{};
+    if (_activeChatsEndpointUnsupported) {
+      return _checkActiveChatsFromLists(chatIds);
     }
     try {
       final resp = await _dio.post(
         '/api/v1/tasks/active/chats',
         data: {'chat_ids': chatIds},
       );
-      _activeChatsMethodRejectedRetryAfter = null;
       final data = resp.data;
       if (data is Map && data['active_chat_ids'] is List) {
         return (data['active_chat_ids'] as List)
@@ -8428,30 +8422,75 @@ class ApiService {
       return <String>{};
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
-      if (statusCode == 404) {
+      if (statusCode == 404 || statusCode == 405) {
         _activeChatsEndpointUnsupported = true;
         DebugLogger.log(
-          'active-chats endpoint unsupported; disabling bulk probe',
+          'active-chats endpoint unsupported; using chat-list state',
           scope: 'api/tasks',
           data: {'status': statusCode},
         );
-        return <String>{};
-      }
-      if (statusCode == 405) {
-        _activeChatsMethodRejectedRetryAfter = _now().add(
-          _activeChatsMethodRejectedRetryDelay,
-        );
-        DebugLogger.log(
-          'active-chats endpoint rejected; pausing bulk probe',
-          scope: 'api/tasks',
-          data: {
-            'status': statusCode,
-            'retryAfterMs': _activeChatsMethodRejectedRetryDelay.inMilliseconds,
-          },
-        );
-        return <String>{};
+        return _checkActiveChatsFromLists(chatIds);
       }
       rethrow;
+    }
+  }
+
+  /// Open WebUI 0.11 replacement for `/api/v1/tasks/active/chats`.
+  ///
+  /// The regular list includes pinned and folder chats when requested. If an
+  /// id is not found there, also scan archived pages. Older servers omit the
+  /// additive `active` field, which naturally degrades to an empty set.
+  Future<Set<String>> _checkActiveChatsFromLists(List<String> chatIds) async {
+    final remaining = chatIds.where((id) => id.isNotEmpty).toSet();
+    final active = <String>{};
+    if (remaining.isEmpty) return active;
+
+    await _collectActiveChatsFromPagedList(
+      endpoint: '/api/v1/chats/',
+      remaining: remaining,
+      active: active,
+      queryParameters: const {'include_pinned': true, 'include_folders': true},
+    );
+    if (remaining.isNotEmpty) {
+      await _collectActiveChatsFromPagedList(
+        endpoint: '/api/v1/chats/archived',
+        remaining: remaining,
+        active: active,
+        queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
+      );
+    }
+    return active;
+  }
+
+  Future<void> _collectActiveChatsFromPagedList({
+    required String endpoint,
+    required Set<String> remaining,
+    required Set<String> active,
+    required Map<String, dynamic> queryParameters,
+  }) async {
+    const serverPageSize = 60;
+    const maxPages = 100;
+    var page = 1;
+    while (remaining.isNotEmpty && page <= maxPages) {
+      final response = await _dio.get(
+        endpoint,
+        queryParameters: {...queryParameters, 'page': page},
+      );
+      final rows = _coerceRawMapList(response.data);
+      for (final row in rows) {
+        final id = row['id']?.toString();
+        if (id == null || !remaining.remove(id)) continue;
+        if (row['active'] == true) active.add(id);
+      }
+      if (rows.length < serverPageSize) return;
+      page++;
+    }
+    if (remaining.isNotEmpty) {
+      DebugLogger.warning(
+        'chat-list active-state fallback reached page limit',
+        scope: 'api/tasks',
+        data: {'endpoint': endpoint, 'remaining': remaining.length},
+      );
     }
   }
 
