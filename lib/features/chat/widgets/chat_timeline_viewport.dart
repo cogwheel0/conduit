@@ -1463,11 +1463,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       _handleTrailingOverscroll(notification);
     } else if (notification is ScrollEndNotification) {
       _handleUserDragEnd();
-    } else if (notification is UserScrollNotification &&
-        notification.direction == ScrollDirection.idle) {
-      // ScrollStartNotification.dragDetails is the user-input authority.
-      // Driven animateTo activity must not enter user-drag ownership.
-      _handleUserDragEnd();
+    } else if (notification is UserScrollNotification) {
+      if (notification.direction == ScrollDirection.idle) {
+        _handleUserDragEnd();
+      } else {
+        // Pointer-signal scrolling (mouse wheels and trackpads) has no
+        // dragDetails, but it does publish a non-idle user direction. Driven
+        // animateTo activity does not, so it cannot steal manual ownership.
+        _handleUserDragStart();
+      }
     }
     return false;
   }

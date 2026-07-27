@@ -11,6 +11,7 @@ import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1322,6 +1323,60 @@ void main() {
     check(pointerDowns).equals(1);
     check(dragStarts).equals(1);
     check(dragEnds).equals(1);
+  });
+
+  _viewportTest('pointer-signal scrolling claims manual ownership', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    var followLatest = true;
+    var dragStarts = 0;
+    var dragEnds = 0;
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: followLatest,
+              onUserDragStart: () {
+                dragStarts += 1;
+                rebuild(() => followLatest = false);
+              },
+              onUserDragEnd: () => dragEnds += 1,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(find.byType(CustomScrollView)),
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    check(dragStarts).equals(1);
+    check(dragEnds).equals(1);
+    check(followLatest).isFalse();
+    check(controller.distanceFromLatest).isGreaterThan(48);
+
+    final navigation = controller.animateToLatest(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+    await tester.pumpAndSettle();
+    await navigation;
+    check(dragStarts).equals(1);
   });
 
   _viewportTest('initial settlement is excluded from paint and interaction', (
