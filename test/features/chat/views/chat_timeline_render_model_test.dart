@@ -2,9 +2,13 @@ import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/views/chat_timeline_render_model.dart';
 import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
 import 'package:checks/checks.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  setUp(ChatTimelineRenderModel.debugResetDuplicateReportCache);
+  tearDown(ChatTimelineRenderModel.debugResetDuplicateReportCache);
+
   test('extracts the latest completed assistant as the stable tail turn', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -149,6 +153,66 @@ void main() {
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(2)).isNull();
     },
   );
+
+  test('duplicate reports are throttled independently by session scope', () {
+    final previousDebugPrint = debugPrint;
+    final logs = <String>[];
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+    addTearDown(() => debugPrint = previousDebugPrint);
+
+    ChatTimelineRenderModel.fromMessages(
+      _duplicateMessages('same-id'),
+      duplicateReportScope: 'chat-a',
+    );
+    ChatTimelineRenderModel.fromMessages(
+      _duplicateMessages('same-id'),
+      duplicateReportScope: 'chat-a',
+    );
+    ChatTimelineRenderModel.fromMessages(
+      _duplicateMessages('same-id'),
+      duplicateReportScope: 'chat-b',
+    );
+
+    final duplicateLogs = logs
+        .where((message) => message.contains('timeline-duplicate-message-ids'))
+        .toList(growable: false);
+    check(duplicateLogs).length.equals(2);
+  });
+
+  test('duplicate report throttle is a 256-entry access-ordered LRU', () {
+    final previousDebugPrint = debugPrint;
+    final logs = <String>[];
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+    addTearDown(() => debugPrint = previousDebugPrint);
+
+    void report(String id) {
+      ChatTimelineRenderModel.fromMessages(
+        _duplicateMessages(id),
+        duplicateReportScope: 'lru-chat',
+      );
+    }
+
+    for (var index = 0; index < 256; index += 1) {
+      report('duplicate-$index');
+    }
+    check(logs).length.equals(256);
+
+    report('duplicate-0');
+    check(logs).length.equals(256);
+    report('duplicate-256');
+    check(logs).length.equals(257);
+
+    // Touching duplicate-0 moved it to the newest position, so duplicate-1
+    // was the oldest report evicted by duplicate-256.
+    report('duplicate-0');
+    check(logs).length.equals(257);
+    report('duplicate-1');
+    check(logs).length.equals(258);
+  });
 
   test('keeps the same tail slot when a stream completes', () {
     final streamingMessages = <ChatMessage>[
@@ -364,4 +428,14 @@ void main() {
       expect(chatTurnPhaseForMessage(user), ChatTurnPhase.none);
     },
   );
+}
+
+List<ChatMessage> _duplicateMessages(String id) {
+  final message = ChatMessage(
+    id: id,
+    role: 'user',
+    content: id,
+    timestamp: DateTime(2026),
+  );
+  return <ChatMessage>[message, message.copyWith(content: 'duplicate')];
 }

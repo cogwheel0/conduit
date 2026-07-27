@@ -192,6 +192,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onTrailingRefresh,
     this.initialAnchor,
     this.pinnedUserMessageId,
+    this.trailingContent,
     this.hideUntilSettled = false,
     super.key,
   }) : assert(
@@ -205,6 +206,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
+  final Widget? trailingContent;
   final double topContentInset;
   final double bottomPadding;
   final double horizontalPadding;
@@ -256,6 +258,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   final ValueNotifier<double> _pinEndSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, int> _mountedRowCounts = <String, int>{};
+  Map<String, Rect>? _cachedFrameRowRects;
+  int? _cachedRowRectFrameStamp;
+  int _rowRectFrameStamp = 0;
+  bool _rowRectSnapshotInvalidationScheduled = false;
 
   late List<({String id, int sourceIndex})> _timelineEntries;
   late List<String> _messageIds;
@@ -269,6 +275,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   ChatTimelineViewportMetrics? _lastReportedMetrics;
   bool _userDragging = false;
   bool _programmaticNavigationActive = false;
+  double? _seekEntryOffset;
+  int? _seekEntryGeneration;
   bool _layoutMaintenanceScheduled = false;
   bool _metricsCallbackScheduled = false;
   bool _initialPositionResolved = false;
@@ -520,6 +528,26 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     return Map<String, Rect>.unmodifiable(rects);
   }
 
+  Map<String, Rect> _frameRowRectSnapshot() {
+    final cached = _cachedFrameRowRects;
+    if (cached != null && _cachedRowRectFrameStamp == _rowRectFrameStamp) {
+      return cached;
+    }
+    final snapshot = _mountedRowRectSnapshot();
+    _cachedFrameRowRects = snapshot;
+    _cachedRowRectFrameStamp = _rowRectFrameStamp;
+    if (!_rowRectSnapshotInvalidationScheduled) {
+      _rowRectSnapshotInvalidationScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _rowRectFrameStamp += 1;
+        _rowRectSnapshotInvalidationScheduled = false;
+        _cachedFrameRowRects = null;
+        _cachedRowRectFrameStamp = null;
+      });
+    }
+    return snapshot;
+  }
+
   Rect? get _viewportRect => _globalRectFor(_viewportKey);
 
   List<String> _visibleMessageIds([
@@ -674,7 +702,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     binding.addPostFrameCallback((_) {
       _metricsCallbackScheduled = false;
       if (!mounted) return;
-      final metrics = _currentMetrics(_mountedRowRectSnapshot());
+      final metrics = _currentMetrics(_frameRowRectSnapshot());
       if (metrics == null) return;
       _metricsSnapshot = metrics;
       if (metrics == _lastReportedMetrics) return;
@@ -697,7 +725,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         // unattached fallback exhausted its bounded frame polling.
         _scheduleInitialPositionCallback(_restoreInitialPosition);
       }
-      final rowRects = _mountedRowRectSnapshot();
+      final rowRects = _frameRowRectSnapshot();
       final centerRecoveryOwnedFrame = _maintainVisibleContent(rowRects);
       _updatePinGeometry();
       final oldestThresholdVisible = _anyOldestLoadedRowVisible(rowRects);
@@ -818,6 +846,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       if (_pinGeometryAttempts < _maxPinGeometryAttempts) {
         _pinGeometryAttempts += 1;
         _scheduleLayoutMaintenance();
+      } else if (!_pinGeometryReported) {
+        _pinGeometryReported = true;
+        widget.onPinEndSpaceChanged(_pinEndSpace.value);
       }
       return;
     }
@@ -1160,10 +1191,38 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     String messageId,
     int generation,
   ) async {
+    if (!mounted || generation != _navigationGeneration) return null;
     final targetIndex = _messageIndexById[messageId];
     if (targetIndex == null) return null;
+    final entryPosition = _dimensionedPosition;
+    if (entryPosition == null) return null;
+    final entryOffset = entryPosition.pixels;
+    _seekEntryOffset = entryOffset;
+    _seekEntryGeneration = generation;
+    void clearEntryOffset() {
+      if (_seekEntryGeneration != generation) return;
+      _seekEntryOffset = null;
+      _seekEntryGeneration = null;
+    }
+
+    void restoreEntryOffset() {
+      if (!mounted || generation != _navigationGeneration) return;
+      final position = _dimensionedPosition;
+      if (position == null) {
+        clearEntryOffset();
+        return;
+      }
+      position.jumpTo(
+        entryOffset
+            .clamp(position.minScrollExtent, position.maxScrollExtent)
+            .toDouble(),
+      );
+      clearEntryOffset();
+    }
+
     final binding = WidgetsBinding.instance;
-    final visibleIndices = _visibleMessageIds()
+    final initialRowRects = _mountedRowRectSnapshot();
+    final visibleIndices = _visibleMessageIds(null, initialRowRects)
         .map((id) => _messageIndexById[id])
         .whereType<int>()
         .toList(growable: false);
@@ -1181,22 +1240,42 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       math.max(_minSeekAttempts, indexDistance + 2),
     );
     for (var attempt = 0; attempt < attemptBudget; attempt += 1) {
-      final target = _targetOffsetForMessageTop(messageId);
-      if (target != null) return target;
       if (!mounted || generation != _navigationGeneration) return null;
+      final target = _targetOffsetForMessageTop(messageId);
+      if (target != null) {
+        clearEntryOffset();
+        return target;
+      }
       final position = _dimensionedPosition;
-      if (position == null) return null;
-      final direction = _seekDirectionForMessage(targetIndex);
+      if (position == null) {
+        restoreEntryOffset();
+        return null;
+      }
+      final rowRects = _mountedRowRectSnapshot();
+      final attemptVisibleIndices = _visibleMessageIds(null, rowRects)
+          .map((id) => _messageIndexById[id])
+          .whereType<int>()
+          .toList(growable: false);
+      final direction = _seekDirectionForMessage(
+        targetIndex,
+        attemptVisibleIndices,
+      );
       final next = (position.pixels + direction * position.viewportDimension)
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
-      if ((next - position.pixels).abs() <= _geometryEpsilon) return null;
+      if ((next - position.pixels).abs() <= _geometryEpsilon) {
+        restoreEntryOffset();
+        return null;
+      }
       position.jumpTo(next);
       binding.scheduleFrame();
       await binding.endOfFrame;
+      if (!mounted || generation != _navigationGeneration) return null;
     }
+    if (!mounted || generation != _navigationGeneration) return null;
     final target = _targetOffsetForMessageTop(messageId);
     if (target == null) {
+      restoreEntryOffset();
       DebugLogger.log(
         'timeline-seek-exhausted',
         scope: 'chat/timeline/viewport',
@@ -1206,15 +1285,13 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
           'attemptBudget': attemptBudget,
         },
       );
+    } else {
+      clearEntryOffset();
     }
     return target;
   }
 
-  int _seekDirectionForMessage(int targetIndex) {
-    final visibleIndices = _visibleMessageIds()
-        .map((id) => _messageIndexById[id])
-        .whereType<int>()
-        .toList(growable: false);
+  int _seekDirectionForMessage(int targetIndex, List<int> visibleIndices) {
     if (visibleIndices.isNotEmpty) {
       final firstVisible = visibleIndices.reduce(math.min);
       final lastVisible = visibleIndices.reduce(math.max);
@@ -1237,12 +1314,24 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         .toDouble();
   }
 
-  void _cancelProgrammaticNavigation() {
+  void _cancelProgrammaticNavigation({bool restoreSeekEntryOffset = false}) {
     final wasActive = _programmaticNavigationActive;
+    final entryOffset =
+        restoreSeekEntryOffset && _seekEntryGeneration == _navigationGeneration
+        ? _seekEntryOffset
+        : null;
+    _seekEntryOffset = null;
+    _seekEntryGeneration = null;
     _navigationGeneration += 1;
     _programmaticNavigationActive = false;
     if (wasActive && _scrollController.hasClients) {
-      _scrollController.position.jumpTo(_scrollController.position.pixels);
+      final position = _scrollController.position;
+      position.jumpTo(
+        entryOffset
+                ?.clamp(position.minScrollExtent, position.maxScrollExtent)
+                .toDouble() ??
+            position.pixels,
+      );
     }
   }
 
@@ -1251,7 +1340,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
     _userDragging = true;
     _anchorCorrectionAttempts = 0;
     _centerRecoveryPending = false;
-    _cancelProgrammaticNavigation();
+    _cancelProgrammaticNavigation(restoreSeekEntryOffset: true);
     _freeAnchor = _captureVisibleMaintenanceAnchor();
     widget.onUserDragStart();
   }
@@ -1425,7 +1514,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         child: Listener(
           behavior: HitTestBehavior.translucent,
           onPointerDown: (_) {
-            _cancelProgrammaticNavigation();
+            _cancelProgrammaticNavigation(restoreSeekEntryOffset: true);
             _centerRecoveryPending = false;
             widget.onPointerDown();
           },
@@ -1482,6 +1571,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
                             key: const ValueKey<String>('chat-composer-spacer'),
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              ?widget.trailingContent,
                               // The sentinel must remain above both spacer
                               // terms so pin geometry is independent of its
                               // own output and converges without oscillation.

@@ -42,9 +42,12 @@ void _viewportTest(String description, WidgetTesterCallback callback) {
   });
 }
 
-ChatTimelineViewportController _controller() {
+ChatTimelineViewportController _controller(WidgetTester tester) {
   final controller = ChatTimelineViewportController();
-  addTearDown(controller.dispose);
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
   return controller;
 }
 
@@ -112,10 +115,27 @@ Future<void> _pumpSettleFrames(
 }
 
 void main() {
+  test(
+    'viewport rejects simultaneous anchor maintenance and latest follow',
+    () {
+      final controller = ChatTimelineViewportController();
+      addTearDown(controller.dispose);
+
+      check(
+        () => _viewport(
+          controller: controller,
+          ids: const <String>[],
+          maintainVisibleAnchor: true,
+          followLatest: true,
+        ),
+      ).throws<AssertionError>();
+    },
+  );
+
   _viewportTest('older center-sliver pages prepend without moving content', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var ids = List<String>.generate(50, (index) => 'message-${index + 50}');
     late StateSetter rebuild;
 
@@ -160,7 +180,7 @@ void main() {
   _viewportTest(
     'enabling free-scroll maintenance captures before same-frame insertion',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
       var ids = List<String>.generate(24, (index) => 'message-$index');
       var maintainVisibleAnchor = false;
       final mountCounts = <String, int>{};
@@ -210,7 +230,7 @@ void main() {
   _viewportTest('viewport movement does not alter a free-scroll anchor', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(24, (index) => 'message-$index');
     var viewportTop = 0.0;
     late StateSetter rebuild;
@@ -265,7 +285,7 @@ void main() {
   });
 
   _viewportTest('identical viewport metrics notify only once', (tester) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var callbacks = 0;
 
     await tester.pumpWidget(
@@ -291,7 +311,7 @@ void main() {
   _viewportTest('oldest threshold fires once per visibility edge', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var ids = List<String>.generate(4, (index) => 'message-$index');
     var thresholdCalls = 0;
     late StateSetter rebuild;
@@ -336,7 +356,7 @@ void main() {
   _viewportTest('growing live tail leaves a detached marker pixel-stable', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(24, (index) => 'message-$index');
     var tailHeight = 400.0;
     late StateSetter rebuild;
@@ -375,7 +395,7 @@ void main() {
   _viewportTest('anchor capture prefers the long row intersecting the inset', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(16, (index) => 'message-$index');
 
     await tester.pumpWidget(
@@ -420,7 +440,7 @@ void main() {
           streamingHapticsEnabledProvider.overrideWithValue(false),
         ],
       );
-      final controller = _controller();
+      final controller = _controller(tester);
       final ids = [
         ...List<String>.generate(20, (index) => 'message-$index'),
         'assistant',
@@ -506,7 +526,7 @@ void main() {
   _viewportTest(
     'expansion and insertion above the visible anchor are corrected',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
       var ids = List<String>.generate(30, (index) => 'message-$index');
       var expandedHeight = 52.0;
       late StateSetter rebuild;
@@ -556,7 +576,7 @@ void main() {
   _viewportTest('pin end space contracts without moving the prompt', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     const ids = ['user', 'tool', 'assistant'];
     var assistantHeight = 80.0;
     var pinEndSpace = -1.0;
@@ -610,10 +630,78 @@ void main() {
     check(reportedPinSpaces.last).equals(0);
   });
 
+  _viewportTest('missing pin geometry reports one terminal value', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final reportedPinSpaces = <double>[];
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: const ['assistant'],
+          pinnedUserMessageId: 'missing-user',
+          pinAutomatic: true,
+          followLatest: false,
+          onPinEndSpaceChanged: reportedPinSpaces.add,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(reportedPinSpaces).deepEquals([0]);
+    controller.requestLayoutMaintenance();
+    await tester.pumpAndSettle();
+    check(reportedPinSpaces).deepEquals([0]);
+  });
+
+  _viewportTest('populated transcript keeps trailing notice in pin geometry', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    var noticeHeight = 60.0;
+    var pinEndSpace = 0.0;
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: const ['user', 'assistant'],
+              pinnedUserMessageId: 'user',
+              pinAutomatic: true,
+              followLatest: false,
+              trailingContent: SizedBox(
+                key: const ValueKey('server-warning-slot'),
+                height: noticeHeight,
+              ),
+              onPinEndSpaceChanged: (value) => pinEndSpace = value,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(
+      find.byKey(const ValueKey('server-warning-slot')).evaluate(),
+    ).length.equals(1);
+    final originalSpace = pinEndSpace;
+
+    rebuild(() => noticeHeight = 140);
+    await tester.pump();
+    await tester.pump();
+
+    check(pinEndSpace).isCloseTo(originalSpace - 80, 1);
+  });
+
   _viewportTest('later pin movement is monotonic and has no second settle', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = [
       ...List<String>.generate(18, (index) => 'history-$index'),
       'user',
@@ -660,7 +748,7 @@ void main() {
   _viewportTest('deep-history pin staging stays one viewport from latest', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(80, (index) => 'message-$index');
 
     await tester.pumpWidget(
@@ -690,7 +778,7 @@ void main() {
   _viewportTest('saved intra-row pixel anchor restores exactly', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(20, (index) => 'message-$index');
 
     await tester.pumpWidget(
@@ -719,7 +807,7 @@ void main() {
   _viewportTest(
     'saved anchor restores after its empty fallback becomes visible',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
       var ids = <String>[];
       late StateSetter rebuild;
 
@@ -768,7 +856,7 @@ void main() {
   _viewportTest(
     'saved anchor eventually reveals a permanently empty transcript',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
 
       await tester.pumpWidget(
         _viewportHost(
@@ -793,7 +881,7 @@ void main() {
   _viewportTest(
     'initially empty transcript settles at latest after late load',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
       var ids = <String>[];
       late StateSetter rebuild;
 
@@ -821,7 +909,7 @@ void main() {
   _viewportTest('center-row replacement preserves the visible pixel anchor', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var ids = List<String>.generate(20, (index) => 'message-$index');
     late StateSetter rebuild;
 
@@ -860,7 +948,7 @@ void main() {
   _viewportTest('message navigation seeks rows outside the render cache', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(120, (index) => 'message-$index');
 
     await tester.pumpWidget(
@@ -894,10 +982,58 @@ void main() {
     ).isCloseTo(viewportTop + _topContentInset, 1);
   });
 
+  _viewportTest('failed off-cache navigation restores its entry offset', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(2000, (index) => 'message-$index');
+
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pumpAndSettle();
+    final entryOffset = controller.metrics!.pixels;
+
+    final navigation = controller.jumpMessageToTop('message-0');
+    await tester.pumpAndSettle();
+
+    check(await navigation).isFalse();
+    check(controller.metrics!.pixels).isCloseTo(entryOffset, 1);
+  });
+
+  _viewportTest('pointer-down restores an interrupted off-cache seek', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(2000, (index) => 'message-$index');
+
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pumpAndSettle();
+    final entryOffset = controller.metrics!.pixels;
+
+    final navigation = controller.jumpMessageToTop('message-0');
+    await tester.pump();
+    check(controller.isProgrammaticNavigationActive).isTrue();
+
+    final gesture = await _startTrackedGesture(
+      tester,
+      tester.getCenter(find.byType(CustomScrollView)),
+    );
+    await tester.pump();
+
+    check(controller.isProgrammaticNavigationActive).isFalse();
+    check(controller.metrics!.pixels).isCloseTo(entryOffset, 1);
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    check(await navigation).isFalse();
+  });
+
   _viewportTest('explicit latest owns one animation and remains attached', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(30, (index) => 'message-$index');
 
     await tester.pumpWidget(
@@ -952,7 +1088,7 @@ void main() {
   });
 
   _viewportTest('a real drag cancels programmatic navigation', (tester) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final ids = List<String>.generate(30, (index) => 'message-$index');
     var pointerDowns = 0;
     var dragStarts = 0;
@@ -1004,7 +1140,7 @@ void main() {
   _viewportTest('initial settlement is excluded from paint and interaction', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var hidden = true;
     late StateSetter rebuild;
 
@@ -1040,7 +1176,7 @@ void main() {
   _viewportTest('composer padding alone is not real transcript overflow', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
 
     await tester.pumpWidget(
       _viewportHost(
@@ -1061,7 +1197,7 @@ void main() {
   _viewportTest('content taller than the viewport is real overflow', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
 
     await tester.pumpWidget(
       _viewportHost(
@@ -1080,7 +1216,7 @@ void main() {
   _viewportTest(
     'trailing refresh needs a past-threshold drag and fires once per drag',
     (tester) async {
-      final controller = _controller();
+      final controller = _controller(tester);
       var refreshes = 0;
 
       await tester.pumpWidget(
@@ -1129,7 +1265,7 @@ void main() {
   _viewportTest('trailing refresh subtracts reversed overscroll', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var refreshes = 0;
 
     await tester.pumpWidget(
@@ -1173,7 +1309,7 @@ void main() {
   _viewportTest('older loading clears stale trailing overscroll', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var loadingOlder = false;
     var refreshes = 0;
     late StateSetter rebuild;
@@ -1230,7 +1366,7 @@ void main() {
   _viewportTest('refresh completion cannot re-arm the active drag', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var refreshes = 0;
     var completion = Completer<void>();
 
@@ -1283,7 +1419,7 @@ void main() {
   _viewportTest('synchronous refresh failures clear and can retry', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var refreshes = 0;
 
     await tester.pumpWidget(
@@ -1312,6 +1448,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       check(refreshes).equals(expectedRefreshes);
+      check(tester.takeException()).isNull();
       check(find.byType(CircularProgressIndicator).evaluate()).isEmpty();
     }
   });
@@ -1319,7 +1456,7 @@ void main() {
   _viewportTest('owner change removes an active trailing refresh indicator', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     final completion = Completer<void>();
     var ownerGeneration = 1;
     late StateSetter rebuild;
@@ -1361,7 +1498,7 @@ void main() {
   _viewportTest('owner generation change cancels stale navigation', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     var ownerGeneration = 1;
     var ids = List<String>.generate(30, (index) => 'old-$index');
     late StateSetter rebuild;
@@ -1417,8 +1554,15 @@ void main() {
   _viewportTest('controller dispose permanently fences later commands', (
     tester,
   ) async {
-    // Disposed explicitly below; do not register a second teardown disposal.
     final controller = ChatTimelineViewportController();
+    var disposed = false;
+    void disposeOnce() {
+      if (disposed) return;
+      disposed = true;
+      controller.dispose();
+    }
+
+    addTearDown(disposeOnce);
 
     await tester.pumpWidget(
       _viewportHost(
@@ -1431,7 +1575,7 @@ void main() {
     await tester.pumpAndSettle();
     check(controller.isAttached).isTrue();
 
-    controller.dispose();
+    disposeOnce();
     check(controller.isAttached).isFalse();
     check(await controller.jumpMessageToTop('message-10')).isFalse();
 
@@ -1443,7 +1587,7 @@ void main() {
   _viewportTest('duplicate message IDs collapse to their first source index', (
     tester,
   ) async {
-    final controller = _controller();
+    final controller = _controller(tester);
     const ids = ['first', 'duplicate', 'duplicate', 'last'];
 
     await tester.pumpWidget(
@@ -1492,7 +1636,10 @@ Widget _viewport({
   bool pinAutomatic = false,
   bool isLoadingOlder = false,
   bool maintainVisibleAnchor = false,
+  // Defaults to the inverse so free-scroll anchor maintenance and automatic
+  // latest ownership remain mutually exclusive in tests, as in ChatPage.
   bool? followLatest,
+  Widget? trailingContent,
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
   ChatTimelineRowBuilder? rowBuilder,
@@ -1510,6 +1657,7 @@ Widget _viewport({
     messageIds: ids,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
+    trailingContent: trailingContent,
     topContentInset: _topContentInset,
     bottomPadding: 80,
     horizontalPadding: 16,

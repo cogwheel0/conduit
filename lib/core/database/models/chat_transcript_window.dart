@@ -119,6 +119,10 @@ final class ChatScrollAnchor {
   });
 
   final String messageId;
+
+  /// Logical pixels from the viewport's top content inset to the top edge of
+  /// [messageId]'s row. Negative means the row begins above that inset;
+  /// positive means it begins below it.
   final double offsetWithinMessage;
   final int loadedCount;
 }

@@ -110,12 +110,18 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        key: const ValueKey('chat-empty-state-scroll-view'),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Padding(
-            padding: padding,
+      builder: (context, constraints) {
+        final resolvedPadding = padding.resolve(Directionality.of(context));
+        return SingleChildScrollView(
+          key: const ValueKey('chat-empty-state-scroll-view'),
+          padding: resolvedPadding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: math.max(
+                0,
+                constraints.maxHeight - resolvedPadding.vertical,
+              ),
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -123,8 +129,8 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
               children: children,
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -2277,7 +2283,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
     );
-    final timeline = ChatTimelineRenderModel.fromMessages(messages);
+    final timeline = ChatTimelineRenderModel.fromMessages(
+      messages,
+      duplicateReportScope:
+          '${identityHashCode(this)}:$_conversationOwnerGeneration',
+    );
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
     _syncLayoutBottomAnchor();
 
@@ -2318,6 +2328,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       messageIds: messageIds,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
+      trailingContent: const ServerVersionWarningCard(),
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,

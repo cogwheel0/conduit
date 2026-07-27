@@ -685,9 +685,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: Routes.splash,
     refreshListenable: notifier,
     redirect: notifier.redirect,
-    routes: [
-      ShellRoute(builder: (context, state, child) => child, routes: appRoutes),
-    ],
+    routes: appRoutes,
     observers: [NavigationLoggingObserver()],
     errorBuilder: (context, state) {
       final l10n = AppLocalizations.of(context);

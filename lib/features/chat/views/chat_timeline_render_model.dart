@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/models/chat_message.dart';
@@ -6,6 +8,16 @@ import 'chat_turn_render_state.dart';
 
 @immutable
 class ChatTimelineRenderModel {
+  static const int _maxReportedDuplicateMessageIds = 256;
+  static final LinkedHashSet<({String scope, String messageId})>
+  _reportedDuplicateMessageIds =
+      LinkedHashSet<({String scope, String messageId})>();
+
+  @visibleForTesting
+  static void debugResetDuplicateReportCache() {
+    _reportedDuplicateMessageIds.clear();
+  }
+
   const ChatTimelineRenderModel._({
     required this.historyMessages,
     required this.tailAssistant,
@@ -17,7 +29,10 @@ class ChatTimelineRenderModel {
     required this.sourceIndexByRenderIndex,
   });
 
-  factory ChatTimelineRenderModel.fromMessages(List<ChatMessage> messages) {
+  factory ChatTimelineRenderModel.fromMessages(
+    List<ChatMessage> messages, {
+    String duplicateReportScope = 'unscoped',
+  }) {
     final tailAssistantSourceIndex = _tailAssistantIndex(messages);
     final historyLength = tailAssistantSourceIndex ?? messages.length;
     final historyMessages = List<ChatMessage>.unmodifiable(
@@ -34,11 +49,13 @@ class ChatTimelineRenderModel {
     final messageIds = <String>[];
     final sourceIndexByRenderIndex = <int>[];
     var duplicateCount = 0;
+    final duplicateMessageIds = <String>{};
 
     for (var index = 0; index < historyMessages.length; index += 1) {
       final messageId = historyMessages[index].id;
       if (listIndexByMessageId.containsKey(messageId)) {
         duplicateCount += 1;
+        duplicateMessageIds.add(messageId);
         continue;
       }
       listIndexByMessageId[messageId] = messageIds.length;
@@ -52,17 +69,37 @@ class ChatTimelineRenderModel {
       sourceIndexByRenderIndex.add(historyLength);
     } else if (tailAssistant != null) {
       duplicateCount += 1;
+      duplicateMessageIds.add(tailAssistant.id);
     }
-    assert(() {
-      if (duplicateCount > 0) {
+    if (duplicateCount > 0) {
+      final newlyObservedIds = <String>[];
+      for (final messageId in duplicateMessageIds) {
+        final reportKey = (
+          scope: duplicateReportScope,
+          messageId: messageId,
+        );
+        if (_reportedDuplicateMessageIds.remove(reportKey)) {
+          _reportedDuplicateMessageIds.add(reportKey);
+          continue;
+        }
+        _reportedDuplicateMessageIds.add(reportKey);
+        newlyObservedIds.add(messageId);
+      }
+      while (_reportedDuplicateMessageIds.length >
+          _maxReportedDuplicateMessageIds) {
+        _reportedDuplicateMessageIds.remove(_reportedDuplicateMessageIds.first);
+      }
+      if (newlyObservedIds.isNotEmpty) {
         DebugLogger.log(
           'timeline-duplicate-message-ids',
           scope: 'chat/layout',
-          data: {'duplicateCount': duplicateCount},
+          data: {
+            'duplicateCount': duplicateCount,
+            'messageIds': newlyObservedIds,
+          },
         );
       }
-      return true;
-    }());
+    }
 
     return ChatTimelineRenderModel._(
       historyMessages: historyMessages,
@@ -128,10 +165,7 @@ class ChatTimelineRenderModel {
     if (sourceIndex == tailAssistantSourceIndex) {
       return tailAssistant;
     }
-    if (sourceIndex < historyMessages.length) {
-      return historyMessages[sourceIndex];
-    }
-    return null;
+    return historyMessages[sourceIndex];
   }
 
   int? sourceIndexAtRenderIndex(int renderIndex) {
