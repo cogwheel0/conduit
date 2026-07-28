@@ -1482,18 +1482,31 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   Widget _buildRow(BuildContext context, int chronologicalIndex) {
     final entry = _timelineEntries[chronologicalIndex];
     final id = entry.id;
+    final row = _MountedTimelineRow(
+      key: _rowKeys[id],
+      messageId: id,
+      onMounted: _registerMountedRow,
+      onUnmounted: _unregisterMountedRow,
+      child: IndexedSemantics(
+        index: chronologicalIndex,
+        child: widget.rowBuilder(context, entry.sourceIndex),
+      ),
+    );
     return KeyedSubtree(
       key: _TimelineRowKey(id),
-      child: _MountedTimelineRow(
-        key: _rowKeys[id],
-        messageId: id,
-        onMounted: _registerMountedRow,
-        onUnmounted: _unregisterMountedRow,
-        child: IndexedSemantics(
-          index: chronologicalIndex,
-          child: widget.rowBuilder(context, entry.sourceIndex),
-        ),
-      ),
+      child: id == widget.pinnedUserMessageId
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  key: const ValueKey<String>('chat-pinned-turn-top-clearance'),
+                  height: math.max(0, widget.topContentInset),
+                ),
+                row,
+              ],
+            )
+          : row,
     );
   }
 
@@ -1561,7 +1574,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   }) {
     final transcript = NotificationListener<ScrollMetricsNotification>(
       onNotification: (notification) {
-        if (notification.depth == 0) _scheduleLayoutMaintenance();
+        // A settled automatic pin owns a fixed pixel target and viewport-sized
+        // support. Streamed row growth does not change either value, so avoid
+        // remeasuring the whole transcript for every markdown extent update.
+        // Explicit widget/controller changes still request maintenance.
+        if (notification.depth == 0 &&
+            !(widget.pinAutomatic &&
+                _pinGeometryReported &&
+                !_userDragging &&
+                !_programmaticNavigationActive)) {
+          _scheduleLayoutMaintenance();
+        }
         return false;
       },
       child: NotificationListener<ScrollNotification>(
@@ -1674,19 +1697,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       key: _viewportKey,
       children: [
         Positioned.fill(
-          child: ClipRect(
-            key: const ValueKey<String>('chat-timeline-content-clip'),
-            clipper: _TopContentInsetClipper(widget.topContentInset),
-            child: Opacity(
-              key: const ValueKey<String>('sliver-transcript-visibility'),
-              opacity: shouldHide ? 0 : 1,
-              child: ExcludeSemantics(
-                excluding: shouldHide,
-                child: IgnorePointer(
-                  key: const ValueKey<String>('sliver-transcript-interaction'),
-                  ignoring: shouldHide,
-                  child: transcript,
-                ),
+          child: Opacity(
+            key: const ValueKey<String>('sliver-transcript-visibility'),
+            opacity: shouldHide ? 0 : 1,
+            child: ExcludeSemantics(
+              excluding: shouldHide,
+              child: IgnorePointer(
+                key: const ValueKey<String>('sliver-transcript-interaction'),
+                ignoring: shouldHide,
+                child: transcript,
               ),
             ),
           ),
@@ -1708,24 +1727,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       ],
     );
   }
-}
-
-class _TopContentInsetClipper extends CustomClipper<Rect> {
-  const _TopContentInsetClipper(this.inset);
-
-  final double inset;
-
-  @override
-  Rect getClip(Size size) => Rect.fromLTRB(
-    0,
-    inset.clamp(0, size.height).toDouble(),
-    size.width,
-    size.height,
-  );
-
-  @override
-  bool shouldReclip(covariant _TopContentInsetClipper oldClipper) =>
-      inset != oldClipper.inset;
 }
 
 class _MountedTimelineRow extends StatefulWidget {

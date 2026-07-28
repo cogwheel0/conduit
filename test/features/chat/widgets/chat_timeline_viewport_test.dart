@@ -178,7 +178,7 @@ void main() {
     check(controller.rowRect(anchorId)!.top).isCloseTo(before, 1);
   });
 
-  _viewportTest('transcript paint is clipped below the toolbar inset', (
+  _viewportTest('pinned turn clears previous content above the toolbar', (
     tester,
   ) async {
     final controller = _controller(tester);
@@ -187,21 +187,121 @@ void main() {
       _viewportHost(
         _viewport(
           controller: controller,
-          ids: List<String>.generate(20, (index) => 'message-$index'),
+          ids: const ['history-user', 'history-assistant', 'user', 'assistant'],
+          pinnedUserMessageId: 'user',
+          pinAutomatic: true,
+          followLatest: false,
           rowHeight: (_) => 64,
         ),
       ),
     );
     await tester.pumpAndSettle();
+    check(await controller.jumpMessageToTop('user')).isTrue();
+    await tester.pump();
 
-    final clip = tester.widget<ClipRect>(
-      find.byKey(const ValueKey<String>('chat-timeline-content-clip')),
-    );
-    final viewportSize = tester.getSize(find.byType(CustomScrollView));
-    final paintBounds = clip.clipper!.getClip(viewportSize);
-    check(paintBounds.top).equals(_topContentInset);
-    check(paintBounds.bottom).equals(viewportSize.height);
+    final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    check(
+      controller.rowRect('user')!.top,
+    ).isCloseTo(viewportTop + _topContentInset, 1);
+    check(
+      controller.rowRect('history-assistant')!.bottom,
+    ).isLessOrEqual(viewportTop + 1);
+    check(
+      find
+          .byKey(const ValueKey<String>('chat-pinned-turn-top-clearance'))
+          .evaluate(),
+    ).length.equals(1);
+    check(
+      find
+          .byKey(const ValueKey<String>('chat-timeline-content-clip'))
+          .evaluate(),
+    ).isEmpty();
   });
+
+  _viewportTest(
+    'short turn cleanup cannot strand completed content under the toolbar',
+    (tester) async {
+      final providerContainer = ProviderContainer.test(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          streamingHapticsEnabledProvider.overrideWithValue(false),
+        ],
+      );
+      final controller = _controller(tester);
+      const ids = ['history-user', 'history-assistant', 'user', 'assistant'];
+      final historyAssistant = ChatMessage(
+        id: 'history-assistant',
+        role: 'assistant',
+        content: 'Previous response content',
+        timestamp: DateTime(2026),
+        model: 'test-model',
+        isStreaming: false,
+        metadata: const {'responseDone': true},
+      );
+      String? pinnedUserMessageId = 'user';
+      var pinAutomatic = true;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: providerContainer,
+          child: _viewportHost(
+            StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return _viewport(
+                  controller: controller,
+                  ids: ids,
+                  pinnedUserMessageId: pinnedUserMessageId,
+                  pinAutomatic: pinAutomatic,
+                  followLatest: false,
+                  rowBuilder: (context, index) {
+                    final id = ids[index];
+                    if (id == 'history-assistant') {
+                      return AssistantMessageWidget(
+                        message: historyAssistant,
+                        isStreaming: false,
+                        showFollowUps: false,
+                        animateOnMount: false,
+                        suppressStreamingHaptics: true,
+                        onDelete: () {},
+                      );
+                    }
+                    return SizedBox(height: id.endsWith('user') ? 75 : 80);
+                  },
+                );
+              },
+            ),
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(await controller.jumpMessageToTop('user')).isTrue();
+      await tester.pumpAndSettle();
+
+      rebuild(() {
+        pinnedUserMessageId = null;
+        pinAutomatic = false;
+      });
+      await tester.pump();
+      controller.jumpToLatest();
+      await tester.pumpAndSettle();
+
+      final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+      final contentRect = tester.getRect(
+        find.text('Previous response content'),
+      );
+      check(
+        contentRect.top,
+      ).isGreaterOrEqual(viewportTop + _topContentInset - 1);
+      check(controller.distanceFromLatest).isLessThan(1);
+    },
+  );
 
   _viewportTest(
     'live footer is a separate sliver and cannot resize the assistant row',
@@ -666,15 +766,17 @@ void main() {
     },
   );
 
-  _viewportTest('pin end space contracts without moving the prompt', (
+  _viewportTest('streamed row growth does not repeat pin maintenance', (
     tester,
   ) async {
     final controller = _controller(tester);
     const ids = ['user', 'tool', 'assistant'];
-    var assistantHeight = 80.0;
+    final assistantHeight = ValueNotifier<double>(80);
+    addTearDown(assistantHeight.dispose);
     var pinEndSpace = -1.0;
     String? pinnedUserMessageId = 'user';
     final reportedPinSpaces = <double>[];
+    var metricsReportCount = 0;
     late StateSetter rebuild;
 
     await tester.pumpWidget(
@@ -692,10 +794,20 @@ void main() {
                 pinEndSpace = value;
                 reportedPinSpaces.add(value);
               },
-              rowHeight: (id) => switch (id) {
-                'user' => 64,
-                'tool' => 48,
-                _ => assistantHeight,
+              onMetricsChanged: (_) => metricsReportCount += 1,
+              rowBuilder: (context, index) {
+                final id = ids[index];
+                if (id == 'assistant') {
+                  return ValueListenableBuilder<double>(
+                    valueListenable: assistantHeight,
+                    builder: (context, height, _) =>
+                        SizedBox(height: height, child: Text(id)),
+                  );
+                }
+                return SizedBox(
+                  height: id == 'user' ? 64 : 48,
+                  child: Text(id),
+                );
               },
             );
           },
@@ -705,16 +817,22 @@ void main() {
     await tester.pumpAndSettle();
     check(pinEndSpace).isGreaterThan(0);
     check(await controller.jumpMessageToTop('user')).isTrue();
-    await tester.pump();
+    await tester.pumpAndSettle();
     final promptTop = controller.rowRect('user')!.top;
     final originalSpace = pinEndSpace;
+    final initialReportCount = reportedPinSpaces.length;
+    final initialMetricsReportCount = metricsReportCount;
 
-    rebuild(() => assistantHeight = 240);
-    await tester.pump();
-    await tester.pump();
+    for (final height in <double>[120, 160, 200, 240]) {
+      assistantHeight.value = height;
+      await tester.pump();
+      await tester.pump();
+    }
 
     check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
-    check(pinEndSpace).isCloseTo(originalSpace - 160, 1);
+    check(pinEndSpace).equals(originalSpace);
+    check(reportedPinSpaces.length).equals(initialReportCount);
+    check(metricsReportCount).equals(initialMetricsReportCount);
     check(reportedPinSpaces).every((space) => space.isGreaterOrEqual(0));
 
     rebuild(() => pinnedUserMessageId = null);
