@@ -151,10 +151,10 @@ Map<String, dynamic> _activeEnvelope({
 
 Map<String, dynamic> _titleEnvelope({
   required String chatId,
-  required String title,
+  required Object payload,
 }) => <String, dynamic>{
   'chat_id': chatId,
-  'data': <String, dynamic>{'type': 'chat:title', 'data': title},
+  'data': <String, dynamic>{'type': 'chat:title', 'data': payload},
 };
 
 ProviderContainer _makeContainer({
@@ -321,7 +321,7 @@ void main() {
       container.read(activeConversationProvider.notifier).set(_conv('c1'));
 
       socket.registrations.single.handler(
-        _titleEnvelope(chatId: 'c1', title: 'Generated title'),
+        _titleEnvelope(chatId: 'c1', payload: 'Generated title'),
         null,
       );
 
@@ -332,6 +332,29 @@ void main() {
         container.read(activeConversationProvider)?.title,
       ).equals('Generated title');
       check(container.read(activeChatIdsProvider)).isEmpty();
+    });
+
+    test('persists a Map-shaped generated title payload', () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = _makeContainer(
+        socket: socket,
+        conversations: [_conv('c1')],
+      );
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+
+      socket.registrations.single.handler(
+        _titleEnvelope(
+          chatId: 'c1',
+          payload: <String, dynamic>{'title': 'Mapped title'},
+        ),
+        null,
+      );
+
+      check(
+        container.read(conversationsProvider).requireValue.single.title,
+      ).equals('Mapped title');
     });
   });
 

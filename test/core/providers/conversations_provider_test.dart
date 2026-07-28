@@ -716,6 +716,41 @@ void main() {
       },
     );
 
+    test('server-generated title preserves a pending local rename', () async {
+      await seedServerChat('chat-1', updatedAt: 100);
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'chat-1',
+        title: const Value('My local title'),
+        updatedAt: const Value(101),
+        enqueue: false,
+      );
+      final container = makeContainer();
+      await container.read(conversationsProvider.future);
+
+      container
+          .read(conversationsProvider.notifier)
+          .applyServerGeneratedTitle('chat-1', 'Generated title');
+
+      final row = await waitForAsync<ChatRow?>(
+        () => db.chatsDao.getChat('chat-1'),
+        condition: (row) =>
+            row?.title == 'My local title' &&
+            row!.blobMeta.contains('My local title'),
+      );
+      check(row!.dirty).isTrue();
+      final messages = await db.messagesDao.getForChat('chat-1');
+      final blob = ChatBlobMapper.rowsToBlob(chatRowsFromDb(row, messages));
+      check(blob['title']).equals('My local title');
+      await waitFor(() {
+        return container
+                .read(conversationsProvider)
+                .requireValue
+                .single
+                .title ==
+            'My local title';
+      });
+    });
+
     test(
       'missing remote conversation update submits reconcile pull immediately',
       () async {

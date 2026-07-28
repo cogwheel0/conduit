@@ -22,6 +22,17 @@ void main() {
       check(adapter.lastPath).equals('/api/v1/chats/already-gone');
     },
   );
+
+  test('deleteConversation rethrows non-404 server failures', () async {
+    final adapter = _DeleteChatAdapter(statusCode: 500);
+    final api = _buildApiService(adapter);
+
+    await check(api.deleteConversation('still-there')).throws<DioException>();
+
+    check(adapter.requestCount).equals(1);
+    check(adapter.lastMethod).equals('DELETE');
+    check(adapter.lastPath).equals('/api/v1/chats/still-there');
+  });
 }
 
 final class _DeleteChatAdapter implements HttpClientAdapter {

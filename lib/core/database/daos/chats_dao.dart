@@ -728,10 +728,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///
   /// The caller holds `ChatLocks.runExclusive(chatId)`. This is a
   /// server-origin write, so it deliberately leaves dirty/outbox state alone.
-  Future<int> updateServerGeneratedTitle(String chatId, String title) {
+  Future<String?> updateServerGeneratedTitle(String chatId, String title) {
     return transaction(() async {
       final existing = await getChat(chatId);
-      if (existing == null) return 0;
+      if (existing == null) return null;
 
       Map<String, dynamic> blobMeta;
       try {
@@ -742,16 +742,26 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       } catch (_) {
         blobMeta = <String, dynamic>{};
       }
+      // A local envelope rename changes `chats.title` before the reconstructed
+      // blob metadata is updated. Preserve that divergence while the row is
+      // dirty; a dirty row whose title still matches its blob has only local
+      // body/message edits and can safely accept the generated title.
+      final blobHadTitle = blobMeta['blobHadTitle'] == true;
+      final hasPendingLocalTitle =
+          existing.dirty &&
+          (!blobHadTitle || blobMeta['blobTitleValue'] != existing.title);
+      final persistedTitle = hasPendingLocalTitle ? existing.title : title;
       blobMeta['v'] ??= 1;
       blobMeta['blobHadTitle'] = true;
-      blobMeta['blobTitleValue'] = title;
+      blobMeta['blobTitleValue'] = persistedTitle;
 
-      return (update(chats)..where((t) => t.id.equals(chatId))).write(
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
-          title: Value(title),
+          title: Value(persistedTitle),
           blobMeta: Value(jsonEncode(blobMeta)),
         ),
       );
+      return persistedTitle;
     });
   }
 

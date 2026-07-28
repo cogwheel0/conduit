@@ -16,8 +16,13 @@ import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
+import 'package:conduit/features/notes/views/note_editor_page.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,6 +55,82 @@ class _NoDrainSyncEngine extends SyncEngine {
   Future<void> reconcileNow() async {
     reconcileNowCalls++;
   }
+}
+
+class _DeletingOnReconcileSyncEngine extends _NoDrainSyncEngine {
+  _DeletingOnReconcileSyncEngine(this.db, {this.pullStarted, this.releasePull});
+
+  final AppDatabase db;
+  final Completer<void>? pullStarted;
+  final Completer<void>? releasePull;
+
+  @override
+  Future<PullResult?> requestPull({required String reason}) async {
+    pulls.add(reason);
+    final started = pullStarted;
+    if (started != null && !started.isCompleted) started.complete();
+    await releasePull?.future;
+    return null;
+  }
+
+  @override
+  Future<void> reconcileNow() async {
+    reconcileNowCalls++;
+    await db.notesDao.purgeReconciledNote('deleted-note');
+  }
+}
+
+class _EnabledNotesFeature extends NotesFeatureEnabledNotifier {
+  @override
+  bool build() => true;
+}
+
+Map<String, dynamic> _deletedNoteJson() => <String, dynamic>{
+  'id': 'deleted-note',
+  'user_id': _testUser.id,
+  'title': 'Deleted title',
+  'data': {
+    'content': {'md': 'Deleted body', 'html': '<p>Deleted body</p>'},
+  },
+  'meta': {},
+  'is_pinned': false,
+  'created_at': 1713786305000000000,
+  'updated_at': 1713786305000000000,
+};
+
+Future<void> _seedDeletedNote(AppDatabase db) {
+  return db
+      .into(db.notes)
+      .insertOnConflictUpdate(serverToNoteRow(_deletedNoteJson()));
+}
+
+Widget _noteEditorHarness({
+  required AppDatabase db,
+  required SyncEngine syncEngine,
+}) {
+  return ProviderScope(
+    overrides: [
+      appDatabaseProvider.overrideWith((ref) => db),
+      apiServiceProvider.overrideWithValue(null),
+      isAuthenticatedProvider2.overrideWithValue(true),
+      currentUserProvider2.overrideWithValue(_testUser),
+      connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
+      openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+      syncEngineProvider.overrideWith(() => syncEngine),
+      notesFeatureEnabledProvider.overrideWith(_EnabledNotesFeature.new),
+      noteByIdProvider(
+        'deleted-note',
+      ).overrideWith((ref) async => Note.fromJson(_deletedNoteJson())),
+    ],
+    child: MaterialApp(
+      theme: AppTheme.light(
+        TweakcnThemes.conduit,
+      ).copyWith(platform: TargetPlatform.android),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: const NoteEditorPage(noteId: 'deleted-note'),
+    ),
+  );
 }
 
 void main() {
@@ -118,6 +199,83 @@ void main() {
 
       check(syncEngine.pulls).deepEquals(['notes-refresh']);
       check(syncEngine.reconcileNowCalls).equals(1);
+    });
+
+    testWidgets(
+      'editor refresh clears a remotely deleted note title and content',
+      (tester) async {
+        final originalErrorWidgetBuilder = ErrorWidget.builder;
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await _seedDeletedNote(db);
+        final syncEngine = _DeletingOnReconcileSyncEngine(db);
+        await tester.pumpWidget(
+          _noteEditorHarness(db: db, syncEngine: syncEngine),
+        );
+        await tester.pumpAndSettle();
+
+        check(find.text('Deleted title').evaluate()).isNotEmpty();
+        final refresh = tester.widget<RefreshIndicator>(
+          find.byType(RefreshIndicator),
+        );
+        await refresh.onRefresh();
+        await tester.pumpAndSettle();
+
+        check(find.text('Note not found').evaluate()).isNotEmpty();
+        check(find.text('Deleted title').evaluate()).isEmpty();
+        check(find.text('Deleted body').evaluate()).isEmpty();
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+      },
+    );
+
+    testWidgets('editor refresh preserves edits entered while deleting', (
+      tester,
+    ) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _seedDeletedNote(db);
+      final pullStarted = Completer<void>();
+      final releasePull = Completer<void>();
+      final syncEngine = _DeletingOnReconcileSyncEngine(
+        db,
+        pullStarted: pullStarted,
+        releasePull: releasePull,
+      );
+      await tester.pumpWidget(
+        _noteEditorHarness(db: db, syncEngine: syncEngine),
+      );
+      await tester.pumpAndSettle();
+
+      final refresh = tester.widget<RefreshIndicator>(
+        find.byType(RefreshIndicator),
+      );
+      final refreshing = refresh.onRefresh();
+      await pullStarted.future;
+      await tester.tap(find.text('Deleted title').last);
+      await tester.pump();
+      final titleField = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText && widget.controller.text == 'Deleted title',
+      );
+      check(titleField.evaluate()).length.equals(1);
+      await tester.enterText(titleField, 'Edited during refresh');
+
+      releasePull.complete();
+      await refreshing;
+      await tester.pump();
+
+      check(find.text('Note not found').evaluate()).isEmpty();
+      final editedTitle = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText &&
+            widget.controller.text == 'Edited during refresh',
+      );
+      check(editedTitle.evaluate()).length.equals(1);
+      check(await db.notesDao.getNote('deleted-note')).isNull();
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
     });
 
     test('does not expose cached notes owned by another user', () async {

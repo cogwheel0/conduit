@@ -2303,9 +2303,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final note = await readLocalNote(db, widget.noteId);
       if (!mounted) return;
       if (note == null) {
+        // The user may have typed while the pull/reconcile/read was in flight.
+        // Keep the live editor and its queued save intact instead of replacing
+        // it with a not-found state and silently discarding those keystrokes.
+        if (_hasChanges) return;
         ref.invalidate(noteByIdProvider(widget.noteId));
         setState(() {
           _note = null;
+          _titleController.clear();
+          _installContentDocument(documentFromMarkdown(''));
+          _savedMarkdown = '';
+          _cachedWordCount = 0;
           _hasChanges = false;
         });
         return;

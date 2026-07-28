@@ -3703,23 +3703,7 @@ class Conversations extends _$Conversations {
       return;
     }
 
-    final scopedId = ChatStorageIdentity(
-      rawId: rawId,
-      storage: ChatStorageKind.openWebUi,
-    ).scopedId;
-    final current = state.asData?.value;
-    final index = current == null
-        ? -1
-        : _conversationIndexForSelection(current, scopedId);
-    if (current != null &&
-        index >= 0 &&
-        current[index].title != normalizedTitle) {
-      final updated = <Conversation>[...current];
-      updated[index] = current[index].copyWith(title: normalizedTitle);
-      state = AsyncData<List<Conversation>>(
-        List<Conversation>.unmodifiable(updated),
-      );
-    }
+    _applyGeneratedTitleToLoadedState(rawId, normalizedTitle);
 
     final db = ref.read(appDatabaseProvider);
     if (db == null) return;
@@ -3731,7 +3715,11 @@ class Conversations extends _$Conversations {
             () =>
                 db.chatsDao.updateServerGeneratedTitle(rawId, normalizedTitle),
           )
-          .then<void>((_) {})
+          .then<void>((persistedTitle) {
+            if (persistedTitle != null && persistedTitle != normalizedTitle) {
+              _applyGeneratedTitleToLoadedState(rawId, persistedTitle);
+            }
+          })
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
               'generated-title-write-failed',
@@ -3742,6 +3730,31 @@ class Conversations extends _$Conversations {
             );
           }),
     );
+  }
+
+  void _applyGeneratedTitleToLoadedState(String rawId, String title) {
+    final scopedId = ChatStorageIdentity(
+      rawId: rawId,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, scopedId);
+    if (current != null && index >= 0 && current[index].title != title) {
+      final updated = <Conversation>[...current];
+      updated[index] = current[index].copyWith(title: title);
+      state = AsyncData<List<Conversation>>(
+        List<Conversation>.unmodifiable(updated),
+      );
+    }
+
+    final active = ref.read(activeConversationProvider);
+    if (active != null && conversationMatchesScopedId(active, scopedId)) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(active.copyWith(title: title));
+    }
   }
 
   /// Rows are id-keyed in the database; the summary "trust" machinery is
@@ -7184,7 +7197,8 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     final payload = data['data'];
     final title = switch (payload) {
       String value => value.trim(),
-      Map value => value['title']?.toString().trim() ?? '',
+      Map value when value['title'] is String =>
+        (value['title'] as String).trim(),
       _ => '',
     };
     final chatId = _extractChatEventId(map);
@@ -7201,17 +7215,6 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     ref
         .read(conversationsProvider.notifier)
         .applyServerGeneratedTitle(chatId, title);
-
-    final active = ref.read(activeConversationProvider);
-    final scopedId = ChatStorageIdentity(
-      rawId: chatId,
-      storage: ChatStorageKind.openWebUi,
-    ).scopedId;
-    if (active != null && conversationMatchesScopedId(active, scopedId)) {
-      ref
-          .read(activeConversationProvider.notifier)
-          .set(active.copyWith(title: title));
-    }
   }
 
   String? _extractChatEventId(Map<String, dynamic> map) {
