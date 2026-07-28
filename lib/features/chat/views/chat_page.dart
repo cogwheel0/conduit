@@ -3057,9 +3057,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         });
       });
     }
-    final baseGreetingStyle = AppTypography.usesAppleRamp
-        ? theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle
-        : theme.textTheme.headlineSmall ?? AppTypography.headlineSmallStyle;
+    final baseGreetingStyle =
+        theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle;
     final greetingStyle = baseGreetingStyle.copyWith(
       fontWeight: FontWeight.w600,
       color: context.conduitTheme.textPrimary,

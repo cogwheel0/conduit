@@ -89,6 +89,12 @@ class AppTheme {
     );
 
     final TextTheme textTheme = _buildTextTheme(tokens: tokens, isDark: isDark);
+    final TextTheme materialChromeTextTheme =
+        AppTypography.materialChromeTextTheme(
+          primary: tokens.neutralOnSurface,
+          secondary: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
+          tertiary: tokens.neutralTone60,
+        );
     final cupertinoOverrideTheme = _buildCupertinoThemeData(
       brightness: brightness,
       variant: variant,
@@ -111,6 +117,8 @@ class AppTheme {
         elevation: Elevation.none,
         backgroundColor: surfaces.background,
         foregroundColor: tokens.neutralOnSurface,
+        titleTextStyle: materialChromeTextTheme.titleLarge,
+        toolbarTextStyle: materialChromeTextTheme.bodyMedium,
         systemOverlayStyle: systemUiOverlayStyleForBrightness(brightness),
       ),
       bottomSheetTheme: BottomSheetThemeData(
@@ -300,6 +308,11 @@ class AppTheme {
     final primaryText = tokens.neutralOnSurface;
     final secondaryText = isDark ? tokens.neutralTone80 : tokens.neutralTone60;
     final actionColor = variant.primary;
+    final chromeTextTheme = AppTypography.cupertinoChromeTextTheme(
+      primary: primaryText,
+      secondary: secondaryText,
+      tertiary: secondaryText,
+    );
 
     return CupertinoThemeData(
       brightness: brightness,
@@ -307,27 +320,23 @@ class AppTheme {
       scaffoldBackgroundColor: tokens.neutralTone10,
       barBackgroundColor: tokens.neutralTone10,
       textTheme: CupertinoTextThemeData(
-        textStyle: AppTypography.bodyLargeStyle.copyWith(color: primaryText),
-        actionTextStyle: AppTypography.bodyLargeStyle.copyWith(
+        textStyle: chromeTextTheme.bodyLarge,
+        actionTextStyle: chromeTextTheme.bodyLarge?.copyWith(
           color: actionColor,
         ),
-        actionSmallTextStyle: AppTypography.bodyMediumStyle.copyWith(
+        actionSmallTextStyle: chromeTextTheme.bodyMedium?.copyWith(
           color: actionColor,
         ),
-        tabLabelTextStyle: AppTypography.micro.copyWith(color: secondaryText),
-        navTitleTextStyle: AppTypography.titleLargeStyle.copyWith(
-          color: primaryText,
+        tabLabelTextStyle: AppTypography.cupertinoChromeMicroStyle.copyWith(
+          color: secondaryText,
         ),
-        navLargeTitleTextStyle: AppTypography.displayLargeStyle.copyWith(
-          color: primaryText,
-        ),
-        navActionTextStyle: AppTypography.bodyLargeStyle.copyWith(
+        navTitleTextStyle: chromeTextTheme.titleLarge,
+        navLargeTitleTextStyle: chromeTextTheme.displayLarge,
+        navActionTextStyle: chromeTextTheme.bodyLarge?.copyWith(
           color: actionColor,
         ),
-        pickerTextStyle: AppTypography.extraLarge.copyWith(color: primaryText),
-        dateTimePickerTextStyle: AppTypography.extraLarge.copyWith(
-          color: primaryText,
-        ),
+        pickerTextStyle: chromeTextTheme.titleLarge,
+        dateTimePickerTextStyle: chromeTextTheme.titleLarge,
       ),
     );
   }
