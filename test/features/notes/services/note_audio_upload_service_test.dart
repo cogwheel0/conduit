@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as path;
 
 import 'package:conduit/features/notes/services/note_audio_upload_service.dart';
 
@@ -527,6 +530,72 @@ void main() {
         ).length.equals(1);
       },
     );
+
+    test('recovers a process-interrupted rebind journal', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        idGenerator: () => 'upload-rebind-journal',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        accountId: 'user-1',
+        noteId: 'deleted-note',
+        fileName: 'recording.m4a',
+      );
+      final failed = staged.transition(
+        NoteAudioUploadStatus.failed,
+        lastError: 'attach interrupted',
+        serverFileId: 'already-uploaded-file',
+      );
+      check(await store.save(failed)).isTrue();
+
+      // Reproduce process death after the atomic directory move but before
+      // the destination-valid manifest is written.
+      final sourceDirectory = File(failed.localPath).parent;
+      final accountDirectory = sourceDirectory.parent.parent;
+      final destinationDirectory = Directory(
+        path.join(
+          accountDirectory.path,
+          sha256.convert(utf8.encode('recovered-note')).toString(),
+          failed.id,
+        ),
+      );
+      await destinationDirectory.parent.create(recursive: true);
+      await sourceDirectory.rename(destinationDirectory.path);
+      final reboundJson = <String, dynamic>{
+        ...failed.toJson(),
+        'noteId': 'recovered-note',
+      };
+      final journal = File(
+        path.join(accountDirectory.path, '.rebind-${failed.id}.json'),
+      );
+      await journal.writeAsString(
+        jsonEncode(<String, dynamic>{
+          'version': 1,
+          'sourceNoteId': 'deleted-note',
+          'item': reboundJson,
+        }),
+        flush: true,
+      );
+
+      final recovered = await NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+      ).loadForAccount(serverId: 'server-1', accountId: 'user-1');
+
+      check(recovered).length.equals(1);
+      check(recovered.single.noteId).equals('recovered-note');
+      check(recovered.single.status).equals(NoteAudioUploadStatus.failed);
+      check(recovered.single.lastError).equals('attach interrupted');
+      check(recovered.single.serverFileId).equals('already-uploaded-file');
+      check(await File(recovered.single.localPath).exists()).isTrue();
+      check(await journal.exists()).isFalse();
+    });
 
     test('a removal reservation excludes processing across editors', () async {
       final root = await Directory.systemTemp.createTemp(

@@ -165,6 +165,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Timer? _saveDebounce;
   VoidCallback? _deletedNoteDraftRecoveryRetry;
+  bool _isRecoveringDeletedNoteDraft = false;
+  bool _deletedNoteDraftRecoveryQueued = false;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _hasChanges = false;
@@ -243,6 +245,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       openWebUiAuthSessionEpochProvider,
       (previous, next) {
         _deletedNoteDraftRecoveryRetry = null;
+        _deletedNoteDraftRecoveryQueued = false;
         _activeAudioCancelToken?.cancel('Authentication session changed.');
         _activeAudioCancelToken = null;
         _queuedAudioUploadIds.clear();
@@ -2385,6 +2388,37 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required Object authEpoch,
     required String? userId,
     bool showFailure = true,
+  }) async {
+    if (_isRecoveringDeletedNoteDraft) {
+      _deletedNoteDraftRecoveryQueued = true;
+      return;
+    }
+    _isRecoveringDeletedNoteDraft = true;
+    try {
+      await _recoverDeletedNoteDraftOnce(
+        db,
+        api: api,
+        authEpoch: authEpoch,
+        userId: userId,
+        showFailure: showFailure,
+      );
+    } finally {
+      _isRecoveringDeletedNoteDraft = false;
+      if (_deletedNoteDraftRecoveryQueued) {
+        _deletedNoteDraftRecoveryQueued = false;
+        if (mounted && _hasChanges && _deletedNoteDraftRecoveryRetry != null) {
+          _debounceSave();
+        }
+      }
+    }
+  }
+
+  Future<void> _recoverDeletedNoteDraftOnce(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+    required bool showFailure,
   }) async {
     final previous = _note;
     if (previous == null ||

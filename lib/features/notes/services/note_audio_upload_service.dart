@@ -14,6 +14,8 @@ const _manifestVersion = 1;
 const _storeDirectoryName = 'note_audio_uploads';
 const _manifestFileName = 'manifest.json';
 const _defaultAudioFileName = 'recording.m4a';
+const _rebindJournalPrefix = '.rebind-';
+const _rebindJournalVersion = 1;
 
 enum NoteAudioUploadStatus { pending, uploading, attaching, failed }
 
@@ -312,6 +314,11 @@ class NoteAudioUploadStore {
       accountScope: accountScope,
       noteId: noteId,
     );
+    await _recoverRebindJournals(
+      noteDirectory.parent,
+      serverScope: serverScope,
+      accountScope: accountScope,
+    );
     if (!await noteDirectory.exists()) return <PendingNoteAudioUpload>[];
 
     final items = <PendingNoteAudioUpload>[];
@@ -380,6 +387,12 @@ class NoteAudioUploadStore {
     final destinationDirectory = Directory(
       path.join(destinationNoteDirectory.path, _safeId(item.id)),
     );
+    final accountDirectory = destinationNoteDirectory.parent;
+    await _recoverRebindJournals(
+      accountDirectory,
+      serverScope: item.serverScope,
+      accountScope: item.accountScope,
+    );
 
     return _withItemLocks(
       <Directory>[sourceDirectory, destinationDirectory],
@@ -413,7 +426,6 @@ class NoteAudioUploadStore {
         }
 
         await destinationNoteDirectory.create(recursive: true);
-        await sourceDirectory.rename(destinationDirectory.path);
         final rebound = PendingNoteAudioUpload(
           id: current.id,
           serverScope: current.serverScope,
@@ -431,6 +443,18 @@ class NoteAudioUploadStore {
           serverFileId: current.serverFileId,
           sourceCacheFileName: current.sourceCacheFileName,
         );
+        final journal = File(
+          path.join(
+            accountDirectory.path,
+            '$_rebindJournalPrefix${_safeId(current.id)}.json',
+          ),
+        );
+        await _writeRebindJournal(
+          journal,
+          sourceNoteId: current.noteId,
+          rebound: rebound,
+        );
+        await sourceDirectory.rename(destinationDirectory.path);
         try {
           if (!await _saveUnlocked(rebound, destinationDirectory)) {
             throw const FileSystemException(
@@ -444,9 +468,11 @@ class NoteAudioUploadStore {
           if (await destinationDirectory.exists() &&
               !await sourceDirectory.exists()) {
             await destinationDirectory.rename(sourceDirectory.path);
+            if (await journal.exists()) await journal.delete();
           }
           rethrow;
         }
+        if (await journal.exists()) await journal.delete();
 
         final oldNoteDirectory = sourceDirectory.parent;
         try {
@@ -487,6 +513,11 @@ class NoteAudioUploadStore {
     if (!await accountDirectory.exists()) {
       return <PendingNoteAudioUpload>[];
     }
+    await _recoverRebindJournals(
+      accountDirectory,
+      serverScope: serverScope,
+      accountScope: accountScope,
+    );
 
     final items = <PendingNoteAudioUpload>[];
     await for (final noteEntity in accountDirectory.list(followLinks: false)) {
@@ -536,6 +567,138 @@ class NoteAudioUploadStore {
     await temporary.writeAsString(jsonEncode(item.toJson()), flush: true);
     await temporary.rename(manifest.path);
     return true;
+  }
+
+  Future<void> _writeRebindJournal(
+    File journal, {
+    required String sourceNoteId,
+    required PendingNoteAudioUpload rebound,
+  }) async {
+    final temporary = File('${journal.path}.tmp');
+    await temporary.writeAsString(
+      jsonEncode(<String, dynamic>{
+        'version': _rebindJournalVersion,
+        'sourceNoteId': sourceNoteId,
+        'item': rebound.toJson(),
+      }),
+      flush: true,
+    );
+    await temporary.rename(journal.path);
+  }
+
+  Future<void> _recoverRebindJournals(
+    Directory accountDirectory, {
+    required String serverScope,
+    required String accountScope,
+  }) async {
+    if (!await accountDirectory.exists()) return;
+    final journals = <File>[];
+    await for (final entity in accountDirectory.list(followLinks: false)) {
+      if (entity is File) {
+        final name = path.basename(entity.path);
+        if (name.startsWith(_rebindJournalPrefix) && name.endsWith('.json')) {
+          journals.add(entity);
+        }
+      }
+    }
+
+    for (final journal in journals) {
+      try {
+        final decoded = jsonDecode(await journal.readAsString());
+        if (decoded is! Map<String, dynamic> ||
+            decoded['version'] != _rebindJournalVersion ||
+            decoded['sourceNoteId'] is! String ||
+            decoded['item'] is! Map<String, dynamic>) {
+          throw const FormatException('Invalid note audio rebind journal');
+        }
+        final sourceNoteId = decoded['sourceNoteId'] as String;
+        final itemJson = decoded['item'] as Map<String, dynamic>;
+        final noteId = itemJson['noteId'] as String?;
+        final id = itemJson['id'] as String?;
+        if (noteId == null || id == null) {
+          throw const FormatException('Incomplete note audio rebind journal');
+        }
+        final sourceDirectory = Directory(
+          path.join(accountDirectory.path, _scope(sourceNoteId), _safeId(id)),
+        );
+        final destinationDirectory = Directory(
+          path.join(accountDirectory.path, _scope(noteId), _safeId(id)),
+        );
+        final rebound = PendingNoteAudioUpload.fromJson(
+          itemJson,
+          itemDirectory: destinationDirectory,
+        );
+        if (rebound.serverScope != serverScope ||
+            rebound.accountScope != accountScope) {
+          throw const FormatException('Mismatched note audio rebind scope');
+        }
+
+        await _withItemLocks(
+          <Directory>[sourceDirectory, destinationDirectory],
+          () async {
+            if (!await journal.exists()) return;
+            if (!await destinationDirectory.exists()) {
+              if (!await sourceDirectory.exists()) {
+                await journal.delete();
+                return;
+              }
+              await destinationDirectory.parent.create(recursive: true);
+              await sourceDirectory.rename(destinationDirectory.path);
+            }
+
+            final existing = await _readValidManifest(
+              destinationDirectory,
+              serverScope: serverScope,
+              accountScope: accountScope,
+              noteId: noteId,
+            );
+            if (existing == null &&
+                !await _saveUnlocked(rebound, destinationDirectory)) {
+              throw const FileSystemException(
+                'Rebound note audio directory disappeared during recovery',
+              );
+            }
+            if (await sourceDirectory.exists()) {
+              await sourceDirectory.delete(recursive: true);
+            }
+            await journal.delete();
+          },
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'note-audio-rebind-recovery-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'journal': path.basename(journal.path)},
+        );
+      }
+    }
+  }
+
+  Future<PendingNoteAudioUpload?> _readValidManifest(
+    Directory itemDirectory, {
+    required String serverScope,
+    required String accountScope,
+    required String noteId,
+  }) async {
+    try {
+      final manifest = File(path.join(itemDirectory.path, _manifestFileName));
+      final decoded = jsonDecode(await manifest.readAsString());
+      if (decoded is! Map<String, dynamic>) return null;
+      final item = PendingNoteAudioUpload.fromJson(
+        decoded,
+        itemDirectory: itemDirectory,
+      );
+      if (item.serverScope != serverScope ||
+          item.accountScope != accountScope ||
+          item.noteId != noteId) {
+        return null;
+      }
+      return item;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> remove(PendingNoteAudioUpload item) async {
