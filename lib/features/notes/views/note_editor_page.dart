@@ -2516,8 +2516,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       for (final item in _pendingAudioUploads) item.id: item,
     };
     final completedReservations = <String>{};
-    final reservationWaits = reservedUploads.values
-        .map(NoteAudioUploadCoordinator.reserveForRebind)
+    final ownedReservations = <String>{};
+    final reservationWaits = reservedUploads.entries
+        .map(
+          (entry) async => MapEntry(
+            entry.key,
+            await NoteAudioUploadCoordinator.reserveForRebind(entry.value),
+          ),
+        )
         .toList(growable: false);
 
     // Reservation is installed synchronously before reserveForRebind awaits
@@ -2531,7 +2537,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _audioUploadFeedbackIds.clear();
 
     try {
-      await Future.wait(reservationWaits);
+      final reservations = Map<String, NoteAudioRebindReservation>.fromEntries(
+        await Future.wait(reservationWaits),
+      );
+      for (final entry in reservations.entries) {
+        final reservation = entry.value;
+        if (reservation.isOwner) {
+          ownedReservations.add(entry.key);
+        } else {
+          completedReservations.add(entry.key);
+          final rebound = reservation.rebound;
+          if (rebound != null) reboundUploads[entry.key] = rebound;
+        }
+      }
       final audioItemsById = <String, PendingNoteAudioUpload>{
         for (final item in _pendingAudioUploads) item.id: item,
       };
@@ -2552,7 +2570,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       for (final item in audioItemsById.values) {
         if (!reservedUploads.containsKey(item.id)) {
           reservedUploads[item.id] = item;
-          await NoteAudioUploadCoordinator.reserveForRebind(item);
+          final reservation = await NoteAudioUploadCoordinator.reserveForRebind(
+            item,
+          );
+          if (reservation.isOwner) {
+            ownedReservations.add(item.id);
+          } else {
+            completedReservations.add(item.id);
+            final rebound = reservation.rebound;
+            if (rebound != null) reboundUploads[item.id] = rebound;
+          }
+        }
+        if (!ownedReservations.contains(item.id)) {
+          continue;
         }
         PendingNoteAudioUpload? rebound;
         try {
@@ -2586,7 +2616,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
     } finally {
       for (final entry in reservedUploads.entries) {
-        if (completedReservations.add(entry.key)) {
+        if (ownedReservations.contains(entry.key) &&
+            completedReservations.add(entry.key)) {
           NoteAudioUploadCoordinator.completeRebind(
             entry.value,
             reboundUploads[entry.key] ?? entry.value,

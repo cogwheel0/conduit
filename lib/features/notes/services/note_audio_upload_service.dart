@@ -19,6 +19,11 @@ const _rebindJournalVersion = 1;
 
 enum NoteAudioUploadStatus { pending, uploading, attaching, failed }
 
+typedef NoteAudioRebindReservation = ({
+  bool isOwner,
+  PendingNoteAudioUpload? rebound,
+});
+
 @immutable
 class PendingNoteAudioUpload {
   const PendingNoteAudioUpload({
@@ -1027,14 +1032,27 @@ class NoteAudioUploadCoordinator {
 
   /// Prevents new work for [item] and waits for existing work to finish before
   /// its durable directory is moved to a replacement note.
-  static Future<void> reserveForRebind(PendingNoteAudioUpload item) async {
+  static Future<NoteAudioRebindReservation> reserveForRebind(
+    PendingNoteAudioUpload item,
+  ) async {
     final key = _keyFor(item);
-    _rebindReservations.putIfAbsent(
-      key,
-      () => Completer<PendingNoteAudioUpload?>(),
-    );
-    final existing = _inFlight[key];
-    if (existing != null) await existing;
+    final existingReservation = _rebindReservations[key];
+    if (existingReservation != null) {
+      return (isOwner: false, rebound: await existingReservation.future);
+    }
+    final reservation = Completer<PendingNoteAudioUpload?>();
+    _rebindReservations[key] = reservation;
+    try {
+      final existing = _inFlight[key];
+      if (existing != null) await existing;
+    } catch (_) {
+      if (identical(_rebindReservations[key], reservation)) {
+        _rebindReservations.remove(key);
+      }
+      if (!reservation.isCompleted) reservation.complete(null);
+      rethrow;
+    }
+    return (isOwner: true, rebound: null);
   }
 
   /// Releases callers that encountered the old item while it was being moved.
