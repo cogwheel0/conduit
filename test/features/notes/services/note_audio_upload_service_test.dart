@@ -503,19 +503,15 @@ void main() {
 
         final processing = coordinator.process(staged);
         await uploadStarted.future;
-        final reservation = NoteAudioUploadCoordinator.reserveForRebind(staged);
+        final reboundFuture = NoteAudioUploadCoordinator.rebind(
+          staged,
+          () => store.rebindToNote(staged, noteId: 'recovered-note'),
+        );
         final waitingProcessor = coordinator.process(staged);
         cancelUpload.complete();
 
-        final failed = await processing;
-        check((await reservation).isOwner).isTrue();
-        PendingNoteAudioUpload? rebound;
-        try {
-          check(failed).isNotNull();
-          rebound = await store.rebindToNote(failed!, noteId: 'recovered-note');
-        } finally {
-          NoteAudioUploadCoordinator.completeRebind(staged, rebound);
-        }
+        check(await processing).isNotNull();
+        final rebound = await reboundFuture;
 
         check(rebound).isNotNull();
         check((await waitingProcessor)?.localPath).equals(rebound!.localPath);
@@ -548,19 +544,58 @@ void main() {
         fileName: 'recording.m4a',
       );
 
-      final owner = await NoteAudioUploadCoordinator.reserveForRebind(staged);
-      check(owner.isOwner).isTrue();
-      final follower = NoteAudioUploadCoordinator.reserveForRebind(staged);
-      final rebound = await store.rebindToNote(
+      final ownerStarted = Completer<void>();
+      final releaseOwner = Completer<void>();
+      final owner = NoteAudioUploadCoordinator.rebind(staged, () async {
+        ownerStarted.complete();
+        await releaseOwner.future;
+        return store.rebindToNote(staged, noteId: 'recovered-note');
+      });
+      await ownerStarted.future;
+      final follower = NoteAudioUploadCoordinator.rebind(
         staged,
-        noteId: 'recovered-note',
+        () async => fail('follower must reuse the owner result'),
       );
-      NoteAudioUploadCoordinator.completeRebind(staged, rebound);
+      releaseOwner.complete();
 
+      final rebound = await owner;
       final followerResult = await follower;
-      check(followerResult.isOwner).isFalse();
-      check(followerResult.rebound?.localPath).equals(rebound?.localPath);
-      check(followerResult.rebound?.noteId).equals('recovered-note');
+      check(rebound).isNotNull();
+      check(followerResult?.localPath).equals(rebound!.localPath);
+      check(followerResult?.noteId).equals('recovered-note');
+    });
+
+    test('a failed rebind operation releases ownership', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        idGenerator: () => 'upload-rebind-cleanup',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        noteId: 'deleted-note',
+        fileName: 'recording.m4a',
+      );
+
+      await expectLater(
+        NoteAudioUploadCoordinator.rebind(
+          staged,
+          () async => throw StateError('rebind failed'),
+        ),
+        throwsStateError,
+      );
+      final retried = await NoteAudioUploadCoordinator.rebind(
+        staged,
+        () => store.rebindToNote(staged, noteId: 'recovered-note'),
+      );
+
+      check(retried).isNotNull();
+      check(retried!.noteId).equals('recovered-note');
     });
 
     test('recovers a process-interrupted rebind journal', () async {

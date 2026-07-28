@@ -438,7 +438,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // deleted note needs its recovery retry to remain mounted rather than
     // silently discarding the draft during navigation.
     if (mounted) {
-      if (_hasChanges) {
+      if (_hasChanges && _deletedNoteDraftRecoveryRetry != null) {
         _deletedNoteDraftRecoveryRetry?.call();
       } else if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop(result);
@@ -2511,24 +2511,41 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     });
     if (changedDuringRecovery) _debounceSave();
 
+    final recoveredId = recovered.id;
     final reboundUploads = <String, PendingNoteAudioUpload>{};
-    final reservedUploads = <String, PendingNoteAudioUpload>{
+    final attemptedUploadIds = <String>{};
+    Future<PendingNoteAudioUpload?> rebindItem(PendingNoteAudioUpload item) =>
+        NoteAudioUploadCoordinator.rebind(item, () async {
+          try {
+            return await _noteAudioUploadStore.rebindToNote(
+              item,
+              noteId: recoveredId,
+            );
+          } catch (error, stackTrace) {
+            DebugLogger.error(
+              'deleted-note-audio-item-rebind-failed',
+              scope: 'notes/recovery',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'noteId': previous.id, 'uploadId': item.id},
+            );
+            return null;
+          }
+        });
+
+    final initialUploads = <String, PendingNoteAudioUpload>{
       for (final item in _pendingAudioUploads) item.id: item,
     };
-    final completedReservations = <String>{};
-    final ownedReservations = <String>{};
-    final reservationWaits = reservedUploads.entries
+    attemptedUploadIds.addAll(initialUploads.keys);
+    final rebindWaits = initialUploads.entries
         .map(
-          (entry) async => MapEntry(
-            entry.key,
-            await NoteAudioUploadCoordinator.reserveForRebind(entry.value),
-          ),
+          (entry) async => MapEntry(entry.key, await rebindItem(entry.value)),
         )
         .toList(growable: false);
 
-    // Reservation is installed synchronously before reserveForRebind awaits
-    // existing work. Cancellation then lets that work settle against the old
-    // path before any directory is moved.
+    // rebind() installs its reservation synchronously before awaiting existing
+    // work. Cancellation then lets that work settle against the old path before
+    // the operation callback can move the durable directory.
     _activeAudioCancelToken?.cancel(
       'The note was replaced after remote deletion.',
     );
@@ -2537,18 +2554,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _audioUploadFeedbackIds.clear();
 
     try {
-      final reservations = Map<String, NoteAudioRebindReservation>.fromEntries(
-        await Future.wait(reservationWaits),
-      );
-      for (final entry in reservations.entries) {
-        final reservation = entry.value;
-        if (reservation.isOwner) {
-          ownedReservations.add(entry.key);
-        } else {
-          completedReservations.add(entry.key);
-          final rebound = reservation.rebound;
-          if (rebound != null) reboundUploads[entry.key] = rebound;
-        }
+      final initialResults = await Future.wait(rebindWaits);
+      for (final entry in initialResults) {
+        final rebound = entry.value;
+        if (rebound != null) reboundUploads[entry.key] = rebound;
       }
       final audioItemsById = <String, PendingNoteAudioUpload>{
         for (final item in _pendingAudioUploads) item.id: item,
@@ -2568,43 +2577,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
 
       for (final item in audioItemsById.values) {
-        if (!reservedUploads.containsKey(item.id)) {
-          reservedUploads[item.id] = item;
-          final reservation = await NoteAudioUploadCoordinator.reserveForRebind(
-            item,
-          );
-          if (reservation.isOwner) {
-            ownedReservations.add(item.id);
-          } else {
-            completedReservations.add(item.id);
-            final rebound = reservation.rebound;
-            if (rebound != null) reboundUploads[item.id] = rebound;
-          }
-        }
-        if (!ownedReservations.contains(item.id)) {
-          continue;
-        }
-        PendingNoteAudioUpload? rebound;
-        try {
-          try {
-            rebound = await _noteAudioUploadStore.rebindToNote(
-              item,
-              noteId: recovered.id,
-            );
-            if (rebound != null) reboundUploads[item.id] = rebound;
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'deleted-note-audio-item-rebind-failed',
-              scope: 'notes/recovery',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'noteId': previous.id, 'uploadId': item.id},
-            );
-          }
-        } finally {
-          completedReservations.add(item.id);
-          NoteAudioUploadCoordinator.completeRebind(item, rebound);
-        }
+        if (!attemptedUploadIds.add(item.id)) continue;
+        final rebound = await rebindItem(item);
+        if (rebound != null) reboundUploads[item.id] = rebound;
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -2614,16 +2589,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         stackTrace: stackTrace,
         data: {'noteId': previous.id},
       );
-    } finally {
-      for (final entry in reservedUploads.entries) {
-        if (ownedReservations.contains(entry.key) &&
-            completedReservations.add(entry.key)) {
-          NoteAudioUploadCoordinator.completeRebind(
-            entry.value,
-            reboundUploads[entry.key] ?? entry.value,
-          );
-        }
-      }
     }
     if (!mounted ||
         !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {

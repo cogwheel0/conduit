@@ -19,11 +19,6 @@ const _rebindJournalVersion = 1;
 
 enum NoteAudioUploadStatus { pending, uploading, attaching, failed }
 
-typedef NoteAudioRebindReservation = ({
-  bool isOwner,
-  PendingNoteAudioUpload? rebound,
-});
-
 @immutable
 class PendingNoteAudioUpload {
   const PendingNoteAudioUpload({
@@ -1030,39 +1025,33 @@ class NoteAudioUploadCoordinator {
   static final Map<String, Completer<PendingNoteAudioUpload?>>
   _rebindReservations = <String, Completer<PendingNoteAudioUpload?>>{};
 
-  /// Prevents new work for [item] and waits for existing work to finish before
-  /// its durable directory is moved to a replacement note.
-  static Future<NoteAudioRebindReservation> reserveForRebind(
+  /// Runs one rebind operation for [item], sharing its result with concurrent
+  /// callers and guaranteeing reservation cleanup on every exit path.
+  static Future<PendingNoteAudioUpload?> rebind(
     PendingNoteAudioUpload item,
+    Future<PendingNoteAudioUpload?> Function() operation,
   ) async {
     final key = _keyFor(item);
     final existingReservation = _rebindReservations[key];
     if (existingReservation != null) {
-      return (isOwner: false, rebound: await existingReservation.future);
+      return existingReservation.future;
     }
     final reservation = Completer<PendingNoteAudioUpload?>();
     _rebindReservations[key] = reservation;
     try {
       final existing = _inFlight[key];
       if (existing != null) await existing;
+      final rebound = await operation();
+      reservation.complete(rebound);
+      return rebound;
     } catch (_) {
+      if (!reservation.isCompleted) reservation.complete(null);
+      rethrow;
+    } finally {
       if (identical(_rebindReservations[key], reservation)) {
         _rebindReservations.remove(key);
       }
       if (!reservation.isCompleted) reservation.complete(null);
-      rethrow;
-    }
-    return (isOwner: true, rebound: null);
-  }
-
-  /// Releases callers that encountered the old item while it was being moved.
-  static void completeRebind(
-    PendingNoteAudioUpload item,
-    PendingNoteAudioUpload? rebound,
-  ) {
-    final reservation = _rebindReservations.remove(_keyFor(item));
-    if (reservation != null && !reservation.isCompleted) {
-      reservation.complete(rebound);
     }
   }
 
