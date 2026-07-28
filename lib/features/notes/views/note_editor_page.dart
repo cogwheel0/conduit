@@ -612,14 +612,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _deleteNote() async {
-    if (_note == null) return;
+    final note = _note;
+    if (note == null) return;
 
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteNoteTitle,
       message: l10n.deleteNoteMessage(
-        _note!.title.isEmpty ? l10n.untitled : _note!.title,
+        note.title.isEmpty ? l10n.untitled : note.title,
       ),
       confirmText: l10n.delete,
       isDestructive: true,
@@ -629,7 +630,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
-          .deleteNote(_note!.id);
+          .deleteNote(note.id);
       if (success && mounted) {
         context.go('/chat');
       }
@@ -2282,7 +2283,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     // Push local changes and pull remote ones so the local row reflects both
     // sides. Mirrors the notes-list pull-to-refresh.
+    final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final userId = ref.read(currentUserProvider2)?.id;
     if (db == null) return;
     try {
       final syncEngine = ref.read(syncEngineProvider.notifier);
@@ -2291,7 +2295,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } catch (_) {
       // Best-effort; still reload from the (at least locally-current) row below.
     }
-    if (!mounted) return;
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
 
     // Re-read from the reconciled LOCAL row, not a fresh server fetch: the pull
     // has already merged remote edits into it, and reading the row avoids a
@@ -2301,17 +2308,31 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // safe here (avoids pulling auth providers into the editor just for the
       // user id).
       final currentNoteId = _note?.id ?? widget.noteId;
-      final note = await readLocalNote(db, currentNoteId);
-      if (!mounted) return;
+      final resolvedNoteId = await db.notesDao.resolveNoteRemapTarget(
+        currentNoteId,
+      );
+      final note = await readLocalNote(db, resolvedNoteId);
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
       if (note == null) {
         // The user may have typed while the pull/reconcile/read was in flight.
         // Recover those edits as a new local note because the reconciler has
         // already removed the old row and an update could no longer persist.
         if (_hasChanges) {
-          await _recoverDeletedNoteDraft(db);
+          await _recoverDeletedNoteDraft(
+            db,
+            api: api,
+            authEpoch: authEpoch,
+            userId: userId,
+          );
           return;
         }
         ref.invalidate(noteByIdProvider(currentNoteId));
+        if (resolvedNoteId != currentNoteId) {
+          ref.invalidate(noteByIdProvider(resolvedNoteId));
+        }
         setState(() {
           _note = null;
           _titleController.clear();
@@ -2331,6 +2352,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (_hasChanges) return;
       // Keep the detail cache consistent with what we just loaded.
       ref.invalidate(noteByIdProvider(currentNoteId));
+      if (resolvedNoteId != currentNoteId) {
+        ref.invalidate(noteByIdProvider(resolvedNoteId));
+      }
       setState(() {
         _note = note;
         _titleController.text = note.title;
@@ -2343,9 +2367,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
-  Future<void> _recoverDeletedNoteDraft(AppDatabase db) async {
+  Future<void> _recoverDeletedNoteDraft(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+  }) async {
     final previous = _note;
-    if (previous == null) return;
+    if (previous == null ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
 
     _saveDebounce?.cancel();
     final draftTitle = _titleController.text;
@@ -2357,13 +2389,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final recovered = await durableCreateNote(
       ref,
       db,
-      userId: ref.read(currentUserProvider2)?.id,
+      userId: userId,
       title: draftTitle.trim().isEmpty
           ? AppLocalizations.of(context)!.untitled
           : draftTitle.trim(),
       data: draftData,
     );
-    if (!mounted || recovered == null) return;
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+    if (recovered == null) {
+      _showError(AppLocalizations.of(context)!.errorMessage);
+      return;
+    }
 
     final changedDuringRecovery =
         _titleController.text != draftTitle ||
