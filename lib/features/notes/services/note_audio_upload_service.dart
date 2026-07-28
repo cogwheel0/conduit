@@ -1034,6 +1034,9 @@ class NoteAudioUploadCoordinator {
     Future<PendingNoteAudioUpload?> Function() operation,
   ) async {
     final key = _keyFor(item);
+    // Explicit removal wins over recovery: never move an item that another
+    // editor has already reserved for deletion.
+    if (_removalReservations.containsKey(key)) return null;
     final existingReservation = _rebindReservations[key];
     if (existingReservation != null) {
       return existingReservation.future;
@@ -1061,7 +1064,9 @@ class NoteAudioUploadCoordinator {
   /// Returns false while upload/attach work already owns the item.
   static bool tryReserveRemoval(PendingNoteAudioUpload item) {
     final key = _keyFor(item);
-    if (_inFlight.containsKey(key) || _removalReservations.containsKey(key)) {
+    if (_inFlight.containsKey(key) ||
+        _removalReservations.containsKey(key) ||
+        _rebindReservations.containsKey(key)) {
       return false;
     }
     _removalReservations[key] = Completer<void>();

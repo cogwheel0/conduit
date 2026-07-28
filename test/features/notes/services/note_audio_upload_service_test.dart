@@ -565,6 +565,47 @@ void main() {
       check(followerResult?.noteId).equals('recovered-note');
     });
 
+    test('rebind and removal reservations are mutually exclusive', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        idGenerator: () => 'upload-exclusive-reservations',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        noteId: 'deleted-note',
+        fileName: 'recording.m4a',
+      );
+
+      check(NoteAudioUploadCoordinator.tryReserveRemoval(staged)).isTrue();
+      try {
+        final rebound = await NoteAudioUploadCoordinator.rebind(
+          staged,
+          () async => fail('removal ownership must reject rebind'),
+        );
+        check(rebound).isNull();
+      } finally {
+        NoteAudioUploadCoordinator.releaseRemoval(staged);
+      }
+
+      final ownerStarted = Completer<void>();
+      final releaseOwner = Completer<void>();
+      final owner = NoteAudioUploadCoordinator.rebind(staged, () async {
+        ownerStarted.complete();
+        await releaseOwner.future;
+        return staged;
+      });
+      await ownerStarted.future;
+      check(NoteAudioUploadCoordinator.tryReserveRemoval(staged)).isFalse();
+      releaseOwner.complete();
+      check(await owner).equals(staged);
+    });
+
     test('a failed rebind operation releases ownership', () async {
       final root = await Directory.systemTemp.createTemp(
         'conduit_note_audio_upload_test_',
