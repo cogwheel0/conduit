@@ -425,14 +425,25 @@ void main() {
         fileName: 'recording.m4a',
       );
 
+      final failed = staged.transition(
+        NoteAudioUploadStatus.failed,
+        lastError: 'attach interrupted',
+        serverFileId: 'server-file-rebound',
+      );
+      check(await store.save(failed)).isTrue();
+
       final rebound = await store.rebindToNote(
-        staged,
+        failed,
         noteId: 'recovered-note',
       );
 
       check(rebound).isNotNull();
       check(rebound!.noteId).equals('recovered-note');
       check(rebound.id).equals(staged.id);
+      check(rebound.status).equals(NoteAudioUploadStatus.failed);
+      check(rebound.lastError).equals('attach interrupted');
+      check(rebound.serverFileId).equals('server-file-rebound');
+      check(rebound.createdAt).equals(staged.createdAt);
       check(await File(rebound.localPath).exists()).isTrue();
       check(
         await store.loadForNote(
@@ -451,11 +462,71 @@ void main() {
 
       // Retrying with the original snapshot is idempotent after the move.
       final retried = await store.rebindToNote(
-        staged,
+        failed,
         noteId: 'recovered-note',
       );
       check(retried?.localPath).equals(rebound.localPath);
     });
+
+    test(
+      'rebind reservation drains old work before publishing the new path',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'conduit_note_audio_upload_test_',
+        );
+        addTearDown(() => _deleteDirectory(root));
+
+        final store = NoteAudioUploadStore(
+          applicationSupportDirectory: () async => root,
+          idGenerator: () => 'upload-rebind-race',
+        );
+        final staged = await store.stage(
+          source: await _recordingFile(root, 'source.m4a'),
+          serverId: 'server-1',
+          noteId: 'deleted-note',
+          fileName: 'recording.m4a',
+        );
+        final uploadStarted = Completer<void>();
+        final cancelUpload = Completer<void>();
+        final coordinator = NoteAudioUploadCoordinator(
+          store: store,
+          upload: (_, _) async {
+            uploadStarted.complete();
+            await cancelUpload.future;
+            throw StateError('cancelled for rebind');
+          },
+          attach: (_, _) async => fail('cancelled upload must not attach'),
+        );
+
+        final processing = coordinator.process(staged);
+        await uploadStarted.future;
+        final reservation = NoteAudioUploadCoordinator.reserveForRebind(staged);
+        final waitingProcessor = coordinator.process(staged);
+        cancelUpload.complete();
+
+        final failed = await processing;
+        await reservation;
+        PendingNoteAudioUpload? rebound;
+        try {
+          check(failed).isNotNull();
+          rebound = await store.rebindToNote(failed!, noteId: 'recovered-note');
+        } finally {
+          NoteAudioUploadCoordinator.completeRebind(staged, rebound);
+        }
+
+        check(rebound).isNotNull();
+        check((await waitingProcessor)?.localPath).equals(rebound!.localPath);
+        check(
+          await store.loadForNote(serverId: 'server-1', noteId: 'deleted-note'),
+        ).isEmpty();
+        check(
+          await store.loadForNote(
+            serverId: 'server-1',
+            noteId: 'recovered-note',
+          ),
+        ).length.equals(1);
+      },
+    );
 
     test('a removal reservation excludes processing across editors', () async {
       final root = await Directory.systemTemp.createTemp(
