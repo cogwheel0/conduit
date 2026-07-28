@@ -5,6 +5,7 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/server_version_warning_card.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,13 +59,12 @@ void main() {
       );
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('server-version-warning-card')),
-        findsOneWidget,
-      );
-      expect(find.text('Server not supported'), findsOneWidget);
-      expect(find.textContaining('0.11.1'), findsOneWidget);
-      expect(find.textContaining('0.11.0'), findsOneWidget);
+      check(
+        find.byKey(const ValueKey('server-version-warning-card')).evaluate(),
+      ).length.equals(1);
+      check(find.text('Server not supported').evaluate()).length.equals(1);
+      check(find.textContaining('0.11.1').evaluate()).length.equals(1);
+      check(find.textContaining('0.11.0').evaluate()).length.equals(1);
     });
 
     testWidgets('disables text decoration on Android', (tester) async {
@@ -78,8 +78,8 @@ void main() {
 
       final title = tester.widget<Text>(find.text('Server not supported'));
       final message = tester.widget<Text>(find.textContaining('0.11.1'));
-      expect(title.style?.decoration, TextDecoration.none);
-      expect(message.style?.decoration, TextDecoration.none);
+      check(title.style?.decoration).equals(TextDecoration.none);
+      check(message.style?.decoration).equals(TextDecoration.none);
     });
 
     testWidgets('oversized empty-state insets remain scrollable', (
@@ -113,18 +113,50 @@ void main() {
       );
       await tester.pump();
 
-      expect(tester.takeException(), isNull);
+      check(tester.takeException()).isNull();
       final scrollView = find.byKey(
         const ValueKey('chat-empty-state-scroll-view'),
       );
-      expect(scrollView, findsOneWidget);
+      check(scrollView.evaluate()).length.equals(1);
       final scrollable = find.descendant(
         of: scrollView,
         matching: find.byType(Scrollable),
       );
       final state = tester.state<ScrollableState>(scrollable);
-      expect(state.position.viewportDimension, greaterThan(0));
-      expect(state.position.maxScrollExtent, greaterThan(0));
+      check(state.position.viewportDimension).isGreaterThan(0);
+      check(state.position.maxScrollExtent).isGreaterThan(0);
+    });
+
+    testWidgets('fitting empty-state insets do not force scrolling', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        _buildCard(
+          authState: AuthNavigationState.authenticated,
+          config: const BackendConfig(version: '0.11.1', serverId: 'A'),
+          body: debugBuildChatEmptyStateViewportForTesting(
+            padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 24),
+            children: const [
+              Text('How can I help you today?'),
+              ServerVersionWarningCard(),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final scrollView = find.byKey(
+        const ValueKey('chat-empty-state-scroll-view'),
+      );
+      final scrollable = find.descendant(
+        of: scrollView,
+        matching: find.byType(Scrollable),
+      );
+      final state = tester.state<ScrollableState>(scrollable);
+      check(state.position.maxScrollExtent).equals(0);
     });
 
     testWidgets('hides the warning for a supported server', (tester) async {
@@ -136,7 +168,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Server not supported'), findsNothing);
+      check(find.text('Server not supported').evaluate()).isEmpty();
     });
 
     testWidgets('hides the warning for a stale server config', (tester) async {
@@ -148,7 +180,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Server not supported'), findsNothing);
+      check(find.text('Server not supported').evaluate()).isEmpty();
     });
 
     testWidgets('hides the warning before authentication completes', (
@@ -162,7 +194,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Server not supported'), findsNothing);
+      check(find.text('Server not supported').evaluate()).isEmpty();
     });
   });
 }

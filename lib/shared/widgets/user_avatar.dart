@@ -7,6 +7,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/raster_media_policy.dart';
 import '../services/brand_service.dart';
 import '../theme/theme_extensions.dart';
 
@@ -37,14 +38,23 @@ class AvatarImage extends ConsumerWidget {
     if (url == null || url.isEmpty) {
       return fallbackBuilder(context, size);
     }
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.avatar,
+      logicalWidth: size,
+      logicalHeight: size,
+    );
 
     if (url.startsWith('data:image')) {
       final content = _decodeDataImage(url);
       if (content != null) {
         return ClipRRect(
           borderRadius: _radius,
-          child: Image.memory(
-            content,
+          child: Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(content),
+              decodeTarget,
+            ),
             width: size,
             height: size,
             fit: BoxFit.cover,
@@ -65,16 +75,24 @@ class AvatarImage extends ConsumerWidget {
 
     return ClipRRect(
       borderRadius: _radius,
-      child: CachedNetworkImage(
-        imageUrl: url,
-        cacheKey: cacheKey,
+      child: Image(
+        image: RasterMediaPolicy.resizeProvider(
+          CachedNetworkImageProvider(
+            url,
+            cacheKey: cacheKey,
+            cacheManager: cacheManager,
+            headers: headers,
+          ),
+          decodeTarget,
+        ),
         width: size,
         height: size,
         fit: BoxFit.cover,
-        cacheManager: cacheManager,
-        httpHeaders: headers,
-        placeholder: (context, _) =>
-            (placeholderBuilder ?? _defaultPlaceholder)(context, size),
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          return wasSynchronouslyLoaded || frame != null
+              ? child
+              : (placeholderBuilder ?? _defaultPlaceholder)(context, size);
+        },
         errorBuilder: (context, error, stackTrace) =>
             fallbackBuilder(context, size),
       ),

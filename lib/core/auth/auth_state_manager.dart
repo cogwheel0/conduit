@@ -39,7 +39,25 @@ final class _AuthPublicationRolledBack implements Exception {
   String toString() => 'Authentication publication was rolled back';
 }
 
-enum FullAppDataClearOutcome { cleared, incomplete, ownershipYielded }
+enum FullAppDataClearOutcome {
+  cleared,
+  localDataClearedSessionCleanupIncomplete,
+  incomplete,
+  ownershipYielded,
+}
+
+@visibleForTesting
+FullAppDataClearOutcome classifyFullAppDataClearOutcome({
+  required bool completeLocalCleanup,
+  required bool clearAllAppData,
+  required bool durableAuthDataCleared,
+}) {
+  if (completeLocalCleanup) return FullAppDataClearOutcome.cleared;
+  if (clearAllAppData && durableAuthDataCleared) {
+    return FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete;
+  }
+  return FullAppDataClearOutcome.incomplete;
+}
 
 /// Testable construction seam for the short-lived client used to validate
 /// saved credentials against their owning server before a silent-login commit.
@@ -3069,9 +3087,11 @@ class AuthStateManager extends _$AuthStateManager {
     if (finalizationYieldedOwnership) {
       return FullAppDataClearOutcome.ownershipYielded;
     }
-    return completeLocalCleanup
-        ? FullAppDataClearOutcome.cleared
-        : FullAppDataClearOutcome.incomplete;
+    return classifyFullAppDataClearOutcome(
+      completeLocalCleanup: completeLocalCleanup,
+      clearAllAppData: clearAllAppData,
+      durableAuthDataCleared: durableAuthDataCleared,
+    );
   }
 
   bool _newerCommittedSessionOwnsAuthData(

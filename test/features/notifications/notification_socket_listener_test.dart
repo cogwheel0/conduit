@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/channel.dart';
+import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';
@@ -45,6 +48,7 @@ class _MockSocketService implements SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     final reg = _CapturedChat(requireFocus: requireFocus, handler: handler);
@@ -81,6 +85,33 @@ class _FakeChannelsList extends ChannelsList {
   @override
   Future<void> refresh() async {
     refreshCalls += 1;
+  }
+}
+
+class _ReconnectChannelApi extends ApiService {
+  _ReconnectChannelApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  String messageId = 'before-reconnect';
+  int messageRequests = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getChannelMessages(
+    String channelId, {
+    int skip = 0,
+    int limit = 50,
+  }) async {
+    messageRequests += 1;
+    return <Map<String, dynamic>>[
+      <String, dynamic>{'id': messageId, 'content': messageId},
+    ];
   }
 }
 
@@ -127,7 +158,10 @@ void main() {
 
   late List<AppNotification> routed;
 
-  ProviderContainer makeContainer(_MockSocketService socket) {
+  ProviderContainer makeContainer(
+    _MockSocketService socket, {
+    ApiService? api,
+  }) {
     routed = <AppNotification>[];
     final captureRouter = NotificationRouter(
       readSettings: () => settings,
@@ -143,6 +177,7 @@ void main() {
         socketServiceProvider.overrideWithValue(socket),
         notificationRouterProvider.overrideWithValue(captureRouter),
         channelsListProvider.overrideWith(_FakeChannelsList.new),
+        if (api != null) apiServiceProvider.overrideWithValue(api),
         currentUserProvider.overrideWith(
           (ref) async => const User(
             id: 'me',
@@ -252,6 +287,27 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     check(channels.refreshCalls).equals(before + 1);
+  });
+
+  test('reconnect also reloads cached channel messages', () async {
+    final socket = _MockSocketService();
+    final api = _ReconnectChannelApi();
+    addTearDown(socket.disposeController);
+    final container = makeContainer(socket, api: api);
+    container.read(notificationSocketListenerProvider);
+    final messages = channelMessagesProvider('chan-1');
+    final messagesSubscription = container.listen(messages, (_, _) {});
+    addTearDown(messagesSubscription.close);
+    final initial = await container.read(messages.future);
+    check(initial.single.id).equals('before-reconnect');
+
+    api.messageId = 'after-reconnect';
+    socket.emitReconnect();
+    await Future<void>.delayed(Duration.zero);
+    final refreshed = await container.read(messages.future);
+
+    check(refreshed.single.id).equals('after-reconnect');
+    check(api.messageRequests).equals(2);
   });
 
   test('re-binds handlers when the socket instance changes', () {

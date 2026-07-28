@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/raster_media_policy.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -494,6 +495,12 @@ class _MinimalSourceLinks extends StatelessWidget {
     final theme = context.conduitTheme;
     final displayLinks = links.take(4).toList();
     final remaining = links.length - 4;
+    final faviconTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.avatar,
+      logicalWidth: 12,
+      logicalHeight: 12,
+    );
 
     return Wrap(
       spacing: 4,
@@ -520,8 +527,14 @@ class _MinimalSourceLinks extends StatelessWidget {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(2),
-                      child: Image.network(
-                        'https://www.google.com/s2/favicons?sz=16&domain=$domain',
+                      child: Image(
+                        image: RasterMediaPolicy.resizeProvider(
+                          NetworkImage(
+                            'https://www.google.com/s2/favicons'
+                            '?sz=16&domain=$domain',
+                          ),
+                          faviconTarget,
+                        ),
                         width: 12,
                         height: 12,
                         errorBuilder: (context, error, stackTrace) => Icon(

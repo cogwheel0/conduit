@@ -10,6 +10,7 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -175,6 +176,94 @@ void _certifyOpenWebUiStorage(ProviderContainer container) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'committing a different conversation clears context attachments',
+    () async {
+      final previous = _conversation(
+        'previous',
+        storage: ChatStorageKind.directLocal,
+        body: 'Previous body',
+      );
+      final summary = _conversation(
+        'replacement',
+        storage: ChatStorageKind.directLocal,
+      );
+      final full = _conversation(
+        'replacement',
+        storage: ChatStorageKind.directLocal,
+        body: 'Replacement body',
+      );
+      final container = await _createContainer(
+        activeConversation: previous,
+        extraOverrides: [
+          loadConversationProvider(
+            conversationScopedId(summary),
+          ).overrideWith((ref) async => full),
+        ],
+      );
+      container
+          .read(contextAttachmentsProvider.notifier)
+          .addWeb(
+            displayName: 'Private context',
+            content: 'belongs to the previous chat',
+            url: 'https://example.com/private',
+          );
+
+      final result = await container
+          .read(conversationSelectionProvider.notifier)
+          .select(summary);
+
+      expect(result.disposition, ConversationSelectionDisposition.committed);
+      expect(container.read(contextAttachmentsProvider), isEmpty);
+    },
+  );
+
+  test(
+    'committing the active conversation retains context attachments',
+    () async {
+      final previous = _conversation(
+        'active',
+        storage: ChatStorageKind.directLocal,
+        body: 'Previous body',
+      );
+      final summary = _conversation(
+        'active',
+        storage: ChatStorageKind.directLocal,
+      );
+      final full = _conversation(
+        'active',
+        storage: ChatStorageKind.directLocal,
+        body: 'Reloaded body',
+      );
+      final container = await _createContainer(
+        activeConversation: previous,
+        extraOverrides: [
+          loadConversationProvider(
+            conversationScopedId(summary),
+          ).overrideWith((ref) async => full),
+        ],
+      );
+      container
+          .read(contextAttachmentsProvider.notifier)
+          .addWeb(
+            displayName: 'Active context',
+            content: 'still belongs to this chat',
+            url: 'https://example.com/context',
+          );
+
+      final result = await container
+          .read(conversationSelectionProvider.notifier)
+          .select(summary);
+
+      expect(result.disposition, ConversationSelectionDisposition.committed);
+      expect(container.read(contextAttachmentsProvider), hasLength(1));
+      expect(
+        container.read(contextAttachmentsProvider).single.content,
+        'still belongs to this chat',
+      );
+    },
+  );
 
   test(
     'transient OpenWebUI certification resumes pending selection and commits',

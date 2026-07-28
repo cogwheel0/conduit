@@ -112,6 +112,74 @@ class _StoppingHermesApi extends HermesApiService {
   }
 }
 
+class _RecoveredHermesApi extends HermesApiService {
+  _RecoveredHermesApi()
+    : super(
+        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        dio: Dio(),
+      );
+
+  int getRunCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    getRunCalls += 1;
+    return <String, dynamic>{
+      'status': 'completed',
+      'output': 'Authoritative recovered answer',
+    };
+  }
+}
+
+class _RejectFirstAttachHermesRunRegistry extends HermesRunRegistry {
+  int attachAttempts = 0;
+
+  @override
+  bool attachRun(
+    HermesRunKey key, {
+    required CancelToken cancelToken,
+    required String runId,
+    required StreamSubscription<void> subscription,
+    required Future<void> Function(String runId) stopRemote,
+  }) {
+    attachAttempts += 1;
+    if (attachAttempts == 1) {
+      unawaited(subscription.cancel());
+      return false;
+    }
+    return super.attachRun(
+      key,
+      cancelToken: cancelToken,
+      runId: runId,
+      subscription: subscription,
+      stopRemote: stopRemote,
+    );
+  }
+}
+
+class _GatedRecoveredHermesApi extends HermesApiService {
+  _GatedRecoveredHermesApi(this.response)
+    : super(
+        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        dio: Dio(),
+      );
+
+  final Completer<Map<String, dynamic>> response;
+  int getRunCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) {
+    getRunCalls += 1;
+    return response.future;
+  }
+}
+
 final class _CountingStopApi extends ApiService {
   _CountingStopApi()
     : super(
@@ -3371,7 +3439,13 @@ void main() {
         final visible = container.read(chatMessagesProvider).single;
         check(visible.id).equals('copied-assistant');
         check(visible.content).equals('B untouched');
-        check(visible.isStreaming).isTrue();
+        // Conversation B has no live registry projection or durable run ID, so
+        // switching to it settles its orphaned checkpoint without allowing
+        // conversation A's dispatch to mutate the copied message identity.
+        check(visible.isStreaming).isFalse();
+        check(
+          visible.error?.content,
+        ).equals('Hermes checkpoint is missing its recovery identifier.');
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -5414,6 +5488,399 @@ void main() {
       check(registry.isCancelled(reservation)).isTrue();
       check(registry.runFor(key)).isNull();
     });
+
+    test(
+      'cold-restored direct checkpoint is settled without a live registry',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'orphaned-direct-checkpoint',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final conversation = withChatStorageProvenance(
+          _conversation('orphaned-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.directLocal,
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await pumpEventQueue();
+
+        final restored = container.read(chatMessagesProvider).single;
+        check(restored.id).equals(assistant.id);
+        check(restored.content).equals('Retained direct partial');
+        check(restored.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'switching into an orphaned direct chat settles its checkpoint',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final otherConversation = withChatStorageProvenance(
+          _conversation('other-direct-chat', const <ChatMessage>[]),
+          ChatStorageKind.directLocal,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(otherConversation);
+        check(container.read(chatMessagesProvider)).isEmpty();
+
+        final assistant = _assistantMessage(
+          id: 'switched-orphaned-direct',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final orphanedConversation = withChatStorageProvenance(
+          _conversation('switched-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.directLocal,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(orphanedConversation);
+        await pumpEventQueue();
+
+        final restored = container.read(chatMessagesProvider).single;
+        check(restored.id).equals(assistant.id);
+        check(restored.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'stopping an orphaned direct checkpoint never stops OpenWebUI work',
+      () async {
+        final api = _CountingStopApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(api),
+            socketServiceProvider.overrideWithValue(null),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'orphaned-direct-stop',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final conversation = withChatStorageProvenance(
+          _conversation('mixed-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.openWebUi,
+        );
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await Future<void>.delayed(Duration.zero);
+
+        container.read(stopGenerationProvider)();
+        await pumpEventQueue();
+
+        check(
+          container.read(chatMessagesProvider).single.isStreaming,
+        ).isFalse();
+        check(api.broadStops).equals(0);
+      },
+    );
+
+    test(
+      'cold-restored Hermes checkpoint reconciles from its durable run id',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-cold', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(service.getRunCalls).equals(1);
+        check(recovered.content).equals('Authoritative recovered answer');
+        check(recovered.isStreaming).isFalse();
+        check(recovered.error).isNull();
+      },
+    );
+
+    test(
+      'cold Hermes checkpoint settles when its recovery service is unavailable',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-no-service',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-no-service',
+            'hermesSessionId': 'session-no-service',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_no-service', <ChatMessage>[assistant]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final settled = container.read(chatMessagesProvider).single;
+        check(settled.content).equals('Retained Hermes partial');
+        check(
+          settled.error?.content,
+        ).equals('Hermes recovery service is unavailable.');
+      },
+    );
+
+    test(
+      'switching into an unrecoverable Hermes checkpoint settles it',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_other', const <ChatMessage>[]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        await pumpEventQueue();
+
+        final assistant = _assistantMessage(
+          id: 'missing-run-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesSessionId': 'session-missing-run',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-missing-run', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final settled = container.read(chatMessagesProvider).single;
+        check(service.getRunCalls).equals(0);
+        check(settled.content).equals('Retained Hermes partial');
+        check(
+          settled.error?.content,
+        ).equals('Hermes checkpoint is missing its recovery identifier.');
+      },
+    );
+
+    test(
+      'cold Hermes recovery can retry after its registry attach is rejected',
+      () async {
+        final service = _RecoveredHermesApi();
+        final registry = _RejectFirstAttachHermesRunRegistry();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesRunRegistryProvider.overrideWithValue(registry),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+        final assistant = _assistantMessage(
+          id: 'retry-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-retry',
+            'hermesSessionId': 'session-retry',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-retry', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(() => registry.attachAttempts >= 1);
+        check(service.getRunCalls).equals(0);
+        check(container.read(chatMessagesProvider).single.isStreaming).isTrue();
+
+        await container
+            .read(chatMessagesProvider.notifier)
+            .reconcileBackgroundServiceFailure(const <String>[
+              'chat-stream-retry-hermes-checkpoint',
+            ]);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        check(registry.attachAttempts).equals(2);
+        check(service.getRunCalls).equals(1);
+        check(
+          container.read(chatMessagesProvider).single.content,
+        ).equals('Authoritative recovered answer');
+      },
+    );
+
+    test(
+      'cold Hermes recovery restarts when its service owner changes',
+      () async {
+        final oldResponse = Completer<Map<String, dynamic>>();
+        final oldService = _GatedRecoveredHermesApi(oldResponse);
+        final replacementResponse = Completer<Map<String, dynamic>>()
+          ..complete(<String, dynamic>{
+            'status': 'completed',
+            'output': 'Replacement service answer',
+          });
+        final replacementService = _GatedRecoveredHermesApi(
+          replacementResponse,
+        );
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+        final assistant = _assistantMessage(
+          id: 'swapped-hermes-checkpoint',
+          content: 'Old partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-cold', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(() => oldService.getRunCalls == 1);
+        container.read(serviceGeneration.notifier).set(replacementService);
+        await _waitForCondition(() => replacementService.getRunCalls == 1);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(recovered.content).equals('Replacement service answer');
+        oldResponse.complete(<String, dynamic>{
+          'status': 'completed',
+          'output': 'Stale old service answer',
+        });
+        await pumpEventQueue();
+        check(
+          container.read(chatMessagesProvider).single.content,
+        ).equals('Replacement service answer');
+      },
+    );
 
     test('Stop observes rejected direct and Hermes cleanup futures', () async {
       final container = _buildContainer();
@@ -7475,4 +7942,17 @@ void main() {
       ).isFalse();
     });
   });
+}
+
+Future<void> _waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for asynchronous state');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }

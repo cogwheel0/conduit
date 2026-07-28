@@ -76,6 +76,16 @@ final directLocalDatabaseManagerProvider = Provider<DatabaseManager>((ref) {
   return manager;
 });
 
+typedef DirectLocalDatabasePurge = Future<void> Function();
+
+/// Destructive boundary used only by the explicit full-data sign-out flow.
+final directLocalDatabasePurgeProvider = Provider<DirectLocalDatabasePurge>((
+  ref,
+) {
+  final manager = ref.watch(directLocalDatabaseManagerProvider);
+  return () => manager.deleteFor(kDirectLocalDatabaseId);
+});
+
 /// Always-available storage for chats that must not depend on Open WebUI.
 final directLocalDatabaseProvider = Provider<AppDatabase>((ref) {
   // Flutter unit/widget tests do not register path_provider. Keep the provider

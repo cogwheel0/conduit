@@ -168,11 +168,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    final networkImage = tester
+    final resizedImage = tester
         .widgetList<Image>(find.byType(Image))
         .map((widget) => widget.image)
-        .whereType<NetworkImage>()
+        .whereType<ResizeImage>()
         .single;
+    final networkImage = resizedImage.imageProvider as NetworkImage;
     expect(networkImage.headers, {
       ConduitUserAgent.headerName: ConduitUserAgent.value,
     });

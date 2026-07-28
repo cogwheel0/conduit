@@ -9,6 +9,7 @@ import 'daos/chats_dao.dart';
 import 'daos/search_dao.dart';
 import 'mappers/chat_blob_mapper.dart';
 import 'mappers/conversation_assembler.dart';
+import 'models/chat_transcript_window.dart';
 
 /// The database that owns a chat.
 ///
@@ -235,6 +236,19 @@ class LocatedConversation {
       annotateConversationStorage(conversation, location.storage);
 }
 
+/// A bounded active-branch conversation annotated with its durable owner.
+class LocatedConversationWindow {
+  const LocatedConversationWindow({
+    required this.location,
+    required this.conversation,
+    required this.rowWindow,
+  });
+
+  final ChatDatabaseLocation location;
+  final Conversation conversation;
+  final MessageRowWindow rowWindow;
+}
+
 /// A full-text-search hit annotated with its owning database.
 class LocatedSearchHit {
   const LocatedSearchHit({required this.storage, required this.hit});
@@ -371,7 +385,8 @@ class ChatDatabaseRepository {
     final chat = await location.database.chatsDao.getChat(chatId);
     if (locationIsCurrent?.call(location) == false) return null;
     if (chat == null || chat.deleted || !chat.bodySynced) return null;
-    final messages = await location.database.messagesDao.getForChat(chatId);
+    final messages = await location.database.messagesDao
+        .getCompleteActiveBranchRows(chatId);
     if (locationIsCurrent?.call(location) == false) return null;
     final conversation = await assembleConversationGuarded(
       chat,
@@ -382,6 +397,43 @@ class ChatDatabaseRepository {
     return LocatedConversation(
       location: location,
       conversation: annotateConversationStorage(conversation, location.storage),
+    );
+  }
+
+  /// Loads only the latest active-branch window from the correct store.
+  Future<LocatedConversationWindow?> loadConversationWindow(
+    String chatId, {
+    ChatStorageKind? preferred,
+    int limit = kChatTranscriptPageSize,
+    ConversationParseOffload? offload,
+    bool Function(ChatDatabaseLocation location)? locationIsCurrent,
+  }) async {
+    final location = await resolveChat(chatId, preferred: preferred);
+    if (location == null || locationIsCurrent?.call(location) == false) {
+      return null;
+    }
+    final chat = await location.database.chatsDao.getChat(chatId);
+    if (locationIsCurrent?.call(location) == false ||
+        chat == null ||
+        chat.deleted ||
+        !chat.bodySynced) {
+      return null;
+    }
+    final rowWindow = await location.database.messagesDao.getActiveBranchPage(
+      chatId,
+      limit: limit,
+    );
+    if (locationIsCurrent?.call(location) == false) return null;
+    final conversation = await assembleConversationWindowGuarded(
+      chat,
+      rowWindow,
+      offload: offload,
+    );
+    if (locationIsCurrent?.call(location) == false) return null;
+    return LocatedConversationWindow(
+      location: location,
+      conversation: annotateConversationStorage(conversation, location.storage),
+      rowWindow: rowWindow,
     );
   }
 

@@ -18,6 +18,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../providers/channel_providers.dart';
+import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import 'channel_message_content.dart';
 
@@ -60,23 +61,30 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
 
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final channelId = widget.channelId;
+    final parentMessageId = widget.parentMessage.id;
 
     setState(() => _isSending = true);
     try {
       final json = await api.postChannelMessage(
-        widget.channelId,
+        channelId,
         content: content,
-        parentId: widget.parentMessage.id,
+        parentId: parentMessageId,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
+          ) ||
+          widget.channelId != channelId ||
+          widget.parentMessage.id != parentMessageId) {
+        return;
+      }
       final message = ChannelMessage.fromJson(json);
       ref
-          .read(
-            threadMessagesProvider(
-              widget.channelId,
-              widget.parentMessage.id,
-            ).notifier,
-          )
+          .read(threadMessagesProvider(channelId, parentMessageId).notifier)
           .prependMessage(message);
     } catch (e, st) {
       developer.log(

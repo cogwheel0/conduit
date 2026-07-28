@@ -16,6 +16,16 @@ import 'streaming_markdown_preparation.dart';
 import 'renderer/block_renderer.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
+const int _streamingDiagnosticsSampleInterval = 16;
+
+@visibleForTesting
+bool debugShouldSampleStreamingMarkdownDiagnostics(
+  int revision, {
+  bool diagnosticsEnabled = true,
+}) =>
+    diagnosticsEnabled &&
+    (revision == 1 || revision % _streamingDiagnosticsSampleInterval == 0);
+
 @visibleForTesting
 Map<String, Object> buildStreamingMarkdownSnapshotForTesting(
   String content, {
@@ -404,7 +414,16 @@ class _StreamingMarkdownWidgetState
       return;
     }
     _isAppForeground = nextIsForeground;
+    if (!nextIsForeground) {
+      _compileService.retireIdleWorkers();
+    }
     _handleStreamingRefreshVisibilityChanged();
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    _displayPartDocumentCache.clear();
+    _compileService.handleMemoryPressure();
   }
 
   void _scheduleStreamingRefresh() {
@@ -502,6 +521,9 @@ class _StreamingMarkdownWidgetState
       }
       final sessionId = _ensurePreparationSession();
       final revision = _nextPreparationRevision++;
+      final collectDiagnostics =
+          !kReleaseMode &&
+          debugShouldSampleStreamingMarkdownDiagnostics(revision);
       final patch = await compiler.prepareStreamingContent(
         MarkdownPreparationRequest(
           sessionId: sessionId,
@@ -509,8 +531,8 @@ class _StreamingMarkdownWidgetState
           expectedBaseRevision: _acknowledgedPreparationRevision,
           content: content,
           streaming: true,
-          collectMetrics: !kReleaseMode,
-          verifyParity: kDebugMode,
+          collectMetrics: collectDiagnostics,
+          verifyParity: kDebugMode && collectDiagnostics,
         ),
       );
       if (_preparationSessionId != sessionId || patch.isStale) {

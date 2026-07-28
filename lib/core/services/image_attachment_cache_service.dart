@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_providers.dart';
 import 'api_service.dart';
+import 'raster_media_policy.dart';
 
 final _imageAttachmentCacheStore = ImageAttachmentCacheStore();
 
@@ -126,8 +127,10 @@ final class ImageAttachmentCacheStore {
   static const int _cacheKeyMaxCharacters = 8 * 1024;
   static const int _resolvedDataEntries = 80;
   static const int _byteEntries = 48;
-  static const int _resolvedDataByteBudget = 16 * 1024 * 1024;
-  static const int _decodedByteBudget = 32 * 1024 * 1024;
+  static const int _resolvedDataByteBudget =
+      RasterMediaPolicy.attachmentResolvedDataByteBudget;
+  static const int _decodedByteBudget =
+      RasterMediaPolicy.attachmentDecodedByteBudget;
   static const int _metadataEntries = 96;
   static const int _errorEntries = 48;
 

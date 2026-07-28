@@ -197,6 +197,11 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     // Unread counts can drift while disconnected; reconcile from the server.
     _reconnectSub = socket.onReconnect.listen((_) {
       unawaited(ref.read(channelsListProvider.notifier).refresh());
+      // Socket.IO does not replay channel history. Drop every keepAlive family
+      // instance so an open thread and a channel reopened later both fetch an
+      // authoritative page instead of retaining the pre-disconnect snapshot.
+      ref.invalidate(channelMessagesProvider);
+      ref.invalidate(threadMessagesProvider);
     });
   }
 

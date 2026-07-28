@@ -159,6 +159,79 @@ Future<void> _tapVersionControl(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('streaming content rebuilds only the assistant body', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        textToSpeechControllerProvider.overrideWith(
+          _TestTextToSpeechController.new,
+        ),
+        streamingHapticsEnabledProvider.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
+    var shellBuilds = 0;
+    var contentBuilds = 0;
+    final message = ChatMessage(
+      id: 'streaming-rebuild-boundary',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              suppressStreamingHaptics: true,
+              onDelete: () {},
+              debugOnShellBuild: () => shellBuilds += 1,
+              debugOnStreamingContentBuild: () => contentBuilds += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    container
+        .read(streamingContentProvider.notifier)
+        .set('First visible streaming batch');
+    await tester.pump();
+    await tester.pump();
+
+    // The empty/non-empty boundary may rebuild once to dismiss queued/empty
+    // shell states. Subsequent token batches must stay inside the body.
+    final shellBuildsAfterFirstContent = shellBuilds;
+    final contentBuildsAfterFirstContent = contentBuilds;
+    container
+        .read(streamingContentProvider.notifier)
+        .set('First visible streaming batch with more text');
+    await tester.pump();
+    await tester.pump();
+
+    expect(shellBuilds, shellBuildsAfterFirstContent);
+    expect(contentBuilds, greaterThan(contentBuildsAfterFirstContent));
+    expect(
+      find.textContaining(
+        'First visible streaming batch with more text',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('source chip opens a details bottom sheet', (tester) async {
     const sources = <ChatSourceReference>[
       ChatSourceReference(

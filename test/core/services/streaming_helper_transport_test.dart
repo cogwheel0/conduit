@@ -358,6 +358,7 @@ ActiveChatStream _attach({
   bool Function()? ownsStreamContext,
   ApiAuthSnapshot? chatCompletedAuthSnapshot,
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
+  void Function(String Function())? bufferProgressiveLastMessageSnapshot,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -373,6 +374,7 @@ ActiveChatStream _attach({
     workerManager: workerManager ?? _fakeWorkerManager(),
     appendToLastMessage: log.appendToLastMessage,
     bufferLastMessageContent: log.bufferLastMessageContent,
+    bufferProgressiveLastMessageSnapshot: bufferProgressiveLastMessageSnapshot,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
     appendStatusUpdate: log.appendStatusUpdate,
@@ -399,11 +401,16 @@ ActiveChatStream _attach({
 class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _lastHandler;
+  SocketReplayGapCallback? _replayGap;
   final _channelHandlers = <String, void Function(dynamic)>{};
   final _lastChannelHandlers = <String, void Function(dynamic)>{};
 
   bool get hasChatHandler => _handler != null;
   int get channelHandlerCount => _channelHandlers.length;
+
+  void emitReplayGap(SocketReplayGapReason reason) {
+    _replayGap?.call(reason);
+  }
 
   /// Injects a socket chat event with the given [type] and [payload].
   void emitChatEvent(
@@ -467,14 +474,17 @@ class _MockSocketService implements SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     lastChatKeepsAliveInBackground = keepsAliveInBackground;
     _injector._handler = handler;
     _injector._lastHandler = handler;
+    _injector._replayGap = onReplayGap;
     return SocketEventSubscription(() {
       chatSubscriptionDisposeCount++;
       _injector._handler = null;
+      _injector._replayGap = null;
     }, handlerId: 'test');
   }
 
@@ -521,6 +531,119 @@ class _MockSocketService implements SocketService {
 
 void main() {
   group('attachUnifiedChunkedStreaming transport dispatch', () {
+    test(
+      'socket replay gaps request an authoritative conversation snapshot',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'partial',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              error: const ChatMessageError(content: 'stale local error'),
+            ),
+          ],
+        );
+        final registrar = FakeSocketInjector();
+        var snapshotPulls = 0;
+        final now = DateTime.now();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+          pullChatSnapshot: (_) async {
+            snapshotPulls += 1;
+            return Conversation(
+              id: 'conv-1',
+              title: 'Recovered',
+              createdAt: now,
+              updatedAt: now,
+              messages: [
+                ChatMessage(
+                  id: 'msg-1',
+                  role: 'assistant',
+                  content: 'authoritative response',
+                  timestamp: now,
+                  isStreaming: false,
+                ),
+              ],
+            );
+          },
+        );
+
+        registrar.emitReplayGap(SocketReplayGapReason.byteLimit);
+        for (var index = 0; index < 10; index += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(snapshotPulls).equals(1);
+        check(log.messages.last.content).equals('authoritative response');
+        check(log.messages.last.isStreaming).isTrue();
+        check(log.messages.last.error).isNull();
+      },
+    );
+
+    test(
+      'socket replay terminal snapshots override stale streaming flags',
+      () async {
+        final now = DateTime.now();
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'partial',
+              timestamp: now,
+              isStreaming: true,
+            ),
+          ],
+        );
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+          pullChatSnapshot: (_) async => Conversation(
+            id: 'conv-1',
+            title: 'Recovered',
+            createdAt: now,
+            updatedAt: now,
+            messages: [
+              ChatMessage(
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'complete response',
+                timestamp: now,
+                isStreaming: true,
+                metadata: const {'responseDone': true},
+              ),
+            ],
+          ),
+        );
+
+        registrar.emitReplayGap(SocketReplayGapReason.byteLimit);
+        for (var index = 0; index < 10; index += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('complete response');
+        check(log.messages.last.isStreaming).isFalse();
+        check(log.messages.last.metadata?['responseDone']).equals(true);
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 1. httpStream sessions append deltas and finish once
     // -----------------------------------------------------------------------
@@ -813,6 +936,64 @@ void main() {
           'Answer',
         );
         check(finalContent).not((value) => value.contains('<think>'));
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'reasoning projections stay lazy until the visible cadence requests one',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final byteStream = StreamController<List<int>>();
+        final snapshots = <String Function()>[];
+        var materializations = 0;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream.stream,
+            abort: () async {},
+          ),
+          log: log,
+          bufferProgressiveLastMessageSnapshot: (snapshot) {
+            snapshots.add(() {
+              materializations += 1;
+              return snapshot();
+            });
+          },
+        );
+
+        for (final chunk in const ['Plan ', 'the ', 'answer']) {
+          byteStream.add(
+            _sseFrame({
+              'choices': [
+                {
+                  'delta': {'reasoning_content': chunk},
+                },
+              ],
+            }),
+          );
+          await pumpMicrotasks();
+        }
+
+        check(snapshots.length).equals(3);
+        check(materializations).equals(0);
+        check(log.replacedContents).isEmpty();
+
+        final visible = snapshots.last();
+        check(materializations).equals(1);
+        check(visible).contains('done="false"');
+        check(visible).contains('&gt; Plan the answer');
+
+        byteStream.add(_sseDone());
+        await byteStream.close();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).contains('done="true"');
         check(log.finishCount).equals(1);
       },
     );

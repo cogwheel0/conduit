@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
+import 'package:conduit/core/models/knowledge_base.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/database/database_provider.dart';
@@ -14,6 +15,8 @@ import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
@@ -206,6 +209,13 @@ void main() {
     container.read(attachedFilesProvider.notifier).addFiles([
       LocalAttachment(file: image, displayName: 'paste.png'),
     ]);
+    container
+        .read(contextAttachmentsProvider.notifier)
+        .addWeb(
+          displayName: 'Departing account context',
+          content: 'private',
+          url: 'https://example.com/private',
+        );
     container.read(userScopedProviderCleanupProvider);
 
     container.read(_authOwnerSignalProvider.notifier).signOut();
@@ -224,12 +234,49 @@ void main() {
     }
 
     check(container.read(attachedFilesProvider)).isEmpty();
+    check(container.read(contextAttachmentsProvider)).isEmpty();
     check(await image.exists()).isFalse();
     check(
       container
           .read(mediaUploadControllerProvider)
           .debugTrackedPathGenerationCount,
     ).equals(0);
+  });
+
+  test('auth owner loss clears every knowledge cache scope', () async {
+    KnowledgeCacheManager().clear();
+    addTearDown(() => KnowledgeCacheManager().clear());
+    final api = _KnowledgeCleanupApi();
+    final container = ProviderContainer(
+      overrides: [
+        authTokenProvider3.overrideWith(
+          (ref) => ref.watch(_authOwnerSignalProvider).token,
+        ),
+        authNavigationStateProvider.overrideWith(
+          (ref) => ref.watch(_authOwnerSignalProvider).navigation,
+        ),
+        isAuthLoadingProvider2.overrideWithValue(false),
+        openWebUiAccountStorageIsolationProvider.overrideWith(
+          _NoopAccountStorageIsolation.new,
+        ),
+        selectedModelProvider.overrideWith(_NullSelectedModel.new),
+        apiServiceProvider.overrideWithValue(api),
+        appDatabaseProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(userScopedProviderCleanupProvider);
+    await container.read(knowledgeCacheProvider.notifier).ensureBases();
+    check(KnowledgeCacheManager().stats()['scopes']).equals(1);
+
+    container.read(_authOwnerSignalProvider.notifier).signOut();
+    for (var attempt = 0; attempt < 50; attempt++) {
+      if (KnowledgeCacheManager().stats()['scopes'] == 0) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    check(container.read(knowledgeCacheProvider).bases).isEmpty();
+    check(KnowledgeCacheManager().stats()['scopes']).equals(0);
   });
 
   test(
@@ -864,6 +911,21 @@ class _FakeConnectivityService extends Fake implements ConnectivityService {
 
   @override
   int get lastLatencyMs => 0;
+}
+
+class _KnowledgeCleanupApi extends ApiService {
+  _KnowledgeCleanupApi()
+    : super(serverConfig: _testServer, workerManager: WorkerManager());
+
+  @override
+  Future<List<KnowledgeBase>> getKnowledgeBases() async => <KnowledgeBase>[
+    KnowledgeBase(
+      id: 'private-kb',
+      name: 'Private',
+      createdAt: DateTime.utc(2026, 1, 1),
+      updatedAt: DateTime.utc(2026, 1, 2),
+    ),
+  ];
 }
 
 class _StubApiService extends ApiService {

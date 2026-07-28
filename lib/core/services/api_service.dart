@@ -8394,6 +8394,10 @@ class ApiService {
   /// Depending on the deployment's web fallback, the removed POST can surface
   /// as either status, so subsequent refreshes go straight to the list fallback.
   bool _activeChatsEndpointUnsupported = false;
+  // Keep the total fallback ceiling at 20 requests while reserving capacity
+  // for archived chats instead of allowing the regular list to consume all of
+  // it before the archived endpoint is attempted.
+  static const int _activeChatsListFallbackPageBudgetPerEndpoint = 10;
 
   /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
@@ -8450,6 +8454,7 @@ class ApiService {
       remaining: remaining,
       active: active,
       queryParameters: const {'include_pinned': true, 'include_folders': true},
+      pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
     );
     if (remaining.isNotEmpty) {
       await _collectActiveChatsFromPagedList(
@@ -8457,33 +8462,64 @@ class ApiService {
         remaining: remaining,
         active: active,
         queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
+        pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
       );
     }
     return active;
   }
 
-  Future<void> _collectActiveChatsFromPagedList({
+  Future<int> _collectActiveChatsFromPagedList({
     required String endpoint,
     required Set<String> remaining,
     required Set<String> active,
     required Map<String, dynamic> queryParameters,
+    required int pageBudget,
   }) async {
     const serverPageSize = 60;
-    const maxPages = 100;
-    var page = 1;
-    while (remaining.isNotEmpty && page <= maxPages) {
-      final response = await _dio.get(
-        endpoint,
-        queryParameters: {...queryParameters, 'page': page},
-      );
-      final rows = _coerceRawMapList(response.data);
+    const batchSize = 5;
+    void collectRows(List<Map<String, dynamic>> rows) {
       for (final row in rows) {
         final id = row['id']?.toString();
         if (id == null || !remaining.remove(id)) continue;
         if (row['active'] == true) active.add(id);
       }
-      if (rows.length < serverPageSize) return;
-      page++;
+    }
+
+    if (pageBudget <= 0) return 0;
+    pageBudget -= 1;
+    final firstResponse = await _dio.get(
+      endpoint,
+      queryParameters: {...queryParameters, 'page': 1},
+    );
+    final firstRows = _coerceRawMapList(firstResponse.data);
+    collectRows(firstRows);
+    if (remaining.isEmpty || firstRows.length < serverPageSize) {
+      return pageBudget;
+    }
+
+    var page = 2;
+    while (remaining.isNotEmpty && pageBudget > 0) {
+      final futures = <Future<Response<dynamic>>>[];
+      for (
+        var i = 0;
+        i < batchSize && pageBudget > 0 && remaining.isNotEmpty;
+        i += 1, page += 1, pageBudget -= 1
+      ) {
+        futures.add(
+          _dio.get(
+            endpoint,
+            queryParameters: {...queryParameters, 'page': page},
+          ),
+        );
+      }
+      final responses = await Future.wait(futures);
+      var shortPageSeen = false;
+      for (final response in responses) {
+        final rows = _coerceRawMapList(response.data);
+        collectRows(rows);
+        if (rows.length < serverPageSize) shortPageSeen = true;
+      }
+      if (shortPageSeen) return pageBudget;
     }
     if (remaining.isNotEmpty) {
       DebugLogger.warning(
@@ -8492,6 +8528,7 @@ class ApiService {
         data: {'endpoint': endpoint, 'remaining': remaining.length},
       );
     }
+    return pageBudget;
   }
 
   // Cancel an active streaming message by its messageId (client-side abort)

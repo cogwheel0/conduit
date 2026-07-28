@@ -7,9 +7,11 @@ import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
+import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../hermes/providers/hermes_providers.dart';
@@ -175,17 +177,21 @@ Future<void> _createNote(BuildContext context, WidgetRef ref) async {
 
 Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.lightImpact();
+  final api = ref.read(apiServiceProvider);
+  if (api == null) return;
+  final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
   final result = await showCreateChannelFormDialog(context);
-  if (result == null || !context.mounted) {
+  if (result == null ||
+      !context.mounted ||
+      !isChannelRequestOwnerCurrent(
+        ref: ref,
+        api: api,
+        authSessionEpoch: authSessionEpoch,
+      )) {
     return;
   }
 
   try {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      return;
-    }
-
     final json = await api.createChannel(
       name: result.name,
       type: 'group',
@@ -193,13 +199,29 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
       isPrivate: result.isPrivate,
     );
 
-    if (!context.mounted) {
+    if (!context.mounted ||
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+        )) {
       return;
     }
 
     ref.read(channelsListProvider.notifier).addChannel(Channel.fromJson(json));
-  } catch (_) {
-    if (!context.mounted) {
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'create-channel-failed',
+      scope: 'navigation/sidebar-create',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (!context.mounted ||
+        !isChannelRequestOwnerCurrent(
+          ref: ref,
+          api: api,
+          authSessionEpoch: authSessionEpoch,
+        )) {
       return;
     }
 

@@ -9,6 +9,7 @@ class ChatBottomAnchorController {
 
   bool isUserInteractingWithScroll = false;
   bool isAnchoredToBottom = true;
+  bool isUserDetachedFromBottom = false;
 
   bool updateAnchor({
     required bool hasScrollableContent,
@@ -16,6 +17,7 @@ class ChatBottomAnchorController {
   }) {
     if (distanceFromBottom <= hideThreshold) {
       isAnchoredToBottom = true;
+      isUserDetachedFromBottom = false;
     } else if (hasScrollableContent) {
       isAnchoredToBottom = false;
     }
@@ -44,58 +46,19 @@ class ChatBottomAnchorController {
 
   void detachByUser() {
     isAnchoredToBottom = false;
+    isUserDetachedFromBottom = true;
   }
 
   void requestBottomAnchor() {
     isUserInteractingWithScroll = false;
     isAnchoredToBottom = true;
+    isUserDetachedFromBottom = false;
   }
 
   void resetForDetachedScroll() {
     isAnchoredToBottom = true;
     isUserInteractingWithScroll = false;
-  }
-}
-
-/// Keeps a programmatic bottom scroll tied to the newest layout extent.
-///
-/// A user gesture cancels the generation so a completed animation can never
-/// pull the viewport back after the user has taken control.
-class ChatBottomScrollSettler {
-  int _generation = 0;
-
-  void cancel() {
-    _generation += 1;
-  }
-
-  Future<void> animateToLatestBottom({
-    required double initialBottom,
-    required Future<void> Function(double target) animateTo,
-    required bool Function() canSettle,
-    required void Function() rearmBottomAnchor,
-    required double Function() latestBottom,
-    required double Function() currentOffset,
-    required void Function(double target) jumpTo,
-    required void Function() onSettled,
-    required double correctionEpsilon,
-  }) async {
-    final generation = ++_generation;
-    await animateTo(initialBottom);
-    // A drag can complete ScrollController.animateTo immediately before its
-    // ScrollStartNotification reaches the page. Yield once so that user input
-    // can cancel this generation before it performs the final correction.
-    await Future<void>.value();
-    if (generation != _generation || !canSettle()) return;
-
-    // Metrics emitted during the animation may have classified the viewport
-    // as detached while it was still travelling toward the original target.
-    rearmBottomAnchor();
-    final target = latestBottom();
-    if (!target.isFinite || target <= 0) return;
-    if ((currentOffset() - target).abs() >= correctionEpsilon) {
-      jumpTo(target);
-    }
-    onSettled();
+    isUserDetachedFromBottom = false;
   }
 }
 

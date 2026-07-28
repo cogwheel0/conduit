@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/models/chat_message.dart';
 import '../../../../core/services/native_sheet_bridge.dart';
+import '../../../../core/services/raster_media_policy.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/utils/adaptive_glass.dart';
 import '../../../../shared/utils/external_link_launcher.dart';
@@ -692,7 +693,12 @@ class _SourceFaviconState extends State<_SourceFavicon> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.avatar,
+      logicalWidth: widget.size - 2,
+      logicalHeight: widget.size - 2,
+    );
     return Container(
       width: widget.size,
       height: widget.size,
@@ -706,13 +712,17 @@ class _SourceFaviconState extends State<_SourceFavicon> {
         child: _waitingForGroundingRedirect
             ? _fallback(theme)
             : Image(
-                image:
-                    widget.imageProvider?.call(
-                      'https://www.google.com/s2/favicons?sz=32&domain=$_domain',
-                    ) ??
-                    CachedNetworkImageProvider(
-                      'https://www.google.com/s2/favicons?sz=32&domain=$_domain',
-                    ),
+                image: RasterMediaPolicy.resizeProvider(
+                  widget.imageProvider?.call(
+                        'https://www.google.com/s2/favicons'
+                        '?sz=32&domain=$_domain',
+                      ) ??
+                      CachedNetworkImageProvider(
+                        'https://www.google.com/s2/favicons'
+                        '?sz=32&domain=$_domain',
+                      ),
+                  decodeTarget,
+                ),
                 width: widget.size - 2,
                 height: widget.size - 2,
                 fit: BoxFit.contain,

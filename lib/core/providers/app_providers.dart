@@ -74,6 +74,8 @@ typedef _ModelAuthReadiness = ({
 /// sign-out wipe.
 void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.read(activeConversationProvider.notifier).set(null);
+  ref.invalidate(directLocalDatabaseProvider);
+  ref.invalidate(conversationsProvider);
 
   ref.invalidate(appSettingsProvider);
   ref.invalidate(appThemeModeProvider);
@@ -140,6 +142,7 @@ final class SignOutCoordinator {
     final hermesConfig = _ref.read(hermesConfigProvider.notifier);
     final directRuns = _ref.read(directRunRegistryProvider);
     FullAppDataClearOutcome? outcome;
+    var directLocalPurgeCompleted = false;
 
     void resumeGlobalAdmission() {
       directRuns.resumeAdmissionAfterAppDataClearAbort();
@@ -180,9 +183,14 @@ final class SignOutCoordinator {
             beforeClear: prepareForClear,
           );
       switch (outcome) {
-        case FullAppDataClearOutcome.cleared:
-          PreferencesStore.resumeWritesAfterAppDataClear();
-          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+        case FullAppDataClearOutcome.cleared ||
+            FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
+          // The auth transaction has committed and did not yield to a newer
+          // session. Only now is it safe to destructively remove the
+          // app-global direct-local database; beforeClear is a reversible
+          // admission barrier and may still lose auth ownership.
+          await _ref.read(directLocalDatabasePurgeProvider)();
+          directLocalPurgeCompleted = true;
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
           await Future.wait<void>([
@@ -191,16 +199,22 @@ final class SignOutCoordinator {
           ]);
           directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
           hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
-          PreferencesStore.resumeWritesAfterAppDataClear();
-          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
         case FullAppDataClearOutcome.ownershipYielded:
           resumeGlobalAdmission();
           directProfiles.resumeMutationsAfterAppDataClearAbort();
           hermesConfig.resumeMutationsAfterAppDataClearAbort();
       }
     } finally {
-      PreferencesStore.resumeWritesAfterAppDataClear();
-      SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      final committedClearStillNeedsDirectPurge =
+          (outcome == FullAppDataClearOutcome.cleared ||
+              outcome ==
+                  FullAppDataClearOutcome
+                      .localDataClearedSessionCleanupIncomplete) &&
+          !directLocalPurgeCompleted;
+      if (!committedClearStillNeedsDirectPurge) {
+        PreferencesStore.resumeWritesAfterAppDataClear();
+        SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      }
       if (outcome == null) {
         resumeGlobalAdmission();
         directProfiles.resumeMutationsAfterAppDataClearAbort();

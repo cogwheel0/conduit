@@ -209,10 +209,10 @@ void main() {
         adapter.requests
             .where((request) => request.path == '/api/v1/chats/')
             .map((request) => request.queryParameters['page']),
-      ).deepEquals([1, 2]);
+      ).deepEquals([1, 2, 3, 4, 5, 6]);
     });
 
-    test('list fallback stops after 100 full pages per endpoint', () async {
+    test('list fallback reserves a 10-page budget for each endpoint', () async {
       final adapter = _ActiveChatsAdapter(
         statusCode: 404,
         body: const {},
@@ -221,7 +221,7 @@ void main() {
             return _jsonResponse(const {}, statusCode: 404);
           }
           final page = int.parse(options.queryParameters['page'].toString());
-          if (page > 100) {
+          if (page > 10) {
             throw StateError('requested page $page beyond the safety ceiling');
           }
           return _jsonResponse(
@@ -244,12 +244,12 @@ void main() {
         adapter.requests
             .where((request) => request.path == '/api/v1/chats/')
             .length,
-      ).equals(100);
+      ).equals(10);
       check(
         adapter.requests
             .where((request) => request.path == '/api/v1/chats/archived')
             .length,
-      ).equals(100);
+      ).equals(10);
     });
   });
 }
@@ -288,6 +288,18 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
       lastBody = Map<String, dynamic>.from(data);
     } else if (data is String && data.isNotEmpty) {
       lastBody = Map<String, dynamic>.from(jsonDecode(data) as Map);
+    }
+
+    final expectedMethod = switch (options.path) {
+      '/api/v1/tasks/active/chats' => 'POST',
+      '/api/v1/chats/' || '/api/v1/chats/archived' => 'GET',
+      _ => null,
+    };
+    if (expectedMethod != null && options.method != expectedMethod) {
+      throw StateError(
+        'Unexpected ${options.method} request for ${options.path}; '
+        'expected $expectedMethod',
+      );
     }
 
     final handler = responseHandler;

@@ -36,6 +36,7 @@ class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
     Iterable<String> preparedContents, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResults = true,
   }) async {
     final contents = preparedContents.toList(growable: false);
     batchCalls.add(contents);
@@ -57,6 +58,7 @@ class _GatedBatchMarkdownCompileService
     Iterable<String> preparedContents, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResults = true,
   }) async {
     compileCalls += 1;
     if (compileCalls == 1) {
@@ -67,6 +69,7 @@ class _GatedBatchMarkdownCompileService
       preparedContents,
       allowSynchronous: allowSynchronous,
       widgetTest: widgetTest,
+      cacheResults: cacheResults,
     );
   }
 }
@@ -92,6 +95,219 @@ List<CompiledMarkdownLatexSegment> _collectLatexSegments(
 void main() {
   setUp(debugResetCompiledMarkdownCache);
   tearDown(debugResetCompiledMarkdownCache);
+
+  test('streaming revisions do not enter the settled markdown cache', () async {
+    final service = MarkdownCompileService(workerManager: WorkerManager());
+    addTearDown(service.dispose);
+    const content = 'A transient **streaming** revision.';
+
+    await service.compilePrepared(
+      content,
+      allowSynchronous: true,
+      widgetTest: true,
+      cacheResult: false,
+    );
+    expect(debugCompiledMarkdownCacheSize(), 0);
+
+    await service.compilePrepared(
+      content,
+      allowSynchronous: true,
+      widgetTest: true,
+    );
+    expect(debugCompiledMarkdownCacheSize(), 1);
+  });
+
+  test('markdown workers retire after the configured idle period', () async {
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      workerIdleTimeout: const Duration(milliseconds: 50),
+    );
+    addTearDown(service.dispose);
+    final content = List<String>.filled(
+      200,
+      'worker-backed markdown',
+    ).join(' ');
+
+    await service.compilePrepared(content, cacheResult: false);
+    expect(service.debugCompilerWorkerRunning, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(service.debugCompilerWorkerRunning, isFalse);
+
+    await service.prepareContent(content, streaming: true);
+    expect(service.debugPrepareWorkerRunning, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(service.debugPrepareWorkerRunning, isFalse);
+  });
+
+  test(
+    'memory pressure clears settled cache and retires idle workers',
+    () async {
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        workerIdleTimeout: const Duration(hours: 1),
+      );
+      addTearDown(service.dispose);
+      final content = List<String>.filled(
+        200,
+        'memory-pressure markdown',
+      ).join(' ');
+
+      await service.compilePrepared(content);
+      expect(debugCompiledMarkdownCacheSize(), 1);
+      expect(service.debugCompilerWorkerRunning, isTrue);
+
+      service.handleMemoryPressure();
+
+      expect(debugCompiledMarkdownCacheSize(), 0);
+      expect(service.debugCompilerWorkerRunning, isFalse);
+    },
+  );
+
+  test(
+    'memory pressure fences an in-flight single compile and its followers',
+    () async {
+      final compileStarted = Completer<void>();
+      final releaseCompile = Completer<void>();
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugCompilePreparedOverride: (preparedContent) async {
+          compileStarted.complete();
+          await releaseCompile.future;
+          return const CompiledMarkdownDocument.empty();
+        },
+      );
+      addTearDown(service.dispose);
+      addTearDown(() {
+        if (!releaseCompile.isCompleted) releaseCompile.complete();
+      });
+      const content = 'Delayed single compile';
+
+      final leader = service.compilePrepared(content);
+      await compileStarted.future;
+      service.handleMemoryPressure();
+      final follower = service.compilePrepared(content);
+      releaseCompile.complete();
+
+      await Future.wait(<Future<CompiledMarkdownDocument>>[leader, follower]);
+      expect(debugCompiledMarkdownCacheSize(), 0);
+
+      await service.compilePrepared(
+        content,
+        allowSynchronous: true,
+        widgetTest: true,
+      );
+      expect(debugCompiledMarkdownCacheSize(), 1);
+    },
+  );
+
+  test(
+    'memory pressure fences in-flight batch writes and batch followers',
+    () async {
+      final compileStarted = Completer<void>();
+      final releaseCompile = Completer<void>();
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugCompilePreparedBatchOverride: (preparedContents) async {
+          compileStarted.complete();
+          await releaseCompile.future;
+          return List<CompiledMarkdownDocument>.filled(
+            preparedContents.length,
+            const CompiledMarkdownDocument.empty(),
+          );
+        },
+      );
+      addTearDown(service.dispose);
+      addTearDown(() {
+        if (!releaseCompile.isCompleted) releaseCompile.complete();
+      });
+      const contents = <String>['Delayed batch one', 'Delayed batch two'];
+
+      final leader = service.compilePreparedBatch(contents);
+      await compileStarted.future;
+      service.handleMemoryPressure();
+      final followers = service.compilePreparedBatch(contents);
+      releaseCompile.complete();
+
+      await Future.wait(<Future<List<CompiledMarkdownDocument>>>[
+        leader,
+        followers,
+      ]);
+      expect(debugCompiledMarkdownCacheSize(), 0);
+
+      await service.compilePreparedBatch(
+        contents,
+        allowSynchronous: true,
+        widgetTest: true,
+      );
+      expect(debugCompiledMarkdownCacheSize(), 2);
+    },
+  );
+
+  test('dispose fences an in-flight single-compile follower', () async {
+    final compileStarted = Completer<void>();
+    final releaseCompile = Completer<void>();
+    var disposed = false;
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugCompilePreparedOverride: (preparedContent) async {
+        compileStarted.complete();
+        await releaseCompile.future;
+        return const CompiledMarkdownDocument.empty();
+      },
+    );
+    addTearDown(() {
+      if (!disposed) service.dispose();
+      if (!releaseCompile.isCompleted) releaseCompile.complete();
+    });
+    const content = 'Disposed single follower';
+
+    final leader = service.compilePrepared(content);
+    await compileStarted.future;
+    final follower = service.compilePrepared(content);
+    service.dispose();
+    disposed = true;
+    releaseCompile.complete();
+
+    await Future.wait(<Future<CompiledMarkdownDocument>>[leader, follower]);
+    expect(debugCompiledMarkdownCacheSize(), 0);
+  });
+
+  test('dispose fences in-flight batch followers', () async {
+    final compileStarted = Completer<void>();
+    final releaseCompile = Completer<void>();
+    var disposed = false;
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugCompilePreparedBatchOverride: (preparedContents) async {
+        compileStarted.complete();
+        await releaseCompile.future;
+        return List<CompiledMarkdownDocument>.filled(
+          preparedContents.length,
+          const CompiledMarkdownDocument.empty(),
+        );
+      },
+    );
+    addTearDown(() {
+      if (!disposed) service.dispose();
+      if (!releaseCompile.isCompleted) releaseCompile.complete();
+    });
+    const contents = <String>['Disposed batch one', 'Disposed batch two'];
+
+    final leader = service.compilePreparedBatch(contents);
+    await compileStarted.future;
+    final followers = service.compilePreparedBatch(contents);
+    service.dispose();
+    disposed = true;
+    releaseCompile.complete();
+
+    await Future.wait(<Future<List<CompiledMarkdownDocument>>>[
+      leader,
+      followers,
+    ]);
+    expect(debugCompiledMarkdownCacheSize(), 0);
+  });
 
   group('compilePreparedMarkdownSync', () {
     test('classifies a plain paragraph as plainText', () {

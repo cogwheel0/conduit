@@ -23,6 +23,7 @@ import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/image_attachment_cache_service.dart';
 import '../../../core/services/performance_profiler.dart';
+import '../../../core/services/raster_media_policy.dart';
 import '../../../core/services/worker_manager.dart';
 
 export '../../../core/services/image_attachment_cache_service.dart'
@@ -421,6 +422,40 @@ Map<String, String>? debugMergeImageHeaders(
   Map<String, String>? overrides,
 ) => _mergeHeaders(defaults, overrides);
 
+const _defaultImagePreviewConstraints = BoxConstraints(
+  minWidth: 200,
+  maxWidth: 300,
+  minHeight: 150,
+  maxHeight: 300,
+);
+
+@visibleForTesting
+Size debugStableImagePreviewSizeForTesting(BoxConstraints? constraints) {
+  final effective = constraints ?? _defaultImagePreviewConstraints;
+  return Size(
+    effective.hasBoundedWidth
+        ? effective.maxWidth
+        : _defaultImagePreviewConstraints.maxWidth,
+    effective.hasBoundedHeight
+        ? effective.maxHeight
+        : _defaultImagePreviewConstraints.maxHeight,
+  );
+}
+
+@visibleForTesting
+RasterDecodeTarget debugImagePreviewDecodeTargetForTesting({
+  required BoxConstraints? constraints,
+  required double devicePixelRatio,
+}) {
+  final previewSize = debugStableImagePreviewSizeForTesting(constraints);
+  return RasterMediaPolicy.target(
+    profile: RasterDecodeProfile.inline,
+    devicePixelRatio: devicePixelRatio,
+    logicalWidth: previewSize.width,
+    logicalHeight: previewSize.height,
+  );
+}
+
 class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final String attachmentId;
   final bool isMarkdownFormat;
@@ -656,24 +691,18 @@ class _EnhancedImageAttachmentState
 
   bool _isRemoteContent(String data) => _isRemoteContentValue(data);
 
-  ({int? width, int? height}) _cacheDimensions(BuildContext context) {
-    final constraints =
-        widget.constraints ??
-        const BoxConstraints(maxWidth: 400, maxHeight: 400);
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-
-    int? normalize(double value) {
-      if (!value.isFinite || value <= 0) {
-        return null;
-      }
-      return (value * devicePixelRatio).round().clamp(64, 2048);
-    }
-
-    return (
-      width: normalize(constraints.maxWidth),
-      height: normalize(constraints.maxHeight),
+  RasterDecodeTarget _cacheDimensions(BuildContext context) {
+    return debugImagePreviewDecodeTargetForTesting(
+      constraints: _previewConstraints,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
     );
   }
+
+  BoxConstraints get _previewConstraints =>
+      widget.constraints ?? _defaultImagePreviewConstraints;
+
+  Size get _stablePreviewSize =>
+      debugStableImagePreviewSizeForTesting(widget.constraints);
 
   @override
   Widget build(BuildContext context) {
@@ -811,67 +840,57 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildLoadingState() {
-    final constraints =
-        widget.constraints ??
-        const BoxConstraints(
-          maxWidth: 300,
-          maxHeight: 300,
-          minHeight: 150,
-          minWidth: 200,
-        );
-
     return KeyedSubtree(
       key: const ValueKey('loading'),
-      child: _buildSkeletonPlaceholder(
-        constraints: constraints,
-        showProgressIndicator: true,
-        includeMarkdownMargin: true,
+      child: SizedBox.fromSize(
+        size: _stablePreviewSize,
+        child: _buildSkeletonPlaceholder(
+          constraints: _previewConstraints,
+          showProgressIndicator: true,
+          includeMarkdownMargin: true,
+        ),
       ),
     );
   }
 
   Widget _buildErrorState() {
-    final error = Container(
+    final error = SizedBox.fromSize(
       key: const ValueKey('error'),
-      constraints:
-          widget.constraints ??
-          const BoxConstraints(
-            maxWidth: 300,
-            maxHeight: 150,
-            minHeight: 100,
-            minWidth: 200,
+      size: _stablePreviewSize,
+      child: Container(
+        constraints: _previewConstraints,
+        margin: const EdgeInsets.only(bottom: Spacing.xs),
+        decoration: BoxDecoration(
+          color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          border: Border.all(
+            color: context.conduitTheme.error.withValues(alpha: 0.3),
+            width: BorderWidth.thin,
           ),
-      margin: const EdgeInsets.only(bottom: Spacing.xs),
-      decoration: BoxDecoration(
-        color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        border: Border.all(
-          color: context.conduitTheme.error.withValues(alpha: 0.3),
-          width: BorderWidth.thin,
         ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.broken_image_outlined,
-            color: context.conduitTheme.error,
-            size: 32,
-          ),
-          const SizedBox(height: Spacing.xs),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-            child: Text(
-              _errorMessage!,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: context.conduitTheme.error,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.broken_image_outlined,
+              color: context.conduitTheme.error,
+              size: 32,
             ),
-          ),
-        ],
+            const SizedBox(height: Spacing.xs),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              child: Text(
+                _errorMessage!,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: context.conduitTheme.error,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
     if (widget.disableAnimation || context.reduceMotion) {
@@ -893,29 +912,33 @@ class _EnhancedImageAttachmentState
       effectiveHeaders: headers,
     );
     final dimensions = _cacheDimensions(context);
+    final previewSize = _stablePreviewSize;
 
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
-    final imageWidget = CachedNetworkImage(
+    final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      imageUrl: _cachedImageData!,
-      cacheKey: networkCacheKey,
+      image: RasterMediaPolicy.resizeProviderForCover(
+        CachedNetworkImageProvider(
+          _cachedImageData!,
+          cacheKey: networkCacheKey,
+          cacheManager: cacheManager,
+          headers: headers,
+        ),
+        dimensions,
+        profile: RasterDecodeProfile.inline,
+      ),
+      width: previewSize.width,
+      height: previewSize.height,
       fit: BoxFit.cover,
-      cacheManager: cacheManager,
-      httpHeaders: headers,
-      memCacheWidth: dimensions.width,
-      memCacheHeight: dimensions.height,
-      maxWidthDiskCache: dimensions.width,
-      maxHeightDiskCache: dimensions.height,
-      // A short opacity reveal remains safe under Reduce Motion and avoids an
-      // abrupt placeholder swap in OctoImage. Spatial Hero motion is disabled
-      // separately below.
-      fadeInDuration: widget.disableAnimation
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      fadeOutDuration: widget.disableAnimation
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      placeholder: (context, url) => _buildSkeletonPlaceholder(),
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        return wasSynchronouslyLoaded || frame != null
+            ? child
+            : SizedBox.fromSize(
+                size: previewSize,
+                child: _buildSkeletonPlaceholder(),
+              );
+      },
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = error.toString();
         return _buildErrorState();
@@ -952,7 +975,9 @@ class _EnhancedImageAttachmentState
       },
     );
 
-    return _wrapImage(svgWidget);
+    return _wrapImage(
+      SizedBox.fromSize(size: _stablePreviewSize, child: svgWidget),
+    );
   }
 
   Widget _buildBase64Image() {
@@ -961,13 +986,18 @@ class _EnhancedImageAttachmentState
       return _buildLoadingState();
     }
     final dimensions = _cacheDimensions(context);
+    final previewSize = _stablePreviewSize;
 
-    final imageWidget = Image.memory(
+    final imageWidget = Image(
       key: ValueKey('image_${widget.attachmentId}'),
-      bytes,
+      image: RasterMediaPolicy.resizeProviderForCover(
+        MemoryImage(bytes),
+        dimensions,
+        profile: RasterDecodeProfile.inline,
+      ),
+      width: previewSize.width,
+      height: previewSize.height,
       fit: BoxFit.cover,
-      cacheWidth: dimensions.width,
-      cacheHeight: dimensions.height,
       gaplessPlayback: true, // Prevents flashing during rebuilds
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = AppLocalizations.of(context)!.failedToDecodeImage;
@@ -994,14 +1024,14 @@ class _EnhancedImageAttachmentState
       },
     );
 
-    return _wrapImage(svgWidget);
+    return _wrapImage(
+      SizedBox.fromSize(size: _stablePreviewSize, child: svgWidget),
+    );
   }
 
   Widget _wrapImage(Widget imageWidget) {
     final wrappedImage = Container(
-      constraints:
-          widget.constraints ??
-          const BoxConstraints(maxWidth: 400, maxHeight: 400),
+      constraints: _previewConstraints,
       margin: widget.isMarkdownFormat
           ? const EdgeInsets.symmetric(vertical: Spacing.sm)
           : EdgeInsets.zero,
@@ -1107,6 +1137,11 @@ class FullScreenImageViewer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Widget imageWidget;
+    final viewportSize = MediaQuery.sizeOf(context);
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.fullScreen,
+    );
 
     // If we have raw bytes, use them directly
     if (imageData == null && imageBytes != null) {
@@ -1123,7 +1158,13 @@ class FullScreenImageViewer extends ConsumerWidget {
           ),
         );
       } else {
-        imageWidget = Image.memory(imageBytes!, fit: BoxFit.contain);
+        imageWidget = Image(
+          image: RasterMediaPolicy.resizeProvider(
+            MemoryImage(imageBytes!),
+            decodeTarget,
+          ),
+          fit: BoxFit.contain,
+        );
       }
     } else if (imageData != null && imageData!.startsWith('http')) {
       final defaultHeaders = buildImageHeadersForUrlFromWidgetRef(
@@ -1158,17 +1199,31 @@ class FullScreenImageViewer extends ConsumerWidget {
         );
       } else {
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
-        imageWidget = CachedNetworkImage(
-          imageUrl: imageData!,
-          cacheKey: networkCacheKey,
-          fit: BoxFit.contain,
-          cacheManager: cacheManager,
-          httpHeaders: headers,
-          placeholder: (context, url) => Center(
-            child: CircularProgressIndicator(
-              color: context.conduitTheme.buttonPrimary,
+        imageWidget = Image(
+          image: RasterMediaPolicy.resizeProvider(
+            CachedNetworkImageProvider(
+              imageData!,
+              cacheKey: networkCacheKey,
+              cacheManager: cacheManager,
+              headers: headers,
             ),
+            decodeTarget,
           ),
+          width: viewportSize.width,
+          height: viewportSize.height,
+          fit: BoxFit.contain,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            return wasSynchronouslyLoaded || frame != null
+                ? child
+                : SizedBox.fromSize(
+                    size: viewportSize,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: context.conduitTheme.buttonPrimary,
+                      ),
+                    ),
+                  );
+          },
           errorBuilder: (context, error, stackTrace) => Center(
             child: Icon(
               Icons.error_outline,
@@ -1206,7 +1261,13 @@ class FullScreenImageViewer extends ConsumerWidget {
             ),
           );
         } else {
-          imageWidget = Image.memory(decodedBytes, fit: BoxFit.contain);
+          imageWidget = Image(
+            image: RasterMediaPolicy.resizeProvider(
+              MemoryImage(decodedBytes),
+              decodeTarget,
+            ),
+            fit: BoxFit.contain,
+          );
         }
       } catch (e) {
         imageWidget = Center(

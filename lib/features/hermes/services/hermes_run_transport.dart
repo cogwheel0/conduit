@@ -618,6 +618,7 @@ Future<void> dispatchHermesRun({
           final errorMessage = switch (recovered.status) {
             'cancelled' || 'canceled' => 'Hermes run was cancelled.',
             'stopped' => 'Hermes run was stopped.',
+            'incomplete' => 'Hermes stopped this response before it completed.',
             _ => 'Hermes run failed.',
           };
           updateMessage(
@@ -747,6 +748,59 @@ void _appendAuthoritativeOutput(
   }
 }
 
+/// Reconciles a durable Hermes checkpoint after the process-local transport
+/// registry has been lost. Identifiers are validated against the active
+/// connection's secrets before they can reach a provider URL.
+Future<({String text, String status})?> recoverHermesCheckpoint({
+  required HermesApiService service,
+  String? runId,
+  String? responseId,
+  String? transportMode,
+  required CancelToken cancelToken,
+  int maxPolls = 120,
+  Duration pollInterval = const Duration(seconds: 1),
+}) {
+  final sensitiveValues = _hermesSensitiveValues(service);
+  final safeRunId = _validatedHermesOpaqueIdentifier(
+    runId,
+    sensitiveValues: sensitiveValues,
+  );
+  final safeResponseId = _validatedHermesOpaqueIdentifier(
+    responseId,
+    sensitiveValues: sensitiveValues,
+  );
+  if (runId != null && safeRunId == null) {
+    throw StateError('Hermes checkpoint contains an invalid run identifier.');
+  }
+  if (responseId != null && safeResponseId == null) {
+    throw StateError(
+      'Hermes checkpoint contains an invalid response identifier.',
+    );
+  }
+  if (transportMode == kHermesResponsesMode) {
+    if (safeResponseId == null) {
+      return Future.value(null);
+    }
+    return _recoverResponseOutput(
+      service,
+      safeResponseId,
+      cancelToken: cancelToken,
+      maxPolls: maxPolls,
+      pollInterval: pollInterval,
+    );
+  }
+  if (safeRunId == null) {
+    return Future.value(null);
+  }
+  return _recoverRunOutput(
+    service,
+    safeRunId,
+    cancelToken: cancelToken,
+    maxPolls: maxPolls,
+    pollInterval: pollInterval,
+  );
+}
+
 /// Polls `GET /v1/runs/{id}` until the server reports a terminal state.
 ///
 /// A running run may expose partial output; that is never treated as final. The
@@ -798,7 +852,8 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'failed' ||
         status == 'cancelled' ||
         status == 'canceled' ||
-        status == 'stopped';
+        status == 'stopped' ||
+        status == 'incomplete';
     if (terminal) return (text: text, status: status!);
     const nonTerminalStatuses = {
       'created',
@@ -835,6 +890,7 @@ Future<({String text, String status})?> _recoverResponseOutput(
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
   }
+  var consecutiveErrors = 0;
   var polls = 0;
   while (!cancelToken.isCancelled) {
     if (polls >= maxPolls) {
@@ -843,11 +899,22 @@ Future<({String text, String status})?> _recoverResponseOutput(
       );
     }
     polls++;
-    final response = await service.getResponse(
-      responseId,
-      cancelToken: cancelToken,
-    );
-    if (cancelToken.isCancelled) return null;
+    Map<String, dynamic> response;
+    try {
+      response = await service.getResponse(
+        responseId,
+        cancelToken: cancelToken,
+      );
+      if (cancelToken.isCancelled) return null;
+      consecutiveErrors = 0;
+    } catch (error) {
+      if (_isHermesProtocolFailure(error)) rethrow;
+      if (cancelToken.isCancelled) return null;
+      consecutiveErrors++;
+      if (consecutiveErrors >= 3) rethrow;
+      await Future<void>.delayed(pollInterval);
+      continue;
+    }
     String status;
     String text;
     try {

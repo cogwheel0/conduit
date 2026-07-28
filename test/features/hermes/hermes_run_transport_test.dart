@@ -245,6 +245,43 @@ class _FakeHermesApiService extends HermesApiService {
   }
 }
 
+class _TransientResponseRecoveryApi extends _FakeHermesApiService {
+  _TransientResponseRecoveryApi()
+    : super(
+        const [],
+        responseResult: const {
+          'id': 'resp-retry',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'completed',
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg-retry',
+              'role': 'assistant',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Recovered after retry'},
+              ],
+            },
+          ],
+        },
+      );
+
+  @override
+  Future<Map<String, dynamic>> getResponse(
+    String responseId, {
+    CancelToken? cancelToken,
+  }) {
+    if (getResponseCalls++ == 0) {
+      throw DioException(
+        requestOptions: RequestOptions(path: '/v1/responses/$responseId'),
+      );
+    }
+    return Future<Map<String, dynamic>>.value(responseResult);
+  }
+}
+
 Stream<HermesRunEvent> _failedHermesStream(
   Object error, {
   required CancelToken? cancelToken,
@@ -893,6 +930,24 @@ void main() {
       check(content.toString()).equals('Ready now');
     });
 
+    test('checkpoint recovery retries a transient response failure', () async {
+      final fake = _TransientResponseRecoveryApi();
+
+      final recovered = await recoverHermesCheckpoint(
+        service: fake,
+        responseId: 'resp-retry',
+        transportMode: kHermesResponsesMode,
+        cancelToken: CancelToken(),
+        maxPolls: 3,
+        pollInterval: Duration.zero,
+      );
+
+      check(fake.getResponseCalls).equals(2);
+      check(recovered).isNotNull();
+      check(recovered!.status).equals('completed');
+      check(recovered.text).equals('Recovered after retry');
+    });
+
     test(
       'recovers a sparse stored response from older Hermes servers',
       () async {
@@ -970,7 +1025,7 @@ void main() {
         debugPrint = previousDebugPrint;
       }
 
-      check(fake.getResponseCalls).equals(1);
+      check(fake.getResponseCalls).equals(3);
       check(message.error).isNotNull();
       check(message.error!.content).equals('Hermes run failed.');
       final combinedLogs = logs.join('\n');
@@ -2468,6 +2523,39 @@ void main() {
 
       check(message.error).isNotNull();
     }
+  });
+
+  test('recovered incomplete run uses the normal terminal path', () async {
+    final fake = _FakeHermesApiService(
+      const [],
+      runResult: const {'status': 'incomplete', 'output': 'Partial answer'},
+    );
+    final content = StringBuffer();
+    var message = ChatMessage(
+      id: 'm-incomplete',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      recoveryPollInterval: Duration.zero,
+      appendContent: content.write,
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(fake.getRunCalls).equals(1);
+    check(content.toString()).equals('Partial answer');
+    check(
+      message.error?.content,
+    ).equals('Hermes stopped this response before it completed.');
   });
 
   test(

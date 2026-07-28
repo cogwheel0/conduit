@@ -15,6 +15,7 @@ import '../app_database.dart';
 import '../daos/chats_dao.dart';
 import '../daos/search_dao.dart';
 import 'chat_blob_mapper.dart';
+import '../models/chat_transcript_window.dart';
 
 /// Message count above which assembly MUST be offloaded to a worker isolate.
 /// (`ApiService` uses a separate payload byte-size heuristic for the same
@@ -100,9 +101,8 @@ Conversation assembleConversation(ChatRow chat, List<MessageRow> messages) {
 /// Closure type for offloading a pre-built envelope to a worker isolate.
 /// The caller is responsible for routing through [parseFullConversationModelWorker]
 /// via [WorkerManager.schedule].
-typedef ConversationParseOffload = Future<Conversation> Function(
-  Object? envelope,
-);
+typedef ConversationParseOffload =
+    Future<Conversation> Function(Object? envelope);
 
 /// Contract-enforcing wrapper around [assembleConversation]: offloads via
 /// [offload] when `messages.length` exceeds [kLocalConversationWorkerThreshold],
@@ -119,6 +119,37 @@ Future<Conversation> assembleConversationGuarded(
     return offload(buildChatResponseEnvelope(chat, messages));
   }
   return Future.value(assembleConversation(chat, messages));
+}
+
+/// Parses a bounded active-branch window through the same OpenWebUI mapper as a
+/// complete conversation. The synthetic current id is the newest primary row
+/// in the page; sibling-only rows remain available for version discovery.
+Future<Conversation> assembleConversationWindowGuarded(
+  ChatRow chat,
+  MessageRowWindow window, {
+  required ConversationParseOffload? offload,
+}) {
+  if (window.primaryRows.isEmpty) {
+    return Future.value(
+      assembleConversation(
+        chat,
+        const <MessageRow>[],
+      ).copyWith(messages: const []),
+    );
+  }
+  final envelope = buildChatResponseEnvelope(chat, window.rows);
+  final chatBlob = envelope['chat'];
+  if (chatBlob is Map<String, dynamic>) {
+    final history = chatBlob['history'];
+    if (history is Map<String, dynamic>) {
+      history['currentId'] = window.primaryRows.last.id;
+    }
+  }
+  if (offload != null &&
+      window.rows.length > kLocalConversationWorkerThreshold) {
+    return offload(envelope);
+  }
+  return Future.value(parseFullConversationModel(envelope));
 }
 
 /// Shared body-less summary builder. Timestamps are epoch SECONDS (scaled to

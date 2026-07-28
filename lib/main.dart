@@ -24,6 +24,7 @@ import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
 import 'core/services/navigation_service.dart';
 import 'core/services/performance_profiler.dart';
+import 'core/services/raster_media_policy.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
 import 'core/services/settings_service.dart';
@@ -106,6 +107,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      RasterMediaPolicy.configureGlobalImageCache();
       // Measure the complete Dart-side startup path, including the first plugin
       // calls. Package metadata is not required to paint the auth/theme shell;
       // ConduitUserAgent has a safe fallback until this best-effort update lands.

@@ -11,15 +11,14 @@ import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:super_sliver_list/super_sliver_list.dart';
 
 void main() {
   test('message cache shrinks only while streaming', () {
@@ -35,15 +34,18 @@ void main() {
 
       Widget build({required bool includeRunningFooter}) {
         return MaterialApp(
-          home: debugBuildAssistantTimelineSlotForTesting(
-            assistantRow: _LifecycleProbe(
-              key: const ValueKey('assistant-row'),
-              onMount: () => mounts += 1,
-              onDispose: () => disposals += 1,
-            ),
-            runningFooter: includeRunningFooter
-                ? const SizedBox(key: ValueKey('running-footer'))
-                : null,
+          home: Column(
+            children: [
+              debugBuildAssistantTimelineSlotForTesting(
+                assistantRow: _LifecycleProbe(
+                  key: const ValueKey('assistant-row'),
+                  onMount: () => mounts += 1,
+                  onDispose: () => disposals += 1,
+                ),
+              ),
+              if (includeRunningFooter)
+                const SizedBox(key: ValueKey('running-footer')),
+            ],
           ),
         );
       }
@@ -58,343 +60,6 @@ void main() {
       check(disposals).equals(0);
     },
   );
-
-  testWidgets(
-    'managed timeline keeps its trailing edge pinned during live growth',
-    (tester) async {
-      final scrollController = ScrollController();
-      final listController = ListController()
-        ..stickTarget = const StickTarget.bottom();
-      final liveHeight = ValueNotifier<double>(180);
-      final composerSpacerHeight = ValueNotifier<double>(60);
-      var metricsNotifications = 0;
-      addTearDown(scrollController.dispose);
-      addTearDown(listController.dispose);
-      addTearDown(liveHeight.dispose);
-      addTearDown(composerSpacerHeight.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              height: 320,
-              child: NotificationListener<ScrollMetricsNotification>(
-                onNotification: (_) {
-                  metricsNotifications += 1;
-                  return false;
-                },
-                child: CustomScrollView(
-                  controller: scrollController,
-                  slivers: [
-                    const SliverToBoxAdapter(child: SizedBox(height: 420)),
-                    SuperSliverList(
-                      listController: listController,
-                      delegate: SliverChildListDelegate.fixed([
-                        ValueListenableBuilder<double>(
-                          valueListenable: liveHeight,
-                          builder: (context, height, _) => SizedBox(
-                            key: const ValueKey('live-turn'),
-                            height: height,
-                          ),
-                        ),
-                        ValueListenableBuilder<double>(
-                          valueListenable: composerSpacerHeight,
-                          builder: (context, height, _) => SizedBox(
-                            key: const ValueKey('composer-spacer'),
-                            height: height,
-                          ),
-                        ),
-                      ]),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      scrollController.jumpTo(scrollController.position.maxScrollExtent);
-      await tester.pump();
-      final offsetBeforeGrowth = scrollController.offset;
-      final metricsBeforeGrowth = metricsNotifications;
-
-      liveHeight.value += 72;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(offsetBeforeGrowth + 72, 0.01);
-      check(
-        scrollController.offset,
-      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-      check(scrollController.position.isScrollingNotifier.value).isFalse();
-      check(metricsNotifications).isGreaterThan(metricsBeforeGrowth);
-
-      final offsetBeforeComposerGrowth = scrollController.offset;
-      composerSpacerHeight.value += 36;
-      await tester.pump();
-
-      check(
-        scrollController.offset,
-      ).isCloseTo(offsetBeforeComposerGrowth + 36, 0.01);
-      check(
-        scrollController.offset,
-      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-      check(scrollController.position.isScrollingNotifier.value).isFalse();
-
-      listController.stickTarget = null;
-      scrollController.jumpTo(scrollController.offset - 100);
-      await tester.pump();
-      final detachedOffset = scrollController.offset;
-
-      liveHeight.value += 40;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
-      check(
-        scrollController.position.maxScrollExtent - scrollController.offset,
-      ).isGreaterThan(100);
-
-      final maxExtentBeforeDetachedComposerGrowth =
-          scrollController.position.maxScrollExtent;
-      composerSpacerHeight.value += 24;
-      await tester.pump();
-
-      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
-      check(
-        scrollController.position.maxScrollExtent,
-      ).isCloseTo(maxExtentBeforeDetachedComposerGrowth + 24, 0.01);
-    },
-  );
-
-  testWidgets('bottom scroll settles against response and composer growth', (
-    tester,
-  ) async {
-    final scrollController = ScrollController();
-    final liveHeight = ValueNotifier<double>(240);
-    final composerHeight = ValueNotifier<double>(72);
-    final settler = ChatBottomScrollSettler();
-    final anchor = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    )..detachByUser();
-    var settled = false;
-    addTearDown(scrollController.dispose);
-    addTearDown(liveHeight.dispose);
-    addTearDown(composerHeight.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 320,
-          child: CustomScrollView(
-            controller: scrollController,
-            slivers: [
-              const SliverToBoxAdapter(child: SizedBox(height: 640)),
-              SliverToBoxAdapter(
-                child: ValueListenableBuilder<double>(
-                  valueListenable: liveHeight,
-                  builder: (context, height, _) => SizedBox(height: height),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: ValueListenableBuilder<double>(
-                  valueListenable: composerHeight,
-                  builder: (context, height, _) => SizedBox(height: height),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    final initialBottom = scrollController.position.maxScrollExtent;
-    check(anchor.isAnchoredToBottom).isFalse();
-
-    final settleFuture = settler.animateToLatestBottom(
-      initialBottom: initialBottom,
-      animateTo: (target) => scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.linear,
-      ),
-      canSettle: () => true,
-      rearmBottomAnchor: anchor.requestBottomAnchor,
-      latestBottom: () => scrollController.position.maxScrollExtent,
-      currentOffset: () => scrollController.offset,
-      jumpTo: scrollController.jumpTo,
-      onSettled: () => settled = true,
-      correctionEpsilon: 1,
-    );
-    await tester.pump(const Duration(milliseconds: 100));
-
-    liveHeight.value += 180;
-    composerHeight.value += 48;
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 220));
-    await tester.pump();
-    await settleFuture;
-
-    check(settled).isTrue();
-    check(anchor.isAnchoredToBottom).isTrue();
-    check(
-      scrollController.offset,
-    ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
-  });
-
-  testWidgets('user interaction cancels a pending bottom settle', (
-    tester,
-  ) async {
-    final scrollController = ScrollController();
-    final settler = ChatBottomScrollSettler();
-    var userIsInteracting = false;
-    var rearmCount = 0;
-    addTearDown(scrollController.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 320,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              if (notification is ScrollStartNotification &&
-                  notification.dragDetails != null) {
-                userIsInteracting = true;
-                settler.cancel();
-              }
-              return false;
-            },
-            child: CustomScrollView(
-              controller: scrollController,
-              slivers: const [
-                SliverToBoxAdapter(child: SizedBox(height: 1400)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final settleFuture = settler.animateToLatestBottom(
-      initialBottom: scrollController.position.maxScrollExtent,
-      animateTo: (target) => scrollController.animateTo(
-        target,
-        duration: const Duration(seconds: 2),
-        curve: Curves.linear,
-      ),
-      canSettle: () => !userIsInteracting,
-      rearmBottomAnchor: () => rearmCount += 1,
-      latestBottom: () => scrollController.position.maxScrollExtent,
-      currentOffset: () => scrollController.offset,
-      jumpTo: scrollController.jumpTo,
-      onSettled: () {},
-      correctionEpsilon: 1,
-    );
-    await tester.pump(const Duration(milliseconds: 80));
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
-    await tester.pump();
-    await settleFuture;
-    final interruptedOffset = scrollController.offset;
-    await tester.pump(const Duration(milliseconds: 300));
-
-    check(userIsInteracting).isTrue();
-    check(rearmCount).equals(0);
-    check(scrollController.offset).isCloseTo(interruptedOffset, 0.01);
-    check(
-      scrollController.offset,
-    ).isLessThan(scrollController.position.maxScrollExtent);
-  });
-
-  testWidgets(
-    'managed timeline remaps the trailing spacer extent when a row is appended',
-    (tester) async {
-      final listController = ListController();
-      final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
-      addTearDown(listController.dispose);
-      addTearDown(itemExtents.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SizedBox(
-            height: 120,
-            child: ValueListenableBuilder<List<double>>(
-              valueListenable: itemExtents,
-              builder: (context, extents, _) => CustomScrollView(
-                scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                slivers: [
-                  SuperSliverList(
-                    listController: listController,
-                    extentEstimation: (index, _) => extents[index ?? 0],
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => SizedBox(height: extents[index]),
-                      childCount: extents.length,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      const previousKeys = ['a', 'b', 'c', 'd', 'spacer'];
-      itemExtents.value = [100, 100, 100, 100, 240, 60];
-      await tester.pump();
-
-      // The delegate count grew at the tail, but the keyed row was inserted
-      // before the composer spacer.
-      reconcileManagedTimelineExtentsForTesting(
-        controller: listController,
-        previousKeys: previousKeys,
-        nextKeys: const ['a', 'b', 'c', 'd', 'new-row', 'spacer'],
-      );
-
-      check(listController.extentForIndex(4).$1).equals(240);
-      check(listController.extentForIndex(5).$1).equals(60);
-    },
-  );
-
-  testWidgets('managed timeline refreshes an off-screen spacer estimate', (
-    tester,
-  ) async {
-    final listController = ListController();
-    final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
-    addTearDown(listController.dispose);
-    addTearDown(itemExtents.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          height: 120,
-          child: ValueListenableBuilder<List<double>>(
-            valueListenable: itemExtents,
-            builder: (context, extents, _) => CustomScrollView(
-              scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-              slivers: [
-                SuperSliverList(
-                  listController: listController,
-                  extentEstimation: (index, _) => extents[index ?? 0],
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => SizedBox(height: extents[index]),
-                    childCount: extents.length,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    itemExtents.value = [100, 100, 100, 100, 140];
-    await tester.pump();
-    refreshManagedTimelineExtentForTesting(
-      controller: listController,
-      index: 4,
-    );
-
-    check(listController.extentForIndex(4).$1).equals(140);
-  });
 
   test('bottom anchor controller separates anchored and detached states', () {
     final controller = ChatBottomAnchorController(
@@ -444,10 +109,416 @@ void main() {
 
     expect(controller.isAnchoredToBottom, isTrue);
     expect(controller.isUserInteractingWithScroll, isFalse);
+    expect(controller.isUserDetachedFromBottom, isFalse);
     expect(
       controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
       isTrue,
     );
+  });
+
+  test('older paging requires navigation, history, and an oldest row', () {
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: false,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: false,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: true,
+        anyOldestLoadedRowVisible: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldLoadOlderPageForTesting(
+        hasUserScrolled: true,
+        hasOlder: true,
+        isLoadingOlder: false,
+        anyOldestLoadedRowVisible: false,
+      ),
+    ).isFalse();
+  });
+
+  test('deferred chat mutations are fenced to the scheduled conversation', () {
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-b',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: false,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: null,
+        activeConversationId: null,
+        scheduledGeneration: 7,
+        activeGeneration: 7,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldApplyDeferredConversationMutationForTesting(
+        isMounted: true,
+        scheduledConversationId: 'chat-a',
+        activeConversationId: 'chat-a',
+        scheduledGeneration: 7,
+        activeGeneration: 9,
+      ),
+      isFalse,
+    );
+  });
+
+  test('temporary-chat save blocks composer and send submission', () {
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: false,
+        isPreparingMessageSend: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: true,
+        isPreparingMessageSend: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: true,
+        isSavingTemporary: false,
+        isPreparingMessageSend: false,
+      ),
+      isFalse,
+    );
+    expect(
+      debugCanSubmitChatMessageForTesting(
+        isLoadingConversation: false,
+        isSavingTemporary: false,
+        isPreparingMessageSend: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('older send cleanup cannot release a newer send admission', () {
+    final guard = ChatMessageSendAdmissionGuard();
+    final firstSend = guard.tryAcquire();
+    expect(firstSend, isNotNull);
+    expect(guard.isHeld, isTrue);
+    expect(guard.tryAcquire(), isNull);
+
+    expect(guard.release(firstSend!), isTrue);
+    final secondSend = guard.tryAcquire();
+    expect(secondSend, isNotNull);
+
+    expect(guard.release(firstSend), isFalse);
+    expect(guard.isHeld, isTrue);
+    expect(guard.release(secondSend!), isTrue);
+    expect(guard.isHeld, isFalse);
+  });
+
+  test('screen context is consumed only by its accepted send', () {
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendDispatched: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+      ),
+    ).isFalse();
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-b',
+      ),
+    ).isFalse();
+    check(
+      debugShouldConsumeScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+      ),
+    ).isTrue();
+  });
+
+  test('pending screen context retries after non-consumption', () {
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-b',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: true,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: false,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRetryScreenContextForTesting(
+        sendDispatched: false,
+        submittedContext: 'screen-a',
+        currentContext: 'screen-a',
+        sendAdmissionHeld: true,
+        isSavingTemporary: false,
+        isLoadingConversation: false,
+      ),
+    ).isFalse();
+  });
+
+  test('undispatched screen context retries use bounded backoff', () {
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 0),
+    ).equals(const Duration(milliseconds: 250));
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 1),
+    ).equals(const Duration(milliseconds: 500));
+    check(
+      debugScreenContextRetryDelayForTesting(completedRetries: 2),
+    ).equals(const Duration(seconds: 1));
+    check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
+  });
+
+  test('latest button follows free-scroll ownership, not stale metrics', () {
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: false,
+        pinAutoFollowing: true,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: true,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
+        currentlyShowing: false,
+        distanceFromLatest: 48,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
+        currentlyShowing: false,
+        distanceFromLatest: 49,
+      ),
+    ).isTrue();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
+        currentlyShowing: true,
+        distanceFromLatest: 12,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: true,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: true,
+        bottomAnchorDetached: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isTrue();
+  });
+
+  test('only the first turn settles its pin without animation', () {
+    expect(
+      debugShouldSettlePinImmediatelyForTesting(transcriptWasEmpty: true),
+      isTrue,
+    );
+    expect(
+      debugShouldSettlePinImmediatelyForTesting(transcriptWasEmpty: false),
+      isFalse,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: true,
+        positionSettled: false,
+      ),
+      isTrue,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: true,
+        positionSettled: true,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldHideTranscriptForInitialPinForTesting(
+        settleImmediately: false,
+        positionSettled: false,
+      ),
+      isFalse,
+    );
+  });
+
+  test('deep-history pin prepositions once after the controller attaches', () {
+    check(
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: false,
+        targetRowMounted: false,
+        prepositionAttempted: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: false,
+        prepositionAttempted: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: false,
+        prepositionAttempted: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldPrepositionPinnedTurnForTesting(
+        hasClients: true,
+        targetRowMounted: true,
+        prepositionAttempted: false,
+      ),
+    ).isFalse();
+  });
+
+  test('first conversation binding preserves the active turn pin', () {
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: null,
+        nextConversationId: 'openwebui:local:new-chat',
+      ),
+    ).isTrue();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: false,
+        previousConversationId: null,
+        nextConversationId: 'openwebui:local:new-chat',
+      ),
+    ).isFalse();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: 'openwebui:old-chat',
+        nextConversationId: 'openwebui:new-chat',
+      ),
+    ).isFalse();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: null,
+        nextConversationId: null,
+      ),
+    ).isFalse();
   });
 
   test(
@@ -541,37 +612,9 @@ void main() {
     },
   );
 
-  test(
-    'scroll update classifier handles touch and pointer input but ignores programmatic updates',
-    () {
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: true,
-          isUserInteractingWithScroll: false,
-        ),
-        isTrue,
-        reason: 'touch updates carry drag details',
-      );
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: false,
-          isUserInteractingWithScroll: true,
-        ),
-        isTrue,
-        reason: 'wheel/trackpad updates follow a user-direction notification',
-      );
-      expect(
-        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-          hasDragDetails: false,
-          isUserInteractingWithScroll: false,
-        ),
-        isFalse,
-        reason: 'programmatic updates have neither user signal',
-      );
-    },
-  );
-
-  test('layout metadata keeps archived assistant rows at zero extent', () {
+  testWidgets('layout metadata keeps archived assistant rows at zero extent', (
+    tester,
+  ) async {
     final messages = <ChatMessage>[
       ChatMessage(
         id: 'user-1',
@@ -597,82 +640,20 @@ void main() {
     final summary = debugBuildChatListLayoutSummaryForTesting(messages);
 
     expect(summary[1].isArchivedVariant, isTrue);
-    expect(summary[1].estimatedExtent, 0);
-    expect(summary[2].leadingOffset, summary[0].estimatedExtent);
-  });
 
-  test('long assistant responses estimate beyond the old 2400 clamp', () {
-    final longContent = List<String>.filled(
-      400,
-      'This is a sentence in a long streamed response.',
-    ).join(' ');
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-long',
-        role: 'assistant',
-        content: longContent,
-        timestamp: DateTime(2026),
+    const archivedKey = ValueKey<String>('archived-assistant-placeholder');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Column(
+          children: [
+            const SizedBox(height: 20),
+            debugBuildArchivedAssistantPlaceholderForTesting(key: archivedKey),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
-    ]);
-
-    // The pathological 2400 cap made tall rows estimate far below their real
-    // height, producing a large scroll-offset correction (jump that skipped the
-    // prompt) on first reveal during upward scroll.
-    expect(summary.single.estimatedExtent, greaterThan(2400));
-  });
-
-  test('a generated data-uri image does not over-estimate row extent', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-image',
-        role: 'assistant',
-        content: '![](data:image/png;base64,$base64Payload)',
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // The huge base64 payload must be excluded from the line estimate so the
-    // raised clamp ceiling can't inflate an image to image-as-text height.
-    expect(summary.single.estimatedExtent, lessThan(2000));
-  });
-
-  test('a raw standalone base64 image line estimates its rendered height', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-raw-image',
-        role: 'assistant',
-        content: 'Here is the image:\n\ndata:image/png;base64,$base64Payload',
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // A raw base64 line (no markdown wrapper) is rendered as an image, so it
-    // must add a per-image height term rather than estimating as ~one line of
-    // text (which would under-estimate and re-introduce the scroll jump).
-    final extent = summary.single.estimatedExtent;
-    expect(extent, greaterThan(220));
-    expect(extent, lessThan(2000));
-  });
-
-  test('image markup inside a fenced code block counts as verbatim text', () {
-    final base64Payload = List<String>.filled(20000, 'A').join();
-    final codeSample =
-        '```\n![alt](https://example.com/x.png)\ndata:image/png;base64,$base64Payload\n```';
-    final summary = debugBuildChatListLayoutSummaryForTesting([
-      ChatMessage(
-        id: 'assistant-code',
-        role: 'assistant',
-        content: codeSample,
-        timestamp: DateTime(2026),
-      ),
-    ]);
-
-    // The code block renders its content (including the base64) verbatim, so the
-    // estimate must reflect that large text height — not strip the base64 and
-    // treat the markup as a couple of small images (which would under-estimate).
-    expect(summary.single.estimatedExtent, greaterThan(2400));
+    );
+    expect(tester.getSize(find.byKey(archivedKey)).height, 0);
   });
 
   test(
@@ -918,48 +899,6 @@ void main() {
     expect(completedSignature, streamingSignature);
   });
 
-  test('layout estimate ignores the streaming flag but reacts to completion '
-      'content growth', () {
-    final streamingMessage = ChatMessage(
-      id: 'assistant-streaming',
-      role: 'assistant',
-      content: 'Final response with enough text to get a real height estimate.',
-      timestamp: DateTime(2026),
-      model: 'model-a',
-      isStreaming: true,
-    );
-    // Flipping only the streaming flag must not change the estimate: the
-    // estimator intentionally does not read message.isStreaming.
-    final completedMessage = streamingMessage.copyWith(isStreaming: false);
-
-    final streamingExtent = debugEstimateMessageListExtentForTesting([
-      streamingMessage,
-    ], index: 0);
-    final completedExtent = debugEstimateMessageListExtentForTesting([
-      completedMessage,
-    ], index: 0);
-
-    expect(completedExtent, streamingExtent);
-
-    // Positive control: the real completion-driven layout shift is content
-    // growing from a short stream to a full response. The estimator consumes
-    // content length, so a longer completed body must produce a larger
-    // extent. This proves the estimator is not inert and guards against the
-    // stability assertion above passing vacuously.
-    final grownMessage = completedMessage.copyWith(
-      content:
-          '${completedMessage.content}\n\n'
-          'A substantially longer follow-up paragraph that adds several more '
-          'lines of content so the estimated height must increase relative to '
-          'the shorter streaming body above.',
-    );
-    final grownExtent = debugEstimateMessageListExtentForTesting([
-      grownMessage,
-    ], index: 0);
-
-    expect(grownExtent, greaterThan(completedExtent));
-  });
-
   test('layout signature changes for structural layout inputs', () {
     final baseMessage = ChatMessage(
       id: 'assistant-1',
@@ -1003,30 +942,40 @@ void main() {
     );
   });
 
-  test(
-    'markdown prewarm candidates prioritize the visible viewport window',
-    () {
-      final messages = List<ChatMessage>.generate(8, (index) {
-        return ChatMessage(
-          id: 'assistant-$index',
-          role: 'assistant',
-          content: 'Short response $index',
-          timestamp: DateTime(2026),
-        );
-      });
-
-      final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
-        messages,
-        viewportTop: 0,
-        viewportHeight: 220,
-        maxCount: 3,
+  test('markdown prewarm candidates prioritize exact visible message IDs', () {
+    final messages = List<ChatMessage>.generate(8, (index) {
+      return ChatMessage(
+        id: 'assistant-$index',
+        role: 'assistant',
+        content: 'Short response $index',
+        timestamp: DateTime(2026),
       );
+    });
 
-      expect(indices, <int>[1, 0]);
-    },
-  );
+    final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+      messages,
+      visibleMessageIds: const ['assistant-3', 'assistant-4'],
+      maxCount: 3,
+    );
 
-  test('markdown prewarm only returns rows intersecting the viewport', () {
+    // Reverse-visible seeds come first, then outward neighbors with forward
+    // indices preferred before backward indices.
+    expect(indices, <int>[4, 3, 5]);
+
+    final cappedVisibleSeeds =
+        debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+          messages,
+          visibleMessageIds: const [
+            'assistant-2',
+            'assistant-3',
+            'assistant-4',
+          ],
+          maxCount: 2,
+        );
+    expect(cappedVisibleSeeds, <int>[4, 3]);
+  });
+
+  test('markdown prewarm expands from visible rows to adjacent rows', () {
     final messages = List<ChatMessage>.generate(6, (index) {
       return ChatMessage(
         id: 'assistant-$index',
@@ -1036,19 +985,18 @@ void main() {
       );
     });
 
-    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
-    final targetRow = summary[4];
     final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      viewportTop: targetRow.leadingOffset + 1,
-      viewportHeight: targetRow.estimatedExtent - 2,
-      maxCount: 6,
+      visibleMessageIds: const ['assistant-4'],
+      maxCount: 3,
     );
 
-    expect(indices, <int>[4]);
+    // Reverse-visible seeds come first, then outward neighbors with forward
+    // indices preferred before backward indices.
+    expect(indices, <int>[4, 5, 3]);
   });
 
-  test('markdown prewarm returns no candidates without viewport metrics', () {
+  test('markdown prewarm returns no candidates without visible IDs', () {
     final messages = <ChatMessage>[
       ChatMessage(
         id: 'assistant-1',
@@ -1078,7 +1026,7 @@ void main() {
 
     final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      viewportHeight: 0,
+      visibleMessageIds: const [],
       maxCount: 2,
     );
 
@@ -1104,8 +1052,7 @@ void main() {
 
     final indices = debugSelectMarkdownPrewarmCandidateIndicesForTesting(
       messages,
-      viewportTop: 0,
-      viewportHeight: 300,
+      visibleMessageIds: const ['assistant-1', 'assistant-2'],
       maxCount: 2,
     );
 
@@ -1153,31 +1100,6 @@ void main() {
       expect(shouldKeepBottomAnchored, isFalse);
     },
   );
-
-  test('message list extent returns zero for null global fallback', () {
-    final messages = <ChatMessage>[
-      ChatMessage(
-        id: 'user-1',
-        role: 'user',
-        content: 'Short prompt',
-        timestamp: DateTime(2026),
-      ),
-      ChatMessage(
-        id: 'assistant-1',
-        role: 'assistant',
-        content:
-            'A much longer assistant response that should have a larger estimated extent.',
-        timestamp: DateTime(2026),
-      ),
-    ];
-
-    final extent = debugEstimateMessageListExtentForTesting(
-      messages,
-      index: null,
-    );
-
-    expect(extent, 0);
-  });
 
   test('message content growth preserves bottom anchor when already pinned', () {
     final shouldKeepBottomAnchored =
@@ -1240,61 +1162,265 @@ void main() {
     );
   });
 
-  test(
-    'pin-to-top anchors the prompt until real content fills the viewport',
-    () {
-      final positioning = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: false,
-        anchoredEndSpaceExtent: 0,
-      );
-      final reservedSpace = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: true,
-        anchoredEndSpaceExtent: 220,
-      );
-      final overflowing = resolveChatPinStickTargetForTesting(
-        anchorIndex: 4,
-        anchorAlignment: 0.16,
-        isAutoFollowing: true,
-        isUserInteracting: false,
-        isPositionSettled: true,
-        anchoredEndSpaceExtent: 0,
-      );
-
-      expect(positioning?.isBottom, isFalse);
-      expect(positioning?.index, 4);
-      expect(positioning?.alignment, 0.16);
-      expect(reservedSpace?.isBottom, isFalse);
-      expect(overflowing?.isBottom, isTrue);
-    },
-  );
-
-  test('pin-to-top layout corrections stop on the first user gesture', () {
-    final target = resolveChatPinStickTargetForTesting(
-      anchorIndex: 4,
-      anchorAlignment: 0.16,
-      isAutoFollowing: false,
-      isUserInteracting: true,
-      isPositionSettled: true,
-      anchoredEndSpaceExtent: 0,
-    );
-
-    expect(target, isNull);
-  });
-
   test('manual navigation cancels follow without discarding the anchor', () {
     final state = debugPinStateAfterManualNavigationForTesting();
 
     expect(state.anchorActive, isTrue);
     expect(state.autoFollowing, isFalse);
     expect(state.userMessageId, 'user-message');
+  });
+
+  test('streaming follow never replaces an active pin-to-top anchor', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: false,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: true,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: false,
+      ),
+    ).isFalse();
+  });
+
+  test('an active pin never transfers to per-chunk footer following', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: true,
+        followLatestRequested: false,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+  });
+
+  test('streaming follow yields immediately to manual navigation', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: true,
+        isUserInteracting: true,
+        isExplicitNavigationInFlight: false,
+        wantsPinToTop: false,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+  });
+
+  test('streaming maintenance waits for explicit latest navigation', () {
+    check(
+      debugShouldFollowStreamingForTesting(
+        hasRunningTurn: true,
+        isAnchoredToBottom: false,
+        isUserInteracting: false,
+        isExplicitNavigationInFlight: true,
+        wantsPinToTop: false,
+        followLatestRequested: true,
+        pinnedEndSpaceExhausted: true,
+      ),
+    ).isFalse();
+  });
+
+  test('only the current explicit navigation completion clears its fence', () {
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: null,
+        currentGeneration: 3,
+      ),
+    ).isFalse();
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: 2,
+        currentGeneration: 3,
+      ),
+    ).isFalse();
+    check(
+      debugCompletionOwnsExplicitLatestNavigationForTesting(
+        completedGeneration: 3,
+        currentGeneration: 3,
+      ),
+    ).isTrue();
+  });
+
+  test('pin lifecycle releases only for manual drag and latest', () {
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: false,
+        latestRequested: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: true,
+        latestRequested: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: true,
+        latestRequested: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: false,
+        userDragStarted: true,
+        latestRequested: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: false,
+        userDragStarted: false,
+        latestRequested: true,
+      ),
+    ).isFalse();
+  });
+
+  test('terminal lifecycle retires pin support without manual navigation', () {
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.running,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.completed,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.failed,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: null,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: false,
+        assistantPhase: ChatTurnPhase.completed,
+      ),
+    ).isFalse();
+  });
+
+  test('a user interaction fences both deferred pin-release continuations', () {
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isTrue();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: true,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isFalse();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: true,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 7,
+      ),
+    ).isFalse();
+    check(
+      debugShouldContinuePinReleaseForTesting(
+        pinActive: false,
+        isUserInteracting: false,
+        releaseGeneration: 7,
+        currentGeneration: 8,
+      ),
+    ).isFalse();
+  });
+
+  test('unmounted pinned latest never collapses to the physical footer', () {
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: true,
+        userDetached: true,
+        pinnedDistance: null,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(double.infinity);
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: true,
+        userDetached: true,
+        pinnedDistance: 96,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(96);
+    check(
+      debugResolveLatestPresentationDistanceForTesting(
+        pinnedTurnActive: false,
+        userDetached: true,
+        pinnedDistance: null,
+        physicalLatestDistance: 0,
+      ),
+    ).equals(0);
+  });
+
+  test('a real drag exposes latest for a scrollable pinned turn', () {
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: true,
+        hasScrollableContent: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: true,
+        hasScrollableContent: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldExposePinnedLatestOnDragForTesting(
+        pinnedTurnActive: false,
+        hasScrollableContent: true,
+      ),
+    ).isFalse();
   });
 
   test(
@@ -1338,42 +1464,6 @@ void main() {
 
     expect(whilePinnedToTop, isFalse);
     expect(whileUserScrolling, isFalse);
-  });
-
-  test('long scrolls animate only their final viewport', () {
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 0,
-        targetOffset: 2000,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      1400,
-    );
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 2000,
-        targetOffset: 200,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      800,
-    );
-  });
-
-  test('nearby scroll targets animate from the current position', () {
-    expect(
-      debugScrollAnimationStartOffsetForTesting(
-        currentOffset: 900,
-        targetOffset: 1300,
-        viewportDimension: 600,
-        minScrollExtent: 0,
-        maxScrollExtent: 2000,
-      ),
-      900,
-    );
   });
 
   test(

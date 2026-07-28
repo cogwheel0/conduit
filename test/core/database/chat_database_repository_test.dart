@@ -12,6 +12,8 @@ import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/transcript_chain_fixture.dart';
+
 void main() {
   late bool previousDontWarnAboutMultipleDatabases;
   late AppDatabase serverDatabase;
@@ -425,6 +427,37 @@ void main() {
         chatStorageFromConversation(loaded.conversation),
       ).equals(ChatStorageKind.directLocal);
     });
+
+    test(
+      'loads only the latest 50 active-branch messages for presentation',
+      () async {
+        const chatId = 'windowed-local';
+        await localDatabase.chatsDao.upsertLocalOnlyChat(
+          rows: buildLinearChatRows(
+            chatId: chatId,
+            count: 500,
+            title: 'Windowed',
+            messageIdForIndex: (index) => 'message-$index',
+            contentForIndex: (index) => 'body $index',
+            createdAtForIndex: (index) => index,
+            chatCreatedAt: 0,
+            chatUpdatedAt: 499,
+          ),
+        );
+
+        final loaded = await repository.loadConversationWindow(
+          chatId,
+          preferred: ChatStorageKind.directLocal,
+        );
+
+        check(loaded).isNotNull();
+        check(loaded!.rowWindow.primaryRows.length).equals(50);
+        check(loaded.rowWindow.hasOlder).isTrue();
+        check(loaded.conversation.messages.length).equals(50);
+        check(loaded.conversation.messages.first.id).equals('message-450');
+        check(loaded.conversation.messages.last.id).equals('message-499');
+      },
+    );
 
     test('merges full-text hits from both stores', () async {
       // Open WebUI normally builds FTS after its first sync. The local store is

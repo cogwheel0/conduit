@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -21,6 +25,16 @@ typedef SocketChannelEventHandler =
       void Function(dynamic response)? ack,
     );
 
+enum SocketReplayGapReason {
+  eventLimit,
+  byteLimit,
+  eventTooLarge,
+  expired,
+  scopeEvicted,
+}
+
+typedef SocketReplayGapCallback = void Function(SocketReplayGapReason reason);
+
 typedef SocketFactory =
     io.Socket Function(
       String base,
@@ -34,6 +48,7 @@ class SocketService with WidgetsBindingObserver {
   final bool allowWebsocketUpgrade;
   final SocketFactory _socketFactory;
   final Duration _resumeReconnectWatchdogTimeout;
+  final DateTime Function() _now;
   io.Socket? _socket;
   String? _authToken;
   bool _isConnecting = false;
@@ -120,7 +135,19 @@ class SocketService with WidgetsBindingObserver {
   // especially important for early `request:chat:completion` events that may
   // target a session before the handler attaches.
 
+  static const int maxBufferedEventsPerScope = 256;
+  static const int maxBufferedBytesPerScope = 2 * 1024 * 1024;
+  static const int maxBufferedEventBytes = 512 * 1024;
+  static const int maxBufferedScopes = 8;
+  static const int maxReplayGapTombstones = 16;
+  static const Duration bufferedEventExpiry = Duration(seconds: 30);
+
   final Map<String, _BufferedChatEventScope> _eventBuffer = {};
+  final LinkedHashSet<_BufferedChatEventScope> _bufferScopes =
+      LinkedHashSet<_BufferedChatEventScope>.identity();
+  final Map<String, _SocketReplayGapTombstone> _replayGapByAlias = {};
+  final LinkedHashSet<_SocketReplayGapTombstone> _replayGapTombstones =
+      LinkedHashSet<_SocketReplayGapTombstone>.identity();
 
   String _conversationBufferAlias(String conversationId) =>
       'chat:$conversationId';
@@ -149,6 +176,7 @@ class SocketService with WidgetsBindingObserver {
     String? sessionId,
     String? messageId,
   }) {
+    _expireBufferScopes();
     for (final alias in _bufferAliases(
       conversationId: conversationId,
       sessionId: sessionId,
@@ -163,6 +191,7 @@ class SocketService with WidgetsBindingObserver {
   }
 
   void _removeBufferScope(_BufferedChatEventScope scope) {
+    _bufferScopes.remove(scope);
     for (final alias in scope.aliases) {
       if (identical(_eventBuffer[alias], scope)) {
         _eventBuffer.remove(alias);
@@ -180,20 +209,137 @@ class SocketService with WidgetsBindingObserver {
     }
     for (final scope in scopes) {
       _removeBufferScope(scope);
+      scope.events.clear();
+      scope.estimatedBytes = 0;
+    }
+  }
+
+  void _removeReplayGap(_SocketReplayGapTombstone tombstone) {
+    _replayGapTombstones.remove(tombstone);
+    for (final alias in tombstone.aliases) {
+      if (identical(_replayGapByAlias[alias], tombstone)) {
+        _replayGapByAlias.remove(alias);
+      }
+    }
+  }
+
+  void _removeReplayGapsForAliases(Set<String> aliases) {
+    final tombstones = <_SocketReplayGapTombstone>{};
+    for (final alias in aliases) {
+      final tombstone = _replayGapByAlias[alias];
+      if (tombstone != null) tombstones.add(tombstone);
+    }
+    for (final tombstone in tombstones) {
+      _removeReplayGap(tombstone);
+    }
+  }
+
+  _SocketReplayGapTombstone? _takeReplayGap(Set<String> aliases) {
+    for (final alias in aliases) {
+      final tombstone = _replayGapByAlias[alias];
+      if (tombstone != null) {
+        _removeReplayGap(tombstone);
+        return tombstone;
+      }
+    }
+    return null;
+  }
+
+  void _recordReplayGap(
+    _BufferedChatEventScope scope,
+    SocketReplayGapReason reason, {
+    required int eventCount,
+    required int estimatedBytes,
+  }) {
+    final tombstone = _SocketReplayGapTombstone(
+      aliases: Set<String>.unmodifiable(scope.aliases),
+      reason: reason,
+    );
+    _removeReplayGapsForAliases(scope.aliases);
+    _replayGapTombstones.add(tombstone);
+    for (final alias in tombstone.aliases) {
+      _replayGapByAlias[alias] = tombstone;
+    }
+    while (_replayGapTombstones.length > maxReplayGapTombstones) {
+      _removeReplayGap(_replayGapTombstones.first);
+    }
+    DebugLogger.log(
+      'pre-handler replay gap',
+      scope: 'socket/buffer',
+      data: {
+        'scopeIds': scope.aliases.join(','),
+        'events': eventCount,
+        'estimatedBytes': estimatedBytes,
+        'reason': reason.name,
+      },
+    );
+  }
+
+  void _dropBufferScope(
+    _BufferedChatEventScope scope,
+    SocketReplayGapReason reason, {
+    int? eventCount,
+    int? estimatedBytes,
+  }) {
+    final retainedEventCount = eventCount ?? scope.events.length;
+    final retainedBytes = estimatedBytes ?? scope.estimatedBytes;
+    _removeBufferScope(scope);
+    scope.events.clear();
+    scope.estimatedBytes = 0;
+    _recordReplayGap(
+      scope,
+      reason,
+      eventCount: retainedEventCount,
+      estimatedBytes: retainedBytes,
+    );
+  }
+
+  void _expireBufferScopes() {
+    if (_bufferScopes.isEmpty) return;
+    final now = _now();
+    for (final scope in _bufferScopes.toList(growable: false)) {
+      if (now.difference(scope.createdAt) >= bufferedEventExpiry) {
+        _dropBufferScope(scope, SocketReplayGapReason.expired);
+      }
+    }
+  }
+
+  void _clearBufferedReplayState() {
+    for (final scope in _bufferScopes) {
+      scope.events.clear();
+      scope.estimatedBytes = 0;
+    }
+    _bufferScopes.clear();
+    _eventBuffer.clear();
+    _replayGapTombstones.clear();
+    _replayGapByAlias.clear();
+  }
+
+  void _dropBufferedScopesForReplayGap(SocketReplayGapReason reason) {
+    for (final scope in _bufferScopes.toList(growable: false)) {
+      _dropBufferScope(scope, reason);
     }
   }
 
   /// Start buffering events for a pending send before the streaming handler
   /// is attached.
   void startBuffering(String chatId, {String? sessionId, String? messageId}) {
+    _expireBufferScopes();
     final aliases = _bufferAliases(
       conversationId: chatId,
       sessionId: sessionId,
       messageId: messageId,
     );
+    if (aliases.isEmpty) return;
     _removeBufferScopesForAliases(aliases);
+    _removeReplayGapsForAliases(aliases);
 
-    final scope = _BufferedChatEventScope();
+    while (_bufferScopes.length >= maxBufferedScopes) {
+      _dropBufferScope(_bufferScopes.first, SocketReplayGapReason.scopeEvicted);
+    }
+
+    final scope = _BufferedChatEventScope(createdAt: _now());
+    _bufferScopes.add(scope);
     for (final alias in aliases) {
       scope.aliases.add(alias);
       _eventBuffer[alias] = scope;
@@ -203,6 +349,7 @@ class SocketService with WidgetsBindingObserver {
   /// Stop buffering and discard any remaining buffered events for a pending
   /// send scope.
   void stopBuffering(String chatId, {String? sessionId, String? messageId}) {
+    _expireBufferScopes();
     _removeBufferScopesForAliases(
       _bufferAliases(
         conversationId: chatId,
@@ -227,9 +374,52 @@ class SocketService with WidgetsBindingObserver {
       return null;
     }
     _removeBufferScope(scope);
-    return List<(Map<String, dynamic>, void Function(dynamic)?)>.from(
+    final events = List<(Map<String, dynamic>, void Function(dynamic)?)>.from(
       scope.events,
     );
+    scope.events.clear();
+    scope.estimatedBytes = 0;
+    return events;
+  }
+
+  _BufferedChatReplay _takeBufferedReplay({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    required bool consumeReplayGap,
+  }) {
+    _expireBufferScopes();
+    final aliases = _bufferAliases(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    final scope = _findBufferScope(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+    );
+    if (scope != null) {
+      _removeBufferScope(scope);
+      final events = List<(Map<String, dynamic>, void Function(dynamic)?)>.from(
+        scope.events,
+      );
+      scope.events.clear();
+      scope.estimatedBytes = 0;
+      return _BufferedChatReplay(events: events);
+    }
+    final tombstone = consumeReplayGap
+        ? _takeReplayGap(aliases)
+        : _findReplayGap(aliases);
+    return _BufferedChatReplay(gapReason: tombstone?.reason);
+  }
+
+  _SocketReplayGapTombstone? _findReplayGap(Set<String> aliases) {
+    for (final alias in aliases) {
+      final tombstone = _replayGapByAlias[alias];
+      if (tombstone != null) return tombstone;
+    }
+    return null;
   }
 
   /// Stream controller that emits when a socket reconnection occurs.
@@ -245,9 +435,11 @@ class SocketService with WidgetsBindingObserver {
     this.websocketOnly = false,
     this.allowWebsocketUpgrade = true,
     SocketFactory? socketFactory,
+    DateTime Function()? now,
     Duration resumeReconnectWatchdogTimeout =
         _defaultResumeReconnectWatchdogTimeout,
   }) : _authToken = authToken,
+       _now = now ?? DateTime.now,
        _resumeReconnectWatchdogTimeout = resumeReconnectWatchdogTimeout,
        _socketFactory =
            socketFactory ?? createSocketWithOptionalBadCertOverride {
@@ -557,11 +749,12 @@ class SocketService with WidgetsBindingObserver {
         .setRememberUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
         .setUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
         // Tune reconnect/backoff and timeouts
-        // Note: In socket_io_client, pass a very large number for "unlimited" attempts.
-        // Using double.maxFinite.toInt() ensures unlimited reconnection attempts.
+        // Keep eventual recovery, but let a persistently unavailable Socket.IO
+        // endpoint cool down. Foreground and connectivity transitions still
+        // force an immediate reconnect through the lifecycle policy above.
         .setReconnectionAttempts(double.maxFinite.toInt())
         .setReconnectionDelay(1000)
-        .setReconnectionDelayMax(5000)
+        .setReconnectionDelayMax(60000)
         .setRandomizationFactor(0.5)
         .setTimeout(20000)
         .setPath(path);
@@ -649,6 +842,13 @@ class SocketService with WidgetsBindingObserver {
   /// Update the auth token used by the socket service.
   /// If connected, emits a best-effort rejoin with the new token.
   void updateAuthToken(String? token) {
+    if (_authToken != token) {
+      // Token refresh can happen while a send is between dispatch and handler
+      // attachment. The old buffered deltas cannot be trusted under the new
+      // credential, but silently clearing them would leave the eventual
+      // handler unaware that it needs an authoritative snapshot.
+      _dropBufferedScopesForReplayGap(SocketReplayGapReason.scopeEvicted);
+    }
     _authToken = token;
     if (_socket?.connected == true &&
         _authToken != null &&
@@ -667,6 +867,7 @@ class SocketService with WidgetsBindingObserver {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     if (keepsAliveInBackground) _acquireBackgroundActivityLease();
@@ -683,12 +884,26 @@ class SocketService with WidgetsBindingObserver {
 
     // Replay buffered events for this scope. This handles the timing race
     // where the backend emits events before the handler is registered.
-    final buffered = drainBuffer(
+    final replay = _takeBufferedReplay(
       conversationId: conversationId,
       sessionId: sessionId,
       messageId: messageId,
+      consumeReplayGap: onReplayGap != null,
     );
-    if (buffered != null) {
+    final gapReason = replay.gapReason;
+    if (gapReason != null) {
+      try {
+        onReplayGap?.call(gapReason);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'socket replay gap callback threw',
+          error: error,
+          stackTrace: stackTrace,
+          scope: 'socket/dispatch',
+        );
+      }
+    } else {
+      final buffered = replay.events;
       if (buffered.isNotEmpty) {
         DebugLogger.log(
           'Replaying ${buffered.length} buffered events '
@@ -877,6 +1092,7 @@ class SocketService with WidgetsBindingObserver {
     } catch (_) {}
     _socket = null;
     WidgetsBinding.instance.removeObserver(this);
+    _clearBufferedReplayState();
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();
     _dynamicEventHandlers.clear();
@@ -1262,9 +1478,131 @@ class SocketService with WidgetsBindingObserver {
       messageId: messageId,
     );
     if (bufferScope != null) {
-      bufferScope.events.add((Map<String, dynamic>.from(map), ackFn));
+      _bufferChatEvent(bufferScope, map, ackFn);
     }
   }
+
+  void _bufferChatEvent(
+    _BufferedChatEventScope scope,
+    Map<String, dynamic> event,
+    void Function(dynamic)? ack,
+  ) {
+    final remainingScopeBytes = math.max(
+      0,
+      maxBufferedBytesPerScope - scope.estimatedBytes,
+    );
+    final estimatedBytes = _estimateRetainedPayloadBytes(
+      event,
+      // Measure far enough to classify the independent per-event and
+      // per-scope bounds correctly even if their constants change relative to
+      // one another.
+      stopAfter: math.max(maxBufferedEventBytes, remainingScopeBytes),
+    );
+    if (estimatedBytes > maxBufferedEventBytes) {
+      _dropBufferScope(
+        scope,
+        SocketReplayGapReason.eventTooLarge,
+        eventCount: scope.events.length + 1,
+        estimatedBytes: scope.estimatedBytes + estimatedBytes,
+      );
+      return;
+    }
+    if (scope.events.length >= maxBufferedEventsPerScope) {
+      _dropBufferScope(
+        scope,
+        SocketReplayGapReason.eventLimit,
+        eventCount: scope.events.length + 1,
+        estimatedBytes: scope.estimatedBytes + estimatedBytes,
+      );
+      return;
+    }
+    if (scope.estimatedBytes + estimatedBytes > maxBufferedBytesPerScope) {
+      _dropBufferScope(
+        scope,
+        SocketReplayGapReason.byteLimit,
+        eventCount: scope.events.length + 1,
+        estimatedBytes: scope.estimatedBytes + estimatedBytes,
+      );
+      return;
+    }
+    scope.events.add((Map<String, dynamic>.from(event), ack));
+    scope.estimatedBytes += estimatedBytes;
+  }
+
+  int _estimateRetainedPayloadBytes(Object? value, {required int stopAfter}) {
+    var total = 0;
+    var visitedNodes = 0;
+    final visited = HashSet<Object>.identity();
+
+    void add(int bytes) {
+      if (total > stopAfter) return;
+      total += bytes;
+    }
+
+    void visit(Object? current, int depth) {
+      if (total > stopAfter) return;
+      visitedNodes += 1;
+      if (visitedNodes > 100000 || depth > 64) {
+        total = stopAfter + 1;
+        return;
+      }
+      if (current == null) {
+        add(4);
+        return;
+      }
+      if (current is bool || current is num) {
+        add(8);
+        return;
+      }
+      if (current is String) {
+        add(16 + current.length * 2);
+        return;
+      }
+      if (current is Uint8List) {
+        add(24 + current.lengthInBytes);
+        return;
+      }
+      if (current is ByteBuffer) {
+        add(24 + current.lengthInBytes);
+        return;
+      }
+      if (current is Map) {
+        if (!visited.add(current)) return;
+        add(48 + current.length * 16);
+        for (final entry in current.entries) {
+          visit(entry.key, depth + 1);
+          visit(entry.value, depth + 1);
+          if (total > stopAfter) return;
+        }
+        return;
+      }
+      if (current is Iterable) {
+        if (!visited.add(current)) return;
+        add(32);
+        for (final item in current) {
+          add(8);
+          visit(item, depth + 1);
+          if (total > stopAfter) return;
+        }
+        return;
+      }
+      add(64);
+    }
+
+    visit(value, 0);
+    return total;
+  }
+
+  @visibleForTesting
+  void debugHandleChatEvent(dynamic data, [dynamic ack]) {
+    _handleChatEvent(data, ack);
+  }
+
+  @visibleForTesting
+  int get debugBufferedScopeCount => _bufferScopes.length;
+
+  @visibleForTesting
+  int get debugReplayGapCount => _replayGapTombstones.length;
 
   void _handleChannelEvent(dynamic data, [dynamic ack]) {
     // Same List/ack extraction as _handleChatEvent
@@ -1590,6 +1928,27 @@ class _ChannelEventRegistration {
 }
 
 final class _BufferedChatEventScope {
+  _BufferedChatEventScope({required this.createdAt});
+
+  final DateTime createdAt;
   final aliases = <String>{};
   final events = <(Map<String, dynamic>, void Function(dynamic)?)>[];
+  int estimatedBytes = 0;
+}
+
+final class _SocketReplayGapTombstone {
+  const _SocketReplayGapTombstone({
+    required this.aliases,
+    required this.reason,
+  });
+
+  final Set<String> aliases;
+  final SocketReplayGapReason reason;
+}
+
+final class _BufferedChatReplay {
+  const _BufferedChatReplay({this.events = const [], this.gapReason});
+
+  final List<(Map<String, dynamic>, void Function(dynamic)?)> events;
+  final SocketReplayGapReason? gapReason;
 }

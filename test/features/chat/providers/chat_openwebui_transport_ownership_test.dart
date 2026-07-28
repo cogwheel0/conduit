@@ -275,6 +275,7 @@ class _SynchronousCompletionSocketService extends SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     handler(<String, dynamic>{
@@ -328,6 +329,7 @@ class _CountingPassiveSocketService extends SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     chatRegistrationCalls += 1;

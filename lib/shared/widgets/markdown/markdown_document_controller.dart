@@ -364,7 +364,7 @@ class MarkdownDocumentController {
         _streamingIncrementalState = null;
         final prepared = request.preparedText!;
         document = await _readCompiler()
-            .compilePrepared(prepared.materialize())
+            .compilePrepared(prepared.materialize(), cacheResult: false)
             .then((value) => value.withPreparedContent(prepared));
       }
       if (_disposed ||
@@ -400,7 +400,7 @@ class MarkdownDocumentController {
     final compiler = _readCompiler();
     if (!split.canIncrementallyCompile) {
       _streamingIncrementalState = null;
-      return compiler.compilePrepared(preparedContent);
+      return compiler.compilePrepared(preparedContent, cacheResult: false);
     }
 
     final previousState =
@@ -423,7 +423,7 @@ class MarkdownDocumentController {
             );
     } on ArgumentError {
       _streamingIncrementalState = null;
-      return compiler.compilePrepared(preparedContent);
+      return compiler.compilePrepared(preparedContent, cacheResult: false);
     }
   }
 
@@ -448,7 +448,7 @@ class MarkdownDocumentController {
     if (!split.canIncrementallyCompile) {
       _streamingIncrementalState = null;
       return _readCompiler()
-          .compilePrepared(preparedContent.materialize())
+          .compilePrepared(preparedContent.materialize(), cacheResult: false)
           .then((document) => document.withPreparedContent(preparedContent));
     }
 
@@ -462,7 +462,10 @@ class MarkdownDocumentController {
 
     if (newFrozenDelta.isNotEmpty) {
       if (mutableTail.isEmpty) {
-        final deltaDocument = await compiler.compilePrepared(newFrozenDelta);
+        final deltaDocument = await compiler.compilePrepared(
+          newFrozenDelta,
+          cacheResult: false,
+        );
         updatedFrozenDocument = CompiledMarkdownDocument.composePrepared(
           normalizedContent: nextFrozenText,
           segments: <CompiledMarkdownDocument>[
@@ -477,7 +480,7 @@ class MarkdownDocumentController {
         final documents = await compiler.compilePreparedBatch(<String>[
           newFrozenDelta,
           mutableTail,
-        ]);
+        ], cacheResults: false);
         updatedFrozenDocument = CompiledMarkdownDocument.composePrepared(
           normalizedContent: nextFrozenText,
           segments: <CompiledMarkdownDocument>[
@@ -528,7 +531,7 @@ class MarkdownDocumentController {
     }
 
     final tailDocument = await compiler
-        .compilePrepared(mutableTail)
+        .compilePrepared(mutableTail, cacheResult: false)
         .then(
           (document) => document.rebaseRootIds(
             rootNodeOffset: updatedFrozenDocument.rootNodeCount,
@@ -562,7 +565,7 @@ class MarkdownDocumentController {
     if (!split.canIncrementallyCompile) {
       _streamingIncrementalState = null;
       return _readCompiler()
-          .compilePrepared(materialized)
+          .compilePrepared(materialized, cacheResult: false)
           .then((document) => document.withPreparedContent(preparedContent));
     }
 
@@ -609,15 +612,21 @@ class MarkdownDocumentController {
       final documents = await compiler.compilePreparedBatch(<String>[
         frozenPrefix,
         mutableTail,
-      ]);
+      ], cacheResults: false);
       frozenDocument = documents[0];
       tailDocument = documents[1].rebaseRootIds(
         rootNodeOffset: frozenDocument.rootNodeCount,
       );
     } else if (frozenPrefix.isNotEmpty) {
-      frozenDocument = await compiler.compilePrepared(frozenPrefix);
+      frozenDocument = await compiler.compilePrepared(
+        frozenPrefix,
+        cacheResult: false,
+      );
     } else if (mutableTail.isNotEmpty) {
-      tailDocument = await compiler.compilePrepared(mutableTail);
+      tailDocument = await compiler.compilePrepared(
+        mutableTail,
+        cacheResult: false,
+      );
     }
 
     final composedDocument = CompiledMarkdownDocument.compose(
@@ -655,6 +664,7 @@ class MarkdownDocumentController {
       if (mutableTail.isEmpty) {
         final newFrozenDocument = await compiler.compilePrepared(
           newFrozenDelta,
+          cacheResult: false,
         );
         updatedFrozenDocument = CompiledMarkdownDocument.compose(
           normalizedContent: frozenPrefix,
@@ -670,7 +680,7 @@ class MarkdownDocumentController {
         final documents = await compiler.compilePreparedBatch(<String>[
           newFrozenDelta,
           mutableTail,
-        ]);
+        ], cacheResults: false);
         final rebasedFrozenDelta = documents[0].rebaseRootIds(
           rootNodeOffset: previousState.frozenDocument.rootNodeCount,
         );
@@ -720,7 +730,7 @@ class MarkdownDocumentController {
     }
 
     final tailDocument = await compiler
-        .compilePrepared(mutableTail)
+        .compilePrepared(mutableTail, cacheResult: false)
         .then(
           (document) => document.rebaseRootIds(
             rootNodeOffset: updatedFrozenDocument.rootNodeCount,

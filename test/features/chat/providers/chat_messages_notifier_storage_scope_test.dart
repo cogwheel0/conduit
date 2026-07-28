@@ -69,6 +69,7 @@ final class _CountingSocket extends SocketService {
     String? messageId,
     bool requireFocus = true,
     bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
   }) {
     handlers++;
@@ -271,11 +272,21 @@ void main() {
     container.read(activeConversationProvider.notifier).set(direct);
     final notifier = container.read(chatMessagesProvider.notifier);
     notifier.setMessages(direct.messages);
-    final server = _conversation(
+    final serverBase = _conversation(
       id,
       ChatStorageKind.openWebUi,
       'server stream',
       streaming: true,
+    );
+    // This test isolates storage ownership, so represent the colliding server
+    // turn as OpenWebUI-owned. An orphaned Direct checkpoint is now correctly
+    // settled as soon as it is opened, before the scoped callback is exercised.
+    final server = serverBase.copyWith(
+      messages: [
+        serverBase.messages.single.copyWith(
+          metadata: const <String, dynamic>{},
+        ),
+      ],
     );
     container.read(activeConversationProvider.notifier).set(server);
 

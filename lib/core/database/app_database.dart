@@ -75,7 +75,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -142,6 +142,9 @@ class AppDatabase extends _$AppDatabase {
         }
         await _createAttachmentReceiptIndex();
       }
+      if (from < 9) {
+        await _createMessageBranchIndex();
+      }
     },
     beforeOpen: (details) async {
       // Required for the messages -> chats cascade.
@@ -155,6 +158,15 @@ class AppDatabase extends _$AppDatabase {
     await _createCoreIndexes();
     await _createNoteIndexes();
     await _createAttachmentReceiptIndex();
+    await _createMessageBranchIndex();
+  }
+
+  Future<void> _createMessageBranchIndex() {
+    return customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_messages_chat_parent_role '
+      'ON messages '
+      '(chat_id, parent_id, role, created_at, order_index, id);',
+    );
   }
 
   Future<void> _createAttachmentReceiptIndex() {

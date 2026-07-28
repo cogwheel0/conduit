@@ -710,6 +710,18 @@ class OptimizedStorageService {
     return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
   }
 
+  ServerConfig _retainNonSecretServerDetails(ServerConfig config) {
+    return config.copyWith(
+      apiKey: null,
+      customHeaders: const <String, String>{},
+      mtlsCertificateChainPem: null,
+      mtlsCertificateLabel: null,
+      mtlsPrivateKeyPem: null,
+      mtlsPrivateKeyLabel: null,
+      mtlsPrivateKeyPassword: null,
+    );
+  }
+
   void _notifyRollbackUncertainSafely(void Function()? callback) {
     if (callback == null) return;
     try {
@@ -2499,7 +2511,7 @@ class OptimizedStorageService {
         final configs =
             await _getServerConfigsStrictUnlockedBypassingSuppression();
         retainedServerConfigs = configs
-            .map(_revokeServerConfigAuthArtifacts)
+            .map(_retainNonSecretServerDetails)
             .toList(growable: false);
         retainedActiveServerId = _effectiveActiveServerId(
           configs: retainedServerConfigs,

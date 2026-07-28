@@ -20,6 +20,7 @@ import 'renderer/mention_inline_syntax.dart';
 
 const int markdownSynchronousCompileThreshold = 384;
 const int markdownSynchronousPrepareThreshold = 768;
+const Duration markdownWorkerIdleTimeout = Duration(seconds: 30);
 const int _markdownPrewarmPrepareBatchSize = 8;
 const Set<String> _groupableCompiledDetailTypes = {'tool_calls'};
 final _detailsAttributeUnescape = HtmlUnescape();
@@ -32,8 +33,14 @@ enum MarkdownPrepareExecutionPath {
 }
 
 final _compiledMarkdownCache = _CompiledMarkdownCache();
+var _compiledMarkdownCacheEpoch = 0;
 
-void debugResetCompiledMarkdownCache() => _compiledMarkdownCache.clear();
+void _evictCompiledMarkdownCache() {
+  _compiledMarkdownCacheEpoch += 1;
+  _compiledMarkdownCache.clear();
+}
+
+void debugResetCompiledMarkdownCache() => _evictCompiledMarkdownCache();
 
 int debugCompiledMarkdownCacheSize() => _compiledMarkdownCache.length;
 
@@ -65,20 +72,25 @@ CompiledMarkdownDocument compilePreparedMarkdownSync(String preparedContent) {
 class MarkdownCompileService {
   MarkdownCompileService({
     required WorkerManager workerManager,
+    this.workerIdleTimeout = markdownWorkerIdleTimeout,
     @visibleForTesting this.debugOnPrepareExecution,
     @visibleForTesting this.debugPrepareContentOverride,
     @visibleForTesting this.debugOnPreparationPatch,
+    @visibleForTesting this.debugCompilePreparedOverride,
+    @visibleForTesting this.debugCompilePreparedBatchOverride,
   }) : _workerManager = workerManager,
        _backend = _MarkdownCompilerBackend(),
        _prepareBackend = _MarkdownPrepareBackend();
 
   final WorkerManager _workerManager;
+  final Duration workerIdleTimeout;
   final _MarkdownCompilerBackend _backend;
   final _MarkdownPrepareBackend _prepareBackend;
   final StreamingMarkdownPreparationEngine _fallbackPrepareEngine =
       StreamingMarkdownPreparationEngine();
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
       <String, Future<CompiledMarkdownDocument>>{};
+  final Map<String, int> _inFlightCacheEpochs = <String, int>{};
   @visibleForTesting
   final void Function(MarkdownPrepareExecutionPath path)?
   debugOnPrepareExecution;
@@ -87,7 +99,48 @@ class MarkdownCompileService {
   debugPrepareContentOverride;
   @visibleForTesting
   final void Function(MarkdownPreparationPatch patch)? debugOnPreparationPatch;
+  @visibleForTesting
+  final Future<CompiledMarkdownDocument> Function(String preparedContent)?
+  debugCompilePreparedOverride;
+  @visibleForTesting
+  final Future<List<CompiledMarkdownDocument>> Function(
+    List<String> preparedContents,
+  )?
+  debugCompilePreparedBatchOverride;
   bool _disposed = false;
+  Timer? _workerIdleTimer;
+
+  @visibleForTesting
+  bool get debugCompilerWorkerRunning => _backend.isRunning;
+
+  @visibleForTesting
+  bool get debugPrepareWorkerRunning => _prepareBackend.isRunning;
+
+  void _scheduleWorkerRetirement() {
+    _workerIdleTimer?.cancel();
+    _workerIdleTimer = null;
+    if (_disposed || kIsWeb || workerIdleTimeout <= Duration.zero) {
+      return;
+    }
+    _workerIdleTimer = Timer(workerIdleTimeout, retireIdleWorkers);
+  }
+
+  /// Releases isolate heaps after a quiet period. A backend refuses retirement
+  /// while a request or startup is active, in which case its completion will
+  /// schedule the next idle check.
+  void retireIdleWorkers({bool clearCompiledCache = false}) {
+    if (clearCompiledCache) {
+      _evictCompiledMarkdownCache();
+    }
+    _workerIdleTimer?.cancel();
+    _workerIdleTimer = null;
+    _backend.retireIfIdle();
+    _prepareBackend.retireIfIdle();
+  }
+
+  void handleMemoryPressure() {
+    retireIdleWorkers(clearCompiledCache: true);
+  }
 
   CompiledMarkdownDocument? peekPrepared(String preparedContent) =>
       _compiledMarkdownCache.read(preparedContent);
@@ -173,6 +226,8 @@ class MarkdownCompileService {
         },
       );
       return fallback;
+    } finally {
+      _scheduleWorkerRetirement();
     }
   }
 
@@ -227,6 +282,8 @@ class MarkdownCompileService {
         error: error,
       );
       return patch;
+    } finally {
+      _scheduleWorkerRetirement();
     }
   }
 
@@ -237,6 +294,8 @@ class MarkdownCompileService {
       await _prepareBackend.releaseSession(sessionId);
     } catch (_) {
       // The isolate may already have exited; its session state is gone with it.
+    } finally {
+      _scheduleWorkerRetirement();
     }
   }
 
@@ -276,6 +335,7 @@ class MarkdownCompileService {
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) {
     if (preparedContent.trim().isEmpty) {
       return SynchronousFuture(const CompiledMarkdownDocument.empty());
@@ -293,17 +353,32 @@ class MarkdownCompileService {
 
     if (allowSynchronous &&
         shouldCompileSynchronously(preparedContent, widgetTest: widgetTest)) {
-      return SynchronousFuture(compilePreparedSynchronously(preparedContent));
+      final document = cacheResult
+          ? compilePreparedSynchronously(preparedContent)
+          : _compilePreparedMarkdownDocument(preparedContent);
+      return SynchronousFuture(document);
     }
 
     if (kIsWeb) {
-      return SynchronousFuture(compilePreparedSynchronously(preparedContent));
+      final document = cacheResult
+          ? compilePreparedSynchronously(preparedContent)
+          : _compilePreparedMarkdownDocument(preparedContent);
+      return SynchronousFuture(document);
     }
 
     final inFlight = _inFlight[preparedContent];
     if (inFlight != null) {
-      return inFlight;
+      if (!cacheResult) return inFlight;
+      final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
+      return inFlight.then(
+        (document) =>
+            !_disposed && inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+            ? _compiledMarkdownCache.write(preparedContent, document)
+            : document,
+      );
     }
+
+    final cacheEpoch = _compiledMarkdownCacheEpoch;
 
     final taskKey = PerformanceProfiler.instance.startTask(
       'markdown_compile',
@@ -311,9 +386,12 @@ class MarkdownCompileService {
       key: 'markdown:${preparedContent.hashCode}:${preparedContent.length}',
       data: {'length': preparedContent.length},
     );
-    final future = _backend
-        .compilePrepared(preparedContent)
-        .then(CompiledMarkdownDocument.fromMap)
+    final primaryCompile =
+        debugCompilePreparedOverride?.call(preparedContent) ??
+        _backend
+            .compilePrepared(preparedContent)
+            .then(CompiledMarkdownDocument.fromMap);
+    final future = primaryCompile
         .catchError((Object error, StackTrace stackTrace) async {
           try {
             final workerResult = await _workerManager
@@ -329,7 +407,7 @@ class MarkdownCompileService {
             );
             return CompiledMarkdownDocument.fromMap(workerResult);
           } catch (_) {
-            final fallback = compilePreparedSynchronously(preparedContent);
+            final fallback = _compilePreparedMarkdownDocument(preparedContent);
             PerformanceProfiler.instance.finishTask(
               taskKey,
               data: {
@@ -345,10 +423,10 @@ class MarkdownCompileService {
           if (_disposed) {
             return document;
           }
-          final cachedDocument = _compiledMarkdownCache.write(
-            preparedContent,
-            document,
-          );
+          final cachedDocument =
+              cacheResult && cacheEpoch == _compiledMarkdownCacheEpoch
+              ? _compiledMarkdownCache.write(preparedContent, document)
+              : document;
           PerformanceProfiler.instance.finishTask(
             taskKey,
             data: {
@@ -361,9 +439,12 @@ class MarkdownCompileService {
         })
         .whenComplete(() {
           _inFlight.remove(preparedContent);
+          _inFlightCacheEpochs.remove(preparedContent);
+          _scheduleWorkerRetirement();
         });
 
     _inFlight[preparedContent] = future;
+    _inFlightCacheEpochs[preparedContent] = cacheEpoch;
     return future;
   }
 
@@ -371,6 +452,7 @@ class MarkdownCompileService {
     Iterable<String> preparedContents, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResults = true,
   }) async {
     final contents = preparedContents.toList(growable: false);
     if (contents.isEmpty) {
@@ -404,18 +486,31 @@ class MarkdownCompileService {
 
       if (allowSynchronous &&
           shouldCompileSynchronously(preparedContent, widgetTest: widgetTest)) {
-        resolved[index] = compilePreparedSynchronously(preparedContent);
+        resolved[index] = cacheResults
+            ? compilePreparedSynchronously(preparedContent)
+            : _compilePreparedMarkdownDocument(preparedContent);
         continue;
       }
 
       if (kIsWeb) {
-        resolved[index] = compilePreparedSynchronously(preparedContent);
+        resolved[index] = cacheResults
+            ? compilePreparedSynchronously(preparedContent)
+            : _compilePreparedMarkdownDocument(preparedContent);
         continue;
       }
 
       final inFlight = _inFlight[preparedContent];
       if (inFlight != null) {
-        pendingByContent[preparedContent] = inFlight;
+        final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
+        pendingByContent[preparedContent] = cacheResults
+            ? inFlight.then(
+                (document) =>
+                    !_disposed &&
+                        inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+                    ? _compiledMarkdownCache.write(preparedContent, document)
+                    : document,
+              )
+            : inFlight;
         continue;
       }
 
@@ -424,7 +519,10 @@ class MarkdownCompileService {
 
     if (asyncMisses.isNotEmpty) {
       pendingByContent.addAll(
-        _startBatchCompile(asyncMisses.toList(growable: false)),
+        _startBatchCompile(
+          asyncMisses.toList(growable: false),
+          cacheResults: cacheResults,
+        ),
       );
     }
 
@@ -534,25 +632,33 @@ class MarkdownCompileService {
 
   void dispose() {
     _disposed = true;
+    _workerIdleTimer?.cancel();
+    _workerIdleTimer = null;
     _inFlight.clear();
+    _inFlightCacheEpochs.clear();
     _backend.dispose();
     _prepareBackend.dispose();
   }
 
   Map<String, Future<CompiledMarkdownDocument>> _startBatchCompile(
-    List<String> preparedContents,
-  ) {
+    List<String> preparedContents, {
+    required bool cacheResults,
+  }) {
     if (preparedContents.isEmpty) {
       return const <String, Future<CompiledMarkdownDocument>>{};
     }
     if (preparedContents.length == 1) {
       final preparedContent = preparedContents.single;
       return <String, Future<CompiledMarkdownDocument>>{
-        preparedContent: compilePrepared(preparedContent),
+        preparedContent: compilePrepared(
+          preparedContent,
+          cacheResult: cacheResults,
+        ),
       };
     }
 
     final requestContents = List<String>.unmodifiable(preparedContents);
+    final cacheEpoch = _compiledMarkdownCacheEpoch;
     final requestIndexByContent = <String, int>{
       for (var index = 0; index < requestContents.length; index += 1)
         requestContents[index]: index,
@@ -569,7 +675,12 @@ class MarkdownCompileService {
       data: {'count': requestContents.length, 'totalLength': totalLength},
     );
 
-    final sharedFuture = _compilePreparedBatchAsync(requestContents, taskKey);
+    final sharedFuture = _compilePreparedBatchAsync(
+      requestContents,
+      taskKey,
+      cacheResults: cacheResults,
+      cacheEpoch: cacheEpoch,
+    );
     final entryFutures = <String, Future<CompiledMarkdownDocument>>{};
     for (final preparedContent in requestContents) {
       final documentIndex = requestIndexByContent[preparedContent]!;
@@ -579,9 +690,11 @@ class MarkdownCompileService {
           .whenComplete(() {
             if (_inFlight[preparedContent] == entryFuture) {
               _inFlight.remove(preparedContent);
+              _inFlightCacheEpochs.remove(preparedContent);
             }
           });
       _inFlight[preparedContent] = entryFuture;
+      _inFlightCacheEpochs[preparedContent] = cacheEpoch;
       entryFutures[preparedContent] = entryFuture;
     }
     return entryFutures;
@@ -589,16 +702,23 @@ class MarkdownCompileService {
 
   Future<List<CompiledMarkdownDocument>> _compilePreparedBatchAsync(
     List<String> preparedContents,
-    String taskKey,
-  ) async {
+    String taskKey, {
+    required bool cacheResults,
+    required int cacheEpoch,
+  }) async {
     try {
-      final resultMaps = await _backend.compilePreparedBatch(preparedContents);
-      final documents = _documentsFromBatchMaps(resultMaps);
+      final documents =
+          await debugCompilePreparedBatchOverride?.call(preparedContents) ??
+          _documentsFromBatchMaps(
+            await _backend.compilePreparedBatch(preparedContents),
+          );
       return _cacheCompiledBatchDocuments(
         preparedContents,
         documents,
         taskKey: taskKey,
         status: 'ok',
+        cacheResults: cacheResults,
+        cacheEpoch: cacheEpoch,
       );
     } catch (error) {
       try {
@@ -625,25 +745,25 @@ class MarkdownCompileService {
           documents,
           taskKey: taskKey,
           status: 'fallback_worker',
+          cacheResults: cacheResults,
+          cacheEpoch: cacheEpoch,
         );
       } catch (_) {
         final documents = preparedContents
-            .map(compilePreparedSynchronously)
+            .map(_compilePreparedMarkdownDocument)
             .toList(growable: false);
-        PerformanceProfiler.instance.finishTask(
-          taskKey,
-          data: {
-            'status': 'fallback_sync',
-            'error': error.toString(),
-            'count': documents.length,
-            'totalWeight': documents.fold<int>(
-              0,
-              (sum, document) => sum + document.estimatedWeight,
-            ),
-          },
+        return _cacheCompiledBatchDocuments(
+          preparedContents,
+          documents,
+          taskKey: taskKey,
+          status: 'fallback_sync',
+          cacheResults: cacheResults,
+          cacheEpoch: cacheEpoch,
+          error: error,
         );
-        return documents;
       }
+    } finally {
+      _scheduleWorkerRetirement();
     }
   }
 
@@ -652,6 +772,9 @@ class MarkdownCompileService {
     List<CompiledMarkdownDocument> documents, {
     required String taskKey,
     required String status,
+    required bool cacheResults,
+    required int cacheEpoch,
+    Object? error,
   }) {
     if (preparedContents.length != documents.length) {
       throw StateError(
@@ -666,7 +789,12 @@ class MarkdownCompileService {
     final cachedDocuments = <CompiledMarkdownDocument>[];
     for (var index = 0; index < preparedContents.length; index += 1) {
       cachedDocuments.add(
-        _compiledMarkdownCache.write(preparedContents[index], documents[index]),
+        cacheResults && cacheEpoch == _compiledMarkdownCacheEpoch
+            ? _compiledMarkdownCache.write(
+                preparedContents[index],
+                documents[index],
+              )
+            : documents[index],
       );
     }
     PerformanceProfiler.instance.finishTask(
@@ -678,6 +806,7 @@ class MarkdownCompileService {
           0,
           (sum, document) => sum + document.estimatedWeight,
         ),
+        if (error != null) 'error': error.toString(),
       },
     );
     return List<CompiledMarkdownDocument>.unmodifiable(cachedDocuments);
@@ -1583,6 +1712,19 @@ class _MarkdownCompilerBackend {
       _exitPort != null ||
       _sendPort != null;
 
+  bool get isRunning => _hasActiveIsolateState;
+
+  bool retireIfIdle() {
+    if (_disposed ||
+        _startupFuture != null ||
+        _pendingSingle.isNotEmpty ||
+        _pendingBatch.isNotEmpty) {
+      return false;
+    }
+    _resetIsolateState(killIsolate: true);
+    return true;
+  }
+
   void _resetIsolateState({required bool killIsolate}) {
     _receivePort?.close();
     _receivePort = null;
@@ -1861,6 +2003,20 @@ class _MarkdownPrepareBackend {
       _errorPort != null ||
       _exitPort != null ||
       _sendPort != null;
+
+  bool get isRunning => _hasActiveIsolateState;
+
+  bool retireIfIdle() {
+    if (_disposed ||
+        _startupFuture != null ||
+        _pendingPrepared.isNotEmpty ||
+        _pendingStreaming.isNotEmpty ||
+        _pendingRelease.isNotEmpty) {
+      return false;
+    }
+    _resetIsolateState(killIsolate: true);
+    return true;
+  }
 
   void _resetIsolateState({required bool killIsolate}) {
     _receivePort?.close();

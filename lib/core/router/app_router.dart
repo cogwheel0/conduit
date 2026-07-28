@@ -141,6 +141,7 @@ class RouterNotifier extends ChangeNotifier {
     }
 
     final activeServerAsync = ref.read(activeServerProvider);
+    final authState = ref.read(authNavigationStateProvider);
     final preferredBackend = ref.read(preferredBackendProvider);
     final hermesConfig = ref.read(hermesConfigProvider);
     final hermesUsable = hermesConfig.isUsable;
@@ -173,6 +174,17 @@ class RouterNotifier extends ChangeNotifier {
         !_isAuthLocation(location) &&
         authSnapshot?.error?.contains('apiKey') == true) {
       return Routes.authentication;
+    }
+
+    // Authentication is authoritative even while the selected server
+    // provider is refreshing or recovering from a transient storage error.
+    // In particular, Direct-primary installs may add OpenWebUI from an auth
+    // route while their optional server provider is still loading. Do not let
+    // the accountless fallback below strand a completed sign-in on that page.
+    if (authState == AuthNavigationState.authenticated &&
+        _isAuthLocation(location) &&
+        location != Routes.connectionIssue) {
+      return Routes.chat;
     }
 
     // Onboarding and local backend setup screens always render.
@@ -232,8 +244,6 @@ class RouterNotifier extends ChangeNotifier {
 
     final activeServer = activeServerAsync.asData?.value;
     final hasActiveServer = activeServer != null;
-    final authState = ref.read(authNavigationStateProvider);
-
     // A preferred Direct backend is usable only while at least one validated,
     // enabled profile has resolved. With an authenticated OpenWebUI session we
     // can fall back to mixed mode; otherwise recover Direct setup instead of
@@ -675,9 +685,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: Routes.splash,
     refreshListenable: notifier,
     redirect: notifier.redirect,
-    routes: [
-      ShellRoute(builder: (context, state, child) => child, routes: appRoutes),
-    ],
+    routes: appRoutes,
     observers: [NavigationLoggingObserver()],
     errorBuilder: (context, state) {
       final l10n = AppLocalizations.of(context);
