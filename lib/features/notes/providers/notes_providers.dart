@@ -372,9 +372,9 @@ class NotesList extends _$NotesList {
   Future<void> refresh() async {
     if (ref.read(appDatabaseProvider) != null) {
       try {
-        await ref
-            .read(syncEngineProvider.notifier)
-            .requestPull(reason: 'notes-refresh');
+        final syncEngine = ref.read(syncEngineProvider.notifier);
+        await syncEngine.requestPull(reason: 'notes-refresh');
+        await syncEngine.reconcileNow();
       } catch (error, stackTrace) {
         DebugLogger.error(
           'refresh-failed',

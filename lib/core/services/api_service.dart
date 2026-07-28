@@ -3358,7 +3358,10 @@ class ApiService {
   }
 
   Future<void> deleteConversation(String id) async {
-    await _dio.delete('/api/v1/chats/$id');
+    // Deleting an already-absent chat is successful from the caller's point
+    // of view. This also closes the race where another Open WebUI client
+    // deletes the chat after it was rendered locally but before this request.
+    await deleteChatRaw(id);
   }
 
   // Pin/Unpin conversation

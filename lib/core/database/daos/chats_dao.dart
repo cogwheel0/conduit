@@ -723,6 +723,38 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
+  /// Persists a server-generated title in both the list envelope and the
+  /// round-trip blob metadata without advancing the server watermark.
+  ///
+  /// The caller holds `ChatLocks.runExclusive(chatId)`. This is a
+  /// server-origin write, so it deliberately leaves dirty/outbox state alone.
+  Future<int> updateServerGeneratedTitle(String chatId, String title) {
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing == null) return 0;
+
+      Map<String, dynamic> blobMeta;
+      try {
+        final decoded = jsonDecode(existing.blobMeta);
+        blobMeta = decoded is Map
+            ? Map<String, dynamic>.from(decoded)
+            : <String, dynamic>{};
+      } catch (_) {
+        blobMeta = <String, dynamic>{};
+      }
+      blobMeta['v'] ??= 1;
+      blobMeta['blobHadTitle'] = true;
+      blobMeta['blobTitleValue'] = title;
+
+      return (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          title: Value(title),
+          blobMeta: Value(jsonEncode(blobMeta)),
+        ),
+      );
+    });
+  }
+
   // ---- local-mutation variants (CDT-RFC-001 §7.2.1, Wiring W1) ------------
   //
   // Each writes its rows AND (when [enqueue]) its outbox op in ONE drift

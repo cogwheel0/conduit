@@ -31,6 +31,9 @@ const _testUser = User(
 /// Replaces the real engine so the durable write path's fire-and-forget drain
 /// kick is a no-op: the outbox op stays PENDING (never claimed) for assertions.
 class _NoDrainSyncEngine extends SyncEngine {
+  final List<String> pulls = <String>[];
+  int reconcileNowCalls = 0;
+
   @override
   Future<void> drainNow() async {}
 
@@ -38,7 +41,15 @@ class _NoDrainSyncEngine extends SyncEngine {
   Future<void> drainOutbox() async {}
 
   @override
-  Future<PullResult?> requestPull({required String reason}) async => null;
+  Future<PullResult?> requestPull({required String reason}) async {
+    pulls.add(reason);
+    return null;
+  }
+
+  @override
+  Future<void> reconcileNow() async {
+    reconcileNowCalls++;
+  }
 }
 
 void main() {
@@ -87,6 +98,26 @@ void main() {
       check(notes.single.id).equals('cached-note');
       check(notes.single.markdownContent).isEmpty();
       check(notes.single.listPreviewMarkdown).equals('available offline');
+    });
+
+    test('manual refresh runs the unthrottled deletion reconcile', () async {
+      final syncEngine = _NoDrainSyncEngine();
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          apiServiceProvider.overrideWithValue(null),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          currentUserProvider2.overrideWithValue(_testUser),
+          syncEngineProvider.overrideWith(() => syncEngine),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(notesListProvider.future);
+
+      await container.read(notesListProvider.notifier).refresh();
+
+      check(syncEngine.pulls).deepEquals(['notes-refresh']);
+      check(syncEngine.reconcileNowCalls).equals(1);
     });
 
     test('does not expose cached notes owned by another user', () async {

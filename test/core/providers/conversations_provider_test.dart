@@ -16,6 +16,7 @@ import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/daos/chats_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/database/mappers/conversation_assembler.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -691,6 +692,31 @@ void main() {
     );
 
     test(
+      'server-generated title persists without advancing updatedAt',
+      () async {
+        await seedServerChat('chat-1', updatedAt: 100);
+        final container = makeContainer();
+        await container.read(conversationsProvider.future);
+
+        container
+            .read(conversationsProvider.notifier)
+            .applyServerGeneratedTitle('chat-1', '  Generated title  ');
+
+        check(
+          container.read(conversationsProvider).requireValue.single.title,
+        ).equals('Generated title');
+        final row = await waitForAsync<ChatRow?>(
+          () => db.chatsDao.getChat('chat-1'),
+          condition: (row) => row?.title == 'Generated title',
+        );
+        check(row!.updatedAt).equals(100);
+        final messages = await db.messagesDao.getForChat('chat-1');
+        final blob = ChatBlobMapper.rowsToBlob(chatRowsFromDb(row, messages));
+        check(blob['title']).equals('Generated title');
+      },
+    );
+
+    test(
       'missing remote conversation update submits reconcile pull immediately',
       () async {
         final pulls = <String>[];
@@ -916,6 +942,35 @@ void main() {
         return idsOf(state.asData?.value ?? const []).contains('remote-chat');
       });
     });
+
+    test(
+      'manual refresh purges a chat that was deleted on the server',
+      () async {
+        await seedServerChat('deleted-remotely', updatedAt: 100);
+        final server = FakeOpenWebUiServer();
+        final client = FakeSyncApiClient(server);
+        final container = makeContainer(
+          extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
+        );
+        await container.read(conversationsProvider.future);
+
+        check(
+          idsOf(container.read(conversationsProvider).requireValue),
+        ).contains('deleted-remotely');
+
+        await container.read(conversationsProvider.notifier).refresh();
+
+        await waitForAsync<ChatRow?>(
+          () => db.chatsDao.getChat('deleted-remotely'),
+          condition: (row) => row == null,
+        );
+        await waitFor(
+          () => !idsOf(
+            container.read(conversationsProvider).asData?.value ?? const [],
+          ).contains('deleted-remotely'),
+        );
+      },
+    );
   });
 
   group('folderConversationSummariesProvider', () {

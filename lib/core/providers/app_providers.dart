@@ -3438,9 +3438,9 @@ class Conversations extends _$Conversations {
     return cancellation;
   }
 
-  /// Refreshing is a pull request; the database stream delivers the result.
-  /// Folders are part of every pull cycle, so [includeFolders] needs no extra
-  /// work.
+  /// Refreshing pulls changed rows and reconciles remote deletions; the
+  /// database stream delivers the result. Folders are part of every pull
+  /// cycle, so [includeFolders] needs no extra work.
   Future<void> refresh({
     bool includeFolders = false,
     bool forceFresh = false,
@@ -3452,9 +3452,12 @@ class Conversations extends _$Conversations {
     // optional Open WebUI side when it is available.
     if (ref.read(appDatabaseProvider) != null &&
         ref.read(isAuthenticatedProvider2)) {
-      await ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'refresh');
+      final syncEngine = ref.read(syncEngineProvider.notifier);
+      await syncEngine.requestPull(reason: 'refresh');
+      // A normal pull uses the 24-hour background deletion throttle. A user
+      // initiated refresh must also run the unthrottled reconcile so chats
+      // deleted from another Open WebUI client disappear immediately.
+      await syncEngine.reconcileNow();
     }
     folderConversationRefresh.bumpIfMounted();
   }
@@ -3682,6 +3685,63 @@ class Conversations extends _$Conversations {
     Conversation Function(Conversation conversation) transform,
   ) {
     updateConversation(id, transform);
+  }
+
+  /// Applies Open WebUI's `chat:title` event without changing `updatedAt`.
+  ///
+  /// Title generation updates the server row and blob but does not advance the
+  /// server watermark. Persist the event directly so a title cannot remain
+  /// stale merely because the row is outside the loaded page.
+  void applyServerGeneratedTitle(String serverId, String title) {
+    final normalizedTitle = title.trim();
+    final identity = ChatStorageIdentity.parse(serverId);
+    final rawId = identity.rawId;
+    if (rawId.isEmpty ||
+        normalizedTitle.isEmpty ||
+        identity.storage == ChatStorageKind.directLocal ||
+        isTemporaryChat(rawId)) {
+      return;
+    }
+
+    final scopedId = ChatStorageIdentity(
+      rawId: rawId,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, scopedId);
+    if (current != null &&
+        index >= 0 &&
+        current[index].title != normalizedTitle) {
+      final updated = <Conversation>[...current];
+      updated[index] = current[index].copyWith(title: normalizedTitle);
+      state = AsyncData<List<Conversation>>(
+        List<Conversation>.unmodifiable(updated),
+      );
+    }
+
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    final locks = ref.read(chatLocksProvider);
+    unawaited(
+      locks
+          .runExclusive(
+            rawId,
+            () =>
+                db.chatsDao.updateServerGeneratedTitle(rawId, normalizedTitle),
+          )
+          .then<void>((_) {})
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'generated-title-write-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': rawId},
+            );
+          }),
+    );
   }
 
   /// Rows are id-keyed in the database; the summary "trust" machinery is
@@ -6957,13 +7017,13 @@ class ActiveChatIds extends _$ActiveChatIds {
   }
 }
 
-/// Keeps [activeChatIdsProvider] correct beyond the locally-streaming chat.
+/// Keeps global chat task state and generated titles synchronized.
 ///
 /// OpenWebUI's sidebar both bulk-fetches active chats on load and listens for
 /// `chat:active` events for any chat. This provider mirrors that: it
 /// bulk-fetches on cold open + socket reconnect (`setAll`) and registers a
-/// GLOBAL `chat:active` handler so generations started by other sessions/
-/// devices also light up the sidebar spinner.
+/// GLOBAL chat handler so generations started by other sessions/devices light
+/// up the sidebar spinner and `chat:title` events update durable list state.
 @Riverpod(keepAlive: true)
 class ActiveChatsSync extends _$ActiveChatsSync {
   SocketEventSubscription? _globalActiveSub;
@@ -7070,6 +7130,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
           return;
         }
         _handleChatActiveEvent(map);
+        _handleChatTitleEvent(map);
       },
     );
 
@@ -7103,7 +7164,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     if (active is! bool) {
       return;
     }
-    final chatId = _extractActiveChatId(map);
+    final chatId = _extractChatEventId(map);
     if (chatId == null || chatId.isEmpty) {
       return;
     }
@@ -7115,7 +7176,45 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     }
   }
 
-  String? _extractActiveChatId(Map<String, dynamic> map) {
+  void _handleChatTitleEvent(Map<String, dynamic> map) {
+    final data = map['data'];
+    if (data is! Map || data['type'] != 'chat:title') {
+      return;
+    }
+    final payload = data['data'];
+    final title = switch (payload) {
+      String value => value.trim(),
+      Map value => value['title']?.toString().trim() ?? '',
+      _ => '',
+    };
+    final chatId = _extractChatEventId(map);
+    if (chatId == null || chatId.isEmpty || title.isEmpty) {
+      return;
+    }
+
+    DebugLogger.log(
+      'generated-title-received',
+      scope: 'chat/global-sync',
+      data: {'chatId': chatId},
+    );
+
+    ref
+        .read(conversationsProvider.notifier)
+        .applyServerGeneratedTitle(chatId, title);
+
+    final active = ref.read(activeConversationProvider);
+    final scopedId = ChatStorageIdentity(
+      rawId: chatId,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    if (active != null && conversationMatchesScopedId(active, scopedId)) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(active.copyWith(title: title));
+    }
+  }
+
+  String? _extractChatEventId(Map<String, dynamic> map) {
     final direct = map['chat_id'] ?? map['chatId'];
     if (direct != null) {
       return direct.toString();

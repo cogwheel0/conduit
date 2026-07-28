@@ -373,19 +373,14 @@ Future<bool> dispatchChatTransport({
       if (!ownsConversation()) return;
       final active = ref.read(activeConversationProvider);
       if (active == null || isTemporaryChat(active.id)) return;
+      final normalizedTitle = newTitle.trim();
+      if (normalizedTitle.isEmpty) return;
       ref
           .read(activeConversationProvider.notifier)
-          .set(active.copyWith(title: newTitle));
+          .set(active.copyWith(title: normalizedTitle));
       ref
           .read(conversationsProvider.notifier)
-          .updateConversationFromRemote(
-            active.id,
-            (conversation) => conversation.copyWith(
-              title: newTitle,
-              updatedAt: DateTime.now(),
-            ),
-          );
-      refreshConversationsCache(ref);
+          .applyServerGeneratedTitle(active.id, normalizedTitle);
     },
     onChatTagsUpdated: () {
       if (!ownsConversation()) return;

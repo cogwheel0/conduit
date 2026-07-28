@@ -2285,9 +2285,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final db = ref.read(appDatabaseProvider);
     if (db == null) return;
     try {
-      await ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'note-editor-refresh');
+      final syncEngine = ref.read(syncEngineProvider.notifier);
+      await syncEngine.requestPull(reason: 'note-editor-refresh');
+      await syncEngine.reconcileNow();
     } catch (_) {
       // Best-effort; still reload from the (at least locally-current) row below.
     }
@@ -2301,7 +2301,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // safe here (avoids pulling auth providers into the editor just for the
       // user id).
       final note = await readLocalNote(db, widget.noteId);
-      if (!mounted || note == null) return;
+      if (!mounted) return;
+      if (note == null) {
+        ref.invalidate(noteByIdProvider(widget.noteId));
+        setState(() {
+          _note = null;
+          _hasChanges = false;
+        });
+        return;
+      }
       // If the user typed while the sync/read was in flight, do NOT overwrite
       // their in-progress edits: those keystroke(s) re-set `_hasChanges` and
       // queued a fresh debounce. Bail out and leave the editor as-is so that
