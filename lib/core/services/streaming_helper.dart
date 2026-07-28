@@ -460,6 +460,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   required void Function(String) appendToLastMessage,
   required void Function(String) bufferLastMessageContent,
   void Function(String)? bufferProgressiveLastMessageContent,
+  void Function(String Function())? bufferProgressiveLastMessageSnapshot,
   required void Function(String) replaceLastMessageContent,
   required void Function(ChatMessage Function(ChatMessage))
   updateLastMessageWith,
@@ -827,12 +828,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
   var reasoningPrefix = '';
-  final reasoningContent = _StreamingTextAccumulator();
+  var reasoningContent = _StreamingTextAccumulator();
 
   void resetStreamingReasoning() {
     inReasoningBlock = false;
     reasoningPrefix = '';
-    reasoningContent.replace('');
+    // Use a fresh accumulator so a deferred visible snapshot can safely retain
+    // the completed generation until the notifier either realizes or replaces
+    // it.
+    reasoningContent = _StreamingTextAccumulator();
   }
 
   void finishStructuredOutputProfile({required bool abandoned}) {
@@ -1236,10 +1240,24 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       syncRenderedStreamingContentFromState();
       inReasoningBlock = true;
       reasoningPrefix = renderedStreamingContent.value;
-      reasoningContent.replace('');
+      reasoningContent = _StreamingTextAccumulator();
     }
 
     reasoningContent.append(chunk);
+    final deferredSnapshot = bufferProgressiveLastMessageSnapshot;
+    if (deferredSnapshot != null) {
+      final activePrefix = reasoningPrefix;
+      final activeReasoning = reasoningContent;
+      deferredSnapshot(() {
+        final rendered = _prependReasoningDetails(
+          activePrefix,
+          _buildStreamingReasoningDetails(activeReasoning.value, done: false),
+        );
+        renderedStreamingContent.replace(rendered);
+        return rendered;
+      });
+      return;
+    }
     renderedStreamingContent.replace(
       _prependReasoningDetails(
         reasoningPrefix,

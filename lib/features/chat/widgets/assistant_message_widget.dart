@@ -89,6 +89,12 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback? onDislike;
   final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
 
+  @visibleForTesting
+  final VoidCallback? debugOnShellBuild;
+
+  @visibleForTesting
+  final VoidCallback? debugOnStreamingContentBuild;
+
   const AssistantMessageWidget({
     super.key,
     required this.message,
@@ -106,6 +112,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.onLike,
     this.onDislike,
     this.onFollowUpSelected,
+    this.debugOnShellBuild,
+    this.debugOnStreamingContentBuild,
   });
 
   @override
@@ -119,6 +127,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
   String _displayedContent = '';
+  late final ValueNotifier<String> _displayedContentListenable;
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
@@ -233,6 +242,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
+    _displayedContentListenable = ValueNotifier<String>(_displayedContent);
     _primeInitialStreamingContentFade();
     _updateActionRowSettle();
     _syncStreamingContentSubscription();
@@ -263,6 +273,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (messageChanged) {
       _lastStreamingContent = null;
       _displayedContent = '';
+      _displayedContentListenable.value = '';
       _pendingDisplayedContent = null;
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
@@ -393,16 +404,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final contentChanged = raw != _displayedContent;
 
     if (contentChanged) {
+      final shellPresentationChanged =
+          _displayedContent.trim().isEmpty != raw.trim().isEmpty;
       if (shouldFadeStreamingContent) {
         _streamingContentFadeController.value = 0.0;
       }
-      if (mounted) {
+      if (mounted && shellPresentationChanged) {
+        // The shell only needs the empty/non-empty boundary so queued and empty
+        // states can hand off to the live body. Later token batches remain
+        // isolated to the ValueListenableBuilder below.
         setState(() {
           _displayedContent = raw;
         });
       } else {
         _displayedContent = raw;
       }
+      _displayedContentListenable.value = raw;
       if (shouldFadeStreamingContent) {
         _streamingContentFadeController.forward();
       }
@@ -449,6 +466,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _activeVersionIndex = nextIndex;
       _displayedContent = raw;
     });
+    _displayedContentListenable.value = raw;
     _resetTtsPlainTextState();
     _buildCachedAvatar();
   }
@@ -600,26 +618,48 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     await controller.toggleForMessage(messageId: messageId, text: speechText);
   }
 
-  Widget _buildMessageContent() {
+  Widget _buildMessageContent(
+    String displayedContent, {
+    required AssistantResponseBuilder? responseBuilder,
+    required List<ChatSourceReference> activeSources,
+  }) {
     final children = <Widget>[];
-    final trimmedContent = _displayedContent.trim();
+    final trimmedContent = displayedContent.trim();
     if (trimmedContent.isNotEmpty) {
-      final markdownWidget = _buildEnhancedMarkdownContent(_displayedContent);
+      final markdownWidget = _buildEnhancedMarkdownContent(
+        displayedContent,
+        responseBuilder: responseBuilder,
+        activeSources: activeSources,
+      );
       children.add(RepaintBoundary(child: markdownWidget));
     }
 
     if (children.isEmpty) return const SizedBox.shrink();
-    // Append TTS karaoke bar if this is the active message
-    final ttsState = ref.watch(textToSpeechControllerProvider);
-    final isActive =
-        ttsState.activeMessageId == _messageId &&
-        (ttsState.status == TtsPlaybackStatus.speaking ||
-            ttsState.status == TtsPlaybackStatus.paused ||
-            ttsState.status == TtsPlaybackStatus.loading);
-    if (isActive && ttsState.activeSentenceIndex >= 0) {
-      children.add(const SizedBox(height: Spacing.sm));
-      children.add(_buildKaraokeBar(ttsState));
-    }
+    // Keep playback progress local to the content subtree too. Watching this
+    // provider from the assistant shell would make every word-progress event
+    // rebuild attachments, status rows, tools, sources, and footer actions.
+    children.add(
+      Consumer(
+        builder: (context, childRef, _) {
+          final ttsState = childRef.watch(textToSpeechControllerProvider);
+          final isActive =
+              ttsState.activeMessageId == _messageId &&
+              (ttsState.status == TtsPlaybackStatus.speaking ||
+                  ttsState.status == TtsPlaybackStatus.paused ||
+                  ttsState.status == TtsPlaybackStatus.loading);
+          if (!isActive || ttsState.activeSentenceIndex < 0) {
+            return const SizedBox.shrink();
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: Spacing.sm),
+              _buildKaraokeBar(ttsState),
+            ],
+          );
+        },
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,21 +667,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  Widget _buildStreamingContentBody() {
-    final body = _buildMessageContent();
-    // Always wrap in a FadeTransition with a stable key/type so the widget at
-    // this slot does not change runtimeType when streaming starts/completes.
-    // Toggling between FadeTransition and the bare body would defeat element
-    // reconciliation and tear down the markdown subtree at the streaming
-    // boundary. When not actively fading we feed a fully-opaque constant
-    // animation, which is visually identical to returning the bare body.
-    final fade = _canFadeStreamingContent(_displayedContent)
-        ? _streamingContentFade
-        : const AlwaysStoppedAnimation<double>(1.0);
-    return FadeTransition(
-      key: const ValueKey('assistant-streaming-content-fade'),
-      opacity: fade,
-      child: body,
+  Widget _buildStreamingContentBody({
+    required AssistantResponseBuilder? responseBuilder,
+    required List<ChatSourceReference> activeSources,
+  }) {
+    return ValueListenableBuilder<String>(
+      valueListenable: _displayedContentListenable,
+      builder: (context, displayedContent, _) {
+        widget.debugOnStreamingContentBuild?.call();
+        final body = _buildMessageContent(
+          displayedContent,
+          responseBuilder: responseBuilder,
+          activeSources: activeSources,
+        );
+        // Always wrap in a FadeTransition with a stable key/type so the widget
+        // at this slot survives the streaming/completed boundary.
+        final fade = _canFadeStreamingContent(displayedContent)
+            ? _streamingContentFade
+            : const AlwaysStoppedAnimation<double>(1.0);
+        return FadeTransition(
+          key: const ValueKey('assistant-streaming-content-fade'),
+          opacity: fade,
+          child: body,
+        );
+      },
     );
   }
 
@@ -907,6 +956,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _fadeController.dispose();
     _streamingContentFade.dispose();
     _streamingContentFadeController.dispose();
+    _displayedContentListenable.dispose();
     super.dispose();
   }
 
@@ -1180,6 +1230,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildDocumentationMessage() {
+    widget.debugOnShellBuild?.call();
     final displayStatusHistory = filterVisibleStatusUpdates(
       widget.message.statusHistory,
       isStreaming: _uiTreatsAsStreaming,
@@ -1208,6 +1259,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final showQueuedRecoveryBanner =
         queuedCompletion != null && !showQueuedAsEmptyState;
     final shouldBuildActionFooter = _showActionRowNow && !hasQueuedCompletion;
+    final contentSources = _resolveActiveSources();
+    final responseBuilder = ref.watch(assistantResponseBuilderProvider);
     final activeFollowUps = shouldBuildActionFooter
         ? _resolveVisibleFollowUps()
         : const <String>[];
@@ -1217,7 +1270,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         activeFollowUps.isNotEmpty &&
         _responseCompleted;
     final activeSources = shouldBuildActionFooter
-        ? _resolveActiveSources()
+        ? contentSources
         : const <ChatSourceReference>[];
     final footer = shouldBuildActionFooter
         ? _buildFooterBar(activeSources: activeSources)
@@ -1273,7 +1326,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   // waiting state until visible content arrives. Keep this
                   // subtree direct: a stable-key AnimatedSwitcher never
                   // switched and only obscured the one-shot content fade.
-                  _buildStreamingContentBody(),
+                  _buildStreamingContentBody(
+                    responseBuilder: responseBuilder,
+                    activeSources: contentSources,
+                  ),
 
                 _buildHermesApprovalCard(),
 
@@ -1594,7 +1650,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  Widget _buildEnhancedMarkdownContent(String content) {
+  Widget _buildEnhancedMarkdownContent(
+    String content, {
+    required AssistantResponseBuilder? responseBuilder,
+    required List<ChatSourceReference> activeSources,
+  }) {
     if (content.trim().isEmpty) {
       return const SizedBox.shrink();
     }
@@ -1602,7 +1662,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Keep the raw markdown intact so the shared renderer can parse
     // Open WebUI-style <details> blocks directly.
     final processedContent = _processContentForImages(content);
-    final activeSources = _resolveActiveSources();
     final bodyTreatsAsStreaming = _uiTreatsAsStreaming;
 
     Widget buildDefault(BuildContext context) {
@@ -1621,7 +1680,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
     }
 
-    final responseBuilder = ref.watch(assistantResponseBuilderProvider);
     if (responseBuilder != null) {
       final contextData = AssistantResponseContext(
         message: widget.message,

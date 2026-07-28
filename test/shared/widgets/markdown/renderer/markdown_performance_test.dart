@@ -21,6 +21,7 @@ class _ImmediateMarkdownCompileService extends MarkdownCompileService {
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     return compilePreparedSynchronously(preparedContent);
   }
@@ -169,6 +170,7 @@ class _SequencedBlockingMarkdownCompileService extends MarkdownCompileService {
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     final release = Completer<void>();
     _releases.add(release);
@@ -237,6 +239,23 @@ Widget _buildStreamingHarness({
 void main() {
   setUp(debugResetParsedMarkdownCache);
   tearDown(debugResetParsedMarkdownCache);
+
+  test(
+    'streaming diagnostics are sampled instead of running every revision',
+    () {
+      expect(debugShouldSampleStreamingMarkdownDiagnostics(1), isTrue);
+      expect(debugShouldSampleStreamingMarkdownDiagnostics(2), isFalse);
+      expect(debugShouldSampleStreamingMarkdownDiagnostics(15), isFalse);
+      expect(debugShouldSampleStreamingMarkdownDiagnostics(16), isTrue);
+      expect(
+        debugShouldSampleStreamingMarkdownDiagnostics(
+          16,
+          diagnosticsEnabled: false,
+        ),
+        isFalse,
+      );
+    },
+  );
 
   testWidgets('deferred streaming preparation lands in its scheduled frame', (
     tester,

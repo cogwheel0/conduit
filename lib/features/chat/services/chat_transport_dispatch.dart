@@ -338,6 +338,10 @@ Future<bool> dispatchChatTransport({
       if (!ownsConversation()) return;
       messagesNotifier().bufferLastMessageContent(c, immediate: false);
     },
+    bufferProgressiveLastMessageSnapshot: (snapshot) {
+      if (!ownsConversation()) return;
+      messagesNotifier().bufferLastMessageContentSnapshot(snapshot);
+    },
     replaceLastMessageContent: (c) {
       if (!ownsConversation()) return;
       messagesNotifier().replaceLastMessageContent(c);

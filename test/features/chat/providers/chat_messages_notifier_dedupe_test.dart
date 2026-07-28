@@ -222,6 +222,43 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
     });
 
+    testWidgets(
+      'lazy progressive snapshots materialize once per visible flush',
+      (tester) async {
+        final container = buildContainer();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(content: 'Intro', isStreaming: true),
+        ]);
+        var materializations = 0;
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: _StreamingContentProbe()),
+          ),
+        );
+
+        for (var index = 0; index < 100; index += 1) {
+          notifier.bufferLastMessageContentSnapshot(() {
+            materializations += 1;
+            return 'Intro reasoning revision $index';
+          });
+        }
+        expect(materializations, 0);
+
+        await tester.pump();
+        expect(materializations, 1);
+        expect(find.text('Intro reasoning revision 99'), findsOneWidget);
+
+        notifier.clearMessages();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(milliseconds: 1));
+        container.dispose();
+        await tester.pump(const Duration(milliseconds: 1));
+      },
+    );
+
     test('stop generation preserves the visible partial response', () {
       final container = buildContainer();
       addTearDown(container.dispose);

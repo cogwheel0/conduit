@@ -358,6 +358,7 @@ ActiveChatStream _attach({
   bool Function()? ownsStreamContext,
   ApiAuthSnapshot? chatCompletedAuthSnapshot,
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
+  void Function(String Function())? bufferProgressiveLastMessageSnapshot,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -373,6 +374,7 @@ ActiveChatStream _attach({
     workerManager: workerManager ?? _fakeWorkerManager(),
     appendToLastMessage: log.appendToLastMessage,
     bufferLastMessageContent: log.bufferLastMessageContent,
+    bufferProgressiveLastMessageSnapshot: bufferProgressiveLastMessageSnapshot,
     replaceLastMessageContent: log.replaceLastMessageContent,
     updateLastMessageWith: log.updateLastMessageWith,
     appendStatusUpdate: log.appendStatusUpdate,
@@ -934,6 +936,64 @@ void main() {
           'Answer',
         );
         check(finalContent).not((value) => value.contains('<think>'));
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'reasoning projections stay lazy until the visible cadence requests one',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(content: 'Intro'),
+        );
+        final byteStream = StreamController<List<int>>();
+        final snapshots = <String Function()>[];
+        var materializations = 0;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream.stream,
+            abort: () async {},
+          ),
+          log: log,
+          bufferProgressiveLastMessageSnapshot: (snapshot) {
+            snapshots.add(() {
+              materializations += 1;
+              return snapshot();
+            });
+          },
+        );
+
+        for (final chunk in const ['Plan ', 'the ', 'answer']) {
+          byteStream.add(
+            _sseFrame({
+              'choices': [
+                {
+                  'delta': {'reasoning_content': chunk},
+                },
+              ],
+            }),
+          );
+          await pumpMicrotasks();
+        }
+
+        check(snapshots.length).equals(3);
+        check(materializations).equals(0);
+        check(log.replacedContents).isEmpty();
+
+        final visible = snapshots.last();
+        check(materializations).equals(1);
+        check(visible).contains('done="false"');
+        check(visible).contains('&gt; Plan the answer');
+
+        byteStream.add(_sseDone());
+        await byteStream.close();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).contains('done="true"');
         check(log.finishCount).equals(1);
       },
     );

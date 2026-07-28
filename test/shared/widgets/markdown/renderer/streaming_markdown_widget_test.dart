@@ -120,6 +120,7 @@ class _DelayedMarkdownCompileService extends MarkdownCompileService {
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     await _release.future;
     return compilePreparedSynchronously(preparedContent);
@@ -151,6 +152,7 @@ class _SelectiveDelayedMarkdownCompileService extends MarkdownCompileService {
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     if (preparedContent == delayedPreparedContent) {
       await _release.future;
@@ -350,6 +352,7 @@ class _DeferredStreamingCompileService extends MarkdownCompileService
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     if (preparedContent == delayedPreparedContent) {
       await _release.future;

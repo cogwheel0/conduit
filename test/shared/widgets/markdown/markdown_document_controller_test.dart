@@ -13,14 +13,18 @@ class _RecordingIncrementalMarkdownCompileService
 
   final List<String> singleCalls = <String>[];
   final List<List<String>> batchCalls = <List<String>>[];
+  final List<bool> singleCacheResults = <bool>[];
+  final List<bool> batchCacheResults = <bool>[];
 
   @override
   Future<CompiledMarkdownDocument> compilePrepared(
     String preparedContent, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResult = true,
   }) async {
     singleCalls.add(preparedContent);
+    singleCacheResults.add(cacheResult);
     return compilePreparedSynchronously(preparedContent);
   }
 
@@ -29,9 +33,11 @@ class _RecordingIncrementalMarkdownCompileService
     Iterable<String> preparedContents, {
     bool allowSynchronous = false,
     bool widgetTest = false,
+    bool cacheResults = true,
   }) async {
     final contents = preparedContents.toList(growable: false);
     batchCalls.add(contents);
+    batchCacheResults.add(cacheResults);
     return contents.map(compilePreparedSynchronously).toList(growable: false);
   }
 
@@ -428,6 +434,8 @@ Body
       expect(latestDocument!.mutableBlockStartIndex, 2);
       expect(latestDocument!.isMutableRootBlock(1), isFalse);
       expect(latestDocument!.isMutableRootBlock(2), isTrue);
+      expect(compiler.singleCacheResults.every((value) => !value), isTrue);
+      expect(compiler.batchCacheResults.every((value) => !value), isTrue);
     },
   );
 

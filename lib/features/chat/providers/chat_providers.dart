@@ -1527,6 +1527,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   int _dbMessagesGeneration = 0;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
+  String Function()? _pendingStreamingSnapshot;
   Timer? _streamingSyncTimer;
   Timer? _streamingContentTimer;
   bool _streamingContentFrameScheduled = false;
@@ -3569,8 +3570,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
 
   void _clearStreamingBuffer() {
     _streamingBuffer = null;
+    _pendingStreamingSnapshot = null;
     _streamingBufferVersion = 0;
     _lastFlushedStreamingBufferVersion = -1;
+  }
+
+  void _realizePendingStreamingSnapshot() {
+    final snapshot = _pendingStreamingSnapshot;
+    if (snapshot == null) return;
+    _pendingStreamingSnapshot = null;
+    try {
+      _streamingBuffer = StringBuffer(_stripStreamingPlaceholders(snapshot()));
+    } catch (error) {
+      DebugLogger.log(
+        'Deferred streaming projection failed: $error',
+        scope: 'chat/providers',
+      );
+    }
   }
 
   /// Records the foreign server message id the streaming helper bound to the
@@ -5246,6 +5262,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       return;
     }
 
+    // A direct append supersedes any deferred full projection. In practice the
+    // reasoning path finalizes through replaceLastMessageContent first, but
+    // realizing here keeps this public seam authoritative for every caller.
+    _realizePendingStreamingSnapshot();
     // Initialize buffer with existing content on first chunk
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
@@ -5418,6 +5438,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (_disposed) {
       return;
     }
+    _realizePendingStreamingSnapshot();
     final buffer = _streamingBuffer;
     if (buffer == null) return;
     if (_streamingBufferVersion == _lastFlushedStreamingBufferVersion) {
@@ -5460,6 +5481,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   }
 
   ChatMessage _messageWithBufferedStreamingContent(ChatMessage message) {
+    _realizePendingStreamingSnapshot();
     final buffer = _streamingBuffer;
     if (buffer == null ||
         state.isEmpty ||
@@ -5513,6 +5535,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   /// Syncs the accumulated streaming buffer content into
   /// the message list state.
   void _syncStreamingBufferToState() {
+    _realizePendingStreamingSnapshot();
     if (_streamingBuffer == null || state.isEmpty) {
       return;
     }
@@ -5551,7 +5574,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
 
     final sanitized = _stripStreamingPlaceholders(content);
-    if (_streamingBuffer?.toString() == sanitized) {
+    final hadPendingSnapshot = _pendingStreamingSnapshot != null;
+    _pendingStreamingSnapshot = null;
+    if (!hadPendingSnapshot && _streamingBuffer?.toString() == sanitized) {
       return;
     }
     _streamingBuffer = StringBuffer(sanitized);
@@ -5564,6 +5589,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     );
     _touchStreamingActivity();
     _syncStreamingProfileWithBufferedContent();
+  }
+
+  /// Defers an expensive cumulative streaming projection until the same
+  /// cadence that publishes visible content. Repeated transport deltas replace
+  /// the pending snapshot without materializing or semantic-rendering every
+  /// intermediate state.
+  void bufferLastMessageContentSnapshot(String Function() snapshot) {
+    if (state.isEmpty) return;
+
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+
+    _streamingBuffer ??= StringBuffer(lastMessage.content);
+    _pendingStreamingSnapshot = snapshot;
+    _markStreamingBufferChanged();
+    _scheduleStreamingContentUpdate();
+    _touchStreamingActivity();
   }
 
   void replaceLastMessageContent(String content) {
@@ -5582,7 +5624,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       _touchStreamingActivity();
       return;
     }
-    if (_streamingBuffer?.toString() == sanitized) {
+    final hadPendingSnapshot = _pendingStreamingSnapshot != null;
+    _pendingStreamingSnapshot = null;
+    if (!hadPendingSnapshot && _streamingBuffer?.toString() == sanitized) {
       return;
     }
     _streamingBuffer = StringBuffer(sanitized);
