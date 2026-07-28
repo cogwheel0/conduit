@@ -178,7 +178,42 @@ void main() {
     check(controller.rowRect(anchorId)!.top).isCloseTo(before, 1);
   });
 
-  _viewportTest('pinned turn clears previous content above the toolbar', (
+  _viewportTest('oldest edge reserves the toolbar content inset', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'message-15',
+            offsetWithinMessage: 0,
+            loadedCount: 30,
+          ),
+          followLatest: false,
+          rowHeight: (_) => 64,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    scrollable.position.jumpTo(scrollable.position.minScrollExtent);
+    await tester.pumpAndSettle();
+
+    final metrics = controller.metrics!;
+    check(metrics.pixels).isCloseTo(metrics.minScrollExtent, 1);
+    final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    check(
+      controller.rowRect(ids.first)!.top,
+    ).isGreaterOrEqual(viewportTop + _topContentInset - 1);
+  });
+
+  _viewportTest('pinned prompt clears the toolbar without clipping glass', (
     tester,
   ) async {
     final controller = _controller(tester);
@@ -205,12 +240,15 @@ void main() {
     ).isCloseTo(viewportTop + _topContentInset, 1);
     check(
       controller.rowRect('history-assistant')!.bottom,
-    ).isLessOrEqual(viewportTop + 1);
+    ).isLessOrEqual(controller.rowRect('user')!.top + 1);
+    check(
+      controller.rowRect('history-assistant')!.bottom,
+    ).isGreaterThan(viewportTop);
     check(
       find
           .byKey(const ValueKey<String>('chat-pinned-turn-top-clearance'))
           .evaluate(),
-    ).length.equals(1);
+    ).isEmpty();
     check(
       find
           .byKey(const ValueKey<String>('chat-timeline-content-clip'))
@@ -882,6 +920,120 @@ void main() {
     }
     check(controller.hasRealContentOverflow).isTrue();
   });
+
+  _viewportTest(
+    'terminal pin retirement preserves the prompt without seeking latest',
+    (tester) async {
+      final controller = _controller(tester);
+      final ids = [
+        ...List<String>.generate(12, (index) => 'history-$index'),
+        'user',
+        'assistant',
+      ];
+      String? pinnedUserMessageId = 'user';
+      var pinAutomatic = true;
+      var maintainVisibleAnchor = false;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: ids,
+                pinnedUserMessageId: pinnedUserMessageId,
+                pinAutomatic: pinAutomatic,
+                maintainVisibleAnchor: maintainVisibleAnchor,
+                followLatest: false,
+                rowHeight: (id) => id == 'assistant' ? 900 : 52,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(await controller.jumpMessageToTop('user')).isTrue();
+      await tester.pumpAndSettle();
+      final promptTop = controller.rowRect('user')!.top;
+
+      rebuild(() {
+        pinnedUserMessageId = null;
+        pinAutomatic = false;
+        maintainVisibleAnchor = true;
+      });
+      await tester.pump();
+      await tester.pump();
+
+      check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
+      check(controller.distanceFromLatest).isGreaterThan(48);
+    },
+  );
+
+  _viewportTest(
+    'established chat completion preserves the second prompt position',
+    (tester) async {
+      final controller = _controller(tester);
+      var ids = List<String>.generate(12, (index) => 'history-$index');
+      String? pinnedUserMessageId;
+      var pinAutomatic = false;
+      var maintainVisibleAnchor = false;
+      var followLatest = true;
+      var assistantHeight = 80.0;
+      Widget? liveFooter;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: ids,
+                pinnedUserMessageId: pinnedUserMessageId,
+                pinAutomatic: pinAutomatic,
+                maintainVisibleAnchor: maintainVisibleAnchor,
+                followLatest: followLatest,
+                liveFooter: liveFooter,
+                rowHeight: (id) => id == 'assistant' ? assistantHeight : 52,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      rebuild(() {
+        ids = [...ids, 'user', 'assistant'];
+        pinnedUserMessageId = 'user';
+        pinAutomatic = true;
+        followLatest = false;
+        liveFooter = const SizedBox(height: 28);
+      });
+      await tester.pump();
+      check(await controller.jumpMessageToTop('user')).isTrue();
+      await tester.pumpAndSettle();
+
+      rebuild(() => assistantHeight = 900);
+      await tester.pump();
+      await tester.pump();
+      final promptTop = controller.rowRect('user')!.top;
+
+      rebuild(() {
+        pinnedUserMessageId = null;
+        pinAutomatic = false;
+        maintainVisibleAnchor = true;
+        liveFooter = null;
+      });
+      await tester.pump();
+      await tester.pump();
+
+      check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
+      check(controller.distanceFromLatest).isGreaterThan(48);
+    },
+  );
 
   _viewportTest('missing pin geometry reports one terminal value', (
     tester,

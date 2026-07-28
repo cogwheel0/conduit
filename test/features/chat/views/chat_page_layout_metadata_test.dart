@@ -344,12 +344,13 @@ void main() {
     check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
   });
 
-  test('latest button appears only after manual detachment', () {
+  test('latest button follows free-scroll ownership, not stale metrics', () {
     check(
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: false,
         pinAutoFollowing: true,
-        userDetached: false,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
         currentlyShowing: false,
         distanceFromLatest: 100,
       ),
@@ -358,7 +359,8 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: true,
-        userDetached: false,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
         currentlyShowing: false,
         distanceFromLatest: 100,
       ),
@@ -367,7 +369,8 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
-        userDetached: true,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
         currentlyShowing: false,
         distanceFromLatest: 48,
       ),
@@ -376,7 +379,8 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
-        userDetached: true,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
         currentlyShowing: false,
         distanceFromLatest: 49,
       ),
@@ -385,7 +389,8 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
-        userDetached: false,
+        freeScrolling: false,
+        bottomAnchorDetached: false,
         currentlyShowing: false,
         distanceFromLatest: 100,
       ),
@@ -394,7 +399,8 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: false,
-        userDetached: true,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
         currentlyShowing: true,
         distanceFromLatest: 12,
       ),
@@ -403,11 +409,22 @@ void main() {
       debugShouldExposeScrollToLatestForTesting(
         hasScrollableContent: true,
         pinAutoFollowing: true,
-        userDetached: true,
+        freeScrolling: true,
+        bottomAnchorDetached: true,
         currentlyShowing: false,
         distanceFromLatest: 100,
       ),
     ).isFalse();
+    check(
+      debugShouldExposeScrollToLatestForTesting(
+        hasScrollableContent: true,
+        pinAutoFollowing: false,
+        freeScrolling: true,
+        bottomAnchorDetached: false,
+        currentlyShowing: false,
+        distanceFromLatest: 100,
+      ),
+    ).isTrue();
   });
 
   test('only the first turn settles its pin without animation', () {
@@ -1221,61 +1238,87 @@ void main() {
     ).isTrue();
   });
 
-  test('pin lifecycle releases on completion, drag, and latest', () {
+  test('pin lifecycle releases only for manual drag and latest', () {
     check(
-      debugShouldReleasePinnedTurnForTesting(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
         pinActive: true,
-        assistantPhase: ChatTurnPhase.running,
         userDragStarted: false,
         latestRequested: true,
       ),
     ).isTrue();
     check(
-      debugShouldReleasePinnedTurnForTesting(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
         pinActive: true,
-        assistantPhase: ChatTurnPhase.running,
         userDragStarted: true,
         latestRequested: false,
       ),
     ).isTrue();
     check(
-      debugShouldReleasePinnedTurnForTesting(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
         pinActive: true,
-        assistantPhase: ChatTurnPhase.completed,
-        userDragStarted: false,
-        latestRequested: false,
-      ),
-    ).isTrue();
-    check(
-      debugShouldReleasePinnedTurnForTesting(
-        pinActive: true,
-        assistantPhase: ChatTurnPhase.failed,
-        userDragStarted: false,
-        latestRequested: false,
-      ),
-    ).isTrue();
-    check(
-      debugShouldReleasePinnedTurnForTesting(
-        pinActive: true,
-        assistantPhase: null,
-        userDragStarted: false,
-        latestRequested: false,
-      ),
-    ).isTrue();
-    check(
-      debugShouldReleasePinnedTurnForTesting(
-        pinActive: true,
-        assistantPhase: ChatTurnPhase.running,
         userDragStarted: false,
         latestRequested: false,
       ),
     ).isFalse();
     check(
-      debugShouldReleasePinnedTurnForTesting(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: false,
+        latestRequested: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: false,
+        latestRequested: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
+        pinActive: true,
+        userDragStarted: false,
+        latestRequested: false,
+      ),
+    ).isFalse();
+    check(
+      debugShouldReleasePinnedTurnForManualNavigationForTesting(
         pinActive: false,
-        assistantPhase: ChatTurnPhase.completed,
         userDragStarted: false,
         latestRequested: true,
+      ),
+    ).isFalse();
+  });
+
+  test('terminal lifecycle retires pin support without manual navigation', () {
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.running,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.completed,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: ChatTurnPhase.failed,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: true,
+        assistantPhase: null,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRetirePinnedTurnForLifecycleForTesting(
+        pinActive: false,
+        assistantPhase: ChatTurnPhase.completed,
       ),
     ).isFalse();
   });

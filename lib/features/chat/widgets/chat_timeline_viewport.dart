@@ -1492,22 +1492,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         child: widget.rowBuilder(context, entry.sourceIndex),
       ),
     );
-    return KeyedSubtree(
-      key: _TimelineRowKey(id),
-      child: id == widget.pinnedUserMessageId
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  key: const ValueKey<String>('chat-pinned-turn-top-clearance'),
-                  height: math.max(0, widget.topContentInset),
-                ),
-                row,
-              ],
-            )
-          : row,
-    );
+    return KeyedSubtree(key: _TimelineRowKey(id), child: row);
   }
 
   int? _olderChildIndexForKey(Key key, int centerIndex) {
@@ -1606,6 +1591,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             physics: widget.physics,
             slivers: [
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  key: const ValueKey<String>('chat-oldest-edge-clearance'),
+                  height: math.max(0, widget.topContentInset),
+                ),
+              ),
               if (widget.isLoadingOlder)
                 const SliverToBoxAdapter(
                   child: Padding(

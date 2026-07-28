@@ -1685,7 +1685,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return debugShouldExposeScrollToLatestForTesting(
       hasScrollableContent: hasScrollableContent,
       pinAutoFollowing: _shouldAutoFollowPinnedTurn,
-      userDetached: _bottomAnchorController.isUserDetachedFromBottom,
+      freeScrolling:
+          _timelineScrollMode == _ChatTimelineScrollMode.freeScrolling,
+      bottomAnchorDetached: _bottomAnchorController.isUserDetachedFromBottom,
       currentlyShowing: _showScrollToBottom,
       distanceFromLatest: distanceFromLatest,
       showThreshold: _scrollButtonShowThreshold,
@@ -1726,9 +1728,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    if (debugShouldReleasePinnedTurnForTesting(
+    if (debugShouldReleasePinnedTurnForManualNavigationForTesting(
       pinActive: _wantsPinToTop,
-      assistantPhase: null,
       userDragStarted: false,
       latestRequested: true,
     )) {
@@ -2026,11 +2027,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!_wantsPinToTop) return;
     final assistantMessageId = _pinToTopState.streamingMessageId;
     if (assistantMessageId == null) return;
-    if (!debugShouldReleasePinnedTurnForTesting(
+    if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
       pinActive: true,
       assistantPhase: assistantPhase,
-      userDragStarted: false,
-      latestRequested: false,
     )) {
       return;
     }
@@ -2057,35 +2056,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final currentPhase = currentAssistant == null
           ? null
           : chatTurnPhaseForMessage(currentAssistant);
-      if (!debugShouldReleasePinnedTurnForTesting(
+      if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
         pinActive: _wantsPinToTop,
         assistantPhase: currentPhase,
-        userDragStarted: false,
-        latestRequested: false,
       )) {
         return;
       }
 
-      if (_shouldAutoFollowPinnedTurn &&
-          _timelineScrollMode != _ChatTimelineScrollMode.freeScrolling) {
-        _releasePinToRealLatest(smooth: false, explicitNavigation: false);
-      } else {
-        setState(() {
-          _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
-        });
-      }
+      // Completion retires synthetic support but never changes the reading
+      // position. Reaching the real footer is a manual latest action only.
+      _bottomAnchorController.detachByUser();
+      setState(() {
+        _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
+      });
+      _scheduleScrollToBottomVisibilitySync(prewarm: true);
     });
     WidgetsBinding.instance.scheduleFrame();
   }
 
   void _releasePinForUserDrag() {
     _cancelExplicitLatestNavigation();
-    final shouldReleasePin = debugShouldReleasePinnedTurnForTesting(
-      pinActive: _wantsPinToTop,
-      assistantPhase: null,
-      userDragStarted: true,
-      latestRequested: false,
-    );
+    final shouldReleasePin =
+        debugShouldReleasePinnedTurnForManualNavigationForTesting(
+          pinActive: _wantsPinToTop,
+          userDragStarted: true,
+          latestRequested: false,
+        );
     if (!shouldReleasePin) {
       if (_timelineScrollMode != _ChatTimelineScrollMode.freeScrolling) {
         setState(
@@ -4141,13 +4137,19 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
 bool debugShouldExposeScrollToLatestForTesting({
   required bool hasScrollableContent,
   required bool pinAutoFollowing,
-  required bool userDetached,
+  required bool freeScrolling,
+  required bool bottomAnchorDetached,
   required bool currentlyShowing,
   required double distanceFromLatest,
   double showThreshold = 48,
   double hideThreshold = 12,
 }) {
-  if (!hasScrollableContent || pinAutoFollowing || !userDetached) return false;
+  // Scroll mode is the ownership source. The bottom-anchor flag is a derived
+  // metric hint and can briefly clear against stale pin-support dimensions.
+  final hasDetachedPresentation = freeScrolling;
+  if (!hasScrollableContent || pinAutoFollowing || !hasDetachedPresentation) {
+    return false;
+  }
   return currentlyShowing
       ? distanceFromLatest > hideThreshold
       : distanceFromLatest > showThreshold;
@@ -4292,16 +4294,21 @@ bool debugShouldFollowStreamingForTesting({
 }
 
 @visibleForTesting
-bool debugShouldReleasePinnedTurnForTesting({
+bool debugShouldReleasePinnedTurnForManualNavigationForTesting({
   required bool pinActive,
-  required ChatTurnPhase? assistantPhase,
   required bool userDragStarted,
   required bool latestRequested,
 }) {
   if (!pinActive) return false;
-  return userDragStarted ||
-      latestRequested ||
-      assistantPhase != ChatTurnPhase.running;
+  return userDragStarted || latestRequested;
+}
+
+@visibleForTesting
+bool debugShouldRetirePinnedTurnForLifecycleForTesting({
+  required bool pinActive,
+  required ChatTurnPhase? assistantPhase,
+}) {
+  return pinActive && assistantPhase != ChatTurnPhase.running;
 }
 
 @visibleForTesting
