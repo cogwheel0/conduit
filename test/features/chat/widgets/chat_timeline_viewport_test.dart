@@ -1646,6 +1646,46 @@ void main() {
     check(controller.isProgrammaticNavigationActive).isFalse();
   });
 
+  _viewportTest(
+    'attached streaming growth keeps the live footer fixed in the growth frame',
+    (tester) async {
+      final controller = _controller(tester);
+      var assistantHeight = 900.0;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: const ['assistant'],
+                followLatest: true,
+                liveFooter: const SizedBox(
+                  key: ValueKey<String>('live-footer-probe'),
+                  height: 28,
+                ),
+                rowHeight: (_) => assistantHeight,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final footer = find.byKey(const ValueKey<String>('live-footer-probe'));
+      final initialTop = tester.getTopLeft(footer).dy;
+      for (var chunk = 0; chunk < 4; chunk += 1) {
+        rebuild(() => assistantHeight += 48);
+        await tester.pump();
+
+        check(tester.getTopLeft(footer).dy).isCloseTo(initialTop, 1);
+        check(controller.distanceFromLatest).isCloseTo(0, 1);
+      }
+    },
+  );
+
   _viewportTest('a real drag cancels programmatic navigation', (tester) async {
     final controller = _controller(tester);
     final ids = List<String>.generate(30, (index) => 'message-$index');

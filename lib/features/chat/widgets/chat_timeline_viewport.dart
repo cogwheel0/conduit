@@ -28,6 +28,69 @@ class _TimelineRowKey extends ValueKey<String> {
   const _TimelineRowKey(super.value);
 }
 
+/// Keeps an attached forward timeline on its trailing edge during layout.
+///
+/// A normal [ScrollController] learns about a growing sliver through a metrics
+/// notification after the frame has painted. Correcting there leaves one frame
+/// where the live footer moves down with the new assistant content. This
+/// position performs the same correction while Flutter is resolving the new
+/// content dimensions, before paint.
+class _ChatTimelineScrollController extends ScrollController {
+  _ChatTimelineScrollController({required this.shouldMaintainLatest});
+
+  final bool Function() shouldMaintainLatest;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) {
+    return _ChatTimelineScrollPosition(
+      physics: physics,
+      context: context,
+      initialPixels: initialScrollOffset,
+      keepScrollOffset: keepScrollOffset,
+      oldPosition: oldPosition,
+      debugLabel: debugLabel,
+      shouldMaintainLatest: shouldMaintainLatest,
+    );
+  }
+}
+
+class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
+  _ChatTimelineScrollPosition({
+    required super.physics,
+    required super.context,
+    super.initialPixels,
+    super.keepScrollOffset,
+    super.oldPosition,
+    super.debugLabel,
+    required this.shouldMaintainLatest,
+  });
+
+  static const double _latestEpsilon = 0.5;
+
+  final bool Function() shouldMaintainLatest;
+
+  @override
+  bool correctForNewDimensions(
+    ScrollMetrics oldPosition,
+    ScrollMetrics newPosition,
+  ) {
+    final wasAtLatest =
+        (pixels - oldPosition.maxScrollExtent).abs() <= _latestEpsilon;
+    if (shouldMaintainLatest() &&
+        !isScrollingNotifier.value &&
+        wasAtLatest &&
+        (pixels - newPosition.maxScrollExtent).abs() > _latestEpsilon) {
+      correctPixels(newPosition.maxScrollExtent);
+      return false;
+    }
+    return super.correctForNewDimensions(oldPosition, newPosition);
+  }
+}
+
 @immutable
 class ChatTimelineViewportMetrics {
   const ChatTimelineViewportMetrics({
@@ -276,7 +339,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     'chat-timeline-pin-spacer-sliver',
   );
 
-  final ScrollController _scrollController = ScrollController();
+  late final _ChatTimelineScrollController _scrollController;
   final GlobalKey _viewportKey = GlobalKey();
   final GlobalKey _centerSliverKey = GlobalKey();
   final GlobalKey _endSentinelKey = GlobalKey();
@@ -325,9 +388,20 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   double get _effectivePinSupportSpace =>
       widget.pinnedUserMessageId == null ? 0 : _pinSupportSpace.value;
 
+  bool get _maintainsLatestDuringLayout =>
+      _initialPositionResolved &&
+      widget.followLatest &&
+      !widget.pinAutomatic &&
+      !_centerRecoveryPending &&
+      !_userDragging &&
+      !_programmaticNavigationActive;
+
   @override
   void initState() {
     super.initState();
+    _scrollController = _ChatTimelineScrollController(
+      shouldMaintainLatest: () => mounted && _maintainsLatestDuringLayout,
+    );
     WidgetsBinding.instance.addObserver(this);
     _syncTimelineEntries();
     _setCenterMessageId(_resolveInitialCenter());
@@ -827,7 +901,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
           !_userDragging &&
           !_programmaticNavigationActive &&
           !(_dimensionedPosition?.isScrollingNotifier.value ?? false)) {
-        _jumpToLatest();
+        final position = _dimensionedPosition;
+        if (position != null &&
+            (_contentLatestOffset(position) - position.pixels).abs() >
+                _geometryEpsilon) {
+          _jumpToLatest();
+        }
       }
       _scheduleMetricsCallback();
     });
@@ -1674,12 +1753,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         // A settled automatic pin owns a fixed pixel target and viewport-sized
         // support. Streamed row growth does not change either value, so avoid
         // remeasuring the whole transcript for every markdown extent update.
-        // Explicit widget/controller changes still request maintenance.
+        // Attached latest-follow corrects its extent synchronously from the
+        // custom ScrollPosition, so a post-frame pass would only schedule a
+        // redundant second frame. Explicit widget/controller changes still
+        // request maintenance.
         if (notification.depth == 0 &&
             !(widget.pinAutomatic &&
                 _pinGeometryReported &&
                 !_userDragging &&
-                !_programmaticNavigationActive)) {
+                !_programmaticNavigationActive) &&
+            !_maintainsLatestDuringLayout) {
           _scheduleLayoutMaintenance();
         }
         return false;

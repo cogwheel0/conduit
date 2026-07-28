@@ -490,6 +490,37 @@ void main() {
     ).isFalse();
   });
 
+  test('first conversation binding preserves the active turn pin', () {
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: null,
+        nextConversationId: 'openwebui:local:new-chat',
+      ),
+    ).isTrue();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: false,
+        previousConversationId: null,
+        nextConversationId: 'openwebui:local:new-chat',
+      ),
+    ).isFalse();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: 'openwebui:old-chat',
+        nextConversationId: 'openwebui:new-chat',
+      ),
+    ).isFalse();
+    check(
+      debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+        pinActive: true,
+        previousConversationId: null,
+        nextConversationId: null,
+      ),
+    ).isFalse();
+  });
+
   test(
     'bottom anchor controller hysteresis keeps the button shown across the band',
     () {

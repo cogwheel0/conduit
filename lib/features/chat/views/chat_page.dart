@@ -1925,6 +1925,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conversationId == _lastConversationId) return;
 
     final outgoingId = _lastConversationId;
+    if (debugShouldPreservePinnedFirstTurnForConversationBindingForTesting(
+      pinActive: _wantsPinToTop,
+      previousConversationId: outgoingId,
+      nextConversationId: conversationId,
+    )) {
+      _lastConversationId = conversationId;
+      markConversationRead(ref, conversationId);
+      return;
+    }
     if (isActiveConversationInPlaceRemap(ref, outgoingId, conversationId)) {
       if (outgoingId != null &&
           conversationId != null &&
@@ -4329,6 +4338,17 @@ bool debugShouldReleasePinnedTurnForManualNavigationForTesting({
 }) {
   if (!pinActive) return false;
   return userDragStarted || latestRequested;
+}
+
+@visibleForTesting
+bool debugShouldPreservePinnedFirstTurnForConversationBindingForTesting({
+  required bool pinActive,
+  required String? previousConversationId,
+  required String? nextConversationId,
+}) {
+  return pinActive &&
+      previousConversationId == null &&
+      nextConversationId != null;
 }
 
 @visibleForTesting
