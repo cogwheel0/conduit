@@ -164,6 +164,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final ScrollController _scrollController = ScrollController();
 
   Timer? _saveDebounce;
+  VoidCallback? _deletedNoteDraftRecoveryRetry;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _hasChanges = false;
@@ -241,6 +242,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _audioAuthEpochSubscription = ref.listenManual<Object>(
       openWebUiAuthSessionEpochProvider,
       (previous, next) {
+        _deletedNoteDraftRecoveryRetry = null;
         _activeAudioCancelToken?.cancel('Authentication session changed.');
         _activeAudioCancelToken = null;
         _queuedAudioUploadIds.clear();
@@ -416,7 +418,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _debounceSave() {
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 800), _autoSave);
+    _saveDebounce = Timer(
+      const Duration(milliseconds: 800),
+      _deletedNoteDraftRecoveryRetry ?? _autoSave,
+    );
   }
 
   /// Handles a back-navigation attempt. Reached only when [canPop] was false,
@@ -426,8 +431,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (didPop) return;
     _saveDebounce?.cancel();
     await _autoSave();
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop(result);
+    // Keep the editor open if persistence failed. In particular, a remotely
+    // deleted note needs its recovery retry to remain mounted rather than
+    // silently discarding the draft during navigation.
+    if (mounted) {
+      if (_hasChanges) {
+        _deletedNoteDraftRecoveryRetry?.call();
+      } else if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(result);
+      }
     }
   }
 
@@ -2372,12 +2384,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required Object? api,
     required Object authEpoch,
     required String? userId,
+    bool showFailure = true,
   }) async {
     final previous = _note;
     if (previous == null ||
         !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
       return;
     }
+
+    _deletedNoteDraftRecoveryRetry = () {
+      if (!mounted) return;
+      unawaited(
+        _recoverDeletedNoteDraft(
+          db,
+          api: api,
+          authEpoch: authEpoch,
+          userId: userId,
+          showFailure: false,
+        ),
+      );
+    };
 
     _saveDebounce?.cancel();
     final draftTitle = _titleController.text;
@@ -2386,28 +2412,63 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ...previous.data.toJson(),
       ..._composeUpdatedNoteData(),
     };
-    final recovered = await durableCreateNote(
-      ref,
-      db,
-      userId: userId,
-      title: draftTitle.trim().isEmpty
-          ? AppLocalizations.of(context)!.untitled
-          : draftTitle.trim(),
-      data: draftData,
-    );
+    Note? recovered;
+    try {
+      recovered = await durableCreateNote(
+        ref,
+        db,
+        userId: userId,
+        title: draftTitle.trim().isEmpty
+            ? AppLocalizations.of(context)!.untitled
+            : draftTitle.trim(),
+        data: draftData,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'deleted-note-draft-recovery-failed',
+        scope: 'notes/recovery',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'noteId': previous.id},
+      );
+      if (mounted &&
+          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        _scheduleDeletedNoteDraftRecovery(
+          db,
+          api: api,
+          authEpoch: authEpoch,
+          userId: userId,
+        );
+        if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
+      }
+      return;
+    }
     if (!mounted ||
         !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
       return;
     }
     if (recovered == null) {
-      _showError(AppLocalizations.of(context)!.errorMessage);
+      _scheduleDeletedNoteDraftRecovery(
+        db,
+        api: api,
+        authEpoch: authEpoch,
+        userId: userId,
+      );
+      if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
       return;
     }
 
+    // The draft is durable at this point. Publish the replacement before any
+    // recording migration I/O so a filesystem failure cannot retry creation
+    // and produce a duplicate recovered note.
     final changedDuringRecovery =
         _titleController.text != draftTitle ||
         _contentMarkdown != draftMarkdown;
+    _deletedNoteDraftRecoveryRetry = null;
     ref.invalidate(noteByIdProvider(widget.noteId));
+    if (previous.id != widget.noteId) {
+      ref.invalidate(noteByIdProvider(previous.id));
+    }
     ref.invalidate(noteByIdProvider(recovered.id));
     setState(() {
       _note = recovered;
@@ -2415,6 +2476,95 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       _hasChanges = changedDuringRecovery;
     });
     if (changedDuringRecovery) _debounceSave();
+
+    _activeAudioCancelToken?.cancel(
+      'The note was replaced after remote deletion.',
+    );
+    _activeAudioCancelToken = null;
+    _queuedAudioUploadIds.clear();
+    _audioUploadFeedbackIds.clear();
+
+    final reboundUploads = <String, PendingNoteAudioUpload>{};
+    try {
+      final audioItemsById = <String, PendingNoteAudioUpload>{
+        for (final item in _pendingAudioUploads) item.id: item,
+      };
+      final audioScope = _noteAudioScope();
+      if (audioScope != null) {
+        for (final noteId in <String>{widget.noteId, previous.id}) {
+          final durableItems = await _noteAudioUploadStore.loadForNote(
+            serverId: audioScope.serverId,
+            accountId: audioScope.accountId,
+            noteId: noteId,
+          );
+          for (final item in durableItems) {
+            audioItemsById[item.id] = item;
+          }
+        }
+      }
+
+      for (final item in audioItemsById.values) {
+        final rebound = await _noteAudioUploadStore.rebindToNote(
+          item,
+          noteId: recovered.id,
+        );
+        if (rebound != null) reboundUploads[item.id] = rebound;
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'deleted-note-audio-rebind-failed',
+        scope: 'notes/recovery',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'noteId': previous.id},
+      );
+    }
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+
+    if (reboundUploads.isNotEmpty) {
+      setState(() {
+        _pendingAudioMutationGeneration++;
+        final visibleById = <String, PendingNoteAudioUpload>{
+          for (final item in _pendingAudioUploads) item.id: item,
+          ...reboundUploads,
+        };
+        for (final hiddenId in _hiddenAudioUploadIds) {
+          visibleById.remove(hiddenId);
+        }
+        _pendingAudioUploads
+          ..clear()
+          ..addAll(visibleById.values)
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      });
+      if (ref.read(connectivityStatusProvider) == ConnectivityStatus.online) {
+        unawaited(_retryPendingAudioUploads(ids: reboundUploads.keys));
+      }
+    }
+  }
+
+  void _scheduleDeletedNoteDraftRecovery(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+  }) {
+    if (!mounted ||
+        !_hasChanges ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(seconds: 2), () {
+      if (!mounted ||
+          !_hasChanges ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+      _deletedNoteDraftRecoveryRetry?.call();
+    });
   }
 
   Widget _buildContentEditor(BuildContext context) {

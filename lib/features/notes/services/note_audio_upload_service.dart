@@ -358,6 +358,108 @@ class NoteAudioUploadStore {
     );
   }
 
+  /// Moves a durable recording to a replacement note without changing its
+  /// upload identity or retry state.
+  ///
+  /// This is used when an editor recovers unsaved work after the server deleted
+  /// its original note. Keeping the recording under the deleted note id would
+  /// make it undiscoverable after the recovered editor is closed.
+  Future<PendingNoteAudioUpload?> rebindToNote(
+    PendingNoteAudioUpload item, {
+    required String noteId,
+  }) async {
+    if (item.noteId == noteId) return loadCurrent(item);
+
+    final sourceDirectory = File(item.localPath).parent;
+    await _validateItemDirectory(item, sourceDirectory);
+    final destinationNoteDirectory = await _noteDirectory(
+      serverScope: item.serverScope,
+      accountScope: item.accountScope,
+      noteId: noteId,
+    );
+    final destinationDirectory = Directory(
+      path.join(destinationNoteDirectory.path, _safeId(item.id)),
+    );
+
+    return _withItemLock(sourceDirectory, () async {
+      // A retry may arrive after the directory was already moved but before
+      // the caller received the rebound item. Treat that as success.
+      if (!await sourceDirectory.exists()) {
+        if (!await destinationDirectory.exists()) return null;
+        return _readOrRecover(
+          destinationDirectory,
+          serverScope: item.serverScope,
+          accountScope: item.accountScope,
+          noteId: noteId,
+        );
+      }
+
+      final current = await _readOrRecover(
+        sourceDirectory,
+        serverScope: item.serverScope,
+        accountScope: item.accountScope,
+        noteId: item.noteId,
+      );
+      if (current == null) return null;
+      if (await destinationDirectory.exists()) {
+        throw StateError('A note audio upload already exists at its new scope');
+      }
+
+      await destinationNoteDirectory.create(recursive: true);
+      await sourceDirectory.rename(destinationDirectory.path);
+      final rebound = PendingNoteAudioUpload(
+        id: current.id,
+        serverScope: current.serverScope,
+        accountScope: current.accountScope,
+        noteId: noteId,
+        localPath: path.join(
+          destinationDirectory.path,
+          path.basename(current.localPath),
+        ),
+        fileName: current.fileName,
+        fileSize: current.fileSize,
+        status: current.status,
+        createdAt: current.createdAt,
+        lastError: current.lastError,
+        serverFileId: current.serverFileId,
+        sourceCacheFileName: current.sourceCacheFileName,
+      );
+      try {
+        if (!await _saveUnlocked(rebound, destinationDirectory)) {
+          throw const FileSystemException(
+            'Rebound note audio directory disappeared',
+          );
+        }
+      } catch (_) {
+        // The old manifest still identifies the old note until the atomic
+        // manifest save succeeds, so moving the directory back restores a
+        // valid, discoverable job when persistence fails.
+        if (await destinationDirectory.exists() &&
+            !await sourceDirectory.exists()) {
+          await destinationDirectory.rename(sourceDirectory.path);
+        }
+        rethrow;
+      }
+
+      final oldNoteDirectory = sourceDirectory.parent;
+      try {
+        if (await oldNoteDirectory.exists() &&
+            await oldNoteDirectory.list(followLinks: false).isEmpty) {
+          await oldNoteDirectory.delete();
+        }
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'note-audio-rebind-cleanup-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': item.id},
+        );
+      }
+      return rebound;
+    });
+  }
+
   /// Loads every recording owned by an account on a server.
   ///
   /// This account-level scan is needed when a note was recorded under a

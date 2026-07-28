@@ -407,6 +407,56 @@ void main() {
       },
     );
 
+    test('rebinds a durable recording to a replacement note', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        idGenerator: () => 'upload-rebound',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        accountId: 'user-1',
+        noteId: 'deleted-note',
+        fileName: 'recording.m4a',
+      );
+
+      final rebound = await store.rebindToNote(
+        staged,
+        noteId: 'recovered-note',
+      );
+
+      check(rebound).isNotNull();
+      check(rebound!.noteId).equals('recovered-note');
+      check(rebound.id).equals(staged.id);
+      check(await File(rebound.localPath).exists()).isTrue();
+      check(
+        await store.loadForNote(
+          serverId: 'server-1',
+          accountId: 'user-1',
+          noteId: 'deleted-note',
+        ),
+      ).isEmpty();
+      final recovered = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user-1',
+        noteId: 'recovered-note',
+      );
+      check(recovered.single.noteId).equals('recovered-note');
+      check(recovered.single.localPath).equals(rebound.localPath);
+
+      // Retrying with the original snapshot is idempotent after the move.
+      final retried = await store.rebindToNote(
+        staged,
+        noteId: 'recovered-note',
+      );
+      check(retried?.localPath).equals(rebound.localPath);
+    });
+
     test('a removal reservation excludes processing across editors', () async {
       final root = await Directory.systemTemp.createTemp(
         'conduit_note_audio_upload_test_',
