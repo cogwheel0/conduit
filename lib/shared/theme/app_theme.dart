@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -95,7 +94,7 @@ class AppTheme {
       variant: variant,
       tokens: tokens,
     );
-    final textInputAccentColor = _platformTextInputAccentColor(variant);
+    final textInputAccentColor = variant.primary;
 
     return ThemeData(
       useMaterial3: true,
@@ -252,14 +251,10 @@ class AppTheme {
       ),
       textTheme: textTheme,
       textSelectionTheme: TextSelectionThemeData(
-        // Keep cursor, handles, and selection highlight on the same
-        // platform-native accent while using highlight-appropriate opacity.
+        // Keep cursor, handles, and selection highlight on the active theme
+        // accent across both Material and Cupertino text fields.
         cursorColor: textInputAccentColor,
-        selectionColor: switch (defaultTargetPlatform) {
-          TargetPlatform.iOS ||
-          TargetPlatform.macOS => textInputAccentColor.withValues(alpha: 0.15),
-          _ => textInputAccentColor.withValues(alpha: 0.2),
-        },
+        selectionColor: textInputAccentColor.withValues(alpha: 0.2),
         selectionHandleColor: textInputAccentColor,
       ),
       extensions: <ThemeExtension<dynamic>>[
@@ -335,13 +330,6 @@ class AppTheme {
         ),
       ),
     );
-  }
-
-  static Color _platformTextInputAccentColor(TweakcnThemeVariant variant) {
-    return switch (defaultTargetPlatform) {
-      TargetPlatform.iOS || TargetPlatform.macOS => const Color(0xFF007AFF),
-      _ => variant.primary,
-    };
   }
 
   static double _contrastRatio(Color a, Color b) {

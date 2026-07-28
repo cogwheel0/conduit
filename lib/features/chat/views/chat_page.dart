@@ -3284,8 +3284,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final modelLabel = formattedModelName ?? l10n.chooseModel;
     final overlayStyle = theme.appBarTheme.systemOverlayStyle;
 
-    // Keyboard visibility - use viewInsetsOf for more efficient partial subscription
-    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     // Whether the messages list can actually scroll (avoids showing button when not needed)
     final canScroll = _hasScrollableTranscriptContent();
 
@@ -3395,10 +3393,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         final hasMessages = scrollButtonRef.watch(
                           hasChatMessagesProvider,
                         );
-                        return (_showScrollToBottom &&
-                                !keyboardVisible &&
-                                canScroll &&
-                                hasMessages)
+                        return debugShouldRenderScrollToLatestForTesting(
+                              requested: _showScrollToBottom,
+                              hasScrollableContent: canScroll,
+                              hasMessages: hasMessages,
+                            )
                             ? Center(
                                 key: const ValueKey('scroll_to_bottom_visible'),
                                 child: AdaptiveTooltip(
@@ -4191,6 +4190,13 @@ bool debugShouldExposeScrollToLatestForTesting({
       ? distanceFromLatest > hideThreshold
       : distanceFromLatest > showThreshold;
 }
+
+@visibleForTesting
+bool debugShouldRenderScrollToLatestForTesting({
+  required bool requested,
+  required bool hasScrollableContent,
+  required bool hasMessages,
+}) => requested && hasScrollableContent && hasMessages;
 
 @visibleForTesting
 bool debugShouldSettlePinImmediatelyForTesting({

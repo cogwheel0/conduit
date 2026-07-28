@@ -2,6 +2,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -714,6 +716,206 @@ void main() {
     await tester.pumpAndSettle();
     expect(ThemedSheets.hasActiveSheet, isFalse);
   });
+
+  testWidgets('focus uses two-tier composer without unselected quick pills', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    const compactShellKey = ValueKey('compact-composer-shell');
+    const expandedShellKey = ValueKey('expanded-composer-shell');
+    const expandedInputKey = ValueKey('composer-expanded-input');
+    const expandedButtonsKey = ValueKey('composer-expanded-buttons');
+    const quickPillsKey = ValueKey('composer-quick-pills');
+
+    expect(find.byKey(compactShellKey), findsOneWidget);
+    expect(find.byKey(expandedShellKey), findsNothing);
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.pump();
+
+    final composerField = tester.widget<TextField>(find.byType(TextField));
+    expect(composerField.focusNode?.hasFocus, isTrue);
+    expect(find.byKey(compactShellKey), findsNothing);
+    expect(find.byKey(expandedShellKey), findsOneWidget);
+    expect(find.byKey(expandedInputKey), findsOneWidget);
+    expect(find.byKey(expandedButtonsKey), findsOneWidget);
+    expect(find.byKey(quickPillsKey), findsNothing);
+
+    final inputInsets = tester
+        .widget<Padding>(find.byKey(expandedInputKey))
+        .padding
+        .resolve(TextDirection.ltr);
+    final actionInsets = tester
+        .widget<Padding>(find.byKey(expandedButtonsKey))
+        .padding
+        .resolve(TextDirection.ltr);
+    expect(inputInsets.left, 8);
+    expect(inputInsets.right, 8);
+    expect(actionInsets.left, 8);
+    expect(actionInsets.right, 8);
+
+    composerField.focusNode?.unfocus();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(compactShellKey), findsOneWidget);
+    expect(find.byKey(expandedShellKey), findsNothing);
+  });
+
+  testWidgets('compact composer uses symmetric horizontal insets', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final compactInsets = tester
+        .widget<Container>(
+          find.byKey(const ValueKey('compact-composer-content')),
+        )
+        .padding!
+        .resolve(TextDirection.ltr);
+
+    expect(compactInsets.left, 8);
+    expect(compactInsets.right, 8);
+
+    final compactShell = find.byKey(const ValueKey('compact-composer-shell'));
+    final overflowButton = find.byKey(
+      const ValueKey('composer-overflow-button'),
+    );
+    expect(
+      find.descendant(of: compactShell, matching: overflowButton),
+      findsOneWidget,
+    );
+
+    final shellRect = tester.getRect(compactShell);
+    final viewWidth =
+        tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    expect(shellRect.left, 16);
+    expect(viewWidth - shellRect.right, 16);
+
+    final overflowCenter = tester.getCenter(find.byIcon(Icons.add));
+    final primaryCenter = tester.getCenter(
+      find.byKey(const ValueKey('primary-btn-send-muted')),
+    );
+    expect(
+      overflowCenter.dx - shellRect.left,
+      closeTo(shellRect.right - primaryCenter.dx, 0.01),
+    );
+  });
+
+  testWidgets('secondary composer actions use plain icon buttons', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          notesFeatureEnabledProvider.overrideWith(
+            _EnabledNotesFeatureNotifier.new,
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    AdaptiveButton actionButton(Finder ancestor) => tester.widget(
+      find.descendant(of: ancestor, matching: find.byType(AdaptiveButton)),
+    );
+
+    expect(
+      actionButton(
+        find.byKey(const ValueKey('composer-overflow-button')),
+      ).style,
+      AdaptiveButtonStyle.plain,
+    );
+
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'Draft note');
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<AdaptiveButton>(
+            find.byKey(const ValueKey('create-draft-note-button')),
+          )
+          .style,
+      AdaptiveButtonStyle.plain,
+    );
+  });
+
+  testWidgets('explicit quick-pill selection keeps pill composer visible', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          appSettingsProvider.overrideWith(_QuickPillAppSettingsNotifier.new),
+          webSearchAvailableProvider.overrideWithValue(true),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('composer-quick-pills')), findsOneWidget);
+    expect(find.text('Web'), findsOneWidget);
+  });
+}
+
+final class _QuickPillAppSettingsNotifier extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings(quickPills: ['web']);
+}
+
+final class _EnabledNotesFeatureNotifier extends NotesFeatureEnabledNotifier {
+  @override
+  bool build() => true;
 }
 
 final class _FixedDiscoveryController extends DirectModelDiscoveryController {

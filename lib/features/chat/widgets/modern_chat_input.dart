@@ -270,6 +270,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const int _maxContextSuggestionsPerType = 4;
 
   static const double _composerRadius = AppBorderRadius.card;
+  static const double _composerHorizontalInset = Spacing.sm;
+  static const double _composerControlSize = 36;
   static int _nextGeneratedInsertionTargetId = 0;
 
   final MentionTextEditingController _controller =
@@ -287,6 +289,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
+  bool _hasComposerFocus = false;
   bool _isMultiline = false; // track multiline for dynamic border radius
   /// Tracks the last time the user edited text, used to detect unexpected
   /// focus loss during active typing (e.g. from widget tree restructures).
@@ -362,6 +365,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Publish focus changes to listeners and guard against unexpected loss
     // during active editing (e.g. widget tree restructure on expansion).
     _focusNode.addListener(() {
+      if (!mounted || _isDeactivated) return;
+      final hasFocus = _focusNode.hasFocus;
+      if (hasFocus != _hasComposerFocus) {
+        setState(() {
+          _hasComposerFocus = hasFocus;
+        });
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
         final hasFocus = _focusNode.hasFocus;
@@ -2560,7 +2570,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _controller.mentionColor = mentionColor;
     _controller.mentionBackground = mentionColor.withValues(alpha: 0.12);
 
-    final bool hasComposerFocus = _focusNode.hasFocus;
+    final bool hasComposerFocus = _hasComposerFocus;
     final bool isActive = hasComposerFocus || _hasText || _isRecording;
     final Color placeholderColor = context.conduitTheme.textSecondary
         .withValues(alpha: 0.5);
@@ -2681,7 +2691,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
-    final bool showCompactComposer = quickPills.isEmpty;
+    // Focus adopts the existing two-tier quick-pill layout even when there
+    // are no selected pills. The resting empty state remains the compact row.
+    final bool showCompactComposer = quickPills.isEmpty && !hasComposerFocus;
+    final bool isCompactComposerExpanded = showCompactComposer && _isMultiline;
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
         notesEnabled &&
@@ -2689,8 +2702,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !isGenerating &&
         !_isRecording;
 
-    // Keep iOS 26 single-line composer as capsule.
-    final double compactRadius = _isMultiline
+    // Keep the resting single-line composer as a capsule, then soften its
+    // corners when multiline content expands it.
+    final double compactRadius = isCompactComposerExpanded
         ? AppBorderRadius.xl
         : AppBorderRadius.round;
     const double expandedRadius = _composerRadius;
@@ -2714,9 +2728,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         Padding(
           key: const ValueKey('composer-expanded-input'),
           padding: const EdgeInsets.fromLTRB(
-            Spacing.md,
+            _composerHorizontalInset,
             Spacing.sm,
-            Spacing.md,
+            _composerHorizontalInset,
             Spacing.sm,
           ),
           child: Stack(
@@ -2763,15 +2777,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         Padding(
           key: const ValueKey('composer-expanded-buttons'),
           padding: const EdgeInsets.fromLTRB(
-            Spacing.inputPadding,
+            _composerHorizontalInset,
             0,
-            Spacing.sm,
+            _composerHorizontalInset,
             Spacing.sm,
           ),
           child: Row(
             children: [
               if (_isRecording) ...[
-                _buildDictationStopButton(size: 36.0),
+                _buildDictationStopButton(size: _composerControlSize),
                 const SizedBox(width: Spacing.xs),
               ] else if (showOverflowButton) ...[
                 _buildOverflowButton(
@@ -2781,18 +2795,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 const SizedBox(width: Spacing.xs),
               ],
-              Expanded(
-                child: ClipRect(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: _withHorizontalSpacing(quickPills, Spacing.xxs),
+              if (quickPills.isNotEmpty)
+                Expanded(
+                  child: ClipRect(
+                    child: SingleChildScrollView(
+                      key: const ValueKey('composer-quick-pills'),
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: _withHorizontalSpacing(
+                          quickPills,
+                          Spacing.xxs,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
+                )
+              else
+                const Spacer(),
               if (showCreateDraftNoteAction) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
@@ -2820,14 +2841,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ],
     ];
 
-    // For compact mode, render text field shell with floating buttons on sides
+    // Compact mode keeps every action inside one full-width shell. Matching
+    // control sizes and insets make the resting row mirror the focused shell.
     if (showCompactComposer) {
       final textFieldContent = Container(
+        key: const ValueKey('compact-composer-content'),
         padding: EdgeInsets.fromLTRB(
-          Spacing.md,
+          _composerHorizontalInset,
           0,
-          Spacing.sm,
-          Platform.isIOS && _isMultiline ? Spacing.sm : 0,
+          _composerHorizontalInset,
+          Platform.isIOS && isCompactComposerExpanded ? Spacing.sm : 0,
         ),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
         alignment: Alignment.center,
@@ -2835,14 +2858,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           clipBehavior: Clip.none,
           children: [
             Row(
-              crossAxisAlignment: _isMultiline
+              crossAxisAlignment: isCompactComposerExpanded
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.center,
               children: [
+                if (_isRecording) ...[
+                  _buildDictationStopButton(size: _composerControlSize),
+                  const SizedBox(width: Spacing.xs),
+                ] else if (showOverflowButton) ...[
+                  _buildOverflowButton(
+                    tooltip: l10n.more,
+                    dense: true,
+                    nativeActions: nativeAttachmentActions,
+                  ),
+                  const SizedBox(width: Spacing.xs),
+                ],
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.only(
-                      bottom: Platform.isAndroid && _isMultiline
+                      bottom: Platform.isAndroid && isCompactComposerExpanded
                           ? Spacing.sm
                           : 0,
                     ),
@@ -2871,13 +2905,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                           offset: const Offset(Spacing.xxs, 0),
                           child: _buildInlineMicAction(
                             voiceAvailable,
-                            size: 36.0,
+                            size: _composerControlSize,
                           ),
                         )
                       : SizedBox(
                           height: conduitScaledControlExtent(
                             context,
-                            baseExtent: 36,
+                            baseExtent: _composerControlSize,
                           ),
                           child: Center(
                             child: _buildInlineMicAction(voiceAvailable),
@@ -2917,7 +2951,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       final Widget textFieldShell = _buildComposerShell(
         key: const ValueKey('compact-composer-shell'),
         borderRadius: shellRadius,
-        useSmoothRectangleBorder: _isMultiline,
+        useSmoothRectangleBorder: isCompactComposerExpanded,
         isRecording: _isRecording,
         child: textFieldContent,
       );
@@ -2939,29 +2973,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 padding: const EdgeInsets.only(bottom: Spacing.xs),
                 child: _buildActiveOverlay(),
               ),
-            Row(
-              crossAxisAlignment: _isMultiline
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.center,
-              children: [
-                if (_isRecording) ...[
-                  _buildDictationStopButton(),
-                  const SizedBox(width: Spacing.sm),
-                ] else if (showOverflowButton) ...[
-                  _buildOverflowButton(
-                    tooltip: l10n.more,
-                    nativeActions: nativeAttachmentActions,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                ],
-                Expanded(
-                  child: _wrapIosSurfaceShadow(
-                    textFieldShell,
-                    borderRadius: shellRadius,
-                  ),
-                ),
-              ],
-            ),
+            _wrapIosSurfaceShadow(textFieldShell, borderRadius: shellRadius),
           ],
         ),
       );
@@ -2972,7 +2984,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // For expanded mode with quick pills, use the full shell.
+    // Focused and quick-pill states use the full two-tier shell.
     final shellContent = ConstrainedBox(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.4,
@@ -2993,6 +3005,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final Widget shell = _wrapIosSurfaceShadow(
       _buildComposerShell(
+        key: const ValueKey('expanded-composer-shell'),
         borderRadius: shellRadius,
         isRecording: _isRecording,
         child: shellContent,
@@ -3394,6 +3407,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     return Focus(
+      key: const ValueKey('composer-overflow-button'),
       canRequestFocus: false,
       skipTraversal: true,
       descendantsAreFocusable: false,
@@ -3406,8 +3420,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 }
               : null,
           size: buttonSize,
-          isProminent: false,
-          androidShowBackground: true,
+          forcePlain: true,
           child: ConduitSystemAdaptiveIcon(
             overflowIcon,
             size: iconSize,
@@ -3562,7 +3575,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         key: const ValueKey('create-draft-note-button'),
         onPressed: enabled ? _createNoteFromDraft : null,
         size: buttonSize,
-        isProminent: false,
+        forcePlain: true,
         child: isLoading
             ? SizedBox(
                 width: iconSize,
@@ -3803,7 +3816,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  /// Builds a circular icon button for the composer.
+  /// Builds an icon button for the composer.
   ///
   /// Uses native glass only where iOS supports it; older iOS follows the same
   /// opaque fallback treatment as Android.
@@ -3814,6 +3827,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required double size,
     bool isProminent = false,
     bool androidShowBackground = false,
+    bool forcePlain = false,
     Color? color,
   }) {
     final theme = context.conduitTheme;
@@ -3829,7 +3843,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
-    final buttonStyle = usesOpaqueFallback
+    final buttonStyle = forcePlain
+        ? AdaptiveButtonStyle.plain
+        : usesOpaqueFallback
         ? (isProminent || androidShowBackground
               ? AdaptiveButtonStyle.filled
               : AdaptiveButtonStyle.plain)
