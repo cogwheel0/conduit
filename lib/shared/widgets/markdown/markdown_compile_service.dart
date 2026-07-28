@@ -371,7 +371,8 @@ class MarkdownCompileService {
       if (!cacheResult) return inFlight;
       final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
       return inFlight.then(
-        (document) => inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+        (document) =>
+            !_disposed && inFlightCacheEpoch == _compiledMarkdownCacheEpoch
             ? _compiledMarkdownCache.write(preparedContent, document)
             : document,
       );
@@ -503,7 +504,9 @@ class MarkdownCompileService {
         final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
         pendingByContent[preparedContent] = cacheResults
             ? inFlight.then(
-                (document) => inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+                (document) =>
+                    !_disposed &&
+                        inFlightCacheEpoch == _compiledMarkdownCacheEpoch
                     ? _compiledMarkdownCache.write(preparedContent, document)
                     : document,
               )

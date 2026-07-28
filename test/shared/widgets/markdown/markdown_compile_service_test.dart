@@ -245,6 +245,70 @@ void main() {
     },
   );
 
+  test('dispose fences an in-flight single-compile follower', () async {
+    final compileStarted = Completer<void>();
+    final releaseCompile = Completer<void>();
+    var disposed = false;
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugCompilePreparedOverride: (preparedContent) async {
+        compileStarted.complete();
+        await releaseCompile.future;
+        return const CompiledMarkdownDocument.empty();
+      },
+    );
+    addTearDown(() {
+      if (!disposed) service.dispose();
+      if (!releaseCompile.isCompleted) releaseCompile.complete();
+    });
+    const content = 'Disposed single follower';
+
+    final leader = service.compilePrepared(content);
+    await compileStarted.future;
+    final follower = service.compilePrepared(content);
+    service.dispose();
+    disposed = true;
+    releaseCompile.complete();
+
+    await Future.wait(<Future<CompiledMarkdownDocument>>[leader, follower]);
+    expect(debugCompiledMarkdownCacheSize(), 0);
+  });
+
+  test('dispose fences in-flight batch followers', () async {
+    final compileStarted = Completer<void>();
+    final releaseCompile = Completer<void>();
+    var disposed = false;
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugCompilePreparedBatchOverride: (preparedContents) async {
+        compileStarted.complete();
+        await releaseCompile.future;
+        return List<CompiledMarkdownDocument>.filled(
+          preparedContents.length,
+          const CompiledMarkdownDocument.empty(),
+        );
+      },
+    );
+    addTearDown(() {
+      if (!disposed) service.dispose();
+      if (!releaseCompile.isCompleted) releaseCompile.complete();
+    });
+    const contents = <String>['Disposed batch one', 'Disposed batch two'];
+
+    final leader = service.compilePreparedBatch(contents);
+    await compileStarted.future;
+    final followers = service.compilePreparedBatch(contents);
+    service.dispose();
+    disposed = true;
+    releaseCompile.complete();
+
+    await Future.wait(<Future<List<CompiledMarkdownDocument>>>[
+      leader,
+      followers,
+    ]);
+    expect(debugCompiledMarkdownCacheSize(), 0);
+  });
+
   group('compilePreparedMarkdownSync', () {
     test('classifies a plain paragraph as plainText', () {
       final document = compilePreparedMarkdownSync('Plain sentence.');
