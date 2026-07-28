@@ -120,6 +120,16 @@ class ChatTimelineViewportController {
     await _state?._animateToLatest(duration: duration, curve: curve);
   }
 
+  Future<bool> jumpToOldest() async => await _state?._jumpToOldest() ?? false;
+
+  Future<bool> animateToOldest({
+    required Duration duration,
+    required Curve curve,
+  }) async {
+    return await _state?._animateToOldest(duration: duration, curve: curve) ??
+        false;
+  }
+
   Future<bool> jumpMessageToTop(String messageId) async =>
       await _state?._jumpMessageToTop(messageId) ?? false;
 
@@ -193,6 +203,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onPinEndSpaceChanged,
     required this.onOldestThresholdReached,
     required this.onTrailingRefresh,
+    required this.onNativeScrollToTop,
     this.initialAnchor,
     this.pinnedUserMessageId,
     this.liveFooter,
@@ -229,6 +240,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final ValueChanged<double> onPinEndSpaceChanged;
   final VoidCallback onOldestThresholdReached;
   final Future<void> Function() onTrailingRefresh;
+  final Future<void> Function() onNativeScrollToTop;
 
   @override
   State<ChatTimelineViewport> createState() => _ChatTimelineViewportState();
@@ -241,7 +253,8 @@ class _VisibleAnchor {
   final double offsetFromTopInset;
 }
 
-class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
+class _ChatTimelineViewportState extends State<ChatTimelineViewport>
+    with WidgetsBindingObserver {
   static const double _geometryEpsilon = 0.5;
   static const double _refreshThreshold =
       debugChatTimelineTrailingRefreshThreshold;
@@ -314,6 +327,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _syncTimelineEntries();
     _setCenterMessageId(_resolveInitialCenter());
     _syncRowKeys();
@@ -446,6 +460,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.controller._detach(this);
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
@@ -454,6 +469,19 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
       ..dispose();
     _pinSupportSpace.dispose();
     super.dispose();
+  }
+
+  @override
+  void handleStatusBarTap() {
+    super.handleStatusBarTap();
+    if (!mounted ||
+        !_scrollController.hasClients ||
+        !TickerMode.valuesOf(context).enabled) {
+      return;
+    }
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    unawaited(widget.onNativeScrollToTop());
   }
 
   String _resolveInitialCenter() {
@@ -1165,6 +1193,77 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport> {
         _scheduleLayoutMaintenance();
       }
     }
+  }
+
+  Future<bool> _animateToOldest({
+    required Duration duration,
+    required Curve curve,
+  }) async {
+    final position = _dimensionedPosition;
+    if (_messageIds.isEmpty || position == null) return false;
+    if (_programmaticNavigationActive) {
+      _cancelProgrammaticNavigation();
+    }
+    final generation = ++_navigationGeneration;
+    _programmaticNavigationActive = true;
+    _freeAnchor = null;
+    try {
+      await _scrollController.animateTo(
+        position.minScrollExtent,
+        duration: duration,
+        curve: curve,
+      );
+      return await _settleAtOldest(generation);
+    } finally {
+      if (mounted && generation == _navigationGeneration) {
+        _programmaticNavigationActive = false;
+        _freeAnchor = null;
+        _scheduleLayoutMaintenance();
+      }
+    }
+  }
+
+  Future<bool> _jumpToOldest() async {
+    final position = _dimensionedPosition;
+    if (_messageIds.isEmpty || position == null) return false;
+    _cancelProgrammaticNavigation();
+    final generation = _navigationGeneration;
+    _programmaticNavigationActive = true;
+    _freeAnchor = null;
+    try {
+      position.jumpTo(position.minScrollExtent);
+      return await _settleAtOldest(generation);
+    } finally {
+      if (mounted && generation == _navigationGeneration) {
+        _programmaticNavigationActive = false;
+        _freeAnchor = null;
+        _scheduleLayoutMaintenance();
+      }
+    }
+  }
+
+  Future<bool> _settleAtOldest(int generation) async {
+    final binding = WidgetsBinding.instance;
+    for (var attempt = 0; attempt < 4; attempt += 1) {
+      if (!mounted || generation != _navigationGeneration) return false;
+      final position = _dimensionedPosition;
+      if (position == null) return false;
+      final target = position.minScrollExtent;
+      if ((position.pixels - target).abs() > _geometryEpsilon) {
+        position.jumpTo(target);
+      }
+      binding.scheduleFrame();
+      await binding.endOfFrame;
+      if (!mounted || generation != _navigationGeneration) return false;
+      final settledPosition = _dimensionedPosition;
+      if (settledPosition != null &&
+          (settledPosition.pixels - settledPosition.minScrollExtent).abs() <=
+              _geometryEpsilon &&
+          _rowRect(_messageIds.first) != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<bool> _moveMessageToTop(

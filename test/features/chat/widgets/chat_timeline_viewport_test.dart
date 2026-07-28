@@ -213,6 +213,50 @@ void main() {
     ).isGreaterOrEqual(viewportTop + _topContentInset - 1);
   });
 
+  _viewportTest('native iOS status-bar tap scrolls to the oldest row', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    const ids = <String>['oldest-user', 'very-tall-assistant', 'latest-user'];
+    var nativeScrollToTopCalls = 0;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'latest-user',
+            offsetWithinMessage: 0,
+            loadedCount: 3,
+          ),
+          followLatest: false,
+          rowHeight: (id) => id == 'very-tall-assistant' ? 20000 : 64,
+          onNativeScrollToTop: () async {
+            nativeScrollToTopCalls += 1;
+            await controller.animateToOldest(
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.linearToEaseOut,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(
+      controller.metrics!.pixels - controller.metrics!.minScrollExtent,
+    ).isGreaterThan(200);
+
+    tester.simulateStatusBarTap();
+    await tester.pumpAndSettle();
+
+    check(nativeScrollToTopCalls).equals(1);
+    final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    check(
+      controller.rowRect(ids.first)!.top,
+    ).isCloseTo(viewportTop + _topContentInset, 1);
+  });
+
   _viewportTest('pinned prompt clears the toolbar without clipping glass', (
     tester,
   ) async {
@@ -2217,6 +2261,7 @@ Widget _viewport({
   ValueChanged<double>? onPinEndSpaceChanged,
   VoidCallback? onOldestThresholdReached,
   Future<void> Function()? onTrailingRefresh,
+  Future<void> Function()? onNativeScrollToTop,
   VoidCallback? onPointerDown,
   VoidCallback? onUserDragStart,
   VoidCallback? onUserDragEnd,
@@ -2246,6 +2291,7 @@ Widget _viewport({
     onPinEndSpaceChanged: onPinEndSpaceChanged ?? (_) {},
     onOldestThresholdReached: onOldestThresholdReached ?? () {},
     onTrailingRefresh: onTrailingRefresh ?? () async {},
+    onNativeScrollToTop: onNativeScrollToTop ?? () async {},
     rowBuilder:
         rowBuilder ??
         (context, index) {

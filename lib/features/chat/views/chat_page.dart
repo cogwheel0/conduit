@@ -1740,6 +1740,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scrollToBottom(smooth: true, explicitNavigation: true);
   }
 
+  Future<void> _handleNativeScrollToTop() async {
+    if (!mounted || !_timelineViewportController.hasClients) return;
+    final ownerGeneration = _conversationOwnerGeneration;
+    _hasUserScrolled = true;
+
+    // A status-bar tap is a direct user navigation command. Transfer scroll
+    // ownership before moving so pin/latest maintenance cannot pull the
+    // viewport back toward the streaming tail.
+    _releasePinForUserDrag();
+    _cancelPendingViewportNavigation();
+    _bottomAnchorController.detachByUser();
+
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || ownerGeneration != _conversationOwnerGeneration) return;
+
+    if (context.reduceMotion) {
+      await _timelineViewportController.jumpToOldest();
+    } else {
+      await _timelineViewportController.animateToOldest(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.linearToEaseOut,
+      );
+    }
+    if (!mounted || ownerGeneration != _conversationOwnerGeneration) return;
+    _scheduleScrollToBottomVisibilitySync(prewarm: true);
+  }
+
   void _releasePinToRealLatest({
     required bool smooth,
     required bool explicitNavigation,
@@ -2574,6 +2601,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onPinEndSpaceChanged: _handlePinEndSpaceChanged,
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
+      onNativeScrollToTop: _handleNativeScrollToTop,
       rowBuilder: (context, renderIndex) {
         final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
         if (sourceIndex == null || renderIndex >= messageIds.length) {
