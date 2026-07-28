@@ -703,15 +703,21 @@ void main() {
         controller.rowRect('assistant')!.height,
       ).isGreaterThan(assistantBefore);
       check(controller.rowRect('message-12')!.top).isCloseTo(before, 1);
+      final streamingExtent = controller.rowRect('assistant')!.height;
+      final completedContent =
+          '$streamedContent\n\n${List<String>.generate(80, (index) => 'Completed line $index adds final rendered content.').join('\n\n')}';
 
       rebuild(() {
         assistantMessage = assistantMessage.copyWith(
-          content: streamedContent,
+          content: completedContent,
           isStreaming: false,
           metadata: const {'responseDone': true},
         );
       });
       await tester.pumpAndSettle();
+      check(
+        controller.rowRect('assistant')!.height,
+      ).isGreaterThan(streamingExtent);
       check(controller.rowRect('message-12')!.top).isCloseTo(before, 1);
     },
   );

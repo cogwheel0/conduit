@@ -564,7 +564,9 @@ void main() {
     },
   );
 
-  test('layout metadata keeps archived assistant rows at zero extent', () {
+  testWidgets('layout metadata keeps archived assistant rows at zero extent', (
+    tester,
+  ) async {
     final messages = <ChatMessage>[
       ChatMessage(
         id: 'user-1',
@@ -590,6 +592,20 @@ void main() {
     final summary = debugBuildChatListLayoutSummaryForTesting(messages);
 
     expect(summary[1].isArchivedVariant, isTrue);
+
+    const archivedKey = ValueKey<String>('archived-assistant-placeholder');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Column(
+          children: [
+            const SizedBox(height: 20),
+            debugBuildArchivedAssistantPlaceholderForTesting(key: archivedKey),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+    expect(tester.getSize(find.byKey(archivedKey)).height, 0);
   });
 
   test(

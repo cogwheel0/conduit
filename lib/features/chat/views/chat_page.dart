@@ -88,6 +88,13 @@ Widget debugBuildAssistantTimelineSlotForTesting({
   return assistantRow;
 }
 
+Widget _buildArchivedAssistantPlaceholder({Key? key}) =>
+    SizedBox.shrink(key: key);
+
+@visibleForTesting
+Widget debugBuildArchivedAssistantPlaceholderForTesting({Key? key}) =>
+    _buildArchivedAssistantPlaceholder(key: key);
+
 @visibleForTesting
 Widget debugBuildChatEmptyStateViewportForTesting({
   required EdgeInsetsGeometry padding,
@@ -2724,7 +2731,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       rowMetadata.messageId == messageId,
       'stable-layout row metadata must resolve to the rendered message',
     );
-    if (rowMetadata.isArchivedVariant) return const SizedBox.shrink();
+    if (rowMetadata.isArchivedVariant) {
+      return _buildArchivedAssistantPlaceholder();
+    }
 
     if (message.role == 'user') {
       return Consumer(
