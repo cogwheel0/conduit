@@ -165,6 +165,86 @@ void main() {
     },
   );
 
+  test(
+    'memory pressure fences an in-flight single compile and its followers',
+    () async {
+      final compileStarted = Completer<void>();
+      final releaseCompile = Completer<void>();
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugCompilePreparedOverride: (preparedContent) async {
+          compileStarted.complete();
+          await releaseCompile.future;
+          return const CompiledMarkdownDocument.empty();
+        },
+      );
+      addTearDown(service.dispose);
+      addTearDown(() {
+        if (!releaseCompile.isCompleted) releaseCompile.complete();
+      });
+      const content = 'Delayed single compile';
+
+      final leader = service.compilePrepared(content);
+      await compileStarted.future;
+      service.handleMemoryPressure();
+      final follower = service.compilePrepared(content);
+      releaseCompile.complete();
+
+      await Future.wait(<Future<CompiledMarkdownDocument>>[leader, follower]);
+      expect(debugCompiledMarkdownCacheSize(), 0);
+
+      await service.compilePrepared(
+        content,
+        allowSynchronous: true,
+        widgetTest: true,
+      );
+      expect(debugCompiledMarkdownCacheSize(), 1);
+    },
+  );
+
+  test(
+    'memory pressure fences in-flight batch writes and batch followers',
+    () async {
+      final compileStarted = Completer<void>();
+      final releaseCompile = Completer<void>();
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugCompilePreparedBatchOverride: (preparedContents) async {
+          compileStarted.complete();
+          await releaseCompile.future;
+          return List<CompiledMarkdownDocument>.filled(
+            preparedContents.length,
+            const CompiledMarkdownDocument.empty(),
+          );
+        },
+      );
+      addTearDown(service.dispose);
+      addTearDown(() {
+        if (!releaseCompile.isCompleted) releaseCompile.complete();
+      });
+      const contents = <String>['Delayed batch one', 'Delayed batch two'];
+
+      final leader = service.compilePreparedBatch(contents);
+      await compileStarted.future;
+      service.handleMemoryPressure();
+      final followers = service.compilePreparedBatch(contents);
+      releaseCompile.complete();
+
+      await Future.wait(<Future<List<CompiledMarkdownDocument>>>[
+        leader,
+        followers,
+      ]);
+      expect(debugCompiledMarkdownCacheSize(), 0);
+
+      await service.compilePreparedBatch(
+        contents,
+        allowSynchronous: true,
+        widgetTest: true,
+      );
+      expect(debugCompiledMarkdownCacheSize(), 2);
+    },
+  );
+
   group('compilePreparedMarkdownSync', () {
     test('classifies a plain paragraph as plainText', () {
       final document = compilePreparedMarkdownSync('Plain sentence.');

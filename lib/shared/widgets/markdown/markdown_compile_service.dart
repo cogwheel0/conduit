@@ -33,8 +33,14 @@ enum MarkdownPrepareExecutionPath {
 }
 
 final _compiledMarkdownCache = _CompiledMarkdownCache();
+var _compiledMarkdownCacheEpoch = 0;
 
-void debugResetCompiledMarkdownCache() => _compiledMarkdownCache.clear();
+void _evictCompiledMarkdownCache() {
+  _compiledMarkdownCacheEpoch += 1;
+  _compiledMarkdownCache.clear();
+}
+
+void debugResetCompiledMarkdownCache() => _evictCompiledMarkdownCache();
 
 int debugCompiledMarkdownCacheSize() => _compiledMarkdownCache.length;
 
@@ -70,6 +76,8 @@ class MarkdownCompileService {
     @visibleForTesting this.debugOnPrepareExecution,
     @visibleForTesting this.debugPrepareContentOverride,
     @visibleForTesting this.debugOnPreparationPatch,
+    @visibleForTesting this.debugCompilePreparedOverride,
+    @visibleForTesting this.debugCompilePreparedBatchOverride,
   }) : _workerManager = workerManager,
        _backend = _MarkdownCompilerBackend(),
        _prepareBackend = _MarkdownPrepareBackend();
@@ -82,6 +90,7 @@ class MarkdownCompileService {
       StreamingMarkdownPreparationEngine();
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
       <String, Future<CompiledMarkdownDocument>>{};
+  final Map<String, int> _inFlightCacheEpochs = <String, int>{};
   @visibleForTesting
   final void Function(MarkdownPrepareExecutionPath path)?
   debugOnPrepareExecution;
@@ -90,6 +99,14 @@ class MarkdownCompileService {
   debugPrepareContentOverride;
   @visibleForTesting
   final void Function(MarkdownPreparationPatch patch)? debugOnPreparationPatch;
+  @visibleForTesting
+  final Future<CompiledMarkdownDocument> Function(String preparedContent)?
+  debugCompilePreparedOverride;
+  @visibleForTesting
+  final Future<List<CompiledMarkdownDocument>> Function(
+    List<String> preparedContents,
+  )?
+  debugCompilePreparedBatchOverride;
   bool _disposed = false;
   Timer? _workerIdleTimer;
 
@@ -113,7 +130,7 @@ class MarkdownCompileService {
   /// schedule the next idle check.
   void retireIdleWorkers({bool clearCompiledCache = false}) {
     if (clearCompiledCache) {
-      _compiledMarkdownCache.clear();
+      _evictCompiledMarkdownCache();
     }
     _workerIdleTimer?.cancel();
     _workerIdleTimer = null;
@@ -352,10 +369,15 @@ class MarkdownCompileService {
     final inFlight = _inFlight[preparedContent];
     if (inFlight != null) {
       if (!cacheResult) return inFlight;
+      final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
       return inFlight.then(
-        (document) => _compiledMarkdownCache.write(preparedContent, document),
+        (document) => inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+            ? _compiledMarkdownCache.write(preparedContent, document)
+            : document,
       );
     }
+
+    final cacheEpoch = _compiledMarkdownCacheEpoch;
 
     final taskKey = PerformanceProfiler.instance.startTask(
       'markdown_compile',
@@ -363,9 +385,12 @@ class MarkdownCompileService {
       key: 'markdown:${preparedContent.hashCode}:${preparedContent.length}',
       data: {'length': preparedContent.length},
     );
-    final future = _backend
-        .compilePrepared(preparedContent)
-        .then(CompiledMarkdownDocument.fromMap)
+    final primaryCompile =
+        debugCompilePreparedOverride?.call(preparedContent) ??
+        _backend
+            .compilePrepared(preparedContent)
+            .then(CompiledMarkdownDocument.fromMap);
+    final future = primaryCompile
         .catchError((Object error, StackTrace stackTrace) async {
           try {
             final workerResult = await _workerManager
@@ -381,9 +406,7 @@ class MarkdownCompileService {
             );
             return CompiledMarkdownDocument.fromMap(workerResult);
           } catch (_) {
-            final fallback = cacheResult
-                ? compilePreparedSynchronously(preparedContent)
-                : _compilePreparedMarkdownDocument(preparedContent);
+            final fallback = _compilePreparedMarkdownDocument(preparedContent);
             PerformanceProfiler.instance.finishTask(
               taskKey,
               data: {
@@ -399,7 +422,8 @@ class MarkdownCompileService {
           if (_disposed) {
             return document;
           }
-          final cachedDocument = cacheResult
+          final cachedDocument =
+              cacheResult && cacheEpoch == _compiledMarkdownCacheEpoch
               ? _compiledMarkdownCache.write(preparedContent, document)
               : document;
           PerformanceProfiler.instance.finishTask(
@@ -414,10 +438,12 @@ class MarkdownCompileService {
         })
         .whenComplete(() {
           _inFlight.remove(preparedContent);
+          _inFlightCacheEpochs.remove(preparedContent);
           _scheduleWorkerRetirement();
         });
 
     _inFlight[preparedContent] = future;
+    _inFlightCacheEpochs[preparedContent] = cacheEpoch;
     return future;
   }
 
@@ -474,10 +500,12 @@ class MarkdownCompileService {
 
       final inFlight = _inFlight[preparedContent];
       if (inFlight != null) {
+        final inFlightCacheEpoch = _inFlightCacheEpochs[preparedContent];
         pendingByContent[preparedContent] = cacheResults
             ? inFlight.then(
-                (document) =>
-                    _compiledMarkdownCache.write(preparedContent, document),
+                (document) => inFlightCacheEpoch == _compiledMarkdownCacheEpoch
+                    ? _compiledMarkdownCache.write(preparedContent, document)
+                    : document,
               )
             : inFlight;
         continue;
@@ -604,6 +632,7 @@ class MarkdownCompileService {
     _workerIdleTimer?.cancel();
     _workerIdleTimer = null;
     _inFlight.clear();
+    _inFlightCacheEpochs.clear();
     _backend.dispose();
     _prepareBackend.dispose();
   }
@@ -626,6 +655,7 @@ class MarkdownCompileService {
     }
 
     final requestContents = List<String>.unmodifiable(preparedContents);
+    final cacheEpoch = _compiledMarkdownCacheEpoch;
     final requestIndexByContent = <String, int>{
       for (var index = 0; index < requestContents.length; index += 1)
         requestContents[index]: index,
@@ -646,6 +676,7 @@ class MarkdownCompileService {
       requestContents,
       taskKey,
       cacheResults: cacheResults,
+      cacheEpoch: cacheEpoch,
     );
     final entryFutures = <String, Future<CompiledMarkdownDocument>>{};
     for (final preparedContent in requestContents) {
@@ -656,9 +687,11 @@ class MarkdownCompileService {
           .whenComplete(() {
             if (_inFlight[preparedContent] == entryFuture) {
               _inFlight.remove(preparedContent);
+              _inFlightCacheEpochs.remove(preparedContent);
             }
           });
       _inFlight[preparedContent] = entryFuture;
+      _inFlightCacheEpochs[preparedContent] = cacheEpoch;
       entryFutures[preparedContent] = entryFuture;
     }
     return entryFutures;
@@ -668,16 +701,21 @@ class MarkdownCompileService {
     List<String> preparedContents,
     String taskKey, {
     required bool cacheResults,
+    required int cacheEpoch,
   }) async {
     try {
-      final resultMaps = await _backend.compilePreparedBatch(preparedContents);
-      final documents = _documentsFromBatchMaps(resultMaps);
+      final documents =
+          await debugCompilePreparedBatchOverride?.call(preparedContents) ??
+          _documentsFromBatchMaps(
+            await _backend.compilePreparedBatch(preparedContents),
+          );
       return _cacheCompiledBatchDocuments(
         preparedContents,
         documents,
         taskKey: taskKey,
         status: 'ok',
         cacheResults: cacheResults,
+        cacheEpoch: cacheEpoch,
       );
     } catch (error) {
       try {
@@ -705,28 +743,21 @@ class MarkdownCompileService {
           taskKey: taskKey,
           status: 'fallback_worker',
           cacheResults: cacheResults,
+          cacheEpoch: cacheEpoch,
         );
       } catch (_) {
         final documents = preparedContents
-            .map(
-              cacheResults
-                  ? compilePreparedSynchronously
-                  : _compilePreparedMarkdownDocument,
-            )
+            .map(_compilePreparedMarkdownDocument)
             .toList(growable: false);
-        PerformanceProfiler.instance.finishTask(
-          taskKey,
-          data: {
-            'status': 'fallback_sync',
-            'error': error.toString(),
-            'count': documents.length,
-            'totalWeight': documents.fold<int>(
-              0,
-              (sum, document) => sum + document.estimatedWeight,
-            ),
-          },
+        return _cacheCompiledBatchDocuments(
+          preparedContents,
+          documents,
+          taskKey: taskKey,
+          status: 'fallback_sync',
+          cacheResults: cacheResults,
+          cacheEpoch: cacheEpoch,
+          error: error,
         );
-        return documents;
       }
     } finally {
       _scheduleWorkerRetirement();
@@ -739,6 +770,8 @@ class MarkdownCompileService {
     required String taskKey,
     required String status,
     required bool cacheResults,
+    required int cacheEpoch,
+    Object? error,
   }) {
     if (preparedContents.length != documents.length) {
       throw StateError(
@@ -753,7 +786,7 @@ class MarkdownCompileService {
     final cachedDocuments = <CompiledMarkdownDocument>[];
     for (var index = 0; index < preparedContents.length; index += 1) {
       cachedDocuments.add(
-        cacheResults
+        cacheResults && cacheEpoch == _compiledMarkdownCacheEpoch
             ? _compiledMarkdownCache.write(
                 preparedContents[index],
                 documents[index],
@@ -770,6 +803,7 @@ class MarkdownCompileService {
           0,
           (sum, document) => sum + document.estimatedWeight,
         ),
+        if (error != null) 'error': error.toString(),
       },
     );
     return List<CompiledMarkdownDocument>.unmodifiable(cachedDocuments);
