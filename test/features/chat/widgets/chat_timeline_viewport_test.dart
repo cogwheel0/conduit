@@ -210,7 +210,7 @@ void main() {
     final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
     check(
       controller.rowRect(ids.first)!.top,
-    ).isGreaterOrEqual(viewportTop + _topContentInset - 1);
+    ).isCloseTo(viewportTop + _topContentInset, 1);
   });
 
   _viewportTest('native iOS status-bar tap scrolls to the oldest row', (

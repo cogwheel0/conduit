@@ -1256,28 +1256,14 @@ void main() {
     check(
       debugShouldReleasePinnedTurnForManualNavigationForTesting(
         pinActive: true,
-        userDragStarted: false,
-        latestRequested: false,
+        userDragStarted: true,
+        latestRequested: true,
       ),
-    ).isFalse();
+    ).isTrue();
     check(
       debugShouldReleasePinnedTurnForManualNavigationForTesting(
-        pinActive: true,
-        userDragStarted: false,
-        latestRequested: false,
-      ),
-    ).isFalse();
-    check(
-      debugShouldReleasePinnedTurnForManualNavigationForTesting(
-        pinActive: true,
-        userDragStarted: false,
-        latestRequested: false,
-      ),
-    ).isFalse();
-    check(
-      debugShouldReleasePinnedTurnForManualNavigationForTesting(
-        pinActive: true,
-        userDragStarted: false,
+        pinActive: false,
+        userDragStarted: true,
         latestRequested: false,
       ),
     ).isFalse();

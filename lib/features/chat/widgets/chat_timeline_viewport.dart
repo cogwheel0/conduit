@@ -262,6 +262,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   static const int _minSeekAttempts = 12;
   static const int _maxSeekAttempts = 64;
   static const int _maxPinGeometryAttempts = 12;
+  static const int _maxOldestSettleAttempts = 4;
   static const int _maxInitialPositionAttempts =
       debugChatTimelineInitialPositionMaxAttempts;
   static const int _oldestRowProbeCount = 3;
@@ -481,7 +482,19 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
-    unawaited(widget.onNativeScrollToTop());
+    unawaited(
+      Future<void>.sync(widget.onNativeScrollToTop).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'native-scroll-to-top-failed',
+          scope: 'chat/timeline/viewport',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
   }
 
   String _resolveInitialCenter() {
@@ -1244,7 +1257,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   Future<bool> _settleAtOldest(int generation) async {
     final binding = WidgetsBinding.instance;
-    for (var attempt = 0; attempt < 4; attempt += 1) {
+    for (var attempt = 0; attempt < _maxOldestSettleAttempts; attempt += 1) {
       if (!mounted || generation != _navigationGeneration) return false;
       final position = _dimensionedPosition;
       if (position == null) return false;
