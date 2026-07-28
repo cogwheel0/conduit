@@ -3703,10 +3703,11 @@ class Conversations extends _$Conversations {
       return;
     }
 
-    _applyGeneratedTitleToLoadedState(rawId, normalizedTitle);
-
     final db = ref.read(appDatabaseProvider);
-    if (db == null) return;
+    if (db == null) {
+      _applyGeneratedTitleToLoadedState(rawId, normalizedTitle);
+      return;
+    }
     final locks = ref.read(chatLocksProvider);
     unawaited(
       locks
@@ -3716,7 +3717,7 @@ class Conversations extends _$Conversations {
                 db.chatsDao.updateServerGeneratedTitle(rawId, normalizedTitle),
           )
           .then<void>((persistedTitle) {
-            if (persistedTitle != null && persistedTitle != normalizedTitle) {
+            if (persistedTitle != null) {
               _applyGeneratedTitleToLoadedState(rawId, persistedTitle);
             }
           })

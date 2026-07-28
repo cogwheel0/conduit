@@ -702,13 +702,18 @@ void main() {
             .read(conversationsProvider.notifier)
             .applyServerGeneratedTitle('chat-1', '  Generated title  ');
 
-        check(
-          container.read(conversationsProvider).requireValue.single.title,
-        ).equals('Generated title');
         final row = await waitForAsync<ChatRow?>(
           () => db.chatsDao.getChat('chat-1'),
           condition: (row) => row?.title == 'Generated title',
         );
+        await waitFor(() {
+          return container
+                  .read(conversationsProvider)
+                  .requireValue
+                  .single
+                  .title ==
+              'Generated title';
+        });
         check(row!.updatedAt).equals(100);
         final messages = await db.messagesDao.getForChat('chat-1');
         final blob = ChatBlobMapper.rowsToBlob(chatRowsFromDb(row, messages));
@@ -730,6 +735,10 @@ void main() {
       container
           .read(conversationsProvider.notifier)
           .applyServerGeneratedTitle('chat-1', 'Generated title');
+
+      check(
+        container.read(conversationsProvider).requireValue.single.title,
+      ).equals('My local title');
 
       final row = await waitForAsync<ChatRow?>(
         () => db.chatsDao.getChat('chat-1'),

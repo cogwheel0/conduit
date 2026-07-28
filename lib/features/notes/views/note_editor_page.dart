@@ -506,7 +506,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       note = await durableUpdateNote(
         ref,
         db,
-        id: widget.noteId,
+        id: _note?.id ?? widget.noteId,
         title: title,
         data: data,
       );
@@ -629,7 +629,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
-          .deleteNote(widget.noteId);
+          .deleteNote(_note!.id);
       if (success && mounted) {
         context.go('/chat');
       }
@@ -1462,7 +1462,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (db != null) {
       updatedNote = await _durableAttachNoteAudioFile(
         db,
-        id: widget.noteId,
+        id: note.id,
         attachment: attachment,
         canCommit: () =>
             mounted &&
@@ -2300,14 +2300,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // The note is already open in the current session, so an id-scoped read is
       // safe here (avoids pulling auth providers into the editor just for the
       // user id).
-      final note = await readLocalNote(db, widget.noteId);
+      final currentNoteId = _note?.id ?? widget.noteId;
+      final note = await readLocalNote(db, currentNoteId);
       if (!mounted) return;
       if (note == null) {
         // The user may have typed while the pull/reconcile/read was in flight.
-        // Keep the live editor and its queued save intact instead of replacing
-        // it with a not-found state and silently discarding those keystrokes.
-        if (_hasChanges) return;
-        ref.invalidate(noteByIdProvider(widget.noteId));
+        // Recover those edits as a new local note because the reconciler has
+        // already removed the old row and an update could no longer persist.
+        if (_hasChanges) {
+          await _recoverDeletedNoteDraft(db);
+          return;
+        }
+        ref.invalidate(noteByIdProvider(currentNoteId));
         setState(() {
           _note = null;
           _titleController.clear();
@@ -2326,7 +2330,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // sneak in.)
       if (_hasChanges) return;
       // Keep the detail cache consistent with what we just loaded.
-      ref.invalidate(noteByIdProvider(widget.noteId));
+      ref.invalidate(noteByIdProvider(currentNoteId));
       setState(() {
         _note = note;
         _titleController.text = note.title;
@@ -2337,6 +2341,41 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } catch (e) {
       if (mounted) _showError(e.toString());
     }
+  }
+
+  Future<void> _recoverDeletedNoteDraft(AppDatabase db) async {
+    final previous = _note;
+    if (previous == null) return;
+
+    _saveDebounce?.cancel();
+    final draftTitle = _titleController.text;
+    final draftMarkdown = _contentMarkdown;
+    final draftData = <String, dynamic>{
+      ...previous.data.toJson(),
+      ..._composeUpdatedNoteData(),
+    };
+    final recovered = await durableCreateNote(
+      ref,
+      db,
+      userId: ref.read(currentUserProvider2)?.id,
+      title: draftTitle.trim().isEmpty
+          ? AppLocalizations.of(context)!.untitled
+          : draftTitle.trim(),
+      data: draftData,
+    );
+    if (!mounted || recovered == null) return;
+
+    final changedDuringRecovery =
+        _titleController.text != draftTitle ||
+        _contentMarkdown != draftMarkdown;
+    ref.invalidate(noteByIdProvider(widget.noteId));
+    ref.invalidate(noteByIdProvider(recovered.id));
+    setState(() {
+      _note = recovered;
+      _savedMarkdown = draftMarkdown;
+      _hasChanges = changedDuringRecovery;
+    });
+    if (changedDuringRecovery) _debounceSave();
   }
 
   Widget _buildContentEditor(BuildContext context) {

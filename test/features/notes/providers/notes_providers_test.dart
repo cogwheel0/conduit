@@ -274,6 +274,16 @@ void main() {
       );
       check(editedTitle.evaluate()).length.equals(1);
       check(await db.notesDao.getNote('deleted-note')).isNull();
+      final recoveredRows = await db.select(db.notes).get();
+      check(recoveredRows).length.equals(1);
+      final recovered = recoveredRows.single;
+      check(recovered.id.startsWith('local:')).isTrue();
+      check(recovered.title).equals('Edited during refresh');
+      check(recovered.dirtyTitle).isTrue();
+      check(recovered.dirtyData).isTrue();
+      check(
+        (await db.outboxDao.pendingForChat(recovered.id)).map((op) => op.kind),
+      ).deepEquals([OutboxKind.noteCreate.name]);
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;
     });
