@@ -664,6 +664,62 @@ void main() {
       check(await journal.exists()).isFalse();
     });
 
+    test('retries a journaled rebind after the move rolled back', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        idGenerator: () => 'upload-rebind-rollback',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        accountId: 'user-1',
+        noteId: 'deleted-note',
+        fileName: 'recording.m4a',
+      );
+      final failed = staged.transition(
+        NoteAudioUploadStatus.failed,
+        lastError: 'retry after rollback',
+        serverFileId: 'uploaded-before-rollback',
+      );
+      check(await store.save(failed)).isTrue();
+
+      // A failed manifest save rolls the directory back to this source path
+      // but deliberately retains the flushed rebind intent journal.
+      final sourceDirectory = File(failed.localPath).parent;
+      final accountDirectory = sourceDirectory.parent.parent;
+      final journal = File(
+        path.join(accountDirectory.path, '.rebind-${failed.id}.json'),
+      );
+      await journal.writeAsString(
+        jsonEncode(<String, dynamic>{
+          'version': 1,
+          'sourceNoteId': 'deleted-note',
+          'item': <String, dynamic>{
+            ...failed.toJson(),
+            'noteId': 'recovered-note',
+          },
+        }),
+        flush: true,
+      );
+
+      final recovered = await NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+      ).loadForAccount(serverId: 'server-1', accountId: 'user-1');
+
+      check(recovered).length.equals(1);
+      check(recovered.single.noteId).equals('recovered-note');
+      check(recovered.single.lastError).equals('retry after rollback');
+      check(recovered.single.serverFileId).equals('uploaded-before-rollback');
+      check(await File(recovered.single.localPath).exists()).isTrue();
+      check(await sourceDirectory.exists()).isFalse();
+      check(await journal.exists()).isFalse();
+    });
+
     test('a removal reservation excludes processing across editors', () async {
       final root = await Directory.systemTemp.createTemp(
         'conduit_note_audio_upload_test_',

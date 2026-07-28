@@ -468,8 +468,10 @@ class NoteAudioUploadStore {
           if (await destinationDirectory.exists() &&
               !await sourceDirectory.exists()) {
             await destinationDirectory.rename(sourceDirectory.path);
-            if (await journal.exists()) await journal.delete();
           }
+          // Keep the flushed intent journal after rollback. A later account or
+          // note scan can retry the move and associate the recording with the
+          // replacement note even if this editor closes immediately.
           rethrow;
         }
         if (await journal.exists()) await journal.delete();

@@ -2514,24 +2514,28 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final recoveredId = recovered.id;
     final reboundUploads = <String, PendingNoteAudioUpload>{};
     final attemptedUploadIds = <String>{};
-    Future<PendingNoteAudioUpload?> rebindItem(PendingNoteAudioUpload item) =>
-        NoteAudioUploadCoordinator.rebind(item, () async {
-          try {
-            return await _noteAudioUploadStore.rebindToNote(
-              item,
-              noteId: recoveredId,
-            );
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'deleted-note-audio-item-rebind-failed',
-              scope: 'notes/recovery',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'noteId': previous.id, 'uploadId': item.id},
-            );
-            return null;
-          }
-        });
+    Future<PendingNoteAudioUpload?> rebindItem(
+      PendingNoteAudioUpload item,
+    ) => NoteAudioUploadCoordinator.rebind(item, () async {
+      try {
+        return await _noteAudioUploadStore.rebindToNote(
+          item,
+          noteId: recoveredId,
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'deleted-note-audio-item-rebind-failed',
+          scope: 'notes/recovery',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'noteId': previous.id, 'uploadId': item.id},
+        );
+        // Keep the durable old-scope item visible and retryable in this editor.
+        // rebindToNote leaves its intent journal behind after rollback, so a
+        // later store scan will finish moving it to the recovered note.
+        return item;
+      }
+    });
 
     final initialUploads = <String, PendingNoteAudioUpload>{
       for (final item in _pendingAudioUploads) item.id: item,
