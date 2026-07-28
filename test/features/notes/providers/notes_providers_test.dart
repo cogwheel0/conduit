@@ -107,6 +107,7 @@ Future<void> _seedDeletedNote(AppDatabase db) {
 Widget _noteEditorHarness({
   required AppDatabase db,
   required SyncEngine syncEngine,
+  bool withBackRoute = false,
 }) {
   return ProviderScope(
     overrides: [
@@ -128,7 +129,14 @@ Widget _noteEditorHarness({
       ).copyWith(platform: TargetPlatform.android),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const NoteEditorPage(noteId: 'deleted-note'),
+      initialRoute: withBackRoute ? '/editor' : null,
+      home: withBackRoute ? null : const NoteEditorPage(noteId: 'deleted-note'),
+      routes: withBackRoute
+          ? <String, WidgetBuilder>{
+              '/': (_) => const Scaffold(key: Key('notes-root')),
+              '/editor': (_) => const NoteEditorPage(noteId: 'deleted-note'),
+            }
+          : const <String, WidgetBuilder>{},
     ),
   );
 }
@@ -337,6 +345,66 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;
     });
+
+    testWidgets(
+      'failed post-recovery save keeps the dirty editor open on back',
+      (tester) async {
+        final originalErrorWidgetBuilder = ErrorWidget.builder;
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await _seedDeletedNote(db);
+        final syncEngine = _DeletingOnReconcileSyncEngine(db);
+        await tester.pumpWidget(
+          _noteEditorHarness(
+            db: db,
+            syncEngine: syncEngine,
+            withBackRoute: true,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Deleted title').last);
+        await tester.pump();
+        var titleField = find.byWidgetPredicate(
+          (widget) =>
+              widget is EditableText &&
+              widget.controller.text == 'Deleted title',
+        );
+        await tester.enterText(titleField, 'Recovered title');
+        final refresh = tester.widget<RefreshIndicator>(
+          find.byType(RefreshIndicator),
+        );
+        await refresh.onRefresh();
+        await tester.pump();
+
+        titleField = find.byWidgetPredicate(
+          (widget) =>
+              widget is EditableText &&
+              widget.controller.text == 'Recovered title',
+        );
+        check(titleField.evaluate()).length.equals(1);
+        await tester.enterText(titleField, 'Unsaved after recovery');
+        await tester.pump();
+
+        // Closing the active database forces the back-navigation autosave to
+        // fail after recovery has already cleared its dedicated retry callback.
+        final failedDb = db;
+        await failedDb.close();
+        db = AppDatabase(NativeDatabase.memory());
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        final dirtyTitle = find.byWidgetPredicate(
+          (widget) =>
+              widget is EditableText &&
+              widget.controller.text == 'Unsaved after recovery',
+        );
+        check(dirtyTitle.evaluate()).length.equals(1);
+        check(find.byKey(const Key('notes-root')).evaluate()).isEmpty();
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+      },
+    );
 
     test('does not expose cached notes owned by another user', () async {
       await db

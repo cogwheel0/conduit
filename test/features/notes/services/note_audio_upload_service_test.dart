@@ -601,8 +601,11 @@ void main() {
         return staged;
       });
       await ownerStarted.future;
-      check(NoteAudioUploadCoordinator.tryReserveRemoval(staged)).isFalse();
-      releaseOwner.complete();
+      try {
+        check(NoteAudioUploadCoordinator.tryReserveRemoval(staged)).isFalse();
+      } finally {
+        releaseOwner.complete();
+      }
       check(await owner).equals(staged);
     });
 

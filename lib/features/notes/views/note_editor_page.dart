@@ -438,7 +438,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // deleted note needs its recovery retry to remain mounted rather than
     // silently discarding the draft during navigation.
     if (mounted) {
-      if (_hasChanges && _deletedNoteDraftRecoveryRetry != null) {
+      if (_hasChanges) {
         _deletedNoteDraftRecoveryRetry?.call();
       } else if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop(result);
