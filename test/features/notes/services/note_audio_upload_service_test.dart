@@ -598,6 +598,49 @@ void main() {
       check(retried!.noteId).equals('recovered-note');
     });
 
+    test(
+      'a processor waiting on a failed rebind reloads durable state',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'conduit_note_audio_upload_test_',
+        );
+        addTearDown(() => _deleteDirectory(root));
+
+        final store = NoteAudioUploadStore(
+          applicationSupportDirectory: () async => root,
+          idGenerator: () => 'upload-rebind-follower',
+        );
+        final staged = await store.stage(
+          source: await _recordingFile(root, 'source.m4a'),
+          serverId: 'server-1',
+          noteId: 'deleted-note',
+          fileName: 'recording.m4a',
+        );
+        final ownerStarted = Completer<void>();
+        final releaseOwner = Completer<void>();
+        final owner = NoteAudioUploadCoordinator.rebind(staged, () async {
+          ownerStarted.complete();
+          await releaseOwner.future;
+          throw StateError('rebind failed');
+        });
+        await ownerStarted.future;
+
+        final waitingProcessor = NoteAudioUploadCoordinator(
+          store: store,
+          upload: (_, _) async => fail('waiting processor must not upload'),
+          attach: (_, _) async => fail('waiting processor must not attach'),
+        ).process(staged);
+        releaseOwner.complete();
+
+        await expectLater(owner, throwsStateError);
+        final reloaded = await waitingProcessor;
+        check(reloaded).isNotNull();
+        check(reloaded!.id).equals(staged.id);
+        check(reloaded.localPath).equals(staged.localPath);
+        check(reloaded.noteId).equals('deleted-note');
+      },
+    );
+
     test('recovers a process-interrupted rebind journal', () async {
       final root = await Directory.systemTemp.createTemp(
         'conduit_note_audio_upload_test_',

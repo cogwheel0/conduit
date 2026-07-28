@@ -2290,6 +2290,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// without syncing would let the detail fetch return a server copy that is
   /// behind a not-yet-synced local edit and clobber it with stale/empty content.
   Future<void> _refreshNote() async {
+    final noteBeforeRefresh = _note;
+    final hadDraftChanges =
+        noteBeforeRefresh != null &&
+        (_titleController.text != noteBeforeRefresh.title ||
+            _contentMarkdown != _savedMarkdown);
     if (_hasChanges) {
       _saveDebounce?.cancel();
       await _autoSave();
@@ -2335,7 +2340,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         // The user may have typed while the pull/reconcile/read was in flight.
         // Recover those edits as a new local note because the reconciler has
         // already removed the old row and an update could no longer persist.
-        if (_hasChanges) {
+        if (hadDraftChanges || _hasChanges) {
+          if (!_hasChanges) setState(() => _hasChanges = true);
           await _recoverDeletedNoteDraft(
             db,
             api: api,
@@ -2516,11 +2522,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final attemptedUploadIds = <String>{};
     Future<PendingNoteAudioUpload?> rebindItem(
       PendingNoteAudioUpload item,
-    ) => NoteAudioUploadCoordinator.rebind(item, () async {
+    ) async {
       try {
-        return await _noteAudioUploadStore.rebindToNote(
+        return await NoteAudioUploadCoordinator.rebind(
           item,
-          noteId: recoveredId,
+          () => _noteAudioUploadStore.rebindToNote(item, noteId: recoveredId),
         );
       } catch (error, stackTrace) {
         DebugLogger.error(
@@ -2535,7 +2541,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         // later store scan will finish moving it to the recovered note.
         return item;
       }
-    });
+    }
 
     final initialUploads = <String, PendingNoteAudioUpload>{
       for (final item in _pendingAudioUploads) item.id: item,

@@ -1091,7 +1091,7 @@ class NoteAudioUploadCoordinator {
   Future<PendingNoteAudioUpload?> process(PendingNoteAudioUpload item) {
     final key = _keyFor(item);
     final rebind = _rebindReservations[key]?.future;
-    if (rebind != null) return _reloadAfterRebind(rebind);
+    if (rebind != null) return _reloadAfterRebind(item, rebind);
     final removal = _removalReservations[key]?.future;
     if (removal != null) return _reloadAfterRemoval(item, removal);
     final existing = _inFlight[key];
@@ -1108,9 +1108,12 @@ class NoteAudioUploadCoordinator {
   }
 
   Future<PendingNoteAudioUpload?> _reloadAfterRebind(
+    PendingNoteAudioUpload item,
     Future<PendingNoteAudioUpload?> rebind,
   ) async {
-    final rebound = await rebind;
+    // A null result can also mean the owner failed before it could return the
+    // rolled-back item. Confirm durable state before treating it as removed.
+    final rebound = await rebind ?? await _store.loadCurrent(item);
     _notify(rebound);
     return rebound;
   }

@@ -229,6 +229,56 @@ void main() {
       },
     );
 
+    testWidgets('editor refresh recovers edits autosaved before deletion', (
+      tester,
+    ) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _seedDeletedNote(db);
+      final syncEngine = _DeletingOnReconcileSyncEngine(db);
+      await tester.pumpWidget(
+        _noteEditorHarness(db: db, syncEngine: syncEngine),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Deleted title').last);
+      await tester.pump();
+      final titleField = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText && widget.controller.text == 'Deleted title',
+      );
+      check(titleField.evaluate()).length.equals(1);
+      await tester.enterText(titleField, 'Edited before refresh');
+
+      final refresh = tester.widget<RefreshIndicator>(
+        find.byType(RefreshIndicator),
+      );
+      await refresh.onRefresh();
+      await tester.pump();
+
+      check(find.text('Note not found').evaluate()).isEmpty();
+      final editedTitle = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText &&
+            widget.controller.text == 'Edited before refresh',
+      );
+      check(editedTitle.evaluate()).length.equals(1);
+      check(await db.notesDao.getNote('deleted-note')).isNull();
+      final recoveredRows = await db.select(db.notes).get();
+      check(recoveredRows).length.equals(1);
+      final recovered = recoveredRows.single;
+      check(recovered.id.startsWith('local:')).isTrue();
+      check(recovered.title).equals('Edited before refresh');
+      check(recovered.dirtyTitle).isTrue();
+      check(recovered.dirtyData).isTrue();
+      check(
+        (await db.outboxDao.pendingForChat(recovered.id)).map((op) => op.kind),
+      ).deepEquals([OutboxKind.noteCreate.name]);
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+    });
+
     testWidgets('editor refresh preserves edits entered while deleting', (
       tester,
     ) async {
