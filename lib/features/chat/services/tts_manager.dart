@@ -3,13 +3,20 @@ import 'dart:io' show Directory, File, Platform;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/models/backend_config.dart';
+import '../../../core/services/settings_service.dart';
+import '../../../core/sherpa/sherpa_catalog.dart';
+import '../../../core/sherpa/sherpa_model.dart';
+import '../../../core/sherpa/sherpa_runtime.dart';
+import '../../../core/sherpa/sherpa_storage.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import 'native_tts_service.dart';
 
@@ -75,8 +82,12 @@ class TtsPlaybackSession {
   TtsPlaybackSession._({
     required this.id,
     required this.chunks,
-    required this.useServerTts,
-  });
+    required this.engine,
+    required TtsConfig config,
+  }) : sherpaModelId = config.sherpaModelId,
+       sherpaLanguageCode = config.sherpaLanguageCode,
+       sherpaSpeakerId = int.tryParse(config.sherpaSpeakerId ?? '') ?? 0,
+       sherpaSpeed = config.sherpaSpeed;
 
   /// Unique session identifier.
   final int id;
@@ -84,8 +95,25 @@ class TtsPlaybackSession {
   /// Text chunks to be spoken.
   final List<String> chunks;
 
-  /// Whether to use server TTS (true) or device TTS (false).
-  final bool useServerTts;
+  final TtsEngine engine;
+  final String? sherpaModelId;
+  final String? sherpaLanguageCode;
+  final int sherpaSpeakerId;
+  final double sherpaSpeed;
+  final CancelToken cancelToken = CancelToken();
+  bool get useServerTts => engine != TtsEngine.device;
+  bool get useSherpaTts => engine == TtsEngine.sherpa;
+  bool get useRemoteInitialLookahead => engine == TtsEngine.server;
+}
+
+@visibleForTesting
+TtsPlaybackSession sherpaPlaybackSessionForTesting(TtsConfig config) {
+  return TtsPlaybackSession._(
+    id: 1,
+    chunks: <String>[],
+    engine: TtsEngine.sherpa,
+    config: config,
+  );
 }
 
 @visibleForTesting
@@ -127,8 +155,13 @@ class TtsConfig {
     this.speechRate = 0.5,
     this.pitch = 1.0,
     this.volume = 1.0,
-    this.preferServer = false,
-  });
+    TtsEngine? engine,
+    bool preferServer = false,
+    this.sherpaModelId,
+    this.sherpaLanguageCode,
+    this.sherpaSpeakerId,
+    this.sherpaSpeed = 1.0,
+  }) : engine = engine ?? (preferServer ? TtsEngine.server : TtsEngine.device);
 
   final String? voice;
   final String? serverVoice;
@@ -136,7 +169,12 @@ class TtsConfig {
   final double speechRate;
   final double pitch;
   final double volume;
-  final bool preferServer;
+  final TtsEngine engine;
+  final String? sherpaModelId;
+  final String? sherpaLanguageCode;
+  final String? sherpaSpeakerId;
+  final double sherpaSpeed;
+  bool get preferServer => engine == TtsEngine.server;
 
   TtsConfig copyWith({
     String? voice,
@@ -145,7 +183,11 @@ class TtsConfig {
     double? speechRate,
     double? pitch,
     double? volume,
-    bool? preferServer,
+    TtsEngine? engine,
+    Object? sherpaModelId = const _TtsUnset(),
+    Object? sherpaLanguageCode = const _TtsUnset(),
+    Object? sherpaSpeakerId = const _TtsUnset(),
+    double? sherpaSpeed,
   }) {
     return TtsConfig(
       voice: voice ?? this.voice,
@@ -154,7 +196,17 @@ class TtsConfig {
       speechRate: speechRate ?? this.speechRate,
       pitch: pitch ?? this.pitch,
       volume: volume ?? this.volume,
-      preferServer: preferServer ?? this.preferServer,
+      engine: engine ?? this.engine,
+      sherpaModelId: sherpaModelId is _TtsUnset
+          ? this.sherpaModelId
+          : sherpaModelId as String?,
+      sherpaLanguageCode: sherpaLanguageCode is _TtsUnset
+          ? this.sherpaLanguageCode
+          : sherpaLanguageCode as String?,
+      sherpaSpeakerId: sherpaSpeakerId is _TtsUnset
+          ? this.sherpaSpeakerId
+          : sherpaSpeakerId as String?,
+      sherpaSpeed: sherpaSpeed ?? this.sherpaSpeed,
     );
   }
 }
@@ -168,7 +220,7 @@ class TtsConfig {
 /// This manager owns native device TTS and AudioPlayer instances and ensures
 /// only one playback session is active at a time. Events are emitted via
 /// a stream that consumers can listen to.
-class TtsManager {
+class TtsManager with WidgetsBindingObserver {
   static const int _serverPrefetchParallelism = 3;
   static const Duration _serverInitialLookaheadTimeout = Duration(
     milliseconds: 220,
@@ -184,8 +236,19 @@ class TtsManager {
   static final instance = TtsManager._();
 
   bool _ttsInitialized = false;
+  bool _observingLifecycle = false;
+  bool _disposing = false;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   Completer<void>? _initCompleter;
   final NativeTtsService _nativeTts = NativeTtsService();
+  late final SherpaStorage _sherpaStorage = SherpaStorage();
+  late final SherpaTtsWorker _sherpaTts = SherpaTtsWorker(
+    storage: _sherpaStorage,
+  );
+  String? _loadedSherpaModelId;
+  String? _loadedSherpaLanguageCode;
+  bool _sherpaModelAvailable = false;
+  Future<void> _sherpaLoadSerial = Future<void>.value();
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
 
@@ -210,6 +273,7 @@ class TtsManager {
 
   // Session management
   int _sessionCounter = 0;
+  Future<void> _stopSerial = Future<void>.value();
   TtsPlaybackSession? _activeSession;
 
   // Device TTS state
@@ -229,8 +293,9 @@ class TtsManager {
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
   final Set<int> _serverFetchingIndices = <int>{};
-  final List<File> _serverTempFiles = <File>[];
+  final Map<int, List<File>> _serverTempFiles = <int, List<File>>{};
   String? _serverBackgroundLeaseId;
+  final Set<Future<void>> _backgroundWork = <Future<void>>{};
 
   // Event stream
   final _eventController = StreamController<TtsEvent>.broadcast();
@@ -247,8 +312,17 @@ class TtsManager {
   /// Whether server TTS is available.
   bool get serverAvailable => _apiService != null;
 
-  /// Whether any TTS is available.
-  bool get isAvailable => _deviceEngineAvailable || serverAvailable;
+  /// Whether TTS is available for the current selection.
+  bool get isAvailable {
+    switch (_config.engine) {
+      case TtsEngine.device:
+        return _deviceEngineAvailable;
+      case TtsEngine.server:
+        return serverAvailable;
+      case TtsEngine.sherpa:
+        return _sherpaModelAvailable;
+    }
+  }
 
   /// Whether a session is currently active.
   bool get isPlaying => _activeSession != null;
@@ -265,6 +339,7 @@ class TtsManager {
   Future<void> updateConfig(TtsConfig config) async {
     final voiceChanged = config.voice != _config.voice;
     _config = config;
+    await _refreshSherpaModelAvailability();
     if (voiceChanged) {
       _voiceConfigured = false;
     }
@@ -288,9 +363,11 @@ class TtsManager {
   ///
   /// This must be called before any TTS operations.
   Future<bool> initialize({TtsConfig? config}) async {
+    _ensureLifecycleObserver();
     if (config != null) {
       _config = config;
     }
+    await _refreshSherpaModelAvailability();
 
     // Initialize native device TTS.
     await _ensureTtsInitialized();
@@ -346,98 +423,133 @@ class TtsManager {
       return null;
     }
 
-    // Cancel any existing session
-    await stop();
-
-    // Ensure TTS is initialized
-    await _ensureTtsInitialized();
-
-    // Determine whether to use server or device TTS
-    final shouldUseServer = useServer ?? _shouldUseServer();
-
-    // Split text into chunks
-    final chunks = splitTextForSpeech(text);
-    if (chunks.isEmpty) {
-      return null;
-    }
-
-    // Create new session
-    _sessionCounter++;
-    final session = TtsPlaybackSession._(
-      id: _sessionCounter,
-      chunks: chunks,
-      useServerTts: shouldUseServer,
-    );
-    _activeSession = session;
-
-    // Start playback
+    TtsEngine? engine;
+    TtsPlaybackSession? session;
     try {
-      if (shouldUseServer) {
+      await stop();
+      await _ensureTtsInitialized();
+      engine = useServer == null
+          ? _selectedEngine()
+          : (useServer ? TtsEngine.server : TtsEngine.device);
+
+      final chunks = splitTextForSpeech(text);
+      if (chunks.isEmpty) return null;
+
+      _sessionCounter++;
+      session = TtsPlaybackSession._(
+        id: _sessionCounter,
+        chunks: chunks,
+        engine: engine,
+        config: _config,
+      );
+      _activeSession = session;
+
+      if (engine != TtsEngine.device) {
         await _startServerPlayback(session);
       } else {
         await _startDevicePlayback(session);
       }
+      if (_activeSession?.id != session.id) return null;
       return session;
     } catch (e) {
+      if (session == null
+          ? _activeSession != null
+          : _activeSession?.id != session.id) {
+        return null;
+      }
       _emitEvent(TtsError(e.toString()));
 
       // Try fallback to device TTS if server fails
-      if (shouldUseServer && _deviceEngineAvailable) {
+      if (engine == TtsEngine.server &&
+          session != null &&
+          _deviceEngineAvailable) {
         try {
           // Create a new session with useServerTts: false so device TTS
           // handlers emit events correctly
           final fallbackSession = TtsPlaybackSession._(
             id: session.id,
             chunks: session.chunks,
-            useServerTts: false,
+            engine: TtsEngine.device,
+            config: _config,
           );
           _activeSession = fallbackSession;
           await _startDevicePlayback(fallbackSession);
+          if (_activeSession?.id != fallbackSession.id) return null;
           return fallbackSession;
         } catch (e2) {
+          if (_activeSession?.id != session.id) return null;
           _emitEvent(TtsError(e2.toString()));
         }
       }
 
-      _activeSession = null;
+      if (session == null || _activeSession?.id == session.id) {
+        _activeSession = null;
+        _resetPlaybackState();
+      }
       return null;
     }
   }
 
   /// Starts a mutable TTS session that accepts accumulated assistant text.
   Future<TtsPlaybackSession?> startStreaming({bool? useServer}) async {
-    await stop();
-    await _ensureTtsInitialized();
+    TtsPlaybackSession? session;
+    try {
+      await stop();
+      await _ensureTtsInitialized();
 
-    final shouldUseServer = useServer ?? _shouldUseServer();
-    _sessionCounter++;
-    final session = TtsPlaybackSession._(
-      id: _sessionCounter,
-      chunks: <String>[],
-      useServerTts: shouldUseServer,
-    );
-    _activeSession = session;
-    _isStreamingSession = true;
-    _streamingFinalized = false;
-    _streamingFedChunkCount = 0;
-    _deviceWaitingForStreamingChunk = false;
-    _serverLastFetchScheduledIndex = -1;
-    _serverFetchingIndices.clear();
-    _serverPlaybackVoice = shouldUseServer ? await _resolveServerVoice() : null;
+      final engine = useServer == null
+          ? _selectedEngine()
+          : (useServer ? TtsEngine.server : TtsEngine.device);
+      _sessionCounter++;
+      session = TtsPlaybackSession._(
+        id: _sessionCounter,
+        chunks: <String>[],
+        engine: engine,
+        config: _config,
+      );
+      _activeSession = session;
+      _isStreamingSession = true;
+      _streamingFinalized = false;
+      _streamingFedChunkCount = 0;
+      _deviceWaitingForStreamingChunk = false;
+      _serverLastFetchScheduledIndex = -1;
+      _serverFetchingIndices.clear();
+      _serverPlaybackVoice = engine == TtsEngine.server
+          ? await _resolveServerVoice()
+          : null;
 
-    if (shouldUseServer) {
-      await _startServerBackgroundLease(session.id);
-      await _player.stop();
-      await _player.clearAudioSources();
-    } else {
-      if (!_deviceEngineAvailable) {
-        throw StateError('Device TTS is not available');
+      if (engine != TtsEngine.device) {
+        if (engine == TtsEngine.sherpa) await _ensureSherpaLoaded(session);
+        if (_activeSession?.id != session.id) return null;
+        await _startServerBackgroundLease(session.id);
+        if (_activeSession?.id != session.id) return null;
+        await _player.stop();
+        await _player.clearAudioSources();
+      } else {
+        if (!_deviceEngineAvailable) {
+          throw StateError('Device TTS is not available');
+        }
+        if (!_voiceConfigured) {
+          await _configurePreferredVoice();
+        }
       }
-      if (!_voiceConfigured) {
-        await _configurePreferredVoice();
+      if (_activeSession?.id != session.id) return null;
+      return session;
+    } catch (error) {
+      if (session == null
+          ? _activeSession != null
+          : _activeSession?.id != session.id) {
+        return null;
       }
+      try {
+        await stop();
+      } catch (_) {
+        _activeSession = null;
+        _resetPlaybackState();
+      }
+      _emitEvent(TtsError(error.toString()));
+      return null;
     }
-    return session;
   }
 
   /// Feeds accumulated streaming response text and enqueues stable chunks.
@@ -461,6 +573,7 @@ class TtsManager {
     if (session.chunks.isEmpty) {
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
@@ -499,7 +612,9 @@ class TtsManager {
         await _nativeTts.pause();
       }
     } catch (e) {
-      _emitEvent(TtsError(e.toString()));
+      if (_activeSession?.id == session.id) {
+        _emitEvent(TtsError(e.toString()));
+      }
     }
   }
 
@@ -516,27 +631,54 @@ class TtsManager {
         await _nativeTts.resume();
       }
     } catch (e) {
-      _emitEvent(TtsError(e.toString()));
+      if (_activeSession?.id == session.id) {
+        _emitEvent(TtsError(e.toString()));
+      }
     }
   }
 
   /// Stops the current playback.
-  Future<void> stop() async {
+  Future<void> stop() {
+    final operation = _stopSerial.then((_) => _stopNow());
+    _stopSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
+  }
+
+  Future<void> _stopNow() async {
     final session = _activeSession;
     if (session == null) return;
-
     _activeSession = null;
+    if (!session.cancelToken.isCancelled) {
+      session.cancelToken.cancel('TTS session stopped');
+    }
+    Object? cancellationError;
+    if (session.useSherpaTts) {
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      try {
+        await _sherpaTts.cancelCurrentOperation();
+      } catch (error) {
+        cancellationError = error;
+      }
+    }
 
     try {
+      await _serverPlaylistSerial;
       if (session.useServerTts) {
         await _player.stop();
       } else {
         await _nativeTts.stop();
       }
       _resetPlaybackState();
-      _emitEvent(const TtsCancelled());
+      _scheduleIdleLargeSherpaUnload();
+      _emitEvent(
+        cancellationError == null
+            ? const TtsCancelled()
+            : TtsError(cancellationError.toString()),
+      );
     } catch (e) {
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(TtsError(e.toString()));
     }
   }
@@ -552,7 +694,7 @@ class TtsManager {
     // Reset playback state
     _resetPlaybackState();
     _activeSession = null;
-    _sessionCounter = 0;
+    _scheduleIdleLargeSherpaUnload();
 
     // Reset server audio buffer
     _serverAudioBuffer.clear();
@@ -564,13 +706,29 @@ class TtsManager {
 
   /// Disposes the manager and releases resources.
   Future<void> dispose() async {
+    if (_disposing) return;
+    _disposing = true;
+    if (_observingLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+      _observingLifecycle = false;
+    }
     await stop();
     await _nativeTtsSub?.cancel();
     _nativeTtsSub = null;
     await _playerStateSub?.cancel();
     await _playerIndexSub?.cancel();
+    await _drainBackgroundWork();
+    await _serverPlaylistSerial;
+    await _sherpaLoadSerial;
     await _player.dispose();
+    await _sherpaTts.dispose();
     await _eventController.close();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+    _scheduleIdleLargeSherpaUnload();
   }
 
   /// Splits text into chunks for TTS playback.
@@ -810,9 +968,10 @@ class TtsManager {
     _serverLastFetchScheduledIndex = index;
     _serverFetchingIndices.add(index);
     final voice = _serverPlaybackVoice ?? _config.serverVoice;
-    unawaited(() async {
+    _trackBackground(() async {
       try {
         final chunk = await _fetchServerAudioWithRetry(
+          session,
           session.chunks[index],
           voice,
         );
@@ -820,13 +979,15 @@ class TtsManager {
         _setBufferedServerChunk(index, chunk);
         await _enqueueBufferedServerChunks(session);
       } catch (error) {
-        _emitEvent(TtsError(error.toString()));
+        if (_activeSession?.id == session.id) {
+          _emitEvent(TtsError(error.toString()));
+        }
       } finally {
-        _serverFetchingIndices.remove(index);
-        if (_streamingFinalized &&
-            _serverFetchingIndices.isEmpty &&
-            _activeSession?.id == session.id) {
-          _onServerAudioComplete();
+        if (_activeSession?.id == session.id) {
+          _serverFetchingIndices.remove(index);
+          if (_streamingFinalized && _serverFetchingIndices.isEmpty) {
+            _onServerAudioComplete();
+          }
         }
       }
     }());
@@ -837,6 +998,7 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _ensureTtsInitialized() async {
+    _ensureLifecycleObserver();
     if (_ttsInitialized) return;
 
     if (_initCompleter != null) {
@@ -940,6 +1102,7 @@ class TtsManager {
       }
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
@@ -948,9 +1111,11 @@ class TtsManager {
     _currentChunkIndex = nextIndex;
     _emitEvent(TtsChunkStarted(nextIndex));
 
-    _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
-      _failDevicePlayback(session, error);
-    });
+    _trackBackground(
+      _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
+        _failDevicePlayback(session, error);
+      }),
+    );
   }
 
   Future<void> _speakDeviceChunk(String chunk) async {
@@ -967,10 +1132,9 @@ class TtsManager {
   }
 
   void _failDevicePlayback(TtsPlaybackSession session, Object error) {
-    if (_activeSession?.id == session.id) {
-      _activeSession = null;
-      _resetPlaybackState();
-    }
+    if (_activeSession?.id != session.id) return;
+    _activeSession = null;
+    _resetPlaybackState();
     _emitEvent(TtsError(error.toString()));
   }
 
@@ -979,8 +1143,12 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _startServerPlayback(TtsPlaybackSession session) async {
-    if (_apiService == null) {
+    if (session.engine == TtsEngine.server && _apiService == null) {
       throw StateError('Server TTS is not available');
+    }
+    if (session.engine == TtsEngine.sherpa) {
+      await _ensureSherpaLoaded(session);
+      if (_activeSession?.id != session.id) return;
     }
 
     _serverCurrentIndex = -1;
@@ -988,12 +1156,16 @@ class TtsManager {
     _serverAudioBuffer.clear();
     _serverWaitingForNext = false;
 
-    final voice = await _resolveServerVoice();
+    final voice = session.engine == TtsEngine.server
+        ? await _resolveServerVoice()
+        : null;
     _serverPlaybackVoice = voice;
     await _startServerBackgroundLease(session.id);
+    if (_activeSession?.id != session.id) return;
 
     // Fetch and play first chunk
     final firstChunk = await _fetchServerAudioWithRetry(
+      session,
       session.chunks.first,
       voice,
     );
@@ -1004,23 +1176,35 @@ class TtsManager {
     final initialSources = <AudioSource>[
       await _audioSourceForServerChunk(session.id, 0, firstChunk),
     ];
+    if (_activeSession?.id != session.id) {
+      await _cleanupServerTempFiles(session.id);
+      return;
+    }
 
     // Opportunistically prebuffer the second chunk before first play.
     // This reduces the most noticeable early boundary gap without changing
     // controller sequencing behavior.
     var prefetchStartIndex = 1;
-    if (session.chunks.length > 1) {
+    if (session.chunks.length > 1 && session.useRemoteInitialLookahead) {
       try {
         final secondChunk = await _fetchServerAudioWithRetry(
+          session,
           session.chunks[1],
           voice,
         ).timeout(_serverInitialLookaheadTimeout);
         if (_activeSession?.id == session.id) {
           _setBufferedServerChunk(1, secondChunk);
           _serverLastEnqueuedIndex = 1;
-          initialSources.add(
-            await _audioSourceForServerChunk(session.id, 1, secondChunk),
+          final source = await _audioSourceForServerChunk(
+            session.id,
+            1,
+            secondChunk,
           );
+          if (_activeSession?.id != session.id) {
+            await _cleanupServerTempFiles(session.id);
+            return;
+          }
+          initialSources.add(source);
           prefetchStartIndex = 2;
         }
       } on TimeoutException {
@@ -1031,6 +1215,10 @@ class TtsManager {
     }
 
     await _player.stop();
+    if (_activeSession?.id != session.id) {
+      await _cleanupServerTempFiles(session.id);
+      return;
+    }
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
@@ -1040,6 +1228,11 @@ class TtsManager {
         initialIndex: 0,
         initialPosition: Duration.zero,
       );
+      if (_activeSession?.id != session.id) {
+        _isTransitioningChunks = false;
+        await _cleanupServerTempFiles(session.id);
+        return;
+      }
       await _player.play();
     } catch (e) {
       // Reset flag on error to avoid suppressing future pause events
@@ -1048,7 +1241,7 @@ class TtsManager {
     }
 
     // Prefetch remaining chunks in background
-    unawaited(_prefetchServerChunks(session, voice, prefetchStartIndex));
+    _trackBackground(_prefetchServerChunks(session, voice, prefetchStartIndex));
   }
 
   Future<void> _prefetchServerChunks(
@@ -1072,6 +1265,7 @@ class TtsManager {
 
         try {
           final chunk = await _fetchServerAudioWithRetry(
+            session,
             session.chunks[i],
             voice,
           );
@@ -1082,31 +1276,52 @@ class TtsManager {
           _setBufferedServerChunk(i, chunk);
           await _enqueueBufferedServerChunks(session);
         } catch (e) {
-          _emitEvent(TtsError(e.toString()));
+          if (_activeSession?.id == session.id) {
+            _emitEvent(TtsError(e.toString()));
+          }
         }
       }
     }
 
-    final workerCount = _serverPrefetchParallelism < 1
+    final configuredWorkerCount = session.useSherpaTts
         ? 1
         : _serverPrefetchParallelism;
+    final workerCount = configuredWorkerCount < 1 ? 1 : configuredWorkerCount;
     await Future.wait(List.generate(workerCount, (_) => worker()));
   }
 
   Future<_AudioChunk> _fetchServerAudio(
+    TtsPlaybackSession session,
     String text,
     String? voice, {
     double? speed,
   }) async {
+    if (session.useSherpaTts) {
+      await _ensureSherpaLoaded(session);
+      if (_activeSession?.id != session.id) {
+        throw StateError('TTS session was cancelled');
+      }
+      final audio = await _sherpaTts.synthesize(
+        text: text,
+        speakerId: session.sherpaSpeakerId,
+        speed: session.sherpaSpeed,
+      );
+      return _AudioChunk(
+        bytes: _floatSamplesToWav(audio.samples, audio.sampleRate),
+        mimeType: 'audio/wav',
+      );
+    }
     final result = await _apiService!.generateSpeech(
       text: text,
       voice: voice,
       speed: speed,
+      cancelToken: session.cancelToken,
     );
     return _AudioChunk(bytes: result.bytes, mimeType: result.mimeType);
   }
 
   Future<_AudioChunk> _fetchServerAudioWithRetry(
+    TtsPlaybackSession session,
     String text,
     String? voice,
   ) async {
@@ -1120,9 +1335,10 @@ class TtsManager {
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await _fetchServerAudio(requestText, requestVoice);
+        return await _fetchServerAudio(session, requestText, requestVoice);
       } catch (error) {
         lastError = error;
+        if (_activeSession?.id != session.id) break;
 
         // Keep text exact: do not normalize/rewrite payload between attempts.
         // Only retry transient failures.
@@ -1172,13 +1388,14 @@ class TtsManager {
       }
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
 
     if (_serverLastEnqueuedIndex > currentIndex) {
       _serverWaitingForNext = false;
-      unawaited(_resumeServerQueueFromCompleted(currentIndex));
+      _trackBackground(_resumeServerQueueFromCompleted(session, currentIndex));
       return;
     }
 
@@ -1189,11 +1406,11 @@ class TtsManager {
 
     if (_hasBufferedServerChunk(nextIndex)) {
       _serverWaitingForNext = false;
-      unawaited(_enqueueBufferedServerChunks(session));
+      _trackBackground(_enqueueBufferedServerChunks(session));
     } else {
       _serverWaitingForNext = true;
       final voice = _serverPlaybackVoice ?? _config.serverVoice;
-      unawaited(_recoverMissingServerChunk(session, voice, nextIndex));
+      _trackBackground(_recoverMissingServerChunk(session, voice, nextIndex));
     }
   }
 
@@ -1216,6 +1433,7 @@ class TtsManager {
       }
 
       final recovered = await _fetchServerAudioWithRetry(
+        session,
         session.chunks[index],
         voice,
       );
@@ -1226,13 +1444,16 @@ class TtsManager {
       _setBufferedServerChunk(index, recovered);
       await _enqueueBufferedServerChunks(session);
     } catch (error) {
-      _emitEvent(TtsError(error.toString()));
       if (_activeSession?.id == session.id) {
+        _emitEvent(TtsError(error.toString()));
         _activeSession = null;
         _resetPlaybackState();
+        _scheduleIdleLargeSherpaUnload();
       }
     } finally {
-      _serverRecoveringMissingChunk = false;
+      if (_activeSession?.id == session.id) {
+        _serverRecoveringMissingChunk = false;
+      }
     }
   }
 
@@ -1257,6 +1478,10 @@ class TtsManager {
               nextIndex,
               chunk,
             );
+            if (_activeSession?.id != session.id) {
+              await _cleanupServerTempFiles(session.id);
+              return;
+            }
             if (_isStreamingSession &&
                 nextIndex == 0 &&
                 _serverLastEnqueuedIndex < 0) {
@@ -1267,6 +1492,11 @@ class TtsManager {
                   initialIndex: 0,
                   initialPosition: Duration.zero,
                 );
+                if (_activeSession?.id != session.id) {
+                  _isTransitioningChunks = false;
+                  await _cleanupServerTempFiles(session.id);
+                  return;
+                }
                 await _player.play();
               } catch (_) {
                 _isTransitioningChunks = false;
@@ -1282,7 +1512,7 @@ class TtsManager {
             final currentIndex = _player.currentIndex ?? _serverCurrentIndex;
             if (_serverLastEnqueuedIndex > currentIndex) {
               _serverWaitingForNext = false;
-              await _resumeServerQueueFromCompleted(currentIndex);
+              await _resumeServerQueueFromCompleted(session, currentIndex);
             }
           }
         })
@@ -1290,7 +1520,11 @@ class TtsManager {
     await _serverPlaylistSerial;
   }
 
-  Future<void> _resumeServerQueueFromCompleted(int currentIndex) async {
+  Future<void> _resumeServerQueueFromCompleted(
+    TtsPlaybackSession session,
+    int currentIndex,
+  ) async {
+    if (_activeSession?.id != session.id) return;
     if (_player.processingState != ProcessingState.completed) {
       return;
     }
@@ -1298,8 +1532,17 @@ class TtsManager {
     if (nextIndex < 0 || nextIndex > _serverLastEnqueuedIndex) {
       return;
     }
-    await _player.seek(Duration.zero, index: nextIndex);
-    await _player.play();
+    try {
+      await _player.seek(Duration.zero, index: nextIndex);
+      if (_activeSession?.id != session.id) return;
+      await _player.play();
+    } catch (error) {
+      if (_activeSession?.id != session.id) return;
+      _activeSession = null;
+      _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
+      _emitEvent(TtsError(error.toString()));
+    }
   }
 
   Future<AudioSource> _audioSourceForServerChunk(
@@ -1314,7 +1557,7 @@ class TtsManager {
     final extension = _audioExtensionForMimeType(chunk.mimeType);
     final file = File(p.join(dir.path, 'chunk_$index.$extension'));
     await file.writeAsBytes(chunk.bytes, flush: true);
-    _serverTempFiles.add(file);
+    _serverTempFiles.putIfAbsent(sessionId, () => <File>[]).add(file);
     return AudioSource.uri(file.uri, tag: index);
   }
 
@@ -1346,6 +1589,16 @@ class TtsManager {
         leaseId,
       ]);
     } catch (_) {}
+    if (_activeSession?.id != sessionId) {
+      try {
+        await BackgroundStreamingHandler.instance.stopBackgroundExecution([
+          leaseId,
+        ]);
+      } catch (_) {}
+      if (_serverBackgroundLeaseId == leaseId) {
+        _serverBackgroundLeaseId = null;
+      }
+    }
   }
 
   Future<void> _stopServerBackgroundLease() async {
@@ -1359,9 +1612,15 @@ class TtsManager {
     } catch (_) {}
   }
 
-  Future<void> _cleanupServerTempFiles() async {
-    final files = List<File>.from(_serverTempFiles);
-    _serverTempFiles.clear();
+  Future<void> _cleanupServerTempFiles([int? sessionId]) async {
+    final files = sessionId == null
+        ? _serverTempFiles.values.expand((files) => files).toList()
+        : List<File>.from(_serverTempFiles[sessionId] ?? const []);
+    if (sessionId == null) {
+      _serverTempFiles.clear();
+    } else {
+      _serverTempFiles.remove(sessionId);
+    }
     for (final file in files) {
       try {
         await file.delete();
@@ -1390,14 +1649,211 @@ class TtsManager {
   // Private: Helpers
   // ===========================================================================
 
-  bool _shouldUseServer() {
-    if (_config.preferServer && _apiService != null) {
-      return true;
+  TtsEngine _selectedEngine() {
+    switch (_config.engine) {
+      case TtsEngine.device:
+        if (!_deviceEngineAvailable) {
+          throw StateError('Device TTS is not available');
+        }
+        return TtsEngine.device;
+      case TtsEngine.server:
+        if (_apiService == null) {
+          throw StateError('Server TTS is not available');
+        }
+        return TtsEngine.server;
+      case TtsEngine.sherpa:
+        if (_config.sherpaModelId == null) {
+          throw StateError('No Sherpa TTS model is selected');
+        }
+        if (!_sherpaModelAvailable) {
+          throw StateError('The selected Sherpa TTS model needs repair');
+        }
+        return TtsEngine.sherpa;
     }
-    if (_deviceEngineAvailable) {
-      return false;
+  }
+
+  Future<void> _refreshSherpaModelAvailability() async {
+    final id = _config.sherpaModelId;
+    final model = sherpaModelById(id);
+    if (_config.engine == TtsEngine.sherpa &&
+        id != null &&
+        model?.kind == SherpaModelKind.tts) {
+      try {
+        _sherpaModelAvailable = await _sherpaStorage.installedModel(id) != null;
+      } on Object {
+        _sherpaModelAvailable = false;
+      }
+    } else {
+      _sherpaModelAvailable = false;
     }
-    return _apiService != null;
+
+    if (_sherpaModelAvailable) {
+      await _unloadUnselectedSherpaModel(keepModelId: id);
+    } else {
+      await _unloadUnselectedSherpaModel();
+    }
+  }
+
+  Future<void> _unloadUnselectedSherpaModel({String? keepModelId}) async {
+    final loadedId = _loadedSherpaModelId;
+    if (loadedId == null || loadedId == keepModelId) return;
+
+    if (_activeSession?.useSherpaTts == true) {
+      await stop();
+    }
+    await _drainBackgroundWork();
+
+    final operation = _sherpaLoadSerial.then((_) async {
+      final currentId = _loadedSherpaModelId;
+      if (currentId == null || currentId == keepModelId) return;
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      await _sherpaTts.unload();
+    });
+    _sherpaLoadSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    await operation;
+  }
+
+  Future<void> _ensureSherpaLoaded(TtsPlaybackSession session) async {
+    final operation = _sherpaLoadSerial.then(
+      (_) => _ensureSherpaLoadedSerial(session),
+    );
+    _sherpaLoadSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    await operation;
+  }
+
+  Future<void> _ensureSherpaLoadedSerial(TtsPlaybackSession session) async {
+    final id = session.sherpaModelId;
+    if (id == null) throw StateError('No Sherpa TTS model is selected');
+    if (_loadedSherpaModelId == id &&
+        _loadedSherpaLanguageCode == session.sherpaLanguageCode &&
+        _sherpaTts.isAlive) {
+      return;
+    }
+    final model = sherpaModelById(id);
+    if (model == null || model.kind != SherpaModelKind.tts) {
+      throw StateError('The selected Sherpa TTS model is unavailable');
+    }
+    final installed = await _sherpaStorage.installedModel(id);
+    if (installed == null) {
+      _sherpaModelAvailable = false;
+      throw StateError('The selected Sherpa TTS model needs repair');
+    }
+    if (_activeSession?.id != session.id) {
+      throw StateError('TTS session was cancelled');
+    }
+    _loadedSherpaModelId = null;
+    _loadedSherpaLanguageCode = null;
+    try {
+      await _sherpaTts.load(
+        installed,
+        languageCode: session.sherpaLanguageCode,
+      );
+    } catch (error) {
+      if (error is SherpaModelLoadException) {
+        _sherpaModelAvailable = false;
+        try {
+          await _sherpaStorage.markModelBroken(id, error);
+        } catch (cleanupError) {
+          DebugLogger.warning(
+            'sherpa-tts-mark-broken-failed',
+            scope: 'voice/tts',
+            data: {'modelId': id, 'error': cleanupError},
+          );
+        }
+        try {
+          await _sherpaTts.unload();
+        } catch (cleanupError) {
+          DebugLogger.warning(
+            'sherpa-tts-load-cleanup-failed',
+            scope: 'voice/tts',
+            data: {'modelId': id, 'error': cleanupError},
+          );
+        }
+      }
+      rethrow;
+    }
+    _sherpaModelAvailable = true;
+    _loadedSherpaModelId = id;
+    _loadedSherpaLanguageCode = session.sherpaLanguageCode;
+    if (_activeSession?.id != session.id) {
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      await _sherpaTts.unload();
+      throw StateError('TTS session was cancelled');
+    }
+  }
+
+  void _ensureLifecycleObserver() {
+    if (_observingLifecycle) return;
+    WidgetsBinding.instance.addObserver(this);
+    _lifecycleState =
+        WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
+    _observingLifecycle = true;
+  }
+
+  void _scheduleIdleLargeSherpaUnload() {
+    if (_disposing ||
+        _lifecycleState != AppLifecycleState.paused ||
+        _activeSession != null) {
+      return;
+    }
+    final operation = _sherpaLoadSerial.then((_) async {
+      if (_lifecycleState != AppLifecycleState.paused ||
+          _activeSession != null) {
+        return;
+      }
+      final model = sherpaModelById(_loadedSherpaModelId);
+      if (model?.tier != SherpaModelTier.large) return;
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      await _sherpaTts.unload();
+    });
+    _sherpaLoadSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    unawaited(_sherpaLoadSerial);
+  }
+
+  Uint8List _floatSamplesToWav(Float32List samples, int sampleRate) {
+    final output = Uint8List(44 + samples.length * 2);
+    final data = ByteData.sublistView(output);
+    output.setRange(0, 4, 'RIFF'.codeUnits);
+    data.setUint32(4, output.length - 8, Endian.little);
+    output.setRange(8, 12, 'WAVE'.codeUnits);
+    output.setRange(12, 16, 'fmt '.codeUnits);
+    data.setUint32(16, 16, Endian.little);
+    data.setUint16(20, 1, Endian.little);
+    data.setUint16(22, 1, Endian.little);
+    data.setUint32(24, sampleRate, Endian.little);
+    data.setUint32(28, sampleRate * 2, Endian.little);
+    data.setUint16(32, 2, Endian.little);
+    data.setUint16(34, 16, Endian.little);
+    output.setRange(36, 40, 'data'.codeUnits);
+    data.setUint32(40, samples.length * 2, Endian.little);
+    for (var i = 0; i < samples.length; i++) {
+      data.setInt16(
+        44 + i * 2,
+        (samples[i].clamp(-1.0, 1.0) * 32767).round(),
+        Endian.little,
+      );
+    }
+    return output;
+  }
+
+  void _trackBackground(Future<void> work) {
+    late final Future<void> tracked;
+    tracked = work
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          _backgroundWork.remove(tracked);
+        });
+    _backgroundWork.add(tracked);
+    unawaited(tracked);
+  }
+
+  Future<void> _drainBackgroundWork() async {
+    while (_backgroundWork.isNotEmpty) {
+      await Future.wait(_backgroundWork.toList(growable: false));
+    }
   }
 
   void _resetPlaybackState() {
@@ -1408,7 +1864,6 @@ class TtsManager {
     _serverWaitingForNext = false;
     _serverRecoveringMissingChunk = false;
     _serverPlaybackVoice = null;
-    _serverPlaylistSerial = Future<void>.value();
     _isStreamingSession = false;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
@@ -1460,4 +1915,8 @@ class _AudioChunk {
   const _AudioChunk({required this.bytes, required this.mimeType});
   final Uint8List bytes;
   final String mimeType;
+}
+
+final class _TtsUnset {
+  const _TtsUnset();
 }

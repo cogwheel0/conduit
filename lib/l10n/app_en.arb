@@ -1603,13 +1603,13 @@
   "@sttServerUnavailableWarning": {
     "description": "Warning shown when the user selects server speech recognition but no server is available."
   },
-  "sttSilenceDuration": "Server STT silence duration",
+  "sttSilenceDuration": "Speech end silence duration",
   "@sttSilenceDuration": {
-    "description": "Label for the silence duration setting in server speech-to-text."
+    "description": "Label for the silence duration setting in Server and Sherpa speech-to-text."
   },
-  "sttSilenceDurationDescription": "Used by server transcription and legacy fallback only. Native on-device STT sends recognizer final results instead.",
+  "sttSilenceDurationDescription": "How long Server and Sherpa transcription wait after speech ends before finalizing the recording.",
   "@sttSilenceDurationDescription": {
-    "description": "Description for the silence duration slider in server speech-to-text settings."
+    "description": "Description for the silence duration slider in Server and Sherpa speech-to-text settings."
   },
   "sttTranscriptionLanguage": "Transcription language",
   "@sttTranscriptionLanguage": {
@@ -5184,5 +5184,179 @@
   "ollamaThinkingMaximum": "Maximum",
   "@ollamaThinkingMaximum": {
     "description": "Maximum Ollama thinking level."
+  },
+  "sherpaEngine": "Sherpa",
+  "@sherpaEngine": {
+    "description": "Name of the Sherpa ONNX speech engine."
+  },
+  "sherpaSttDescription": "Private offline speech recognition using a model you download.",
+  "@sherpaSttDescription": {
+    "description": "Description of Sherpa speech recognition."
+  },
+  "sherpaTtsDescription": "Private offline speech using a downloaded voice model.",
+  "@sherpaTtsDescription": {
+    "description": "Description of Sherpa text to speech."
+  },
+  "sherpaModelsTitle": "Sherpa ONNX models",
+  "@sherpaModelsTitle": {
+    "description": "Title for the Sherpa model manager."
+  },
+  "sherpaModelsSubtitle": "Download and manage offline speech models",
+  "@sherpaModelsSubtitle": {
+    "description": "Subtitle for the Sherpa model manager entry."
+  },
+  "sherpaChooseSpeechModel": "Choose a speech model",
+  "@sherpaChooseSpeechModel": {
+    "description": "Title shown while selecting a Sherpa STT model."
+  },
+  "sherpaChooseVoiceModel": "Choose a voice model",
+  "@sherpaChooseVoiceModel": {
+    "description": "Title shown while selecting a Sherpa TTS model."
+  },
+  "sherpaSearchModels": "Search models and families",
+  "@sherpaSearchModels": {
+    "description": "Search hint in the Sherpa model manager."
+  },
+  "sherpaNoModelsMatch": "No models match these filters.",
+  "@sherpaNoModelsMatch": {
+    "description": "Empty state for filtered Sherpa models."
+  },
+  "sherpaNoModelsMatchHint": "Try adjusting your search or filters.",
+  "@sherpaNoModelsMatchHint": {
+    "description": "Guidance shown when no Sherpa models match search and filters."
+  },
+  "sherpaActive": "Active",
+  "@sherpaActive": {
+    "description": "Sherpa model manager active section and state label."
+  },
+  "sherpaInstalled": "Installed",
+  "@sherpaInstalled": {
+    "description": "Sherpa model manager installed section and state label."
+  },
+  "sherpaAvailable": "Available",
+  "@sherpaAvailable": {
+    "description": "Sherpa model manager available section."
+  },
+  "sherpaDownloadAndUse": "Download & use",
+  "@sherpaDownloadAndUse": {
+    "description": "Downloads, validates, and activates a Sherpa model."
+  },
+  "sherpaRepair": "Repair",
+  "@sherpaRepair": {
+    "description": "Repairs a failed or invalid Sherpa model."
+  },
+  "sherpaUse": "Use",
+  "@sherpaUse": {
+    "description": "Activates an installed Sherpa model."
+  },
+  "sherpaChooseVoice": "Choose a voice",
+  "@sherpaChooseVoice": {
+    "description": "Prompt to choose a Sherpa voice."
+  },
+  "sherpaVoiceNumber": "Voice {number}",
+  "@sherpaVoiceNumber": {
+    "description": "Fallback name for an unnamed Sherpa voice.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "sherpaInstalledSummary": "{count} installed • {size}",
+  "@sherpaInstalledSummary": {
+    "description": "Installed Sherpa model count and storage use.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaCheckingModels": "Checking installed models…",
+  "@sherpaCheckingModels": {
+    "description": "Loading label while installed Sherpa models are read."
+  },
+  "sherpaFilterType": "STT / TTS",
+  "sherpaFilterMode": "Mode",
+  "sherpaFilterSize": "Size",
+  "sherpaFilterFamily": "Family",
+  "sherpaFilterAny": "Any",
+  "sherpaStreaming": "Streaming",
+  "sherpaOffline": "Offline",
+  "sherpaRecommended": "Recommended",
+  "sherpaVoices": "{count, plural, =1{1 voice} other{{count} voices}}",
+  "@sherpaVoices": {
+    "description": "Number of voices included in a Sherpa model.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sherpaPreparing": "Preparing…",
+  "sherpaInstallPhase": "{phase, select, queued{Queued} downloading{Downloading} verifying{Verifying} extracting{Extracting} validating{Validating model} installed{Installed} failed{Installation failed} other{Preparing}}",
+  "@sherpaInstallPhase": {
+    "description": "Current Sherpa model installation phase.",
+    "placeholders": {
+      "phase": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaLargeModelWarning": "Large models require a 64-bit device and can increase memory use, latency, battery drain, and heat.",
+  "sherpaMeteredNetworkWarning": "Your current network is metered.",
+  "sherpaPhysicalMemory": "{size} physical memory",
+  "@sherpaPhysicalMemory": {
+    "description": "Physical memory reported by the device.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaFreeStorage": "{size} free storage",
+  "@sherpaFreeStorage": {
+    "description": "Free storage reported by the device.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaDeviceCapacity": "This device reports {capacity}.",
+  "@sherpaDeviceCapacity": {
+    "description": "Summary of device capacity warnings for a Large model.",
+    "placeholders": {
+      "capacity": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaLargeDownloadTitle": "Download a Large model?",
+  "sherpaMeteredDownloadTitle": "Use metered data?",
+  "sherpaDownloadSizeSummary": "{downloadSize} download and {installedSize} installed.",
+  "@sherpaDownloadSizeSummary": {
+    "description": "Compressed download size and installed model size.",
+    "placeholders": {
+      "downloadSize": {
+        "type": "String"
+      },
+      "installedSize": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaDeleteActiveModel": "Choose another model before deleting the active model.",
+  "sherpaDeleteModelTitle": "Delete model?",
+  "sherpaDeleteModelMessage": "{modelName} will be removed from this device.",
+  "@sherpaDeleteModelMessage": {
+    "description": "Confirmation message before deleting an installed Sherpa model.",
+    "placeholders": {
+      "modelName": {
+        "type": "String"
+      }
+    }
   }
 }

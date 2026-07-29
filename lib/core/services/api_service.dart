@@ -5959,6 +5959,7 @@ class ApiService {
     required String text,
     String? voice,
     double? speed,
+    CancelToken? cancelToken,
   }) async {
     final textPreview = text.length > 50 ? text.substring(0, 50) : text;
     _traceApi('Generating speech for text: $textPreview...');
@@ -5966,6 +5967,7 @@ class ApiService {
       '/api/v1/audio/speech',
       data: {'input': text, 'voice': ?voice, 'speed': ?speed},
       options: Options(responseType: ResponseType.bytes),
+      cancelToken: cancelToken,
     );
 
     final rawMimeType = response.headers.value('content-type');

@@ -605,6 +605,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       pitch: settings.ttsPitch,
       volume: settings.ttsVolume,
       engine: settings.ttsEngine,
+      sherpaModelId: settings.sherpaTtsModelId,
+      sherpaLanguageCode: settings.sherpaTtsLanguageCode,
+      sherpaSpeakerId: settings.sherpaTtsSpeakerId,
+      sherpaSpeed: settings.sherpaTtsSpeed,
     );
   }
 

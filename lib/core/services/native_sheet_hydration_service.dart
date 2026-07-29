@@ -14,6 +14,7 @@ import '../models/model.dart';
 import '../models/tool.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
+import '../sherpa/sherpa_model_manager.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../utils/debug_logger.dart';
@@ -738,22 +739,45 @@ class NativeSheetHydrationService {
 
   Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {
     final appSettings = _ref.read(appSettingsProvider);
-    var ttsVoices = const <Map<String, dynamic>>[];
-    try {
-      final ttsService = _ref.read(textToSpeechServiceProvider);
-      await ttsService.updateSettings(engine: appSettings.ttsEngine);
-      ttsVoices = await ttsService.getAvailableVoices();
-    } catch (error, stackTrace) {
-      DebugLogger.warning(
-        'native-tts-voices-load-failed',
-        scope: 'native-sheet',
-        data: {'error': error, 'stackTrace': stackTrace},
-      );
-    }
+    final ttsVoicesFuture = () async {
+      try {
+        final ttsService = _ref.read(textToSpeechServiceProvider);
+        await ttsService.updateSettings(engine: appSettings.ttsEngine);
+        return await ttsService.getAvailableVoices();
+      } catch (error, stackTrace) {
+        DebugLogger.warning(
+          'native-tts-voices-load-failed',
+          scope: 'native/sheet',
+          data: {'error': error, 'stackTrace': stackTrace},
+        );
+        return const <Map<String, dynamic>>[];
+      }
+    }();
+    final installedModelsFuture = () async {
+      try {
+        return await _ref.read(sherpaInstalledModelsProvider.future);
+      } catch (error, stackTrace) {
+        DebugLogger.warning(
+          'native-sherpa-model-inventory-load-failed',
+          scope: 'native/sheet',
+          data: {'error': error, 'stackTrace': stackTrace},
+        );
+        return null;
+      }
+    }();
+    final ttsVoices = await ttsVoicesFuture;
+    final installedModels = await installedModelsFuture;
     final nativeAudio = buildNativeAudioSheetParts(
       l10n,
       appSettings,
       ttsVoices: ttsVoices,
+      installedModelCount: installedModels?.length,
+      installedModelBytes:
+          installedModels?.fold<int>(
+            0,
+            (total, model) => total + model.installedBytes,
+          ) ??
+          0,
     );
     await _applyNativeDetail(
       NativeSheetDetailConfig(

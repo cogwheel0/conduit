@@ -122,6 +122,7 @@ Set<String> ttsVoiceAliasesFor(TtsEngine engine, Map<String, dynamic> voice) {
       'locale',
       'language',
     ],
+    TtsEngine.sherpa => const <String>['id', 'name'],
   };
 
   return {for (final key in keys) ?_normalizeVoiceKey(voice[key]?.toString())};
@@ -139,6 +140,7 @@ String ttsVoiceIdFor(TtsEngine engine, Map<String, dynamic> voice) {
       id ?? name ?? identifier ?? voiceIdentifier ?? locale ?? '',
     TtsEngine.device =>
       identifier ?? id ?? voiceIdentifier ?? name ?? locale ?? '',
+    TtsEngine.sherpa => id ?? name ?? '',
   };
 }
 
@@ -220,6 +222,7 @@ String? _selectedStoredVoiceId(AppSettings settings) {
   return switch (settings.ttsEngine) {
     TtsEngine.server => _cleanVoiceValue(settings.ttsServerVoiceId),
     TtsEngine.device => _cleanVoiceValue(settings.ttsVoice),
+    TtsEngine.sherpa => _cleanVoiceValue(settings.sherpaTtsSpeakerId),
   };
 }
 
@@ -227,6 +230,7 @@ String? _selectedStoredVoiceName(AppSettings settings) {
   return switch (settings.ttsEngine) {
     TtsEngine.server => _cleanVoiceValue(settings.ttsServerVoiceName),
     TtsEngine.device => _cleanVoiceValue(settings.ttsVoiceName),
+    TtsEngine.sherpa => null,
   };
 }
 

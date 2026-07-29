@@ -55,11 +55,6 @@ PODS:
   - libwebp/sharpyuv (1.5.0)
   - libwebp/webp (1.5.0):
     - libwebp/sharpyuv
-  - onnxruntime-c (1.22.0)
-  - onnxruntime-objc (1.22.0):
-    - onnxruntime-objc/Core (= 1.22.0)
-  - onnxruntime-objc/Core (1.22.0):
-    - onnxruntime-c (= 1.22.0)
   - OrderedSet (6.0.3)
   - package_info_plus (0.4.5):
     - Flutter
@@ -83,14 +78,13 @@ PODS:
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - sherpa_onnx_ios (1.13.4):
+    - Flutter
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
   - url_launcher_ios (0.0.1):
     - Flutter
-  - vad (0.0.6):
-    - Flutter
-    - onnxruntime-objc (= 1.22.0)
   - wakelock_plus (0.0.1):
     - Flutter
   - webview_flutter_wkwebview (0.0.1):
@@ -121,9 +115,9 @@ DEPENDENCIES:
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - sherpa_onnx_ios (from `.symlinks/plugins/sherpa_onnx_ios/ios`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
-  - vad (from `.symlinks/plugins/vad/ios`)
   - wakelock_plus (from `.symlinks/plugins/wakelock_plus/ios`)
   - webview_flutter_wkwebview (from `.symlinks/plugins/webview_flutter_wkwebview/darwin`)
 
@@ -131,8 +125,6 @@ SPEC REPOS:
   trunk:
     - CryptoSwift
     - libwebp
-    - onnxruntime-c
-    - onnxruntime-objc
     - OrderedSet
     - SDWebImage
     - SDWebImageWebPCoder
@@ -184,12 +176,12 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/share_plus/ios"
   shared_preferences_foundation:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  sherpa_onnx_ios:
+    :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
   sqflite_darwin:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
-  vad:
-    :path: ".symlinks/plugins/vad/ios"
   wakelock_plus:
     :path: ".symlinks/plugins/wakelock_plus/ios"
   webview_flutter_wkwebview:
@@ -214,8 +206,6 @@ SPEC CHECKSUMS:
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
-  onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
-  onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   pdfium_flutter: e5a6e881af0b182d5b0465ebad23a8a20caa28d4
@@ -226,12 +216,12 @@ SPEC CHECKSUMS:
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  sherpa_onnx_ios: 32af18abd5c776d5f425d2abe0903471d26db221
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
-  vad: 7934867589afe53567f492df66fb1615f2185822
   wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
   webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
-PODFILE CHECKSUM: 1bed8b2262b594f89f58bee2826557447173bc56
+PODFILE CHECKSUM: 03cb1bdee657162e7076ce8e10578c31504daa26
 
 COCOAPODS: 1.17.0

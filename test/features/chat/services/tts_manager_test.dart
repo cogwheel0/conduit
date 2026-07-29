@@ -1,12 +1,19 @@
-import 'dart:typed_data';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/sherpa/sherpa_catalog.dart';
+import 'package:conduit/core/sherpa/sherpa_model.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -151,6 +158,101 @@ void main() {
       expect(completed, isTrue);
     });
   });
+
+  test('selected server availability requires an API service', () async {
+    final api = _RecordingApiService();
+    try {
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(engine: TtsEngine.server),
+      );
+      TtsManager.instance.setApiService(null);
+      expect(TtsManager.instance.isAvailable, isFalse);
+
+      TtsManager.instance.setApiService(api);
+      expect(TtsManager.instance.isAvailable, isTrue);
+    } finally {
+      TtsManager.instance.setApiService(null);
+      api.disposeWorker();
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(engine: TtsEngine.device),
+      );
+    }
+  });
+
+  test(
+    'Sherpa availability requires an installed, intact selected model',
+    () async {
+      const channel = MethodChannel('app.cogwheel.conduit/sherpa_storage');
+      final temp = await Directory.systemTemp.createTemp(
+        'conduit_tts_availability_',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getNoBackupDirectory') return temp.path;
+            return null;
+          });
+
+      final model = sherpaModelCatalog.firstWhere(
+        (candidate) =>
+            candidate.kind == SherpaModelKind.tts &&
+            candidate.family == SherpaModelFamily.supertonic,
+      );
+      final modelDirectory = Directory(p.join(temp.path, 'models', model.id));
+      await modelDirectory.create(recursive: true);
+      for (final role in model.runtime.files) {
+        final file = File(p.join(modelDirectory.path, role.pathSuffix));
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(const [0]);
+      }
+      await File(
+        p.join(modelDirectory.path, '.conduit-model.json'),
+      ).writeAsString(
+        jsonEncode({
+          'id': model.id,
+          'release': model.release,
+          'sha256': model.sha256,
+        }),
+      );
+
+      try {
+        await TtsManager.instance.updateConfig(
+          TtsConfig(engine: TtsEngine.sherpa, sherpaModelId: model.id),
+        );
+        expect(TtsManager.instance.isAvailable, isTrue);
+
+        await File(
+          p.join(modelDirectory.path, '.conduit-broken.json'),
+        ).writeAsString('{}');
+        await TtsManager.instance.updateConfig(
+          TtsConfig(engine: TtsEngine.sherpa, sherpaModelId: model.id),
+        );
+        expect(TtsManager.instance.isAvailable, isFalse);
+      } finally {
+        await TtsManager.instance.updateConfig(
+          const TtsConfig(engine: TtsEngine.device),
+        );
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+        await temp.delete(recursive: true);
+      }
+    },
+  );
+
+  test('Sherpa playback snapshots model, language, speaker, and speed', () {
+    const original = TtsConfig(
+      sherpaModelId: 'kokoro-bilingual',
+      sherpaLanguageCode: 'zh',
+      sherpaSpeakerId: '42',
+      sherpaSpeed: 1.25,
+    );
+    final session = sherpaPlaybackSessionForTesting(original);
+
+    expect(session.sherpaModelId, 'kokoro-bilingual');
+    expect(session.sherpaLanguageCode, 'zh');
+    expect(session.sherpaSpeakerId, 42);
+    expect(session.sherpaSpeed, 1.25);
+    expect(session.useRemoteInitialLookahead, isFalse);
+  });
 }
 
 class _RecordingApiService extends ApiService {
@@ -175,6 +277,7 @@ class _RecordingApiService extends ApiService {
     required String text,
     String? voice,
     double? speed,
+    CancelToken? cancelToken,
   }) async {
     lastVoice = voice;
     return (bytes: Uint8List.fromList(const [1, 2, 3]), mimeType: 'audio/mpeg');

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/sherpa/sherpa_runtime.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,10 +10,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler_platform_interface/permission_handler_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:vad/vad.dart';
+import 'package:record/record.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('rejects a Sherpa recorder/worker dependency mismatch', () {
+    final worker = SherpaSttWorker();
+    addTearDown(worker.dispose);
+    check(() => VoiceInputService(sherpaStt: worker)).throws<ArgumentError>();
+  });
 
   // Regression guard for issue #557: on a fresh install iOS reports the mic
   // permission as "denied" (not-determined). checkPermissions() must actively
@@ -128,6 +135,17 @@ void main() {
       check(service.selectedLocaleId).isNull();
     });
 
+    test('force-probes native STT while Sherpa is selected', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+      service.updatePreference(SttPreference.sherpa);
+
+      await service.initialize(forceLocalStt: true);
+
+      check(nativeStt.availabilityLocaleIds).deepEquals([null]);
+      check(service.hasLocalStt).isTrue();
+    });
+
     test(
       'uses a supported system-language variant when auto is unavailable',
       () async {
@@ -170,6 +188,35 @@ void main() {
       check(nativeStt.startLocaleId).equals('pl-PL');
       check(service.selectedLocaleId).equals('pl-PL');
       await service.stopListening();
+    });
+
+    test('waits for an in-flight stop before starting a new session', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+      await service.initialize(forceLocalStt: true);
+      await service.startListening();
+
+      final stopGate = Completer<void>();
+      nativeStt.stopGate = stopGate;
+      final stopping = service.stopListening();
+      await Future<void>.delayed(Duration.zero);
+
+      var restarted = false;
+      final restarting = service.startListening().then((stream) {
+        restarted = true;
+        return stream;
+      });
+      await Future<void>.delayed(Duration.zero);
+      check(restarted).isFalse();
+
+      stopGate.complete();
+      await stopping;
+      await restarting;
+      check(restarted).isTrue();
+
+      nativeStt.stopGate = null;
+      await service.stopListening();
+      await nativeStt.dispose();
     });
 
     test(
@@ -440,6 +487,7 @@ class _FakeNativeSttService extends NativeSttService {
   String? availabilityLocaleId;
   final List<String?> availabilityLocaleIds = <String?>[];
   String? startLocaleId;
+  Completer<void>? stopGate;
 
   void emit(NativeSttEvent event) => _events.add(event);
 
@@ -485,5 +533,7 @@ class _FakeNativeSttService extends NativeSttService {
   }
 
   @override
-  Future<void> stopListening() async {}
+  Future<void> stopListening() async {
+    await stopGate?.future;
+  }
 }

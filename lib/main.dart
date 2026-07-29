@@ -28,6 +28,9 @@ import 'core/services/raster_media_policy.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
 import 'core/services/settings_service.dart';
+import 'core/sherpa/sherpa_catalog.dart';
+import 'core/sherpa/sherpa_model_manager.dart';
+import 'core/sherpa/sherpa_model.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
@@ -436,6 +439,29 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'sherpa-models') {
+        unawaited(NavigationService.router.push<void>(Routes.sherpaModels));
+        return;
+      }
+
+      if (event.id == 'sherpa-stt-model') {
+        unawaited(
+          NavigationService.router.push<void>(
+            Routes.sherpaModelsFor(forTts: false),
+          ),
+        );
+        return;
+      }
+
+      if (event.id == 'sherpa-tts-model') {
+        unawaited(
+          NavigationService.router.push<void>(
+            Routes.sherpaModelsFor(forTts: true),
+          ),
+        );
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;
@@ -551,7 +577,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             _ => double.tryParse('$value'),
           };
           if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+            final notifier = ref.read(appSettingsProvider.notifier);
+            if (ref.read(appSettingsProvider).ttsEngine == TtsEngine.sherpa) {
+              await notifier.setSherpaTtsSpeed(rate);
+            } else {
+              await notifier.setTtsSpeechRate(rate);
+            }
           }
         case 'tts-preview':
           final text = value is String ? value : null;
@@ -595,6 +626,26 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setSttPreference(SttPreference.deviceOnly);
             await _refreshNativeVoiceDetail();
+          } else if (value == SttPreference.sherpa.name) {
+            final activated = await _activateInstalledNativeSherpa(
+              forTts: false,
+            );
+            if (!activated) {
+              try {
+                await NativeSheetBridge.instance.dismiss();
+              } catch (error, stackTrace) {
+                DebugLogger.warning(
+                  'native-sherpa-stt-sheet-dismiss-failed',
+                  scope: 'native/sheet',
+                  data: {'error': error, 'stackTrace': stackTrace},
+                );
+              }
+              unawaited(
+                NavigationService.router.push<void>(
+                  Routes.sherpaModelsFor(forTts: false),
+                ),
+              );
+            }
           }
         case 'stt-language-code':
           if (value is String) {
@@ -614,6 +665,13 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               await _refreshNativeVoiceDetail();
             }
           }
+        case 'sherpa-stt-language-code':
+          if (value is String) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setSherpaSttLanguageCode(value.isEmpty ? null : value);
+            await _refreshNativeVoiceDetail();
+          }
         case 'tts-engine':
           final notifier = ref.read(appSettingsProvider.notifier);
           if (value == TtsEngine.server.name) {
@@ -622,6 +680,26 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           } else if (value == TtsEngine.device.name) {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
+          } else if (value == TtsEngine.sherpa.name) {
+            final activated = await _activateInstalledNativeSherpa(
+              forTts: true,
+            );
+            if (!activated) {
+              try {
+                await NativeSheetBridge.instance.dismiss();
+              } catch (error, stackTrace) {
+                DebugLogger.warning(
+                  'native-sherpa-tts-sheet-dismiss-failed',
+                  scope: 'native/sheet',
+                  data: {'error': error, 'stackTrace': stackTrace},
+                );
+              }
+              unawaited(
+                NavigationService.router.push<void>(
+                  Routes.sherpaModelsFor(forTts: true),
+                ),
+              );
+            }
           }
         case 'theme-light':
           switch (value) {
@@ -760,6 +838,44 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         .hydrateDetail(NativeSheetRoutes.voice);
   }
 
+  Future<bool> _activateInstalledNativeSherpa({required bool forTts}) async {
+    final settings = ref.read(appSettingsProvider);
+    final modelId = forTts
+        ? settings.sherpaTtsModelId
+        : settings.sherpaSttModelId;
+    if (modelId == null) return false;
+
+    try {
+      final installed = await ref
+          .read(sherpaStorageProvider)
+          .installedModel(modelId);
+      final expectedKind = forTts ? SherpaModelKind.tts : SherpaModelKind.stt;
+      final latestSettings = ref.read(appSettingsProvider);
+      final latestModelId = forTts
+          ? latestSettings.sherpaTtsModelId
+          : latestSettings.sherpaSttModelId;
+      if (installed?.model.kind != expectedKind || latestModelId != modelId) {
+        return false;
+      }
+
+      final notifier = ref.read(appSettingsProvider.notifier);
+      if (forTts) {
+        await notifier.setTtsEngineSelection(TtsEngine.sherpa);
+      } else {
+        await notifier.setSttPreference(SttPreference.sherpa);
+      }
+      await _refreshNativeVoiceDetail();
+      return true;
+    } on Object catch (error, stackTrace) {
+      DebugLogger.warning(
+        'native-sherpa-activation-probe-failed',
+        scope: 'native/sheet',
+        data: {'modelId': modelId, 'error': error, 'stackTrace': stackTrace},
+      );
+      return false;
+    }
+  }
+
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {
     if (value is! String) return;
     _nativeSheetDraftValues[id] = value;
@@ -807,6 +923,19 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   }) async {
     final settings = ref.read(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
+
+    if (settings.ttsEngine == TtsEngine.sherpa) {
+      final model = sherpaModelById(settings.sherpaTtsModelId);
+      final speakerId = int.tryParse(voiceKey);
+      if (speakerId == null ||
+          model == null ||
+          !model.speakers.any((speaker) => speaker.id == speakerId)) {
+        return;
+      }
+      await notifier.setSherpaTtsSpeakerId(speakerId.toString());
+      await _refreshNativeVoiceDetail();
+      return;
+    }
 
     if (voiceKey == ttsSystemDefaultVoiceId) {
       if (settings.ttsEngine == TtsEngine.server) {

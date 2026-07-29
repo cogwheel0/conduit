@@ -4494,10 +4494,15 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(cell, item: item, showsDisclosure: true)
 
         default:
+            let sherpaDisclosureIds: Set<String> = [
+                "sherpa-models", "sherpa-stt-model", "sherpa-tts-model",
+            ]
             configureNavigationCell(
                 cell,
                 item: item,
-                showsDisclosure: item.url != nil || canNavigate(item)
+                showsDisclosure: item.url != nil
+                    || canNavigate(item)
+                    || sherpaDisclosureIds.contains(item.id)
             )
         }
     }

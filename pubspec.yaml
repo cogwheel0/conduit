@@ -56,7 +56,7 @@ dependencies:
   flutter_animate: ^4.5.0
   
   # Platform Features
-  vad: ^0.0.8
+  sherpa_onnx: 1.13.4
   record: ^6.2.0
   audio_session: ^0.2.2
   permission_handler: ^12.0.1

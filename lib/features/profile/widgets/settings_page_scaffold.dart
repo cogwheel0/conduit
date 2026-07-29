@@ -2,6 +2,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
@@ -269,9 +270,7 @@ class SettingsPageScaffold extends StatelessWidget {
       backgroundColor: context.conduitTheme.surfaceBackground,
       appBar: AdaptiveAppBar(title: title),
       body: ListView(
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
+        physics: platformAlwaysScrollablePhysics(context),
         padding: EdgeInsets.fromLTRB(
           Spacing.pagePadding,
           topPadding,

@@ -3,15 +3,19 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:vad/vad.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/sherpa/sherpa_vad_recorder.dart';
+import '../../../core/sherpa/sherpa_catalog.dart';
+import '../../../core/sherpa/sherpa_model.dart';
+import '../../../core/sherpa/sherpa_runtime.dart';
+import '../../../core/sherpa/sherpa_storage.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/settings_service.dart';
@@ -34,7 +38,7 @@ class VoiceTranscriptEvent {
   final bool isFinal;
 }
 
-class VoiceInputService {
+class VoiceInputService with WidgetsBindingObserver {
   static const int _vadSampleRate = 16000;
   static const int _vadFrameSamples = 512;
   static const int _minVadRedemptionFrames = 4;
@@ -43,19 +47,12 @@ class VoiceInputService {
           (_vadFrameSamples * 1000) -
           1) ~/
       (_vadFrameSamples * 1000);
-  static const int _vadPreSpeechPadFrames = 16;
-  static const int _vadMinSpeechFrames = 8;
-  static const int _vadEndSpeechPadFrames = 6;
-  static const double _vadPositiveSpeechThreshold = 0.6;
-  static const double _vadNegativeSpeechThreshold = 0.35;
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
   static const String _backgroundSttStreamId = 'voice-input-stt';
-  static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
   static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
   static const Duration _nativeDictationFinalSettleDelay = Duration(
     milliseconds: 900,
   );
-  static const String _bundledVadAssetBasePath = 'assets/vad/';
   static const List<IosAudioCategoryOption> _iosServerVadCategoryOptions = [
     // A2DP is output-only on iOS and can break duplex mic capture when the
     // recorder is trying to open a microphone stream.
@@ -94,7 +91,9 @@ class VoiceInputService {
     );
   }
 
-  VadHandler? _vadHandler;
+  final SherpaVadRecorder _vadRecorder;
+  final SherpaSttWorker _sherpaStt;
+  final SherpaStorage _sherpaStorage;
   final NativeSttService _nativeStt;
   final ApiService? _api;
   final Ref? _ref;
@@ -106,6 +105,12 @@ class VoiceInputService {
   bool _localSttActive = false;
   SttPreference _preference = SttPreference.deviceOnly;
   bool _usingServerStt = false;
+  bool _usingSherpaStt = false;
+  bool _sherpaSttAvailable = false;
+  String? _loadedSherpaSttModelId;
+  String? _loadedSherpaSttLanguageCode;
+  bool _sherpaSttUnloadPending = false;
+  Future<void> _sherpaLifecycleSerial = Future<void>.value();
   bool _usingNativeLocalStt = false;
   bool _nativeAccumulateResultsForCurrentListen = true;
   String? _configuredLocaleId;
@@ -114,6 +119,10 @@ class VoiceInputService {
   bool _usingFallbackLocales = false;
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
+  Future<void>? _stopListeningInFlight;
+  Future<void>? _vadRecordingStartup;
+  int _listenGeneration = 0;
+  int? _stoppingVadGeneration;
   StreamController<String>? _textStreamController;
   StreamController<VoiceTranscriptEvent>? _transcriptEventController;
   String _currentText = '';
@@ -134,11 +143,14 @@ class VoiceInputService {
       const Stream<VoiceTranscriptEvent>.empty();
   Timer? _autoStopTimer;
   StreamSubscription<List<double>>? _vadSpeechEndSub;
-  StreamSubscription<({double isSpeech, double notSpeech, List<double> frame})>?
-  _vadFrameSub;
+  StreamSubscription<List<double>>? _vadFrameSub;
   StreamSubscription<String>? _vadErrorSub;
   StreamSubscription<NativeSttEvent>? _nativeSttSub;
+  StreamSubscription<SherpaSttEvent>? _sherpaSttSub;
   Timer? _nativeDictationSettleTimer;
+  bool _observingLifecycle = false;
+  Future<void>? _disposeFuture;
+  AppLifecycleState? _lifecycleState;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
   @protected
@@ -154,17 +166,55 @@ class VoiceInputService {
       Platform.isIOS &&
       Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
 
-  VoiceInputService({ApiService? api, Ref? ref, NativeSttService? nativeStt})
-    : _api = api,
-      _ref = ref,
-      _nativeStt = nativeStt ?? NativeSttService();
+  VoiceInputService({
+    ApiService? api,
+    Ref? ref,
+    NativeSttService? nativeStt,
+    SherpaVadRecorder? vadRecorder,
+    SherpaSttWorker? sherpaStt,
+    SherpaStorage? sherpaStorage,
+  }) : this._resolved(
+         api: api,
+         ref: ref,
+         nativeStt: nativeStt ?? NativeSttService(),
+         sherpa: _SherpaSpeechDependencies.resolve(
+           vadRecorder: vadRecorder,
+           worker: sherpaStt,
+           storage: sherpaStorage,
+         ),
+       );
+
+  VoiceInputService._resolved({
+    required ApiService? api,
+    required Ref? ref,
+    required NativeSttService nativeStt,
+    required _SherpaSpeechDependencies sherpa,
+  }) : _api = api,
+       _ref = ref,
+       _nativeStt = nativeStt,
+       _vadRecorder = sherpa.recorder,
+       _sherpaStt = sherpa.worker,
+       _sherpaStorage = sherpa.storage;
 
   void updatePreference(SttPreference preference) {
+    final leftSherpa =
+        _preference == SttPreference.sherpa &&
+        preference != SttPreference.sherpa;
     _preference = preference;
+    if (leftSherpa && !_isListening) {
+      unawaited(_unloadSherpaRecognizer());
+    }
   }
 
   Future<bool> initialize({bool forceLocalStt = false}) async {
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
     if (!isSupportedPlatform) return false;
+    if (!_observingLifecycle) {
+      WidgetsBinding.instance.addObserver(this);
+      _observingLifecycle = true;
+    }
     final deviceTag = deviceLocaleTag;
     _ensureFallbackLocale(deviceTag);
     _resolveSelectedLocale(deviceTag);
@@ -176,8 +226,14 @@ class VoiceInputService {
       return true;
     }
 
+    if (_preference == SttPreference.sherpa && !forceLocalStt) {
+      await _prepareSherpaStt();
+      _isInitialized = true;
+      return true;
+    }
+
     final shouldPrepareLocalStt =
-        forceLocalStt || _preference != SttPreference.serverOnly;
+        forceLocalStt || _preference == SttPreference.deviceOnly;
     if (shouldPrepareLocalStt && !_didAttemptLocalInitialization) {
       await _loadLocales(deviceTag);
       await _initializeNativeLocalStt();
@@ -237,7 +293,8 @@ class VoiceInputService {
 
   bool get isListening => _isListening;
   bool get isAvailable =>
-      _isInitialized && (_localSttAvailable || hasServerStt);
+      _isInitialized &&
+      (_localSttAvailable || hasServerStt || _sherpaSttAvailable);
   bool get hasLocalStt => _localSttAvailable;
   bool get isUsingNativeLocalStt => _usingNativeLocalStt;
   bool get lastCompletedTranscriptSendable => _completedTranscriptIsSendable;
@@ -602,6 +659,9 @@ class VoiceInputService {
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
   }) async {
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
     final inFlight = _startListeningInFlight;
     if (inFlight != null) {
       return inFlight;
@@ -625,19 +685,42 @@ class VoiceInputService {
     required bool iosAudioSessionManagedExternally,
     required bool nativeAccumulateResults,
   }) async {
+    final pendingStop = _stopListeningInFlight;
+    if (pendingStop != null) {
+      await pendingStop;
+    }
+    if (_disposeFuture != null) {
+      throw StateError('Voice input service was disposed');
+    }
+    final preparationGeneration = _listenGeneration;
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
+    }
+    if (_preference == SttPreference.sherpa && !_sherpaSttAvailable) {
+      await _prepareSherpaStt();
+      if (_disposeFuture != null ||
+          _listenGeneration != preparationGeneration) {
+        return const Stream<String>.empty();
+      }
     }
 
     if (_startingLocalStt != null) {
       try {
         await _startingLocalStt;
       } catch (_) {}
+      if (_disposeFuture != null ||
+          _listenGeneration != preparationGeneration) {
+        return const Stream<String>.empty();
+      }
     }
 
     if (_isListening) {
       await stopListening();
     }
+    if (_disposeFuture != null) {
+      return const Stream<String>.empty();
+    }
+    final listenGeneration = ++_listenGeneration;
 
     _textStreamController = StreamController<String>.broadcast();
     _transcriptEventController =
@@ -650,6 +733,7 @@ class VoiceInputService {
     _intensityController = StreamController<int>.broadcast();
     _lastIntensity = 0;
     _usingServerStt = false;
+    _usingSherpaStt = false;
     _nativeAccumulateResultsForCurrentListen = nativeAccumulateResults;
 
     // Optional haptic feedback when listening starts
@@ -665,11 +749,11 @@ class VoiceInputService {
     final bool canUseLocal = _localSttAvailable;
     final bool serverAvailable = hasServerStt;
     final bool shouldUseLocal =
-        canUseLocal && _preference != SttPreference.serverOnly;
+        canUseLocal && _preference == SttPreference.deviceOnly;
     final bool shouldUseServer =
-        serverAvailable &&
-        (_preference == SttPreference.serverOnly ||
-            (!shouldUseLocal && _preference != SttPreference.deviceOnly));
+        serverAvailable && _preference == SttPreference.serverOnly;
+    final bool shouldUseSherpa =
+        _sherpaSttAvailable && _preference == SttPreference.sherpa;
 
     if (shouldUseLocal) {
       _autoStopTimer?.cancel();
@@ -694,6 +778,19 @@ class VoiceInputService {
         _reportRecognitionError(error);
         await _stopListening();
       }
+    } else if (shouldUseSherpa) {
+      _usingSherpaStt = true;
+      _autoStopTimer?.cancel();
+      _autoStopTimer = Timer(const Duration(seconds: 90), () {
+        if (_isListening) unawaited(_stopListening());
+      });
+      _launchVadRecording(
+        listenGeneration,
+        () => _startSherpaRecording(
+          generation: listenGeneration,
+          iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+        ),
+      );
     } else if (shouldUseServer) {
       _usingServerStt = true;
       _autoStopTimer?.cancel();
@@ -702,17 +799,13 @@ class VoiceInputService {
           unawaited(_stopListening());
         }
       });
-      Future(() async {
-        try {
-          await _startServerRecording(
-            iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-          );
-        } catch (error) {
-          if (!_isListening) return;
-          _reportRecognitionError(error);
-          await _stopListening();
-        }
-      });
+      _launchVadRecording(
+        listenGeneration,
+        () => _startServerRecording(
+          generation: listenGeneration,
+          iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+        ),
+      );
     } else {
       final Exception error;
       if (prefersDeviceOnly) {
@@ -721,6 +814,10 @@ class VoiceInputService {
         );
       } else if (prefersServerOnly) {
         error = Exception('Server speech-to-text is not configured');
+      } else if (_preference == SttPreference.sherpa) {
+        error = Exception(
+          'The selected Sherpa speech model is unavailable. Repair it or choose another model.',
+        );
       } else {
         error = Exception('Speech recognition not available on this device');
       }
@@ -773,8 +870,45 @@ class VoiceInputService {
     await _stopListening();
   }
 
-  Future<void> _stopListening() async {
-    if (!_isListening) {
+  Future<void> _stopListening() {
+    final inFlight = _stopListeningInFlight;
+    if (inFlight != null) return inFlight;
+
+    final stopFuture = _stopListeningInternal();
+    _stopListeningInFlight = stopFuture;
+    return stopFuture.whenComplete(() {
+      if (identical(_stopListeningInFlight, stopFuture)) {
+        _stopListeningInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _stopListeningInternal() async {
+    final stoppedGeneration = _listenGeneration;
+    final stopGeneration = ++_listenGeneration;
+    final wasListening = _isListening;
+    final wasUsingServerStt = _usingServerStt;
+    final wasUsingSherpaStt = _usingSherpaStt;
+    final wasUsingVad = wasUsingServerStt || wasUsingSherpaStt;
+    final pendingStartup = _vadRecordingStartup;
+    Future<void>? pendingVadStop;
+    if (wasUsingVad) {
+      _stoppingVadGeneration = stoppedGeneration;
+      _isListening = false;
+      pendingVadStop = _stopVadRecording().catchError((_) {});
+    }
+    if (pendingStartup != null) {
+      try {
+        await pendingStartup;
+      } on Object {
+        // Cancellation and startup failures are handled by the launcher.
+      }
+    }
+    await pendingVadStop;
+    if (_stoppingVadGeneration == stoppedGeneration) {
+      _stoppingVadGeneration = null;
+    }
+    if (!wasListening || _listenGeneration != stopGeneration) {
       return;
     }
 
@@ -782,9 +916,7 @@ class VoiceInputService {
     _autoStopTimer = null;
     _cancelNativeDictationSettle();
 
-    if (_usingServerStt) {
-      _isListening = false;
-      await _stopVadRecording();
+    if (wasUsingVad) {
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
       final shouldProcessSamples = _shouldProcessServerSamples(
@@ -793,7 +925,14 @@ class VoiceInputService {
             _transcriptEventController?.hasListener ?? false,
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
-        await _processVadSamples(samples);
+        if (wasUsingSherpaStt) {
+          await _processSherpaSamples(
+            samples,
+            listenGeneration: stopGeneration,
+          );
+        } else {
+          await _processVadSamples(samples);
+        }
       }
     } else {
       final wasUsingNativeLocalStt = _usingNativeLocalStt;
@@ -806,6 +945,7 @@ class VoiceInputService {
         _textStreamController?.add(_currentText);
       }
     }
+    if (_listenGeneration != stopGeneration) return;
 
     _intensityDecayTimer?.cancel();
     _intensityDecayTimer = null;
@@ -814,6 +954,10 @@ class VoiceInputService {
     await _closeControllers();
 
     _usingServerStt = false;
+    _usingSherpaStt = false;
+    if (_preference != SttPreference.sherpa) {
+      await _unloadSherpaRecognizer();
+    }
     await _releaseBackgroundMicrophone();
   }
 
@@ -857,42 +1001,85 @@ class VoiceInputService {
     } catch (_) {}
   }
 
+  void _launchVadRecording(int generation, Future<void> Function() operation) {
+    final startup = operation();
+    _vadRecordingStartup = startup;
+    unawaited(() async {
+      try {
+        await startup;
+      } catch (error) {
+        if (!_isCurrentListeningGeneration(generation)) return;
+        _reportRecognitionError(error);
+        await _stopListening();
+      } finally {
+        if (identical(_vadRecordingStartup, startup)) {
+          _vadRecordingStartup = null;
+        }
+      }
+    }());
+  }
+
+  bool _isCurrentListeningGeneration(int generation) =>
+      _isListening && _listenGeneration == generation;
+
+  void _checkListeningGeneration(int generation) {
+    if (!_isCurrentListeningGeneration(generation)) {
+      throw StateError('Voice recording startup was cancelled');
+    }
+  }
+
   Future<void> _startServerRecording({
+    required int generation,
     required bool iosAudioSessionManagedExternally,
   }) async {
-    // Make sure any previous recorder session is fully stopped before we
-    // dispose/create handlers. This avoids Android VAD races where internal
-    // frame callbacks outlive immediate dispose().
-    await _stopVadRecording();
-    await _disposeVadHandler();
-    _vadPendingSamples = null;
-
-    // Create a fresh VadHandler for this session to avoid reusing any
-    // internal AudioRecorder that may be in a bad state after errors.
-    final vad = VadHandler.create();
-    _vadHandler = vad;
-    await _setupVadStreams(vad);
-    final settings = _ref?.read(appSettingsProvider);
-    final silenceMs =
-        settings?.voiceSilenceDuration ??
-        SettingsService.defaultVoiceSilenceDurationMs;
-    final redemptionFrames = silenceDurationToVadFrames(
-      silenceMs,
-      frameSamples: _vadFrameSamples,
+    // Configuring the shared worker for VAD-only server STT unloads any
+    // recognizer it owns. Clear the cache so a later Sherpa session reloads it.
+    _loadedSherpaSttModelId = null;
+    _loadedSherpaSttLanguageCode = null;
+    _sherpaSttAvailable = false;
+    await _startVadRecording(
+      generation: generation,
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+      feedRecognizer: false,
     );
+  }
 
+  Future<void> _startSherpaRecording({
+    required int generation,
+    required bool iosAudioSessionManagedExternally,
+  }) async {
+    _checkListeningGeneration(generation);
+    await _prepareSherpaStt();
+    _checkListeningGeneration(generation);
+    if (!_sherpaSttAvailable) {
+      throw StateError('The selected Sherpa STT model is unavailable');
+    }
+    await _startVadRecording(
+      generation: generation,
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+      feedRecognizer: true,
+    );
+  }
+
+  Future<void> _startVadRecording({
+    required int generation,
+    required bool iosAudioSessionManagedExternally,
+    required bool feedRecognizer,
+  }) async {
     try {
-      await vad.startListening(
-        frameSamples: _vadFrameSamples,
-        model: 'v5',
-        baseAssetPath: _bundledVadAssetBasePath,
-        minSpeechFrames: _vadMinSpeechFrames,
-        preSpeechPadFrames: _vadPreSpeechPadFrames,
-        redemptionFrames: redemptionFrames,
-        endSpeechPadFrames: _vadEndSpeechPadFrames,
-        positiveSpeechThreshold: _vadPositiveSpeechThreshold,
-        negativeSpeechThreshold: _vadNegativeSpeechThreshold,
-        submitUserSpeechOnPause: true,
+      _checkListeningGeneration(generation);
+      await _stopVadRecording();
+      _checkListeningGeneration(generation);
+      _vadPendingSamples = null;
+      await _setupVadStreams(generation: generation);
+      _checkListeningGeneration(generation);
+      final settings = _ref?.read(appSettingsProvider);
+      final silenceMs =
+          settings?.voiceSilenceDuration ??
+          SettingsService.defaultVoiceSilenceDurationMs;
+      await _vadRecorder.start(
+        minSilenceDuration: silenceMs / 1000,
+        feedRecognizer: feedRecognizer,
         recordConfig: RecordConfig(
           encoder: AudioEncoder.pcm16bits,
           sampleRate: _vadSampleRate,
@@ -910,63 +1097,36 @@ class VoiceInputService {
               : _iosStandaloneServerVadRecordConfig,
         ),
       );
-    } catch (error) {
-      // If starting the audio stream fails (e.g. recorder disposed),
-      // drop this handler so the next session gets a clean instance.
-      if (identical(_vadHandler, vad)) {
-        _vadHandler = null;
-        try {
-          await vad.dispose();
-        } catch (_) {}
-      }
-
-      // Known Android issue: the underlying AudioRecorder can be in a bad
-      // state after audio focus changes triggered by TTS playback. When
-      // this happens and local STT is available, transparently fall back
-      // to on-device STT instead of failing the entire voice turn.
-      final canFallbackToLocal = _localSttAvailable && !prefersServerOnly;
-      if (error is PlatformException &&
-          error.code == 'record' &&
-          (error.message ?? '').contains(
-            'Recorder has not yet been created or has already been disposed.',
-          ) &&
-          canFallbackToLocal &&
-          _isListening) {
-        debugPrint(
-          'VadHandler.startListening failed due to recorder error – '
-          'falling back to local STT.',
+      _checkListeningGeneration(generation);
+    } on Object catch (startupError) {
+      try {
+        await _stopVadRecording();
+      } on Object catch (cleanupError) {
+        DebugLogger.warning(
+          'vad-startup-cleanup-failed',
+          scope: 'voice/stt',
+          data: {'startupError': startupError, 'cleanupError': cleanupError},
         );
-        _usingServerStt = false;
-        try {
-          await _stopVadRecording();
-        } catch (_) {}
-        await _startLocalRecognition(
-          allowOnlineFallback: !prefersDeviceOnly,
-          iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-          nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
-        );
-        return;
       }
-
       rethrow;
     }
   }
 
-  Future<void> _setupVadStreams(VadHandler vad) async {
+  Future<void> _setupVadStreams({required int generation}) async {
     await _vadSpeechEndSub?.cancel();
-    _vadSpeechEndSub = vad.onSpeechEnd.listen((samples) {
-      if (!_isListening || !_usingServerStt) return;
+    _vadSpeechEndSub = _vadRecorder.onSpeechEnd.listen((samples) {
+      final isCurrent = _isCurrentListeningGeneration(generation);
+      if (!isCurrent && _stoppingVadGeneration != generation) return;
+      if (!_usingServerStt && !_usingSherpaStt) return;
       if (samples.isEmpty) return;
       _vadPendingSamples = samples;
-      if (_isListening) {
-        unawaited(_stopListening());
-      }
+      if (isCurrent) unawaited(_stopListening());
     });
 
     await _vadFrameSub?.cancel();
-    _vadFrameSub = vad.onFrameProcessed.listen((frameData) {
-      if (!_isListening) return;
-      final intensity = _intensityFromVadFrame(frameData.frame);
+    _vadFrameSub = _vadRecorder.onFrameProcessed.listen((frame) {
+      if (!_isCurrentListeningGeneration(generation)) return;
+      final intensity = _intensityFromVadFrame(frame);
       _lastIntensity = intensity;
       try {
         _intensityController?.add(_lastIntensity);
@@ -974,40 +1134,23 @@ class VoiceInputService {
     });
 
     await _vadErrorSub?.cancel();
-    _vadErrorSub = vad.onError.listen((message) {
+    _vadErrorSub = _vadRecorder.onError.listen((message) {
+      if (!_isCurrentListeningGeneration(generation)) return;
       _reportRecognitionError(Exception(message));
-      if (_isListening) {
-        unawaited(_stopListening());
-      }
+      unawaited(_stopListening());
     });
   }
 
   Future<void> _stopVadRecording() async {
-    final vad = _vadHandler;
-    if (vad != null) {
-      try {
-        await vad.stopListening();
-      } catch (_) {}
-    }
+    try {
+      await _vadRecorder.stop();
+    } catch (_) {}
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = null;
     await _vadFrameSub?.cancel();
     _vadFrameSub = null;
     await _vadErrorSub?.cancel();
     _vadErrorSub = null;
-  }
-
-  Future<void> _disposeVadHandler() async {
-    final vad = _vadHandler;
-    _vadHandler = null;
-    if (vad != null) {
-      try {
-        // Give the recorder callback loop a brief window to quiesce before
-        // disposing internal stream controllers.
-        await Future<void>.delayed(_vadDisposeCooldown);
-        await vad.dispose();
-      } catch (_) {}
-    }
   }
 
   Future<void> _processVadSamples(List<double> samples) async {
@@ -1040,6 +1183,143 @@ class VoiceInputService {
     } catch (error) {
       _reportRecognitionError(error);
     }
+  }
+
+  Future<void> _prepareSherpaStt() =>
+      _serializeSherpaLifecycle(_prepareSherpaSttNow);
+
+  Future<void> _prepareSherpaSttNow() async {
+    final settings = _ref?.read(appSettingsProvider);
+    final id = settings?.sherpaSttModelId;
+    final languageCode = settings?.sherpaSttLanguageCode;
+    if (id == null) {
+      await _invalidateSherpaRecognizerNow();
+      return;
+    }
+    final model = sherpaModelById(id);
+    if (model == null || model.kind != SherpaModelKind.stt) {
+      await _invalidateSherpaRecognizerNow();
+      return;
+    }
+    final installed = await _sherpaStorage.installedModel(id);
+    if (installed == null) {
+      await _invalidateSherpaRecognizerNow();
+      return;
+    }
+    if (_sherpaSttUnloadPending &&
+        !await _invalidateSherpaRecognizerNow(forceUnload: true)) {
+      return;
+    }
+    if (_loadedSherpaSttModelId != id ||
+        _loadedSherpaSttLanguageCode != languageCode ||
+        !_sherpaStt.isAlive) {
+      _loadedSherpaSttModelId = null;
+      _loadedSherpaSttLanguageCode = null;
+      try {
+        await _sherpaStt.load(installed, languageCode: languageCode);
+      } catch (error) {
+        if (error is SherpaModelLoadException) {
+          try {
+            await _sherpaStorage.markModelBroken(id, error);
+          } catch (cleanupError) {
+            DebugLogger.warning(
+              'sherpa-stt-mark-broken-failed',
+              scope: 'voice/stt',
+              data: {'modelId': id, 'error': cleanupError},
+            );
+          }
+        }
+        DebugLogger.warning(
+          'sherpa-stt-load-failed',
+          scope: 'voice/stt',
+          data: {'modelId': id, 'error': error},
+        );
+        _sherpaSttAvailable = false;
+        return;
+      }
+      _loadedSherpaSttModelId = id;
+      _loadedSherpaSttLanguageCode = languageCode;
+      await _sherpaSttSub?.cancel();
+      _sherpaSttSub = _sherpaStt.events.listen((event) {
+        if (!_isListening || !_usingSherpaStt) return;
+        _handleSherpaResult(event);
+      });
+    }
+    final latestSettings = _ref?.read(appSettingsProvider);
+    if (_preference != SttPreference.sherpa ||
+        latestSettings?.sherpaSttModelId != id ||
+        latestSettings?.sherpaSttLanguageCode != languageCode) {
+      await _invalidateSherpaRecognizerNow();
+      return;
+    }
+    _sherpaSttAvailable = true;
+  }
+
+  Future<void> _unloadSherpaRecognizer() =>
+      _serializeSherpaLifecycle(_unloadSherpaRecognizerNow);
+
+  Future<bool> _invalidateSherpaRecognizerNow({
+    bool forceUnload = false,
+  }) async {
+    final shouldUnload =
+        forceUnload ||
+        _sherpaSttUnloadPending ||
+        _loadedSherpaSttModelId != null;
+    _loadedSherpaSttModelId = null;
+    _loadedSherpaSttLanguageCode = null;
+    _sherpaSttAvailable = false;
+    final subscription = _sherpaSttSub;
+    _sherpaSttSub = null;
+    await subscription?.cancel();
+    if (!shouldUnload) return true;
+    try {
+      await _sherpaStt.unload();
+      _sherpaSttUnloadPending = false;
+      return true;
+    } on Object {
+      // A failed worker will be rebuilt when Sherpa is selected again.
+      _sherpaSttUnloadPending = true;
+      return false;
+    }
+  }
+
+  Future<void> _unloadSherpaRecognizerNow() async {
+    await _invalidateSherpaRecognizerNow(forceUnload: true);
+  }
+
+  Future<void> _serializeSherpaLifecycle(Future<void> Function() operation) {
+    final pending = _sherpaLifecycleSerial.then((_) => operation());
+    _sherpaLifecycleSerial = pending.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return pending;
+  }
+
+  Future<void> _processSherpaSamples(
+    List<double> samples, {
+    required int listenGeneration,
+  }) async {
+    try {
+      final result = await _sherpaStt.finalize(Float32List.fromList(samples));
+      if (_listenGeneration != listenGeneration) return;
+      _handleSherpaResult(result);
+    } catch (error) {
+      if (_listenGeneration != listenGeneration) return;
+      _reportRecognitionError(error);
+    }
+  }
+
+  void _handleSherpaResult(SherpaSttEvent event) {
+    final text = event.text.trim();
+    if (text.isEmpty) return;
+    _currentText = text;
+    _receivedFinalResult = event.isFinal;
+    _completedTranscriptIsSendable = event.isFinal;
+    _textStreamController?.add(text);
+    _transcriptEventController?.add(
+      VoiceTranscriptEvent(text: text, isFinal: event.isFinal),
+    );
   }
 
   /// Converts a silence timeout into VAD frames without shortening the pause.
@@ -1280,16 +1560,94 @@ class VoiceInputService {
     });
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
+    if (_observingLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+      _observingLifecycle = false;
+    }
+    final pendingStart = _startListeningInFlight;
+    if (pendingStart != null) {
+      try {
+        await pendingStart;
+      } on Object {
+        // Startup failures are handled by the normal recognition path.
+      }
+    }
     await stopListening();
     _cancelNativeDictationSettle();
-    await _disposeVadHandler();
+    try {
+      await _vadRecorder.dispose();
+    } catch (_) {}
+    await _sherpaSttSub?.cancel();
+    _sherpaSttSub = null;
+    try {
+      await _sherpaLifecycleSerial;
+      await _sherpaStt.dispose();
+    } catch (_) {}
     await _nativeSttSub?.cancel();
     _nativeSttSub = null;
     try {
       await _nativeStt.stopListening();
     } catch (_) {}
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+    if (state != AppLifecycleState.paused || _isListening) return;
+    unawaited(_serializeSherpaLifecycle(_unloadIdleLargeSherpaRecognizerNow));
+  }
+
+  Future<void> _unloadIdleLargeSherpaRecognizerNow() async {
+    if (_disposeFuture != null ||
+        !_observingLifecycle ||
+        _lifecycleState != AppLifecycleState.paused ||
+        _isListening ||
+        _startListeningInFlight != null ||
+        _stopListeningInFlight != null ||
+        _vadRecordingStartup != null) {
+      return;
+    }
+    final model = sherpaModelById(_loadedSherpaSttModelId);
+    if (model?.tier != SherpaModelTier.large) return;
+    await _invalidateSherpaRecognizerNow(forceUnload: true);
+  }
+}
+
+final class _SherpaSpeechDependencies {
+  const _SherpaSpeechDependencies({
+    required this.recorder,
+    required this.worker,
+    required this.storage,
+  });
+
+  factory _SherpaSpeechDependencies.resolve({
+    required SherpaVadRecorder? vadRecorder,
+    required SherpaSttWorker? worker,
+    required SherpaStorage? storage,
+  }) {
+    if ((vadRecorder == null) != (worker == null)) {
+      throw ArgumentError(
+        'vadRecorder and worker must be injected together so they share '
+        'the same Sherpa STT worker',
+      );
+    }
+    final resolvedStorage = storage ?? SherpaStorage();
+    final resolvedWorker = worker ?? SherpaSttWorker(storage: resolvedStorage);
+    return _SherpaSpeechDependencies(
+      recorder:
+          vadRecorder ??
+          SherpaVadRecorder(worker: resolvedWorker, storage: resolvedStorage),
+      worker: resolvedWorker,
+      storage: resolvedStorage,
+    );
+  }
+
+  final SherpaVadRecorder recorder;
+  final SherpaSttWorker worker;
+  final SherpaStorage storage;
 }
 
 final voiceInputServiceProvider = Provider<VoiceInputService>((ref) {

@@ -31,6 +31,20 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Three labelled segments become crowded quickly. Labels remain
+        // visible while decorative icons yield first on both platforms.
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final useIcons =
+            showIcons &&
+            (options.length < 3 || constraints.maxWidth >= 360 * textScale);
+        return _buildControl(context, useIcons: useIcons);
+      },
+    );
+  }
+
+  Widget _buildControl(BuildContext context, {required bool useIcons}) {
     final platform = Theme.of(context).platform;
     final isCupertino =
         platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
@@ -57,7 +71,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
         },
         children: {
           for (final option in options)
-            option.value: showIcons
+            option.value: useIcons
                 ? ThemeModeSegmentLabel(
                     icon: option.cupertinoIcon,
                     label: option.label,
@@ -81,7 +95,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
         for (final option in options)
           ButtonSegment<T>(
             value: option.value,
-            icon: showIcons ? Icon(option.materialIcon) : null,
+            icon: useIcons ? Icon(option.materialIcon) : null,
             label: Text(option.label),
             enabled: option.enabled,
           ),
