@@ -1137,8 +1137,12 @@ bool _usesAppleTypographyRamp(TargetPlatform platform) {
   };
 }
 
-/// Typography scale that follows the current platform convention:
-/// Cupertino/HIG on Apple platforms and Material 3 elsewhere.
+/// Product typography shared by every platform.
+///
+/// Content and product UI use one stable hierarchy so the same conversation,
+/// sheet, or settings page does not change density between Android and iOS.
+/// Native navigation chrome can opt into the explicit Material or Cupertino
+/// ramps exposed below.
 class AppTypography {
   static const String fontFamily = 'Geist Sans';
   static const String monospaceFontFamily = 'Geist Mono';
@@ -1149,13 +1153,17 @@ class AppTypography {
   static const double letterSpacingWide = 0.0;
   static const double letterSpacingExtraWide = 0.0;
 
-  static _AppTypographyScale get _scale =>
+  // Preserve the previously shipped Apple product hierarchy as the common
+  // baseline. This keeps iOS stable while bringing Android content into parity.
+  static _AppTypographyScale get _scale => _appleScale;
+
+  // Geometry can continue to follow platform conventions without changing the
+  // text hierarchy. Android inputs remain roomier while Cupertino controls keep
+  // their existing compact metrics.
+  static _AppTypographyScale get _platformMetricScale =>
       _usesAppleTypographyRamp(defaultTargetPlatform)
       ? _appleScale
       : _materialScale;
-
-  static bool get usesAppleRamp =>
-      _usesAppleTypographyRamp(defaultTargetPlatform);
 
   static TextStyle _primaryFont(TextStyle style) =>
       style.copyWith(fontFamily: fontFamily);
@@ -1238,17 +1246,22 @@ class AppTypography {
 
   static TextStyle get massive => displaySmallStyle;
 
-  static double get inputVerticalPadding => _scale.inputVerticalPadding;
+  static double get inputVerticalPadding =>
+      _platformMetricScale.inputVerticalPadding;
   static double get compactInputVerticalPadding =>
-      _scale.compactInputVerticalPadding;
+      _platformMetricScale.compactInputVerticalPadding;
   static double get borderlessInputVerticalPadding =>
-      _scale.borderlessInputVerticalPadding;
-  static double get chipHorizontalPadding => _scale.chipHorizontalPadding;
-  static double get chipVerticalPadding => _scale.chipVerticalPadding;
-  static double get badgeHorizontalPadding => _scale.badgeHorizontalPadding;
-  static double get badgeVerticalPadding => _scale.badgeVerticalPadding;
-  static double get badgeLargeSize => _scale.badgeLargeSize;
-  static double get badgeSmallSize => _scale.badgeSmallSize;
+      _platformMetricScale.borderlessInputVerticalPadding;
+  static double get chipHorizontalPadding =>
+      _platformMetricScale.chipHorizontalPadding;
+  static double get chipVerticalPadding =>
+      _platformMetricScale.chipVerticalPadding;
+  static double get badgeHorizontalPadding =>
+      _platformMetricScale.badgeHorizontalPadding;
+  static double get badgeVerticalPadding =>
+      _platformMetricScale.badgeVerticalPadding;
+  static double get badgeLargeSize => _platformMetricScale.badgeLargeSize;
+  static double get badgeSmallSize => _platformMetricScale.badgeSmallSize;
 
   static TextTheme textTheme({
     required Color primary,
@@ -1260,6 +1273,36 @@ class AppTypography {
     tertiary: tertiary,
     fontFamily: fontFamily,
   );
+
+  /// Material typography reserved for genuine Material navigation chrome.
+  static TextTheme materialChromeTextTheme({
+    required Color primary,
+    required Color secondary,
+    required Color tertiary,
+  }) => _materialScale.textTheme(
+    primary: primary,
+    secondary: secondary,
+    tertiary: tertiary,
+    fontFamily: fontFamily,
+  );
+
+  static TextStyle get materialChromeLabelSmallStyle =>
+      _primaryFont(_materialScale.labelSmallStyle);
+
+  /// Apple typography reserved for genuine Cupertino navigation chrome.
+  static TextTheme cupertinoChromeTextTheme({
+    required Color primary,
+    required Color secondary,
+    required Color tertiary,
+  }) => _appleScale.textTheme(
+    primary: primary,
+    secondary: secondary,
+    tertiary: tertiary,
+    fontFamily: fontFamily,
+  );
+
+  static TextStyle get cupertinoChromeMicroStyle =>
+      _primaryFont(_appleScale.microStyle);
 
   static const _AppTypographyScale _materialScale = _AppTypographyScale(
     displayLargeStyle: TextStyle(

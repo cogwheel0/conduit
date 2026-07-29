@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
@@ -147,19 +145,13 @@ class SettingsSelectorTile extends StatelessWidget {
             theme.surfaceBackground,
           )
         : Colors.transparent;
-    final titleStyle =
-        (Platform.isAndroid
-                ? AppTypography.titleMediumStyle
-                : AppTypography.bodyMediumStyle)
-            .copyWith(
-              color: selected ? theme.textPrimary : theme.textSecondary,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            );
-    final subtitleStyle =
-        (Platform.isAndroid
-                ? AppTypography.bodyMediumStyle
-                : AppTypography.labelSmallStyle)
-            .copyWith(color: theme.textSecondary);
+    final titleStyle = AppTypography.bodyMediumStyle.copyWith(
+      color: selected ? theme.textPrimary : theme.textSecondary,
+      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    );
+    final subtitleStyle = AppTypography.bodySmallStyle.copyWith(
+      color: theme.textSecondary,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),

@@ -69,7 +69,6 @@ class ConduitMarkdownStyle {
   factory ConduitMarkdownStyle.fromTheme(BuildContext context) {
     final theme = context.conduitTheme;
     final textTheme = Theme.of(context).textTheme;
-    final textScaler = MediaQuery.textScalerOf(context);
     final tokens = theme.tokens;
     final dark = theme.isDark;
     TextStyle resolveHeadingStyle(
@@ -86,12 +85,6 @@ class ConduitMarkdownStyle {
     final bodyStyle = AppTypography.chatMessageStyle.copyWith(
       color: theme.textPrimary,
     );
-    final bodyLineHeight =
-        textScaler.scale(bodyStyle.fontSize ?? AppTypography.bodyLarge) *
-        (bodyStyle.height ?? 1.0);
-    final paragraphSpacing = AppTypography.usesAppleRamp
-        ? Spacing.md
-        : (bodyLineHeight * 0.5).clamp(Spacing.md, Spacing.lg).toDouble();
 
     // Monospace base for code elements.
     final monoBase =
@@ -148,8 +141,7 @@ class ConduitMarkdownStyle {
       ),
       tableCell: bodyStyle.copyWith(color: theme.textPrimary),
 
-      // Paragraph rhythm follows the active platform ramp.
-      paragraphSpacing: paragraphSpacing,
+      paragraphSpacing: Spacing.md,
       headingTopSpacing: Spacing.md,
       headingBottomSpacing: Spacing.sm,
       listItemSpacing: Spacing.sm,

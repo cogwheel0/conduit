@@ -427,6 +427,37 @@ void main() {
     ).isTrue();
   });
 
+  test('latest button remains eligible while the composer is expanded', () {
+    check(
+      debugShouldRenderScrollToLatestForTesting(
+        requested: true,
+        hasScrollableContent: true,
+        hasMessages: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRenderScrollToLatestForTesting(
+        requested: false,
+        hasScrollableContent: true,
+        hasMessages: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRenderScrollToLatestForTesting(
+        requested: true,
+        hasScrollableContent: false,
+        hasMessages: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRenderScrollToLatestForTesting(
+        requested: true,
+        hasScrollableContent: true,
+        hasMessages: false,
+      ),
+    ).isFalse();
+  });
+
   test('only the first turn settles its pin without animation', () {
     expect(
       debugShouldSettlePinImmediatelyForTesting(transcriptWasEmpty: true),
