@@ -24,11 +24,11 @@ cd conduit
 
 `--recursive` matters. Conduit vendors three submodules:
 
-- `third_party/mermaid` — the native Mermaid renderer packages
+- `third_party/mermaid`: the native Mermaid renderer packages
   (`mermaid_core`, `mermaid_flutter`), referenced by path from `pubspec.yaml`.
   Without it, `flutter pub get` fails.
-- `third_party/katex` — KaTeX assets for math rendering.
-- `openwebui-src` — a vendored Open WebUI checkout used **only** as an API
+- `third_party/katex`: KaTeX assets for math rendering.
+- `openwebui-src`: a vendored Open WebUI checkout used **only** as an API
   reference. It is not built or shipped.
 
 For an existing clone:
@@ -71,7 +71,7 @@ flutter test
 
 `flutter analyze` and `flutter test` are the local gates before handing work
 off. GitHub Actions only runs localization validation (`.github/workflows/l10n.yml`)
-and releases (`.github/workflows/release.yml`) — nothing checks analyzer or test
+and releases (`.github/workflows/release.yml`). Nothing checks analyzer or test
 health on every push, so run them yourself.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
@@ -104,7 +104,7 @@ dart run tool/validate_arb_locales.dart
 dart run tool/verify_arb_descriptions.dart
 ```
 
-Every key in `app_en.arb` needs an `@key` entry with a `description` — that
+Every key in `app_en.arb` needs an `@key` entry with a `description`, and that
 description is the only context a translator gets.
 
 ## Project layout

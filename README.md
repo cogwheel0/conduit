@@ -65,7 +65,7 @@
   >
     <img
       src="https://trendshift.io/api/badge/trendshift/repositories/15397/daily?language=Dart"
-      alt="cogwheel0/conduit — #1 Dart repository of the day on Trendshift"
+      alt="cogwheel0/conduit: #1 Dart repository of the day on Trendshift"
       width="200"
       height="44"
       align="middle"
@@ -94,7 +94,7 @@
 
 <br>
 
-Open WebUI is excellent on the desktop. On mobile it breaks down at the edges —
+Open WebUI is excellent on the desktop. On mobile it breaks down at the edges:
 authentication behind a reverse proxy, streaming that drops when the app
 backgrounds, getting a screenshot into a prompt, starting a chat from the home
 screen. Conduit is a real Flutter app built to close that gap, and as of 4.0 it
@@ -110,7 +110,7 @@ later, and skip any sign-in you don't need.
 
 | | | |
 | --- | --- | --- |
-| **Open WebUI** | Your self-hosted server | Full feature set — chats, folders, notes, channels, workspace, tools, web search, image generation |
+| **Open WebUI** | Your self-hosted server | Full feature set: chats, folders, notes, channels, workspace, tools, web search, image generation |
 | **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
@@ -161,17 +161,17 @@ settings navigation. Sections you don't have permission for simply don't appear.
 | Area | What's included |
 | --- | --- |
 | Files and media | Uploads, re-attaching previously uploaded server files, multimodal prompts, clipboard image paste, audio attachments |
-| Notes | Autosave, pinning, AI-generated titles, AI enhancement, audio recording — available offline |
+| Notes | Autosave, pinning, AI-generated titles, AI enhancement, audio recording, all available offline |
 | Channels | Threads and reactions, when your server enables them |
 | Voice | Voice input with on-device or server speech recognition, plus a full voice-call mode |
 | Home screen | Widgets on iOS and Android for new chat, mic, camera, photos, and clipboard; app quick actions; iOS App Intents and Shortcuts |
 | Sharing | Share-sheet ingestion from other apps straight into a prompt |
 | Terminal | Interactive sessions over WebSocket with a file browser, shown only when your server exposes it |
 | Personalization | Light, dark, and system themes; five accent palettes; adaptive Material and Cupertino UI; haptics |
-| Languages | 13 locales — English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak |
+| Languages | 13 locales: English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak |
 
-Server-dependent features — channels, notes, web search, image generation,
-toggle filters, terminal — appear only when your deployment exposes them.
+Server-dependent features (channels, notes, web search, image generation,
+toggle filters, terminal) appear only when your deployment exposes them.
 
 ## Built for self-hosted reality
 
@@ -234,7 +234,7 @@ then pick how you want to connect.
 
 - Chats, notes, and drafts are stored on your device. Notes and drafts stay
   available without a connection.
-- Credentials use platform secure storage — Keychain on iOS, Keystore on
+- Credentials use platform secure storage: Keychain on iOS, Keystore on
   Android.
 - No third-party analytics or advertising SDKs.
 - Diagnostic logging is local and transient.
@@ -258,7 +258,7 @@ dart run build_runner build
 flutter run -d ios   # or: flutter run -d android
 ```
 
-Clone recursively and run `build_runner` — the Mermaid renderer is a submodule,
+Clone recursively and run `build_runner`. The Mermaid renderer is a submodule,
 and generated Dart files are git-ignored.
 
 ## Contributing
