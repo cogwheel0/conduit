@@ -937,6 +937,15 @@ class SyncEngine extends _$SyncEngine {
   Future<void> reconcileNow() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
+    final ownsProgressStatus = state.phase != SyncPhase.running;
+    if (ownsProgressStatus && ref.mounted) {
+      state = SyncStatus(
+        phase: SyncPhase.running,
+        stage: SyncStage.finalizing,
+        lastSuccessUpdatedAtWatermark: state.lastSuccessUpdatedAtWatermark,
+        lastError: state.lastError,
+      );
+    }
     // Independent try/catch per entity: an unexpected error from the chat
     // reconcile must NOT skip the note reconcile (and vice versa).
     try {
@@ -958,6 +967,16 @@ class SyncEngine extends _$SyncEngine {
         error: error,
         stackTrace: stackTrace,
       );
+    } finally {
+      if (ownsProgressStatus &&
+          ref.mounted &&
+          state.phase == SyncPhase.running &&
+          state.stage == SyncStage.finalizing) {
+        state = SyncStatus(
+          lastSuccessUpdatedAtWatermark: state.lastSuccessUpdatedAtWatermark,
+          lastError: state.lastError,
+        );
+      }
     }
   }
 

@@ -62,6 +62,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   bool _isRefreshingEmptyState = false;
   bool _hasVisiblePaginatedRows = false;
   RefreshIndicatorStatus? _refreshStatus;
+  Timer? _refreshDoneHideTimer;
 
   @override
   void initState() {
@@ -201,6 +202,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildRefreshableScrollableSlivers({required List<Widget> slivers}) {
     final refreshStatus = _refreshStatus;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
     final showRefreshSlot =
         refreshStatus != null &&
         refreshStatus != RefreshIndicatorStatus.canceled;
@@ -209,7 +211,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
     final refreshIndicator = switch (refreshStatus) {
       RefreshIndicatorStatus.drag || RefreshIndicatorStatus.armed => Icon(
-        Icons.arrow_downward_rounded,
+        usesCupertinoChrome
+            ? CupertinoIcons.arrow_down
+            : Icons.arrow_downward_rounded,
         key: const ValueKey<String>('chats-refresh-pull'),
         size: IconSize.sm,
         color: context.conduitTheme.textSecondary,
@@ -218,18 +222,25 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         key: const ValueKey<String>('chats-refresh-progress'),
         width: IconSize.sm,
         height: IconSize.sm,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          semanticsLabel: MaterialLocalizations.of(
+        child: Semantics(
+          label: MaterialLocalizations.of(
             context,
           ).refreshIndicatorSemanticLabel,
-          valueColor: AlwaysStoppedAnimation<Color>(
-            context.conduitTheme.loadingIndicator,
-          ),
+          child: usesCupertinoChrome
+              ? CupertinoActivityIndicator(
+                  radius: IconSize.sm / 2,
+                  color: context.conduitTheme.loadingIndicator,
+                )
+              : CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    context.conduitTheme.loadingIndicator,
+                  ),
+                ),
         ),
       ),
       RefreshIndicatorStatus.done => Icon(
-        Icons.check_rounded,
+        usesCupertinoChrome ? CupertinoIcons.check_mark : Icons.check_rounded,
         key: const ValueKey<String>('chats-refresh-done'),
         size: IconSize.sm,
         color: context.conduitTheme.loadingIndicator,
@@ -284,10 +295,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     final refreshableScroll = RefreshIndicator.noSpinner(
       onRefresh: _refreshChats,
-      onStatusChange: (status) {
-        if (!mounted || _refreshStatus == status) return;
-        setState(() => _refreshStatus = status);
-      },
+      onStatusChange: _handleRefreshStatusChange,
       child: scroll,
     );
 
@@ -299,6 +307,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     }
 
     return Scrollbar(controller: _listController, child: refreshableScroll);
+  }
+
+  void _handleRefreshStatusChange(RefreshIndicatorStatus? status) {
+    if (!mounted || _refreshStatus == status) return;
+    _refreshDoneHideTimer?.cancel();
+    setState(() => _refreshStatus = status);
+    if (status != RefreshIndicatorStatus.done) return;
+
+    final hideDelay = context.motionDuration(const Duration(milliseconds: 450));
+    _refreshDoneHideTimer = Timer(hideDelay, () {
+      if (!mounted || _refreshStatus != RefreshIndicatorStatus.done) return;
+      setState(() => _refreshStatus = null);
+    });
   }
 
   Widget _buildPaginationFooter() {
@@ -404,6 +425,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   @override
   void dispose() {
     _debounce?.cancel();
+    _refreshDoneHideTimer?.cancel();
     _listController.removeListener(_onListScrolled);
     _sidebarSearchController.removeListener(_onSearchChanged);
     _listController.dispose();

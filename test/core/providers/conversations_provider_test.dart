@@ -1015,6 +1015,41 @@ void main() {
         );
       },
     );
+
+    test(
+      'manual refresh restores a server title changed without a timestamp bump',
+      () async {
+        await seedServerChat('retitled', updatedAt: 100);
+        await db.syncMetaDao.setPullWatermark(200);
+        final server = FakeOpenWebUiServer();
+        server.seedChat(
+          id: 'retitled',
+          blob: <String, dynamic>{
+            'title': 'Generated on server',
+            'history': <String, dynamic>{
+              'messages': <String, dynamic>{},
+              'currentId': null,
+            },
+          },
+          createdAt: 100,
+          updatedAt: 100,
+        );
+        final client = FakeSyncApiClient(server);
+        final container = makeContainer(
+          extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
+        );
+        await container.read(conversationsProvider.future);
+
+        await container.read(conversationsProvider.notifier).refresh();
+
+        await waitFor(
+          () =>
+              container.read(conversationsProvider).requireValue.single.title ==
+              'Generated on server',
+        );
+        check((await db.chatsDao.getChat('retitled'))!.updatedAt).equals(100);
+      },
+    );
   });
 
   group('folderConversationSummariesProvider', () {

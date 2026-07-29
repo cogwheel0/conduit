@@ -105,6 +105,19 @@ class ChatListEntry {
   final int? lastReadAt;
 }
 
+/// Minimal local envelope used by full-list server reconciliation.
+class ServerChatReconcileEntry {
+  const ServerChatReconcileEntry({
+    required this.id,
+    required this.title,
+    required this.dirty,
+  });
+
+  final String id;
+  final String title;
+  final bool dirty;
+}
+
 /// Chat row accessor (CDT-RFC-001 §6, §7.4, §10).
 @DriftAccessor(tables: [Chats, Messages])
 class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
@@ -224,16 +237,24 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return (select(chats)..where((t) => t.id.equals(chatId))).getSingleOrNull();
   }
 
-  /// NARROW id-only projection (REQ §10.2) of every non-tombstoned chat that
+  /// NARROW envelope projection (REQ §10.2) of every non-tombstoned chat that
   /// carries a SERVER id (`id NOT LIKE 'local:%'`). Used by the §7.5 full-ID
-  /// deletion reconcile to diff local server-keyed chats against the complete
-  /// server id set. `local:` rows (never reached the server) are excluded.
-  Future<List<String>> allServerChatIds() async {
+  /// reconcile to diff ids and recover titles missed by the watermark pull.
+  /// `local:` rows (never reached the server) are excluded.
+  Future<List<ServerChatReconcileEntry>> allServerChatReconcileEntries() async {
     final query = selectOnly(chats)
-      ..addColumns([chats.id])
+      ..addColumns([chats.id, chats.title, chats.dirty])
       ..where(chats.deleted.equals(false) & chats.id.like('local:%').not());
     final rows = await query.get();
-    return rows.map((row) => row.read(chats.id)!).toList(growable: false);
+    return rows
+        .map(
+          (row) => ServerChatReconcileEntry(
+            id: row.read(chats.id)!,
+            title: row.read(chats.title)!,
+            dirty: row.read(chats.dirty)!,
+          ),
+        )
+        .toList(growable: false);
   }
 
   /// Transactional server write (fast-forward replace, RFC §7.4 line 2 — no
