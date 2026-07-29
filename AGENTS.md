@@ -4,7 +4,7 @@ Conduit is a native Flutter client for iOS and Android that connects to self-hos
 
 # Build, codegen, and verification
 
-Use the README command blocks as the baseline:
+Use the `docs/BUILDING.md` command blocks as the baseline:
 
 ```bash
 flutter pub get

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>The native Open WebUI client for iOS and Android.</strong>
+  <strong>A native mobile client for Open WebUI, your own model endpoints, and self-hosted agents.</strong>
 </p>
 
 <p align="center">
@@ -48,36 +48,42 @@
 </p>
 
 <p align="center">
-  <sub>OSS support and project momentum</sub>
+  <a href="https://vercel.com/blog/vercel-open-source-program-fall-2025-cohort#conduit">
+    <img
+      alt="Vercel OSS Program"
+      src="https://vercel.com/oss/program-badge.svg"
+      width="240"
+      height="24"
+      align="middle"
+    />
+  </a>
+  &nbsp;
+  <a
+    href="https://trendshift.io/repositories/15397?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-15397"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    <img
+      src="https://trendshift.io/api/badge/trendshift/repositories/15397/daily?language=Dart"
+      alt="cogwheel0/conduit — #1 Dart repository of the day on Trendshift"
+      width="200"
+      height="44"
+      align="middle"
+    />
+  </a>
 </p>
 
 <p align="center">
-      <a href="https://vercel.com/blog/vercel-open-source-program-fall-2025-cohort#conduit">
-        <img
-          alt="Vercel OSS Program"
-          src="https://vercel.com/oss/program-badge.svg"
-          height="25"
-        />
-      </a>
-      <br></br>
-      <a href="https://trendshift.io/repositories/15397" target="_blank">
-        <img
-          src="https://trendshift.io/api/badge/repositories/15397"
-          alt="cogwheel0%2Fconduit | Trendshift"
-          height="56"
-        />
-      </a>
+  <a href="#three-ways-to-connect">Connect</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#what-you-get">Features</a> ·
+  <a href="#getting-started">Getting Started</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="docs/BUILDING.md">Build from Source</a>
 </p>
 
-<p align="center">
-  <a href="#why-conduit">Why Conduit</a> |
-  <a href="#feature-snapshot">Feature Snapshot</a> |
-  <a href="#screenshots">Screenshots</a> |
-  <a href="#quickstart">Quickstart</a> |
-  <a href="#build-from-source">Build from Source</a> |
-  <a href="#architecture">Architecture</a>
-</p>
 <br>
+
 <p align="center">
   <img
     src="https://github.com/user-attachments/assets/8531f859-a2c4-4e61-877e-9885d1413f4e"
@@ -85,229 +91,204 @@
     width="360"
   />
 </p>
+
 <br>
 
-## Why Conduit
+Open WebUI is excellent on the desktop. On mobile it breaks down at the edges —
+authentication behind a reverse proxy, streaming that drops when the app
+backgrounds, getting a screenshot into a prompt, starting a chat from the home
+screen. Conduit is a real Flutter app built to close that gap, and as of 4.0 it
+works with or without an Open WebUI server at all.
 
-Open WebUI is excellent on the desktop, but mobile usually breaks down at the
-edges: authentication, streaming stability, sharing content into a prompt, and
-working quickly from the home screen. Conduit is built to close that gap with a
-native client that respects self-hosted deployments and still feels polished
-enough for daily use.
+Your chats live on your device first. Nothing routes through a backend the
+maintainer operates.
 
-## Feature Snapshot
+## Three ways to connect
 
-| Area | Included |
-| --- | --- |
-| Chat | Real-time streaming, model selection, temporary chats, conversation search, and folder management |
-| Direct connections | Multiple OpenAI-compatible or Ollama profiles, Chat Completions or Responses, LM Studio and Azure-compatible settings, custom headers, model prefixes and tags, manual model IDs, image prompts, reasoning, usage, stop, and regenerate without requiring an Open WebUI backend |
-| AI workflows | File and image uploads, re-attaching previously uploaded server files, multimodal prompts, server-side tools, saved prompts with variables, model-specific toggle filters, and optional web search or image generation when supported by your server |
-| Authentication | Username and password, LDAP, JWT, custom headers, SSO/OAuth, and reverse proxy login flows |
-| Productivity | Notes with autosave, pinning, AI-generated titles, AI enhancement, audio attachments, channels with threads and reactions when enabled by the server, and sharing from other apps |
-| Rendering | Syntax-highlighted code, LaTeX, Mermaid, Chart.js, citations, follow-up suggestions, reasoning blocks, tool-call details, and code execution rendering |
-| Mobile UX | Voice input, full voice-call mode, home screen widgets, app quick actions, clipboard image paste, haptics, and adaptive Material/Cupertino UI |
-| Personalization | Light, dark, and system themes plus a localized interface across 13 supported locales |
-| Privacy | Native secure storage, no third-party analytics or ads, and no developer-operated backend relaying your data |
-| Terminal | Interactive terminal sessions over WebSocket with a file browser, shown only when your server exposes the terminal integration |
+On first launch Conduit asks how you want to connect. Pick one, add the others
+later, and skip any sign-in you don't need.
 
-## Built for Self-Hosted Reality
+| | | |
+| --- | --- | --- |
+| **Open WebUI** | Your self-hosted server | Full feature set — chats, folders, notes, channels, workspace, tools, web search, image generation |
+| **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
+| **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
-- Handles direct Open WebUI sign-in as well as OAuth and SSO providers exposed
-  by your deployment.
-- Works with reverse proxy setups such as `oauth2-proxy`, Authelia,
-  Authentik, Pangolin, and Cloudflare Tunnel by capturing the right cookies and
-  session state on-device.
-- Supports custom headers during connection setup for environments that depend
-  on keys like `X-API-Key`, `Authorization`, or organization routing headers.
-- Keeps credentials in Keychain or Keystore instead of plain-text local
-  storage.
-- Uses WebSocket-backed streaming for fast token-by-token responses and better
-  long-running chat reliability.
-- Surfaces optional server capabilities such as notes, channels, web search,
-  and image generation only when your Open WebUI deployment exposes them.
-- Can connect directly to OpenAI-compatible APIs—including LM Studio—and
-  native Ollama endpoints. OpenAI-family profiles can use Chat Completions or
-  Responses, Bearer or API-key headers, and an optional Azure API version.
-  Completion traffic travels from your device to that provider. New chat
-  history can use Open WebUI when one is signed in, or remain on this device.
+**Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
+Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
+OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
+one. Direct connections you already configured in Open WebUI come along
+automatically. Keys and custom headers stay in platform secure storage.
 
-## Assistant Output That Holds Up on Mobile
-
-Conduit renders more than plain chat bubbles. The app includes native Flutter
-surfaces for:
-
-- syntax-highlighted code blocks with copy and preview affordances
-- Mermaid diagrams and Chart.js embeds
-- LaTeX and math rendering
-- expandable reasoning, tool-call, and code-execution sections
-- inline citations, source cards, and follow-up suggestions
-
-## Platform Integrations
-
-- Home screen widgets on iOS and Android with new chat, microphone, camera,
-  photos, and clipboard entry points
-- App quick actions for starting a new chat or jumping straight into voice call
-- iOS App Intents and Shortcuts for opening chat, sending text, URLs, images,
-  and starting a voice call
-- Share-sheet ingestion and clipboard image paste to move content into a prompt
-  without manual file juggling
+**Hermes Agent** connects to your own Hermes server. You watch its tools work
+live, approve sensitive steps before they run, and let scheduled agents run
+while you sleep. Conversations and schedules get their own tab, and Conduit only
+exposes the capabilities your server actually reports.
 
 ## Screenshots
 
-| Chat | Models | Navigation | Settings |
+| Chat | Sidebar | Themes | Settings |
 | --- | --- | --- | --- |
-| <img src="docs/screenshots/1.png" alt="Conduit conversation screen" width="200" /> | <img src="docs/screenshots/2.png" alt="Conduit model selection screen" width="200" /> | <img src="docs/screenshots/3.png" alt="Conduit navigation screen" width="200" /> | <img src="docs/screenshots/4.png" alt="Conduit settings screen" width="200" /> |
+| <img src="docs/screenshots/1.png" alt="A conversation with a generated image and streaming response" width="200" /> | <img src="docs/screenshots/2.png" alt="Sidebar with pinned chats, folders, and recent conversations" width="200" /> | <img src="docs/screenshots/3.png" alt="Accent palette picker with Conduit, Claude, T3 Chat, Catppuccin, and Tangerine themes" width="200" /> | <img src="docs/screenshots/4.png" alt="Customization settings for display, language, and speech to text" width="200" /> |
 
-## Quickstart
+## What you get
 
-If you just want to use Conduit, install it from the App Store or Google Play,
-then choose either an Open WebUI server or a direct model connection.
+### Chat that survives mobile
 
-For Open WebUI:
+Token-by-token streaming over WebSocket. The transcript holds its place while a
+response grows, pinned prompts stay put, and long conversations load without
+stalling the UI. Search across conversations, organize with folders, pin what
+matters, or start a temporary chat that leaves nothing behind.
+
+### Rendering that holds up on a phone
+
+Native Flutter surfaces, not a web view wrapped in a shell:
+
+- syntax-highlighted code blocks with copy and preview
+- Mermaid diagrams rendered natively
+- LaTeX and math
+- expandable reasoning, tool-call, and code-execution sections
+- inline citations, source cards, and follow-up suggestions
+- Chart.js embeds
+
+### A real Workspace
+
+Models, knowledge, prompts, tools, and skills as native screens with unified
+settings navigation. Sections you don't have permission for simply don't appear.
+
+### Everything else
+
+| Area | What's included |
+| --- | --- |
+| Files and media | Uploads, re-attaching previously uploaded server files, multimodal prompts, clipboard image paste, audio attachments |
+| Notes | Autosave, pinning, AI-generated titles, AI enhancement, audio recording — available offline |
+| Channels | Threads and reactions, when your server enables them |
+| Voice | Voice input with on-device or server speech recognition, plus a full voice-call mode |
+| Home screen | Widgets on iOS and Android for new chat, mic, camera, photos, and clipboard; app quick actions; iOS App Intents and Shortcuts |
+| Sharing | Share-sheet ingestion from other apps straight into a prompt |
+| Terminal | Interactive sessions over WebSocket with a file browser, shown only when your server exposes it |
+| Personalization | Light, dark, and system themes; five accent palettes; adaptive Material and Cupertino UI; haptics |
+| Languages | 13 locales — English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak |
+
+Server-dependent features — channels, notes, web search, image generation,
+toggle filters, terminal — appear only when your deployment exposes them.
+
+## Built for self-hosted reality
+
+Most mobile clients assume a plain login form. Real deployments rarely look like
+that.
+
+- **Every auth path Open WebUI offers**: username and password, LDAP, manual JWT
+  entry, SSO and OAuth providers.
+- **Reverse proxies actually work**: `oauth2-proxy`, Authelia, Authentik,
+  Pangolin, and Cloudflare Tunnel, by capturing the right cookies and session
+  state on-device.
+- **Custom headers during setup** for environments that require `X-API-Key`,
+  `Authorization`, or organization routing headers.
+- **Credentials in Keychain or Keystore**, never plain-text local storage.
+- **Tracks upstream**: Conduit supports Open WebUI 0.11.
+
+## Getting started
+
+Install from the [App Store](https://apps.apple.com/us/app/conduit-open-webui-client/id6749840287)
+or [Google Play](https://play.google.com/store/apps/details?id=app.cogwheel.conduit),
+then pick how you want to connect.
+
+<details open>
+<summary><strong>Open WebUI</strong></summary>
 
 1. Launch Conduit and choose Open WebUI.
-2. Enter the base URL for your Open WebUI instance.
+2. Enter your instance's base URL.
 3. Add any required custom headers.
 4. Sign in with username and password, LDAP, JWT, SSO, or proxy auth.
 5. Pick a model and start chatting.
 
-For a direct connection:
+</details>
+
+<details>
+<summary><strong>Direct connection</strong></summary>
 
 1. Launch Conduit and choose Direct connection.
-2. Add an OpenAI-compatible or Ollama profile, including its base URL and any
-   required API key or custom headers.
-3. Test the connection, enable it, and select one of its discovered or manual
-   models.
-4. Choose whether new direct chats should use Open WebUI history when available
-   or remain only on this device. Existing chats keep their current location.
-5. Start chatting. An Open WebUI account is not required.
+2. Add an OpenAI-compatible or Ollama profile with its base URL and any API key
+   or custom headers.
+3. Test the connection, enable it, and select a discovered or manually entered
+   model.
+4. Choose whether new direct chats use Open WebUI history when one is signed in,
+   or stay only on this device. Existing chats keep their current location.
+5. Start chatting. No Open WebUI account required.
 
-Features such as channels, notes, web search, image generation, and toggle
-filters appear when they are available on the connected server.
+</details>
 
-## Build from Source
+<details>
+<summary><strong>Hermes Agent</strong></summary>
 
-### Requirements
+1. Launch Conduit and choose Hermes Agent.
+2. Enter your Hermes server URL and `API_SERVER_KEY`.
+3. Optionally set a memory key to scope the agent's long-term memory to you. One
+   is generated automatically on first chat if you leave it blank.
+4. Open the Hermes tab for conversations and scheduled agents.
 
-- A recent Flutter SDK with Dart `3.9` or newer
-- Java 17 for Android builds
-- Android 7.0+ (API 24) or iOS 16.0+
-- An Open WebUI instance, an OpenAI-compatible API, or an Ollama endpoint
-- Xcode for iOS builds or Android Studio / Android SDK for Android builds
+</details>
 
-### Run locally
+## Privacy
+
+- Chats, notes, and drafts are stored on your device. Notes and drafts stay
+  available without a connection.
+- Credentials use platform secure storage — Keychain on iOS, Keystore on
+  Android.
+- No third-party analytics or advertising SDKs.
+- Diagnostic logging is local and transient.
+- No developer-operated backend relays your data. Traffic goes from your device
+  to the server or provider you configured, and nowhere else.
+- Signing out lets you choose what stays behind. Clearing everything clears
+  on-device chats too, and fails safely rather than half-deleting.
+
+Full details in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+
+## Build from source
+
+See **[docs/BUILDING.md](docs/BUILDING.md)** for requirements, submodules,
+codegen, verification, project layout, and troubleshooting.
 
 ```bash
 git clone --recursive https://github.com/cogwheel0/conduit.git
 cd conduit
 flutter pub get
 dart run build_runner build
-flutter run -d ios
-# or
-flutter run -d android
+flutter run -d ios   # or: flutter run -d android
 ```
 
-The `--recursive` flag pulls the Mermaid and KaTeX renderer submodules required
-to build the app, plus `openwebui-src`, a vendored Open WebUI checkout used only
-as an API reference. For an existing clone, run
-`git submodule update --init --recursive` before `flutter pub get`.
+Clone recursively and run `build_runner` — the Mermaid renderer is a submodule,
+and generated Dart files are git-ignored.
 
-### Developer checks
+## Contributing
 
-```bash
-flutter pub get
-dart run build_runner build
-flutter test
-```
+Conduit is actively developed and feedback is welcome.
 
-### Release builds
+- Bugs → [GitHub Issues](https://github.com/cogwheel0/conduit/issues)
+- Features, deployment notes, questions →
+  [GitHub Discussions](https://github.com/cogwheel0/conduit/discussions)
 
-```bash
-# Android
-flutter build apk --release
-flutter build appbundle --release
+Unsolicited pull requests are not the primary contribution path right now. Open
+an issue or discussion first so changes line up with the roadmap.
 
-# iOS
-flutter build ios --release
-```
+## Enterprise and white-label
 
-## Localization
+For private distribution, internal deployment support, or a custom
+enterprise/white-label build, open a discussion or reach the maintainer at
+[cogwheel@cogwheel.app](mailto:cogwheel@cogwheel.app).
 
-Conduit currently ships localized UI strings for English, German, Spanish,
-French, Italian, Japanese, Korean, Dutch, Russian, Simplified Chinese,
-Traditional Chinese, Czech, and Slovak.
+## Support
 
-## Architecture
-
-Conduit is a Flutter application organized around feature modules and shared
-platform services. It uses Riverpod 3 with code generation for state management
-and GoRouter for navigation, with persistent local storage and secure
-credential handling built into the core layer.
-
-### Stack
-
-- Flutter for the UI layer
-- Riverpod 3 and `riverpod_generator` for state and dependency wiring
-- GoRouter for navigation
-- Dio plus socket transport for API and streaming
-- Drift (SQLite) for structured local data, with shared preferences for settings
-- Flutter Secure Storage for credentials
-
-### Project layout
-
-```text
-lib/
-  core/         auth, routing, models, persistence, platform services
-  features/
-    auth/       server setup, login, SSO, and proxy auth
-    chat/       conversations, attachments, tools, streaming, voice call
-    channels/   channel browsing and messaging
-    navigation/ chat shell, drawer, and responsive navigation
-    notes/      note editor and AI-assisted note workflows
-    profile/    theme, preferences, and app customization
-    prompts/    prompt helpers and prompt variable UI
-    tools/      tool integration surfaces
-  shared/       reusable widgets, theme tokens, and task infrastructure
-```
-
-<details>
-<summary>Platform permissions</summary>
-
-- Android requests microphone, camera, and optional location permissions for
-  voice input, image capture, and location sharing; attachments use the system
-  photo picker, so no broad storage permission is needed.
-- iOS requests microphone, speech recognition, camera, photo library, and
-  optional location-when-in-use access for voice, attachment, and location
-  sharing workflows.
-
-</details>
-
-<details>
-<summary>Troubleshooting</summary>
-
-- If streaming stalls, verify WebSocket support is enabled on your Open WebUI
-  deployment. The upstream guidance requires
-  `ENABLE_WEBSOCKET_SUPPORT="true"`.
-- If iOS device builds fail, run `cd ios && pod install` and confirm signing is
-  configured in Xcode.
-- If Android builds fail, confirm your Java and Gradle toolchain, then try
-  `flutter clean`.
-- If code generation fails, rerun `dart run build_runner build`.
-
-</details>
-
-## Security and Privacy
-
-- Preferences stay on-device and credentials use platform secure storage.
-- Conduit does not include third-party analytics or advertising SDKs.
-- Diagnostic logging is local and transient, and Conduit does not relay your
-  data through developer-operated backend infrastructure.
-- Additional details are documented in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+If Conduit is useful to you, you can support development through
+[GitHub Sponsors](https://github.com/sponsors/cogwheel0) or
+[Buy Me a Coffee](https://www.buymeacoffee.com/cogwheel0).
 
 ## Acknowledgements
 
-- This project is tested with BrowserStack.
-- Code review for Conduit is provided by <a href="http://macroscope.com/?utm_source=open_source&utm_term=conduit">
+- Supported by the [Vercel OSS Program](https://vercel.com/blog/vercel-open-source-program-fall-2025-cohort#conduit).
+- Tested with BrowserStack.
+- Code review provided by <a href="http://macroscope.com/?utm_source=open_source&utm_term=conduit">
     <picture>
       <source
         media="(prefers-color-scheme: dark)"
@@ -322,34 +303,8 @@ lib/
     </picture>
   </a>.
 
-## Contributing
-
-Conduit is actively developed and feedback is welcome.
-
-- Report bugs in [GitHub Issues](https://github.com/cogwheel0/conduit/issues).
-- Start product and feature discussions in
-  [GitHub Discussions](https://github.com/cogwheel0/conduit/discussions).
-- Share deployment notes, questions, or ideas in
-  [GitHub Discussions](https://github.com/cogwheel0/conduit/discussions).
-
-At the moment, unsolicited pull requests are not the primary contribution path.
-Open an issue or discussion first so changes can line up with the current
-roadmap.
-
-## Enterprise and White-Label
-
-If you need private distribution, internal deployment support, or a custom
-enterprise/white-label build, open a discussion or contact the maintainer at
-[cogwheel@cogwheel.app](mailto:cogwheel@cogwheel.app).
-
-## Support
-
-If Conduit is useful to you, you can support ongoing development through
-[GitHub Sponsors](https://github.com/sponsors/cogwheel0) or
-[Buy Me a Coffee](https://www.buymeacoffee.com/cogwheel0).
-
 ## License
 
-Conduit is released under the [GPL-3.0 License](LICENSE).
+Released under the [GPL-3.0 License](LICENSE).
 
 Conduit is an independent client and is not affiliated with Open WebUI.
