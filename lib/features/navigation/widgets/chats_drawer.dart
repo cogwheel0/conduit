@@ -15,7 +15,6 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -62,6 +61,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   bool _isLoadingMoreConversations = false;
   bool _isRefreshingEmptyState = false;
   bool _hasVisiblePaginatedRows = false;
+  RefreshIndicatorStatus? _refreshStatus;
 
   @override
   void initState() {
@@ -200,11 +200,73 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   // Legacy helper removed: drawer now uses slivers with lazy delegates.
 
   Widget _buildRefreshableScrollableSlivers({required List<Widget> slivers}) {
-    // Top inset matches Notes tab pinned header row (`EdgeInsets` top 8).
+    final refreshStatus = _refreshStatus;
+    final showRefreshSlot =
+        refreshStatus != null &&
+        refreshStatus != RefreshIndicatorStatus.canceled;
+    final motionDuration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
+    final refreshIndicator = switch (refreshStatus) {
+      RefreshIndicatorStatus.drag || RefreshIndicatorStatus.armed => Icon(
+        Icons.arrow_downward_rounded,
+        key: const ValueKey<String>('chats-refresh-pull'),
+        size: IconSize.sm,
+        color: context.conduitTheme.textSecondary,
+      ),
+      RefreshIndicatorStatus.snap || RefreshIndicatorStatus.refresh => SizedBox(
+        key: const ValueKey<String>('chats-refresh-progress'),
+        width: IconSize.sm,
+        height: IconSize.sm,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          semanticsLabel: MaterialLocalizations.of(
+            context,
+          ).refreshIndicatorSemanticLabel,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            context.conduitTheme.loadingIndicator,
+          ),
+        ),
+      ),
+      RefreshIndicatorStatus.done => Icon(
+        Icons.check_rounded,
+        key: const ValueKey<String>('chats-refresh-done'),
+        size: IconSize.sm,
+        color: context.conduitTheme.loadingIndicator,
+      ),
+      RefreshIndicatorStatus.canceled || null => const SizedBox.shrink(
+        key: ValueKey<String>('chats-refresh-idle'),
+      ),
+    };
+
+    // Reserve a compact gutter while pulling/refreshing so progress sits in
+    // the list flow instead of painting over the first conversation tile.
     // Bottom inset keeps the last row clear of the native bottom tab bar.
     final paddedSlivers = <Widget>[
       SliverToBoxAdapter(
-        child: SizedBox(height: sidebarTabContentTopPadding(context)),
+        child: AnimatedContainer(
+          key: const ValueKey<String>('chats-refresh-slot'),
+          duration: motionDuration,
+          curve: Curves.easeOutCubic,
+          height:
+              sidebarTabContentTopPadding(context) +
+              (showRefreshSlot ? Spacing.xl : 0),
+          alignment: Alignment.bottomCenter,
+          padding: EdgeInsets.only(bottom: showRefreshSlot ? Spacing.sm : 0),
+          child: AnimatedSwitcher(
+            duration: motionDuration,
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.86, end: 1).animate(animation),
+                child: child,
+              ),
+            ),
+            child: refreshIndicator,
+          ),
+        ),
       ),
       ...slivers,
       // Bottom padding for the tab bar and a little breathing room.
@@ -220,9 +282,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers: paddedSlivers,
     );
 
-    final refreshableScroll = ConduitRefreshIndicator(
-      edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
+    final refreshableScroll = RefreshIndicator.noSpinner(
       onRefresh: _refreshChats,
+      onStatusChange: (status) {
+        if (!mounted || _refreshStatus == status) return;
+        setState(() => _refreshStatus = status);
+      },
       child: scroll,
     );
 
