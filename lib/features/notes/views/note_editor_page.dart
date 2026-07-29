@@ -164,6 +164,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final ScrollController _scrollController = ScrollController();
 
   Timer? _saveDebounce;
+  VoidCallback? _deletedNoteDraftRecoveryRetry;
+  bool _isRecoveringDeletedNoteDraft = false;
+  bool _deletedNoteDraftRecoveryQueued = false;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _hasChanges = false;
@@ -241,6 +244,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _audioAuthEpochSubscription = ref.listenManual<Object>(
       openWebUiAuthSessionEpochProvider,
       (previous, next) {
+        _deletedNoteDraftRecoveryRetry = null;
+        _deletedNoteDraftRecoveryQueued = false;
         _activeAudioCancelToken?.cancel('Authentication session changed.');
         _activeAudioCancelToken = null;
         _queuedAudioUploadIds.clear();
@@ -416,7 +421,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _debounceSave() {
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 800), _autoSave);
+    _saveDebounce = Timer(
+      const Duration(milliseconds: 800),
+      _deletedNoteDraftRecoveryRetry ?? _autoSave,
+    );
   }
 
   /// Handles a back-navigation attempt. Reached only when [canPop] was false,
@@ -426,8 +434,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (didPop) return;
     _saveDebounce?.cancel();
     await _autoSave();
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop(result);
+    // Keep the editor open if persistence failed. In particular, a remotely
+    // deleted note needs its recovery retry to remain mounted rather than
+    // silently discarding the draft during navigation.
+    if (mounted) {
+      if (_hasChanges) {
+        _deletedNoteDraftRecoveryRetry?.call();
+      } else if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(result);
+      }
     }
   }
 
@@ -506,7 +521,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       note = await durableUpdateNote(
         ref,
         db,
-        id: widget.noteId,
+        id: _note?.id ?? widget.noteId,
         title: title,
         data: data,
       );
@@ -612,14 +627,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _deleteNote() async {
-    if (_note == null) return;
+    final note = _note;
+    if (note == null) return;
 
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteNoteTitle,
       message: l10n.deleteNoteMessage(
-        _note!.title.isEmpty ? l10n.untitled : _note!.title,
+        note.title.isEmpty ? l10n.untitled : note.title,
       ),
       confirmText: l10n.delete,
       isDestructive: true,
@@ -629,7 +645,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
-          .deleteNote(widget.noteId);
+          .deleteNote(note.id);
       if (success && mounted) {
         context.go('/chat');
       }
@@ -1462,7 +1478,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (db != null) {
       updatedNote = await _durableAttachNoteAudioFile(
         db,
-        id: widget.noteId,
+        id: note.id,
         attachment: attachment,
         canCommit: () =>
             mounted &&
@@ -2274,6 +2290,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// without syncing would let the detail fetch return a server copy that is
   /// behind a not-yet-synced local edit and clobber it with stale/empty content.
   Future<void> _refreshNote() async {
+    final noteBeforeRefresh = _note;
+    final hadDraftChanges =
+        noteBeforeRefresh != null &&
+        (_titleController.text != noteBeforeRefresh.title ||
+            _contentMarkdown != _savedMarkdown);
     if (_hasChanges) {
       _saveDebounce?.cancel();
       await _autoSave();
@@ -2282,16 +2303,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     // Push local changes and pull remote ones so the local row reflects both
     // sides. Mirrors the notes-list pull-to-refresh.
+    final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final userId = ref.read(currentUserProvider2)?.id;
     if (db == null) return;
     try {
-      await ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'note-editor-refresh');
+      final syncEngine = ref.read(syncEngineProvider.notifier);
+      await syncEngine.requestPull(reason: 'note-editor-refresh');
+      await syncEngine.reconcileNow();
     } catch (_) {
       // Best-effort; still reload from the (at least locally-current) row below.
     }
-    if (!mounted) return;
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
 
     // Re-read from the reconciled LOCAL row, not a fresh server fetch: the pull
     // has already merged remote edits into it, and reading the row avoids a
@@ -2300,8 +2327,43 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // The note is already open in the current session, so an id-scoped read is
       // safe here (avoids pulling auth providers into the editor just for the
       // user id).
-      final note = await readLocalNote(db, widget.noteId);
-      if (!mounted || note == null) return;
+      final currentNoteId = _note?.id ?? widget.noteId;
+      final resolvedNoteId = await db.notesDao.resolveNoteRemapTarget(
+        currentNoteId,
+      );
+      final note = await readLocalNote(db, resolvedNoteId);
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+      if (note == null) {
+        // The user may have typed while the pull/reconcile/read was in flight.
+        // Recover those edits as a new local note because the reconciler has
+        // already removed the old row and an update could no longer persist.
+        if (hadDraftChanges || _hasChanges) {
+          if (!_hasChanges) setState(() => _hasChanges = true);
+          await _recoverDeletedNoteDraft(
+            db,
+            api: api,
+            authEpoch: authEpoch,
+            userId: userId,
+          );
+          return;
+        }
+        ref.invalidate(noteByIdProvider(currentNoteId));
+        if (resolvedNoteId != currentNoteId) {
+          ref.invalidate(noteByIdProvider(resolvedNoteId));
+        }
+        setState(() {
+          _note = null;
+          _titleController.clear();
+          _installContentDocument(documentFromMarkdown(''));
+          _savedMarkdown = '';
+          _cachedWordCount = 0;
+          _hasChanges = false;
+        });
+        return;
+      }
       // If the user typed while the sync/read was in flight, do NOT overwrite
       // their in-progress edits: those keystroke(s) re-set `_hasChanges` and
       // queued a fresh debounce. Bail out and leave the editor as-is so that
@@ -2310,7 +2372,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // sneak in.)
       if (_hasChanges) return;
       // Keep the detail cache consistent with what we just loaded.
-      ref.invalidate(noteByIdProvider(widget.noteId));
+      ref.invalidate(noteByIdProvider(currentNoteId));
+      if (resolvedNoteId != currentNoteId) {
+        ref.invalidate(noteByIdProvider(resolvedNoteId));
+      }
       setState(() {
         _note = note;
         _titleController.text = note.title;
@@ -2321,6 +2386,266 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } catch (e) {
       if (mounted) _showError(e.toString());
     }
+  }
+
+  Future<void> _recoverDeletedNoteDraft(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+    bool showFailure = true,
+  }) async {
+    if (_isRecoveringDeletedNoteDraft) {
+      _deletedNoteDraftRecoveryQueued = true;
+      return;
+    }
+    _isRecoveringDeletedNoteDraft = true;
+    try {
+      await _recoverDeletedNoteDraftOnce(
+        db,
+        api: api,
+        authEpoch: authEpoch,
+        userId: userId,
+        showFailure: showFailure,
+      );
+    } finally {
+      _isRecoveringDeletedNoteDraft = false;
+      if (_deletedNoteDraftRecoveryQueued) {
+        _deletedNoteDraftRecoveryQueued = false;
+        if (mounted && _hasChanges && _deletedNoteDraftRecoveryRetry != null) {
+          _debounceSave();
+        }
+      }
+    }
+  }
+
+  Future<void> _recoverDeletedNoteDraftOnce(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+    required bool showFailure,
+  }) async {
+    final previous = _note;
+    if (previous == null ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+
+    _deletedNoteDraftRecoveryRetry = () {
+      if (!mounted) return;
+      unawaited(
+        _recoverDeletedNoteDraft(
+          db,
+          api: api,
+          authEpoch: authEpoch,
+          userId: userId,
+          showFailure: false,
+        ),
+      );
+    };
+
+    _saveDebounce?.cancel();
+    final draftTitle = _titleController.text;
+    final draftMarkdown = _contentMarkdown;
+    final draftData = <String, dynamic>{
+      ...previous.data.toJson(),
+      ..._composeUpdatedNoteData(),
+    };
+    Note? recovered;
+    try {
+      recovered = await durableCreateNote(
+        ref,
+        db,
+        userId: userId,
+        title: draftTitle.trim().isEmpty
+            ? AppLocalizations.of(context)!.untitled
+            : draftTitle.trim(),
+        data: draftData,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'deleted-note-draft-recovery-failed',
+        scope: 'notes/recovery',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'noteId': previous.id},
+      );
+      if (mounted &&
+          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        _scheduleDeletedNoteDraftRecovery(
+          db,
+          api: api,
+          authEpoch: authEpoch,
+          userId: userId,
+        );
+        if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
+      }
+      return;
+    }
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+    if (recovered == null) {
+      _scheduleDeletedNoteDraftRecovery(
+        db,
+        api: api,
+        authEpoch: authEpoch,
+        userId: userId,
+      );
+      if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
+      return;
+    }
+
+    // The draft is durable at this point. Publish the replacement before any
+    // recording migration I/O so a filesystem failure cannot retry creation
+    // and produce a duplicate recovered note.
+    final changedDuringRecovery =
+        _titleController.text != draftTitle ||
+        _contentMarkdown != draftMarkdown;
+    _deletedNoteDraftRecoveryRetry = null;
+    ref.invalidate(noteByIdProvider(widget.noteId));
+    if (previous.id != widget.noteId) {
+      ref.invalidate(noteByIdProvider(previous.id));
+    }
+    ref.invalidate(noteByIdProvider(recovered.id));
+    setState(() {
+      _note = recovered;
+      _savedMarkdown = draftMarkdown;
+      _hasChanges = changedDuringRecovery;
+    });
+    if (changedDuringRecovery) _debounceSave();
+
+    final recoveredId = recovered.id;
+    final reboundUploads = <String, PendingNoteAudioUpload>{};
+    final attemptedUploadIds = <String>{};
+    Future<PendingNoteAudioUpload?> rebindItem(
+      PendingNoteAudioUpload item,
+    ) async {
+      try {
+        return await NoteAudioUploadCoordinator.rebind(
+          item,
+          () => _noteAudioUploadStore.rebindToNote(item, noteId: recoveredId),
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'deleted-note-audio-item-rebind-failed',
+          scope: 'notes/recovery',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'noteId': previous.id, 'uploadId': item.id},
+        );
+        // Keep the durable old-scope item visible and retryable in this editor.
+        // rebindToNote leaves its intent journal behind after rollback, so a
+        // later store scan will finish moving it to the recovered note.
+        return item;
+      }
+    }
+
+    final initialUploads = <String, PendingNoteAudioUpload>{
+      for (final item in _pendingAudioUploads) item.id: item,
+    };
+    attemptedUploadIds.addAll(initialUploads.keys);
+    final rebindWaits = initialUploads.entries
+        .map(
+          (entry) async => MapEntry(entry.key, await rebindItem(entry.value)),
+        )
+        .toList(growable: false);
+
+    // rebind() installs its reservation synchronously before awaiting existing
+    // work. Cancellation then lets that work settle against the old path before
+    // the operation callback can move the durable directory.
+    _activeAudioCancelToken?.cancel(
+      'The note was replaced after remote deletion.',
+    );
+    _activeAudioCancelToken = null;
+    _queuedAudioUploadIds.clear();
+    _audioUploadFeedbackIds.clear();
+
+    try {
+      final initialResults = await Future.wait(rebindWaits);
+      for (final entry in initialResults) {
+        final rebound = entry.value;
+        if (rebound != null) reboundUploads[entry.key] = rebound;
+      }
+      final audioItemsById = <String, PendingNoteAudioUpload>{
+        for (final item in _pendingAudioUploads) item.id: item,
+      };
+      final audioScope = _noteAudioScope();
+      if (audioScope != null) {
+        for (final noteId in <String>{widget.noteId, previous.id}) {
+          final durableItems = await _noteAudioUploadStore.loadForNote(
+            serverId: audioScope.serverId,
+            accountId: audioScope.accountId,
+            noteId: noteId,
+          );
+          for (final item in durableItems) {
+            audioItemsById[item.id] = item;
+          }
+        }
+      }
+
+      for (final item in audioItemsById.values) {
+        if (!attemptedUploadIds.add(item.id)) continue;
+        final rebound = await rebindItem(item);
+        if (rebound != null) reboundUploads[item.id] = rebound;
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'deleted-note-audio-rebind-failed',
+        scope: 'notes/recovery',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'noteId': previous.id},
+      );
+    }
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+
+    if (reboundUploads.isNotEmpty) {
+      setState(() {
+        _pendingAudioMutationGeneration++;
+        final visibleById = <String, PendingNoteAudioUpload>{
+          for (final item in _pendingAudioUploads) item.id: item,
+          ...reboundUploads,
+        };
+        for (final hiddenId in _hiddenAudioUploadIds) {
+          visibleById.remove(hiddenId);
+        }
+        _pendingAudioUploads
+          ..clear()
+          ..addAll(visibleById.values)
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      });
+      if (ref.read(connectivityStatusProvider) == ConnectivityStatus.online) {
+        unawaited(_retryPendingAudioUploads(ids: reboundUploads.keys));
+      }
+    }
+  }
+
+  void _scheduleDeletedNoteDraftRecovery(
+    AppDatabase db, {
+    required Object? api,
+    required Object authEpoch,
+    required String? userId,
+  }) {
+    if (!mounted ||
+        !_hasChanges ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return;
+    }
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(seconds: 2), () {
+      if (!mounted ||
+          !_hasChanges ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+      _deletedNoteDraftRecoveryRetry?.call();
+    });
   }
 
   Widget _buildContentEditor(BuildContext context) {

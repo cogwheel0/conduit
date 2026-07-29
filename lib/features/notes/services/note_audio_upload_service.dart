@@ -14,6 +14,8 @@ const _manifestVersion = 1;
 const _storeDirectoryName = 'note_audio_uploads';
 const _manifestFileName = 'manifest.json';
 const _defaultAudioFileName = 'recording.m4a';
+const _rebindJournalPrefix = '.rebind-';
+const _rebindJournalVersion = 1;
 
 enum NoteAudioUploadStatus { pending, uploading, attaching, failed }
 
@@ -312,6 +314,11 @@ class NoteAudioUploadStore {
       accountScope: accountScope,
       noteId: noteId,
     );
+    await _recoverRebindJournals(
+      noteDirectory.parent,
+      serverScope: serverScope,
+      accountScope: accountScope,
+    );
     if (!await noteDirectory.exists()) return <PendingNoteAudioUpload>[];
 
     final items = <PendingNoteAudioUpload>[];
@@ -358,6 +365,137 @@ class NoteAudioUploadStore {
     );
   }
 
+  /// Moves a durable recording to a replacement note without changing its
+  /// upload identity or retry state.
+  ///
+  /// This is used when an editor recovers unsaved work after the server deleted
+  /// its original note. Keeping the recording under the deleted note id would
+  /// make it undiscoverable after the recovered editor is closed.
+  Future<PendingNoteAudioUpload?> rebindToNote(
+    PendingNoteAudioUpload item, {
+    required String noteId,
+  }) async {
+    if (item.noteId == noteId) return loadCurrent(item);
+
+    final sourceDirectory = File(item.localPath).parent;
+    await _validateItemDirectory(item, sourceDirectory);
+    final destinationNoteDirectory = await _noteDirectory(
+      serverScope: item.serverScope,
+      accountScope: item.accountScope,
+      noteId: noteId,
+    );
+    final destinationDirectory = Directory(
+      path.join(destinationNoteDirectory.path, _safeId(item.id)),
+    );
+    final accountDirectory = destinationNoteDirectory.parent;
+    await _recoverRebindJournals(
+      accountDirectory,
+      serverScope: item.serverScope,
+      accountScope: item.accountScope,
+    );
+
+    return _withItemLocks(
+      <Directory>[sourceDirectory, destinationDirectory],
+      () async {
+        // A retry may arrive after the directory was already moved but before
+        // the caller received the rebound item. Treat that as success.
+        if (!await sourceDirectory.exists()) {
+          if (!await destinationDirectory.exists()) return null;
+          return _readOrRecover(
+            destinationDirectory,
+            serverScope: item.serverScope,
+            accountScope: item.accountScope,
+            noteId: noteId,
+          );
+        }
+
+        final current = await _readOrRecover(
+          sourceDirectory,
+          serverScope: item.serverScope,
+          accountScope: item.accountScope,
+          noteId: item.noteId,
+        );
+        if (current == null) return null;
+        if (await destinationDirectory.exists()) {
+          return _readOrRecover(
+            destinationDirectory,
+            serverScope: item.serverScope,
+            accountScope: item.accountScope,
+            noteId: noteId,
+          );
+        }
+
+        await destinationNoteDirectory.create(recursive: true);
+        final rebound = PendingNoteAudioUpload(
+          id: current.id,
+          serverScope: current.serverScope,
+          accountScope: current.accountScope,
+          noteId: noteId,
+          localPath: path.join(
+            destinationDirectory.path,
+            path.basename(current.localPath),
+          ),
+          fileName: current.fileName,
+          fileSize: current.fileSize,
+          status: current.status,
+          createdAt: current.createdAt,
+          lastError: current.lastError,
+          serverFileId: current.serverFileId,
+          sourceCacheFileName: current.sourceCacheFileName,
+        );
+        final journal = File(
+          path.join(
+            accountDirectory.path,
+            '$_rebindJournalPrefix${_safeId(current.id)}.json',
+          ),
+        );
+        await _writeRebindJournal(
+          journal,
+          sourceNoteId: current.noteId,
+          rebound: rebound,
+        );
+        await sourceDirectory.rename(destinationDirectory.path);
+        try {
+          if (!await _saveUnlocked(rebound, destinationDirectory)) {
+            throw const FileSystemException(
+              'Rebound note audio directory disappeared',
+            );
+          }
+        } catch (_) {
+          // The old manifest still identifies the old note until the atomic
+          // manifest save succeeds, so moving the directory back restores a
+          // valid, discoverable job when persistence fails.
+          if (await destinationDirectory.exists() &&
+              !await sourceDirectory.exists()) {
+            await destinationDirectory.rename(sourceDirectory.path);
+          }
+          // Keep the flushed intent journal after rollback. A later account or
+          // note scan can retry the move and associate the recording with the
+          // replacement note even if this editor closes immediately.
+          rethrow;
+        }
+        if (await journal.exists()) await journal.delete();
+
+        final oldNoteDirectory = sourceDirectory.parent;
+        try {
+          if (await oldNoteDirectory.exists() &&
+              await oldNoteDirectory.list(followLinks: false).isEmpty) {
+            await oldNoteDirectory.delete();
+          }
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'note-audio-rebind-cleanup-failed',
+            scope: 'notes/audio',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'id': item.id},
+          );
+        }
+        return rebound;
+      },
+    );
+  }
+
   /// Loads every recording owned by an account on a server.
   ///
   /// This account-level scan is needed when a note was recorded under a
@@ -377,6 +515,11 @@ class NoteAudioUploadStore {
     if (!await accountDirectory.exists()) {
       return <PendingNoteAudioUpload>[];
     }
+    await _recoverRebindJournals(
+      accountDirectory,
+      serverScope: serverScope,
+      accountScope: accountScope,
+    );
 
     final items = <PendingNoteAudioUpload>[];
     await for (final noteEntity in accountDirectory.list(followLinks: false)) {
@@ -426,6 +569,138 @@ class NoteAudioUploadStore {
     await temporary.writeAsString(jsonEncode(item.toJson()), flush: true);
     await temporary.rename(manifest.path);
     return true;
+  }
+
+  Future<void> _writeRebindJournal(
+    File journal, {
+    required String sourceNoteId,
+    required PendingNoteAudioUpload rebound,
+  }) async {
+    final temporary = File('${journal.path}.tmp');
+    await temporary.writeAsString(
+      jsonEncode(<String, dynamic>{
+        'version': _rebindJournalVersion,
+        'sourceNoteId': sourceNoteId,
+        'item': rebound.toJson(),
+      }),
+      flush: true,
+    );
+    await temporary.rename(journal.path);
+  }
+
+  Future<void> _recoverRebindJournals(
+    Directory accountDirectory, {
+    required String serverScope,
+    required String accountScope,
+  }) async {
+    if (!await accountDirectory.exists()) return;
+    final journals = <File>[];
+    await for (final entity in accountDirectory.list(followLinks: false)) {
+      if (entity is File) {
+        final name = path.basename(entity.path);
+        if (name.startsWith(_rebindJournalPrefix) && name.endsWith('.json')) {
+          journals.add(entity);
+        }
+      }
+    }
+
+    for (final journal in journals) {
+      try {
+        final decoded = jsonDecode(await journal.readAsString());
+        if (decoded is! Map<String, dynamic> ||
+            decoded['version'] != _rebindJournalVersion ||
+            decoded['sourceNoteId'] is! String ||
+            decoded['item'] is! Map<String, dynamic>) {
+          throw const FormatException('Invalid note audio rebind journal');
+        }
+        final sourceNoteId = decoded['sourceNoteId'] as String;
+        final itemJson = decoded['item'] as Map<String, dynamic>;
+        final noteId = itemJson['noteId'] as String?;
+        final id = itemJson['id'] as String?;
+        if (noteId == null || id == null) {
+          throw const FormatException('Incomplete note audio rebind journal');
+        }
+        final sourceDirectory = Directory(
+          path.join(accountDirectory.path, _scope(sourceNoteId), _safeId(id)),
+        );
+        final destinationDirectory = Directory(
+          path.join(accountDirectory.path, _scope(noteId), _safeId(id)),
+        );
+        final rebound = PendingNoteAudioUpload.fromJson(
+          itemJson,
+          itemDirectory: destinationDirectory,
+        );
+        if (rebound.serverScope != serverScope ||
+            rebound.accountScope != accountScope) {
+          throw const FormatException('Mismatched note audio rebind scope');
+        }
+
+        await _withItemLocks(
+          <Directory>[sourceDirectory, destinationDirectory],
+          () async {
+            if (!await journal.exists()) return;
+            if (!await destinationDirectory.exists()) {
+              if (!await sourceDirectory.exists()) {
+                await journal.delete();
+                return;
+              }
+              await destinationDirectory.parent.create(recursive: true);
+              await sourceDirectory.rename(destinationDirectory.path);
+            }
+
+            final existing = await _readValidManifest(
+              destinationDirectory,
+              serverScope: serverScope,
+              accountScope: accountScope,
+              noteId: noteId,
+            );
+            if (existing == null &&
+                !await _saveUnlocked(rebound, destinationDirectory)) {
+              throw const FileSystemException(
+                'Rebound note audio directory disappeared during recovery',
+              );
+            }
+            if (await sourceDirectory.exists()) {
+              await sourceDirectory.delete(recursive: true);
+            }
+            await journal.delete();
+          },
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'note-audio-rebind-recovery-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'journal': path.basename(journal.path)},
+        );
+      }
+    }
+  }
+
+  Future<PendingNoteAudioUpload?> _readValidManifest(
+    Directory itemDirectory, {
+    required String serverScope,
+    required String accountScope,
+    required String noteId,
+  }) async {
+    try {
+      final manifest = File(path.join(itemDirectory.path, _manifestFileName));
+      final decoded = jsonDecode(await manifest.readAsString());
+      if (decoded is! Map<String, dynamic>) return null;
+      final item = PendingNoteAudioUpload.fromJson(
+        decoded,
+        itemDirectory: itemDirectory,
+      );
+      if (item.serverScope != serverScope ||
+          item.accountScope != accountScope ||
+          item.noteId != noteId) {
+        return null;
+      }
+      return item;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> remove(PendingNoteAudioUpload item) async {
@@ -688,6 +963,27 @@ class NoteAudioUploadStore {
     }
   }
 
+  Future<T> _withItemLocks<T>(
+    Iterable<Directory> itemDirectories,
+    Future<T> Function() operation,
+  ) {
+    final byPath = <String, Directory>{
+      for (final directory in itemDirectories)
+        path.normalize(path.absolute(directory.path)): directory,
+    };
+    final orderedPaths = byPath.keys.toList()..sort();
+
+    Future<T> acquire(int index) {
+      if (index == orderedPaths.length) return operation();
+      return _withItemLock(
+        byPath[orderedPaths[index]]!,
+        () => acquire(index + 1),
+      );
+    }
+
+    return acquire(0);
+  }
+
   static String _scope(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
@@ -728,12 +1024,49 @@ class NoteAudioUploadCoordinator {
       <String, Future<PendingNoteAudioUpload?>>{};
   static final Map<String, Completer<void>> _removalReservations =
       <String, Completer<void>>{};
+  static final Map<String, Completer<PendingNoteAudioUpload?>>
+  _rebindReservations = <String, Completer<PendingNoteAudioUpload?>>{};
+
+  /// Runs one rebind operation for [item], sharing its result with concurrent
+  /// callers and guaranteeing reservation cleanup on every exit path.
+  static Future<PendingNoteAudioUpload?> rebind(
+    PendingNoteAudioUpload item,
+    Future<PendingNoteAudioUpload?> Function() operation,
+  ) async {
+    final key = _keyFor(item);
+    // Explicit removal wins over recovery: never move an item that another
+    // editor has already reserved for deletion.
+    if (_removalReservations.containsKey(key)) return null;
+    final existingReservation = _rebindReservations[key];
+    if (existingReservation != null) {
+      return existingReservation.future;
+    }
+    final reservation = Completer<PendingNoteAudioUpload?>();
+    _rebindReservations[key] = reservation;
+    try {
+      final existing = _inFlight[key];
+      if (existing != null) await existing;
+      final rebound = await operation();
+      reservation.complete(rebound);
+      return rebound;
+    } catch (_) {
+      if (!reservation.isCompleted) reservation.complete(null);
+      rethrow;
+    } finally {
+      if (identical(_rebindReservations[key], reservation)) {
+        _rebindReservations.remove(key);
+      }
+      if (!reservation.isCompleted) reservation.complete(null);
+    }
+  }
 
   /// Atomically reserves an item for deletion across every editor instance.
   /// Returns false while upload/attach work already owns the item.
   static bool tryReserveRemoval(PendingNoteAudioUpload item) {
     final key = _keyFor(item);
-    if (_inFlight.containsKey(key) || _removalReservations.containsKey(key)) {
+    if (_inFlight.containsKey(key) ||
+        _removalReservations.containsKey(key) ||
+        _rebindReservations.containsKey(key)) {
       return false;
     }
     _removalReservations[key] = Completer<void>();
@@ -762,6 +1095,8 @@ class NoteAudioUploadCoordinator {
 
   Future<PendingNoteAudioUpload?> process(PendingNoteAudioUpload item) {
     final key = _keyFor(item);
+    final rebind = _rebindReservations[key]?.future;
+    if (rebind != null) return _reloadAfterRebind(item, rebind);
     final removal = _removalReservations[key]?.future;
     if (removal != null) return _reloadAfterRemoval(item, removal);
     final existing = _inFlight[key];
@@ -775,6 +1110,17 @@ class NoteAudioUploadCoordinator {
     });
     _inFlight[key] = tracked;
     return tracked;
+  }
+
+  Future<PendingNoteAudioUpload?> _reloadAfterRebind(
+    PendingNoteAudioUpload item,
+    Future<PendingNoteAudioUpload?> rebind,
+  ) async {
+    // A null result can also mean the owner failed before it could return the
+    // rolled-back item. Confirm durable state before treating it as removed.
+    final rebound = await rebind ?? await _store.loadCurrent(item);
+    _notify(rebound);
+    return rebound;
   }
 
   Future<PendingNoteAudioUpload?> _reloadAfterRemoval(

@@ -391,6 +391,25 @@ void main() {
     });
 
     test(
+      'manual reconcile publishes finalizing progress until complete',
+      () async {
+        final container = makeContainer();
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final reconcile = engine.reconcileNow();
+
+        final running = container.read(syncEngineProvider);
+        check(running.phase).equals(SyncPhase.running);
+        check(running.stage).equals(SyncStage.finalizing);
+
+        await reconcile;
+        final complete = container.read(syncEngineProvider);
+        check(complete.phase).equals(SyncPhase.idle);
+        check(complete.stage).isNull();
+      },
+    );
+
+    test(
       'requests during a running cycle coalesce into one queued rerun',
       () async {
         seedChat('chat-1', 100);

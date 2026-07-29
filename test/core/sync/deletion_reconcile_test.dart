@@ -146,6 +146,56 @@ void main() {
 
   group('pagination absence is NOT a delete signal', () {
     test(
+      'manual reconcile restores a server title changed without a timestamp bump',
+      () async {
+        await seedServerChat(db, id: 'retitled', updatedAt: 100);
+        server.seedChat(
+          id: 'retitled',
+          blob: <String, dynamic>{
+            ...blobFor('retitled'),
+            'title': 'Generated on server',
+          },
+          createdAt: 50,
+          updatedAt: 100,
+        );
+
+        final result = await reconcile.run(ReconcileReason.manualRefresh);
+
+        check(result.ran).isTrue();
+        final row = await db.chatsDao.getChat('retitled');
+        check(row).isNotNull();
+        check(row!.title).equals('Generated on server');
+        check(row.updatedAt).equals(100);
+      },
+    );
+
+    test('manual title reconcile preserves a pending local rename', () async {
+      await seedServerChat(db, id: 'locally-retitled', updatedAt: 100);
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'locally-retitled',
+        title: const Value('Keep my title'),
+        updatedAt: const Value(101),
+        enqueue: false,
+      );
+      server.seedChat(
+        id: 'locally-retitled',
+        blob: <String, dynamic>{
+          ...blobFor('locally-retitled'),
+          'title': 'Generated on server',
+        },
+        createdAt: 50,
+        updatedAt: 100,
+      );
+
+      await reconcile.run(ReconcileReason.manualRefresh);
+
+      final row = await db.chatsDao.getChat('locally-retitled');
+      check(row).isNotNull();
+      check(row!.title).equals('Keep my title');
+      check(row.dirty).isTrue();
+    });
+
+    test(
       'server list enumeration stops when a full page adds no new ids',
       () async {
         for (var i = 0; i < kOpenWebUiChatListPageSize; i++) {

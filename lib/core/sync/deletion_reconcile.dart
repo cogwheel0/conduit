@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:dio/dio.dart';
 
 import '../database/app_database.dart';
+import '../database/daos/chats_dao.dart';
 import '../utils/debug_logger.dart';
 import 'chat_locks.dart';
 import 'clock.dart';
@@ -112,9 +113,9 @@ class DeletionReconcile {
     // 1. Enumerate the COMPLETE server id set: both the main list (pinned +
     //    folders + root, archived excluded server-side) and the archived list,
     //    each paged to EXHAUSTION with NO updated_at cutoff.
-    final Set<String> completeServerIds;
+    final Map<String, String> completeServerChats;
     try {
-      completeServerIds = await _enumerateCompleteServerIds();
+      completeServerChats = await _enumerateCompleteServerChats();
     } catch (error, stackTrace) {
       // A list-page failure makes the id set incomplete; purging against it
       // would false-delete. Abort WITHOUT advancing the throttle so the next
@@ -128,15 +129,34 @@ class DeletionReconcile {
       return const ReconcileResult(ran: false);
     }
 
+    // Open WebUI title generation updates the row title and chat blob without
+    // advancing `updated_at`. A watermark pull therefore cannot recover a
+    // missed `chat:title` socket event. This full-list pass is authoritative
+    // for clean local envelopes and repairs those stale titles while the same
+    // pages are already in memory for deletion reconciliation.
     // 2. Diff against local server-keyed, non-tombstoned chats.
-    final localServerIds = await _db.chatsDao.allServerChatIds();
+    final localServerChats = await _db.chatsDao.allServerChatReconcileEntries();
+    final reconciledTitles = await _reconcileServerTitles(
+      completeServerChats,
+      localServerChats,
+    );
     final candidates = [
-      for (final id in localServerIds)
-        if (!completeServerIds.contains(id)) id,
+      for (final chat in localServerChats)
+        if (!completeServerChats.containsKey(chat.id)) chat.id,
     ];
 
     if (candidates.isEmpty) {
       await _db.syncMetaDao.setLastFullReconcileAt(now);
+      DebugLogger.log(
+        'reconcile-done',
+        scope: 'sync/reconcile',
+        data: {
+          'candidates': 0,
+          'purged': 0,
+          'skipped': 0,
+          'titles': reconciledTitles,
+        },
+      );
       return const ReconcileResult(ran: true);
     }
 
@@ -148,12 +168,15 @@ class DeletionReconcile {
     if (candidates.length >
         math.max(
           kReconcileMinCandidatesForValve,
-          localServerIds.length * kReconcileMaxPurgeFraction,
+          localServerChats.length * kReconcileMaxPurgeFraction,
         )) {
       DebugLogger.warning(
         'reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',
-        data: {'candidates': candidates.length, 'local': localServerIds.length},
+        data: {
+          'candidates': candidates.length,
+          'local': localServerChats.length,
+        },
       );
       // Do NOT advance the throttle: this is an abnormal condition that should
       // be retried, not suppressed for 24h.
@@ -271,6 +294,7 @@ class DeletionReconcile {
         'candidates': candidates.length,
         'purged': purged,
         'skipped': skipped,
+        'titles': reconciledTitles,
       },
     );
     return ReconcileResult(
@@ -284,16 +308,16 @@ class DeletionReconcile {
   /// Pages BOTH the main and archived lists to exhaustion (page until a page
   /// returns fewer than [kOpenWebUiChatListPageSize] items), unioning every
   /// id. NO `updated_at` early-stop — every page is read.
-  Future<Set<String>> _enumerateCompleteServerIds() async {
-    final ids = <String>{};
-    await _pageToExhaustion(_client.getChatListPage, ids);
-    await _pageToExhaustion(_client.getArchivedChatListPage, ids);
-    return ids;
+  Future<Map<String, String>> _enumerateCompleteServerChats() async {
+    final chats = <String, String>{};
+    await _pageToExhaustion(_client.getChatListPage, chats);
+    await _pageToExhaustion(_client.getArchivedChatListPage, chats);
+    return chats;
   }
 
   Future<void> _pageToExhaustion(
     Future<List<Map<String, dynamic>>> Function(int page) fetch,
-    Set<String> into,
+    Map<String, String> into,
   ) async {
     var page = 1;
     while (true) {
@@ -301,12 +325,56 @@ class DeletionReconcile {
       final idsBefore = into.length;
       for (final item in items) {
         final id = item['id'];
-        if (id is String && id.isNotEmpty) into.add(id);
+        final title = item['title'];
+        if (id is String && id.isNotEmpty) {
+          into.putIfAbsent(id, () => title is String ? title : '');
+        }
       }
       if (items.length < kOpenWebUiChatListPageSize) break;
       if (into.length == idsBefore) break;
       page++;
     }
+  }
+
+  Future<int> _reconcileServerTitles(
+    Map<String, String> serverChats,
+    List<ServerChatReconcileEntry> localChats,
+  ) async {
+    var updated = 0;
+    for (final local in localChats) {
+      final serverTitle = serverChats[local.id];
+      if (serverTitle == null ||
+          serverTitle.trim().isEmpty ||
+          local.dirty ||
+          local.title == serverTitle) {
+        continue;
+      }
+      try {
+        final changed = await _locks.runExclusive(local.id, () async {
+          final current = await _db.chatsDao.getChat(local.id);
+          if (current == null ||
+              current.dirty ||
+              current.title == serverTitle) {
+            return false;
+          }
+          final persisted = await _db.chatsDao.updateServerGeneratedTitle(
+            local.id,
+            serverTitle,
+          );
+          return persisted == serverTitle;
+        });
+        if (changed) updated++;
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'reconcile-title-failed',
+          scope: 'sync/reconcile',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'chatId': local.id},
+        );
+      }
+    }
+    return updated;
   }
 
   bool _isTerminalProbeError(Object error) {
