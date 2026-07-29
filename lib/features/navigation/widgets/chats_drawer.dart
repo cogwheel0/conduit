@@ -204,9 +204,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final showRefreshSlot =
         refreshStatus != null &&
         refreshStatus != RefreshIndicatorStatus.canceled;
-    final motionDuration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 180);
+    final motionDuration = context.motionDuration(
+      const Duration(milliseconds: 180),
+    );
     final refreshIndicator = switch (refreshStatus) {
       RefreshIndicatorStatus.drag || RefreshIndicatorStatus.armed => Icon(
         Icons.arrow_downward_rounded,
