@@ -1286,6 +1286,9 @@ class AppTypography {
     fontFamily: fontFamily,
   );
 
+  static TextStyle get materialChromeLabelSmallStyle =>
+      _primaryFont(_materialScale.labelSmallStyle);
+
   /// Apple typography reserved for genuine Cupertino navigation chrome.
   static TextTheme cupertinoChromeTextTheme({
     required Color primary,

@@ -3377,7 +3377,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }) {
     final double buttonSize = conduitScaledControlExtent(
       context,
-      baseExtent: dense ? 36 : TouchTarget.minimum,
+      baseExtent: dense ? _composerControlSize : TouchTarget.minimum,
     );
     final iconSize = conduitScaledIconExtent(context, IconSize.large);
 
@@ -3497,7 +3497,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool active = _isRecording;
     final double buttonSize = conduitScaledControlExtent(
       context,
-      baseExtent: size ?? 36,
+      baseExtent: size ?? _composerControlSize,
     );
     final iconSize = conduitScaledIconExtent(context, IconSize.large);
     final IconData iconData = active
@@ -3563,7 +3563,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget _buildCreateDraftNoteButton({required bool isLoading}) {
     final l10n = AppLocalizations.of(context)!;
     final bool enabled = widget.enabled && !isLoading && !_isRecording;
-    final buttonSize = conduitScaledControlExtent(context, baseExtent: 36);
+    final buttonSize = conduitScaledControlExtent(
+      context,
+      baseExtent: _composerControlSize,
+    );
     final iconSize = conduitScaledIconExtent(context, IconSize.large);
     final iconColor = enabled
         ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
@@ -3607,7 +3610,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }) {
     final double buttonSize = conduitScaledControlExtent(
       context,
-      baseExtent: dense ? 36 : TouchTarget.minimum,
+      baseExtent: dense ? _composerControlSize : TouchTarget.minimum,
     );
     final largeIconSize = conduitScaledIconExtent(context, IconSize.large);
     final primaryIconSize = conduitScaledIconExtent(

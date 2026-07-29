@@ -233,7 +233,7 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
           }),
           labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((states) {
             final selected = states.contains(WidgetState.selected);
-            return AppTypography.labelSmallStyle.copyWith(
+            return AppTypography.materialChromeLabelSmallStyle.copyWith(
               color: selected
                   ? conduitTheme.buttonPrimary
                   : conduitTheme.textSecondary,
