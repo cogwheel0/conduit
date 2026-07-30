@@ -52,6 +52,21 @@ final class _FixedChatGptConnectionController
       ChatGptConnectionState(status: _status);
 }
 
+final class _CountingChatGptConnectionController
+    extends ChatGptConnectionController {
+  _CountingChatGptConnectionController(this._onBuild);
+
+  final void Function() _onBuild;
+
+  @override
+  Future<ChatGptConnectionState> build() async {
+    _onBuild();
+    return const ChatGptConnectionState(
+      status: ChatGptConnectionStatus.disconnected,
+    );
+  }
+}
+
 final class _UnsetPreferredBackendController
     extends PreferredBackendController {
   @override
@@ -926,6 +941,71 @@ void main() {
   });
 
   group('ChatGPT-primary route policy', () {
+    test(
+      'router starts ChatGPT only when the backend is configured or selected',
+      () async {
+        Future<int> routerBuilds({
+          required PreferredBackendController Function() preferredBackend,
+          required List<DirectConnectionProfile> profiles,
+        }) async {
+          var builds = 0;
+          final container = ProviderContainer(
+            overrides: [
+              reviewerModeProvider.overrideWithValue(false),
+              activeServerProvider.overrideWith((_) async => null),
+              preferredBackendProvider.overrideWith(preferredBackend),
+              directConnectionProfilesProvider.overrideWith(
+                () => _FixedDirectProfiles(profiles),
+              ),
+              chatGptConnectionProvider.overrideWith(
+                () => _CountingChatGptConnectionController(() => builds++),
+              ),
+              hermesConfigProvider.overrideWith(
+                () => _FixedHermesConfigController(const HermesConfig()),
+              ),
+              authStateManagerProvider.overrideWith(
+                _SignedOutAuthStateManager.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          await container.read(activeServerProvider.future);
+          await container.read(directConnectionProfilesProvider.future);
+          await container.read(authStateManagerProvider.future);
+
+          container.read(routerNotifierProvider);
+          await Future<void>.delayed(Duration.zero);
+          return builds;
+        }
+
+        check(
+          await routerBuilds(
+            preferredBackend: _UnsetPreferredBackendController.new,
+            profiles: const [],
+          ),
+        ).equals(0);
+        check(
+          await routerBuilds(
+            preferredBackend: _ChatGptPreferredBackendController.new,
+            profiles: const [],
+          ),
+        ).equals(1);
+        check(
+          await routerBuilds(
+            preferredBackend: _UnsetPreferredBackendController.new,
+            profiles: [
+              DirectConnectionProfile(
+                id: kChatGptAccountProfileId,
+                name: 'ChatGPT Account',
+                adapterKey: kChatGptAccountAdapterKey,
+                baseUrl: kChatGptAccountBaseUrl,
+              ),
+            ],
+          ),
+        ).equals(1);
+      },
+    );
+
     test('a disconnected account recovers the dedicated setup page', () async {
       final container = ProviderContainer(
         overrides: [

@@ -6032,8 +6032,12 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
       ? null
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
   if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+    final isTrustedChatGpt =
+        directBinding?.adapterKey == kChatGptAccountAdapterKey &&
+        selectedModel.capabilities?['chatgptAccount'] == true;
     return directBinding?.source == DirectModelSource.device &&
-        selectedModel.capabilities?['openrouter'] == true &&
+        (selectedModel.capabilities?['openrouter'] == true ||
+            isTrustedChatGpt) &&
         selectedModel.capabilities?['image_generation'] == true;
   }
 
@@ -6071,8 +6075,11 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     final isTrustedOpenRouter =
         directBinding?.adapterKey == kOpenAiCompatibleAdapterKey &&
         selectedModel.capabilities?['openrouter'] == true;
+    final isTrustedChatGpt =
+        directBinding?.adapterKey == kChatGptAccountAdapterKey &&
+        selectedModel.capabilities?['chatgptAccount'] == true;
     return directBinding?.source == DirectModelSource.device &&
-        (isTrustedOllamaCloud || isTrustedOpenRouter) &&
+        (isTrustedOllamaCloud || isTrustedOpenRouter || isTrustedChatGpt) &&
         selectedModel.capabilities?['web_search'] == true;
   }
 

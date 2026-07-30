@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chatgpt/chatgpt_account_adapter.dart';
 import 'package:conduit/features/chatgpt/chatgpt_runtime_client.dart';
 import 'package:conduit/features/chatgpt/native_generated/api/contract.dart'
     as native;
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:checks/checks.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -19,6 +23,20 @@ void main() {
     final models = await adapter.listModels(profile);
     check(models.single.capabilities['audio_input']).equals(true);
     check(models.single.capabilities['vision']).equals(true);
+    check(models.single.capabilities['web_search']).equals(true);
+    check(models.single.capabilities['image_generation']).equals(true);
+
+    final registry = DirectModelRegistry();
+    final selectedModel = registry.replaceProfileModels(profile, models).single;
+    final container = ProviderContainer(
+      overrides: [
+        selectedModelProvider.overrideWithValue(selectedModel),
+        directModelRegistryProvider.overrideWithValue(registry),
+      ],
+    );
+    addTearDown(container.dispose);
+    check(container.read(webSearchAvailableProvider)).isTrue();
+    check(container.read(imageGenerationAvailableProvider)).isTrue();
 
     final run = adapter.startCompletion(
       profile,

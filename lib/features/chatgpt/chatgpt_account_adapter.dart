@@ -83,6 +83,8 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
             'audio': model.supportsAudio,
             'audio_input': model.supportsAudio,
             'file_upload': true,
+            'web_search': true,
+            'image_generation': true,
             'reasoning': model.supportedReasoningEfforts,
             'chatgptAccount': true,
           },

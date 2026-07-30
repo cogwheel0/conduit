@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../auth/auth_state_manager.dart';
+import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
 import '../providers/app_providers.dart';
 import '../providers/backend_mode_providers.dart';
 import '../../features/hermes/models/hermes_config.dart';
@@ -94,6 +96,35 @@ String incompleteHermesDestination({
       : Routes.hermesSettings;
 }
 
+const _disconnectedChatGptConnection = AsyncData(
+  ChatGptConnectionState(status: ChatGptConnectionStatus.disconnected),
+);
+
+/// Keeps the native ChatGPT runtime cold until the account is selected or its
+/// fixed local profile exists. An interrupted disconnect is the sole safety
+/// exception so account-owned data cleanup still resumes on the next launch.
+@visibleForTesting
+final chatGptRoutingConnectionProvider =
+    Provider<AsyncValue<ChatGptConnectionState>>((ref) {
+      if (!kChatGptAccountEnabled) return _disconnectedChatGptConnection;
+
+      final preferredBackend = ref.watch(preferredBackendProvider);
+      final profiles = ref.watch(effectiveDirectConnectionProfilesProvider);
+      final configured =
+          profiles.value?.any(isCanonicalChatGptAccountProfile) ?? false;
+      final cleanupPending =
+          PreferencesStore.getString(
+            PreferenceKeys.chatGptDisconnectTombstone,
+          ) !=
+          null;
+      if (preferredBackend != PreferredBackend.chatgpt &&
+          !configured &&
+          !cleanupPending) {
+        return _disconnectedChatGptConnection;
+      }
+      return ref.watch(chatGptConnectionProvider);
+    });
+
 class RouterNotifier extends ChangeNotifier {
   RouterNotifier(this.ref) {
     _subscriptions = [
@@ -118,7 +149,7 @@ class RouterNotifier extends ChangeNotifier {
       ),
       if (kChatGptAccountEnabled)
         ref.listen<AsyncValue<ChatGptConnectionState>>(
-          chatGptConnectionProvider,
+          chatGptRoutingConnectionProvider,
           _onStateChanged,
         ),
     ];
@@ -168,13 +199,7 @@ class RouterNotifier extends ChangeNotifier {
                   !isChatGptAccountProfile(profile) && profile.isUsable,
             ) ??
             false);
-    final chatGptConnection = kChatGptAccountEnabled
-        ? ref.read(chatGptConnectionProvider)
-        : const AsyncData(
-            ChatGptConnectionState(
-              status: ChatGptConnectionStatus.disconnected,
-            ),
-          );
+    final chatGptConnection = ref.read(chatGptRoutingConnectionProvider);
     final chatGptLoading =
         chatGptConnection.isLoading && !chatGptConnection.hasValue;
     final chatGptUsable =
