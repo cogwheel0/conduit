@@ -13,6 +13,9 @@ analyzer:
   exclude:
     - pigeons/**
     - third_party/**
+    # Vendored Cargokit is an independent Dart package with its own package
+    # config and analyzer invocation.
+    - rust_builder/cargokit/**
 
 plugins:
   riverpod_lint: 3.1.3

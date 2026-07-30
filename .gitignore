@@ -129,6 +129,7 @@ GoogleService-Info.plist
 
 # Gradle files
 .gradle/
+**/android/.kotlin/
 **/android/gradle-wrapper.jar
 **/android/.gradle
 **/android/captures/

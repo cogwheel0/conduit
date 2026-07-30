@@ -3,6 +3,8 @@ PODS:
     - Flutter
   - audio_session (0.0.1):
     - Flutter
+  - conduit_chatgpt_runtime (0.0.1):
+    - Flutter
   - connectivity_plus (0.0.1):
     - Flutter
   - CryptoSwift (1.8.4)
@@ -100,6 +102,7 @@ PODS:
 DEPENDENCIES:
   - adaptive_platform_ui (from `.symlinks/plugins/adaptive_platform_ui/ios`)
   - audio_session (from `.symlinks/plugins/audio_session/ios`)
+  - conduit_chatgpt_runtime (from `.symlinks/plugins/conduit_chatgpt_runtime/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/darwin`)
   - Flutter (from `Flutter`)
@@ -142,6 +145,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/adaptive_platform_ui/ios"
   audio_session:
     :path: ".symlinks/plugins/audio_session/ios"
+  conduit_chatgpt_runtime:
+    :path: ".symlinks/plugins/conduit_chatgpt_runtime/ios"
   connectivity_plus:
     :path: ".symlinks/plugins/connectivity_plus/ios"
   file_picker:
@@ -198,6 +203,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   adaptive_platform_ui: cd3c5a2997126f138a1e7f12e8376d3ca3fdbfad
   audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
+  conduit_chatgpt_runtime: 8459ad3a35eac77a77f275a8e29d7cb831ff85a5
   connectivity_plus: cb623214f4e1f6ef8fe7403d580fdad517d2f7dd
   CryptoSwift: e64e11850ede528a02a0f3e768cec8e9d92ecb90
   file_picker: 70164d9778c42c47218d6cd79ce435de0856b11a
