@@ -1,0 +1,109 @@
+name: ChatGPT Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chatgpt-runtime.yml'
+      - 'flutter_rust_bridge.yaml'
+      - 'rust-toolchain.toml'
+      - 'native/**'
+      - 'rust_builder/**'
+      - 'lib/features/chatgpt/**'
+      - 'lib/features/direct_connections/models/direct_completion.dart'
+      - 'lib/features/direct_connections/services/direct_chat_bridge.dart'
+      - 'lib/features/chat/**'
+      - 'lib/core/database/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'tool/audit_chatgpt_runtime_exposure.sh'
+      - 'tool/regenerate_chatgpt_bindings.sh'
+      - 'tool/audit_chatgpt_release_size.sh'
+  push:
+    paths:
+      - '.github/workflows/chatgpt-runtime.yml'
+      - 'flutter_rust_bridge.yaml'
+      - 'rust-toolchain.toml'
+      - 'native/**'
+      - 'rust_builder/**'
+      - 'lib/features/chatgpt/**'
+      - 'lib/features/direct_connections/models/direct_completion.dart'
+      - 'lib/features/direct_connections/services/direct_chat_bridge.dart'
+      - 'lib/features/chat/**'
+      - 'lib/core/database/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'tool/audit_chatgpt_runtime_exposure.sh'
+      - 'tool/regenerate_chatgpt_bindings.sh'
+      - 'tool/audit_chatgpt_release_size.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: native/chatgpt_runtime
+      - run: cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml --all -- --check
+      - run: cargo fmt --manifest-path native/codex_mobile_compat/app-server/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets
+      - run: bash tool/audit_chatgpt_runtime_exposure.sh
+
+  flutter-and-bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.95.0
+          components: rustfmt
+      - uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225 # v2.12.0
+        with:
+          channel: stable
+      - run: cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - name: Analyze vendored Cargokit build tool
+        working-directory: rust_builder/cargokit/build_tool
+        run: |
+          dart pub get
+          dart analyze
+          dart run test/rustup_test.dart
+      - run: bash tool/regenerate_chatgpt_bindings.sh
+      - run: git diff --exit-code -- native/chatgpt_runtime/src/frb_generated.rs lib/features/chatgpt/native_generated
+      - run: flutter analyze
+      - run: flutter test
+
+  release-builds:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.95.0
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225 # v2.12.0
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter build apk --release --split-per-abi --no-tree-shake-icons
+      - run: flutter build ios --release --no-codesign --no-tree-shake-icons
+      - run: bash tool/audit_chatgpt_release_size.sh

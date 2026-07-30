@@ -7,6 +7,8 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/features/chatgpt/chatgpt_feature.dart';
+import 'package:conduit/features/chatgpt/chatgpt_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
@@ -31,6 +33,23 @@ final class _DirectPreferredBackendController
     extends PreferredBackendController {
   @override
   PreferredBackend build() => PreferredBackend.direct;
+}
+
+final class _ChatGptPreferredBackendController
+    extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.chatgpt;
+}
+
+final class _FixedChatGptConnectionController
+    extends ChatGptConnectionController {
+  _FixedChatGptConnectionController(this._status);
+
+  final ChatGptConnectionStatus _status;
+
+  @override
+  Future<ChatGptConnectionState> build() async =>
+      ChatGptConnectionState(status: _status);
 }
 
 final class _UnsetPreferredBackendController
@@ -497,7 +516,9 @@ void main() {
         final state = _MockGoRouterState();
         final notifier = container.read(routerNotifierProvider);
         when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-        check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
+        check(
+          notifier.redirect(_MockBuildContext(), state),
+        ).equals(Routes.chat);
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
         check(
@@ -577,6 +598,43 @@ void main() {
   });
 
   group('Direct-primary route policy', () {
+    test('a ChatGPT profile cannot satisfy Direct setup', () async {
+      final chatGptProfile = DirectConnectionProfile(
+        id: kChatGptAccountProfileId,
+        name: 'ChatGPT Account',
+        adapterKey: kChatGptAccountAdapterKey,
+        baseUrl: kChatGptAccountBaseUrl,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          activeServerProvider.overrideWith((_) async => null),
+          preferredBackendProvider.overrideWith(
+            _DirectPreferredBackendController.new,
+          ),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedDirectProfiles([chatGptProfile]),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(const HermesConfig()),
+          ),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      await container.read(authStateManagerProvider.future);
+
+      final state = _MockGoRouterState();
+      when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
+      check(
+        container
+            .read(routerNotifierProvider)
+            .redirect(_MockBuildContext(), state),
+      ).equals('${Routes.directConnections}?onboarding=true');
+    });
+
     test(
       'usable Direct stays primary with a retained signed-out OWUI server',
       () async {
@@ -863,6 +921,87 @@ void main() {
         check(
           notifier.redirect(_MockBuildContext(), state),
         ).equals('${Routes.directConnections}?onboarding=true');
+      },
+    );
+  });
+
+  group('ChatGPT-primary route policy', () {
+    test('a disconnected account recovers the dedicated setup page', () async {
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          activeServerProvider.overrideWith((_) async => null),
+          preferredBackendProvider.overrideWith(
+            _ChatGptPreferredBackendController.new,
+          ),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedDirectProfiles(const []),
+          ),
+          chatGptConnectionProvider.overrideWith(
+            () => _FixedChatGptConnectionController(
+              ChatGptConnectionStatus.disconnected,
+            ),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(const HermesConfig()),
+          ),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      await container.read(chatGptConnectionProvider.future);
+      await container.read(authStateManagerProvider.future);
+
+      final state = _MockGoRouterState();
+      when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
+      check(
+        container
+            .read(routerNotifierProvider)
+            .redirect(_MockBuildContext(), state),
+      ).equals('${Routes.chatGptAccount}?onboarding=true');
+    });
+
+    test(
+      'an authenticated account enters local chat without Open WebUI',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            activeServerProvider.overrideWith((_) async => null),
+            preferredBackendProvider.overrideWith(
+              _ChatGptPreferredBackendController.new,
+            ),
+            directConnectionProfilesProvider.overrideWith(
+              () => _FixedDirectProfiles(const []),
+            ),
+            chatGptConnectionProvider.overrideWith(
+              () => _FixedChatGptConnectionController(
+                ChatGptConnectionStatus.authenticated,
+              ),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(const HermesConfig()),
+            ),
+            authStateManagerProvider.overrideWith(
+              _SignedOutAuthStateManager.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(activeServerProvider.future);
+        await container.read(directConnectionProfilesProvider.future);
+        await container.read(chatGptConnectionProvider.future);
+        await container.read(authStateManagerProvider.future);
+
+        final state = _MockGoRouterState();
+        when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
+        check(
+          container
+              .read(routerNotifierProvider)
+              .redirect(_MockBuildContext(), state),
+        ).isNull();
       },
     );
   });

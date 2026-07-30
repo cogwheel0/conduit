@@ -3930,5 +3930,18 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "chatGptAccountTitle": "ChatGPT アカウント",
+  "chatGptAccountSubtitle": "Conduit にローカル保存されるチャットで ChatGPT サブスクリプションを使用します。",
+  "chatGptConnect": "ChatGPT に接続",
+  "chatGptDeviceCodeInstructions": "認証ページを開き、ChatGPT にサインインして、このワンタイムコードを入力してください。",
+  "chatGptOpenVerification": "認証ページを開く",
+  "chatGptConnected": "ChatGPT アカウントに接続しました",
+  "chatGptReconnect": "再接続",
+  "chatGptDisconnect": "切断",
+  "chatGptDisconnectTitle": "ChatGPT を切断しますか？",
+  "chatGptDisconnectMessage": "このアカウントのローカルチャット、添付ファイル、生成画像、会話データ、認証情報をこのデバイスから完全に削除します。他のプロバイダーには影響しません。",
+  "chatGptLoginExpired": "ワンタイムコードの有効期限が切れました。新しいコードを取得するには、最初からやり直してください。",
+  "chatGptLoginDenied": "ChatGPT のサインインが拒否されました。",
+  "chatGptLoginError": "ChatGPT にサインインできませんでした。もう一度お試しください。"
 }

@@ -57,6 +57,14 @@ void main() {
       ).equals(PreferredBackend.direct);
     });
 
+    test('parses a persisted ChatGPT value at build time', () async {
+      await PreferencesStore.put(PreferenceKeys.preferredBackend, 'chatgpt');
+      final container = makeContainer();
+      check(
+        container.read(preferredBackendProvider),
+      ).equals(PreferredBackend.chatgpt);
+    });
+
     test('falls back to unset for an unrecognized persisted value', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'garbage');
       final container = makeContainer();

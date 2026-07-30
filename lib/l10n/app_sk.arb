@@ -4245,5 +4245,18 @@
   "ollamaThinkingLow": "Nízka",
   "ollamaThinkingMedium": "Stredná",
   "ollamaThinkingHigh": "Vysoká",
-  "ollamaThinkingMaximum": "Maximálna"
+  "ollamaThinkingMaximum": "Maximálna",
+  "chatGptAccountTitle": "Účet ChatGPT",
+  "chatGptAccountSubtitle": "Používajte predplatné ChatGPT pre chaty uložené lokálne v Conduite.",
+  "chatGptConnect": "Pripojiť ChatGPT",
+  "chatGptDeviceCodeInstructions": "Otvorte overovaciu stránku, prihláste sa do ChatGPT a zadajte tento jednorazový kód.",
+  "chatGptOpenVerification": "Otvoriť overovaciu stránku",
+  "chatGptConnected": "Účet ChatGPT je pripojený",
+  "chatGptReconnect": "Znova pripojiť",
+  "chatGptDisconnect": "Odpojiť",
+  "chatGptDisconnectTitle": "Odpojiť ChatGPT?",
+  "chatGptDisconnectMessage": "Týmto zo zariadenia natrvalo odstránite lokálne chaty, prílohy, vygenerované obrázky, údaje konverzácií a prihlasovacie údaje tohto účtu. Ostatní poskytovatelia zostanú zachovaní.",
+  "chatGptLoginExpired": "Platnosť jednorazového kódu vypršala. Začnite znova a získajte nový kód.",
+  "chatGptLoginDenied": "Prihlásenie do ChatGPT bolo zamietnuté.",
+  "chatGptLoginError": "Prihlásenie do ChatGPT sa nepodarilo dokončiť. Skúste to znova."
 }

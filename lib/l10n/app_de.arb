@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Niedrig",
   "ollamaThinkingMedium": "Mittel",
   "ollamaThinkingHigh": "Hoch",
-  "ollamaThinkingMaximum": "Maximal"
+  "ollamaThinkingMaximum": "Maximal",
+  "chatGptAccountTitle": "ChatGPT-Konto",
+  "chatGptAccountSubtitle": "Nutze dein ChatGPT-Abo für Chats, die lokal in Conduit gespeichert werden.",
+  "chatGptConnect": "ChatGPT verbinden",
+  "chatGptDeviceCodeInstructions": "Öffne die Bestätigungsseite, melde dich bei ChatGPT an und gib diesen Einmalcode ein.",
+  "chatGptOpenVerification": "Bestätigungsseite öffnen",
+  "chatGptConnected": "ChatGPT-Konto verbunden",
+  "chatGptReconnect": "Neu verbinden",
+  "chatGptDisconnect": "Trennen",
+  "chatGptDisconnectTitle": "ChatGPT trennen?",
+  "chatGptDisconnectMessage": "Dadurch werden die lokalen Chats, Anhänge, generierten Bilder, Verlaufsdaten und Anmeldedaten dieses Kontos dauerhaft von diesem Gerät entfernt. Andere Anbieter bleiben erhalten.",
+  "chatGptLoginExpired": "Der Einmalcode ist abgelaufen. Starte erneut, um einen neuen Code zu erhalten.",
+  "chatGptLoginDenied": "Die ChatGPT-Anmeldung wurde abgelehnt.",
+  "chatGptLoginError": "Die ChatGPT-Anmeldung konnte nicht abgeschlossen werden. Versuche es erneut."
 }

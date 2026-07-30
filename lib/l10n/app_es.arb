@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "chatGptAccountTitle": "Cuenta de ChatGPT",
+  "chatGptAccountSubtitle": "Usa tu suscripción de ChatGPT en chats guardados localmente en Conduit.",
+  "chatGptConnect": "Conectar ChatGPT",
+  "chatGptDeviceCodeInstructions": "Abre la página de verificación, inicia sesión en ChatGPT e introduce este código de un solo uso.",
+  "chatGptOpenVerification": "Abrir página de verificación",
+  "chatGptConnected": "Cuenta de ChatGPT conectada",
+  "chatGptReconnect": "Volver a conectar",
+  "chatGptDisconnect": "Desconectar",
+  "chatGptDisconnectTitle": "¿Desconectar ChatGPT?",
+  "chatGptDisconnectMessage": "Esto elimina de forma permanente de este dispositivo los chats locales, archivos adjuntos, imágenes generadas, datos de conversación y credenciales de esta cuenta. Los demás proveedores se conservan.",
+  "chatGptLoginExpired": "El código de un solo uso ha caducado. Empieza de nuevo para obtener otro código.",
+  "chatGptLoginDenied": "Se rechazó el inicio de sesión en ChatGPT.",
+  "chatGptLoginError": "No se pudo completar el inicio de sesión en ChatGPT. Inténtalo de nuevo."
 }

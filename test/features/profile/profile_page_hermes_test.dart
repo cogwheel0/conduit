@@ -51,13 +51,18 @@ void main() {
     expect(find.byKey(const Key('settings-category-app')), findsNothing);
     expect(find.byKey(const Key('settings-category-ai')), findsNothing);
 
-    await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
+    await tester.scrollUntilVisible(find.text('ChatGPT account'), 300);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
+    expect(find.text('ChatGPT account'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
     expect(find.text('Direct Connections'), findsOneWidget);
     expect(
       find.text('Connect to OpenAI-compatible APIs and Ollama'),
       findsOneWidget,
     );
+
+    await tester.scrollUntilVisible(find.text('Connect to Open WebUI'), 300);
     expect(find.text('Connect to Open WebUI'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);

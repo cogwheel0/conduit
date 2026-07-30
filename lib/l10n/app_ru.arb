@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Низкий",
   "ollamaThinkingMedium": "Средний",
   "ollamaThinkingHigh": "Высокий",
-  "ollamaThinkingMaximum": "Максимальный"
+  "ollamaThinkingMaximum": "Максимальный",
+  "chatGptAccountTitle": "Учётная запись ChatGPT",
+  "chatGptAccountSubtitle": "Используйте подписку ChatGPT для чатов, которые хранятся локально в Conduit.",
+  "chatGptConnect": "Подключить ChatGPT",
+  "chatGptDeviceCodeInstructions": "Откройте страницу подтверждения, войдите в ChatGPT и введите этот одноразовый код.",
+  "chatGptOpenVerification": "Открыть страницу подтверждения",
+  "chatGptConnected": "Учётная запись ChatGPT подключена",
+  "chatGptReconnect": "Подключить заново",
+  "chatGptDisconnect": "Отключить",
+  "chatGptDisconnectTitle": "Отключить ChatGPT?",
+  "chatGptDisconnectMessage": "Локальные чаты, вложения, созданные изображения, данные диалогов и учётные данные этой записи будут навсегда удалены с устройства. Данные других провайдеров сохранятся.",
+  "chatGptLoginExpired": "Срок действия одноразового кода истёк. Начните заново, чтобы получить новый код.",
+  "chatGptLoginDenied": "Вход в ChatGPT отклонён.",
+  "chatGptLoginError": "Не удалось выполнить вход в ChatGPT. Повторите попытку."
 }

@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Faible",
   "ollamaThinkingMedium": "Moyen",
   "ollamaThinkingHigh": "Élevé",
-  "ollamaThinkingMaximum": "Maximal"
+  "ollamaThinkingMaximum": "Maximal",
+  "chatGptAccountTitle": "Compte ChatGPT",
+  "chatGptAccountSubtitle": "Utilisez votre abonnement ChatGPT pour les discussions enregistrées localement dans Conduit.",
+  "chatGptConnect": "Connecter ChatGPT",
+  "chatGptDeviceCodeInstructions": "Ouvrez la page de vérification, connectez-vous à ChatGPT, puis saisissez ce code à usage unique.",
+  "chatGptOpenVerification": "Ouvrir la page de vérification",
+  "chatGptConnected": "Compte ChatGPT connecté",
+  "chatGptReconnect": "Reconnecter",
+  "chatGptDisconnect": "Déconnecter",
+  "chatGptDisconnectTitle": "Déconnecter ChatGPT ?",
+  "chatGptDisconnectMessage": "Cette action supprime définitivement de cet appareil les discussions locales, pièces jointes, images générées, données de conversation et identifiants de ce compte. Les autres fournisseurs sont conservés.",
+  "chatGptLoginExpired": "Le code à usage unique a expiré. Recommencez pour obtenir un nouveau code.",
+  "chatGptLoginDenied": "La connexion à ChatGPT a été refusée.",
+  "chatGptLoginError": "La connexion à ChatGPT n’a pas pu aboutir. Réessayez."
 }

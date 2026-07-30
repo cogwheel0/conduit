@@ -204,7 +204,7 @@ void main() {
 }
 
 Future<void> _expectChatListIndex(AppDatabase database) async {
-  check(database.schemaVersion).equals(9);
+  check(database.schemaVersion).equals(10);
   final indexRow = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "

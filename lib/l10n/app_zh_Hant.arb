@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "chatGptAccountTitle": "ChatGPT 帳號",
+  "chatGptAccountSubtitle": "在本機儲存於 Conduit 的聊天中使用你的 ChatGPT 訂閱。",
+  "chatGptConnect": "連線 ChatGPT",
+  "chatGptDeviceCodeInstructions": "開啟驗證頁面，登入 ChatGPT，然後輸入此一次性代碼。",
+  "chatGptOpenVerification": "開啟驗證頁面",
+  "chatGptConnected": "ChatGPT 帳號已連線",
+  "chatGptReconnect": "重新連線",
+  "chatGptDisconnect": "中斷連線",
+  "chatGptDisconnectTitle": "中斷 ChatGPT 連線？",
+  "chatGptDisconnectMessage": "這會從此裝置永久刪除該帳號的本機聊天、附件、產生的圖片、對話資料和憑證。其他提供者的資料會保留。",
+  "chatGptLoginExpired": "一次性代碼已過期。請重新開始以取得新代碼。",
+  "chatGptLoginDenied": "ChatGPT 登入已被拒絕。",
+  "chatGptLoginError": "無法完成 ChatGPT 登入。請再試一次。"
 }

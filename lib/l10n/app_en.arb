@@ -2852,8 +2852,17 @@
   },
   "personalizationSubtitle": "Default model, personal prompt, and memories",
   "defaultImageGenerationModel": "Default image generation model",
+  "@defaultImageGenerationModel": {
+    "description": "Label for the preferred OpenRouter image generation model setting."
+  },
   "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
+  "@defaultImageGenerationModelDescription": {
+    "description": "Help text for the preferred OpenRouter image generation model setting."
+  },
   "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
+  "@openRouterDefaultImageGenerationModel": {
+    "description": "Label for using OpenRouter's default image generation model."
+  },
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
@@ -5184,5 +5193,31 @@
   "ollamaThinkingMaximum": "Maximum",
   "@ollamaThinkingMaximum": {
     "description": "Maximum Ollama thinking level."
-  }
+  },
+  "chatGptAccountTitle": "ChatGPT account",
+  "@chatGptAccountTitle": {"description":"Title for the standalone ChatGPT account backend."},
+  "chatGptAccountSubtitle": "Use your ChatGPT subscription for chats stored locally in Conduit.",
+  "@chatGptAccountSubtitle": {"description":"Description for the standalone ChatGPT account backend."},
+  "chatGptConnect": "Connect ChatGPT",
+  "@chatGptConnect": {"description":"Action that starts ChatGPT device-code authentication."},
+  "chatGptDeviceCodeInstructions": "Open the verification page, sign in to ChatGPT, and enter this one-time code.",
+  "@chatGptDeviceCodeInstructions": {"description":"Instructions shown during ChatGPT device-code authentication."},
+  "chatGptOpenVerification": "Open verification page",
+  "@chatGptOpenVerification": {"description":"Action that opens the ChatGPT device verification page."},
+  "chatGptConnected": "ChatGPT account connected",
+  "@chatGptConnected": {"description":"Fallback identity shown for a connected ChatGPT account."},
+  "chatGptReconnect": "Reconnect",
+  "@chatGptReconnect": {"description":"Action that replaces the connected ChatGPT account."},
+  "chatGptDisconnect": "Disconnect",
+  "@chatGptDisconnect": {"description":"Action that disconnects the ChatGPT account."},
+  "chatGptDisconnectTitle": "Disconnect ChatGPT?",
+  "@chatGptDisconnectTitle": {"description":"Title for the destructive ChatGPT disconnect confirmation."},
+  "chatGptDisconnectMessage": "This permanently removes this account's local chats, attachments, generated images, conversation data, and credentials from this device. Other providers are preserved.",
+  "@chatGptDisconnectMessage": {"description":"Message for the destructive ChatGPT disconnect confirmation."},
+  "chatGptLoginExpired": "The one-time code expired. Start again to get a new code.",
+  "@chatGptLoginExpired": {"description":"Status shown when ChatGPT device authentication expires."},
+  "chatGptLoginDenied": "ChatGPT sign-in was denied.",
+  "@chatGptLoginDenied": {"description":"Status shown when ChatGPT device authentication is denied."},
+  "chatGptLoginError": "ChatGPT sign-in could not be completed. Try again.",
+  "@chatGptLoginError": {"description":"Status shown when ChatGPT device authentication fails."}
 }

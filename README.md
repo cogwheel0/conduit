@@ -103,7 +103,7 @@ works with or without an Open WebUI server at all.
 Your chats live on your device first. Nothing routes through a backend the
 maintainer operates.
 
-## Three ways to connect
+## Four ways to connect
 
 On first launch Conduit asks how you want to connect. Pick one, add the others
 later, and skip any sign-in you don't need.
@@ -111,14 +111,20 @@ later, and skip any sign-in you don't need.
 | | | |
 | --- | --- | --- |
 | **Open WebUI** | Your self-hosted server | Full feature set: chats, folders, notes, channels, workspace, tools, web search, image generation |
+| **ChatGPT** | Your ChatGPT account | Use your subscription for chats stored locally in Conduit. No API key or Open WebUI account required |
 | **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
+**ChatGPT** uses device-code sign-in in an in-app browser and keeps refresh
+credentials in platform secure storage. It is a separate backend in Conduit,
+and its locally owned chat history is not synchronized with ChatGPT website
+history.
+
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
 Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
-OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
-one. Direct connections you already configured in Open WebUI come along
-automatically. Keys and custom headers stay in platform secure storage.
+OpenRouter. Providers can use an API key or a local endpoint that does not
+require one. Direct connections already configured in Open WebUI come along
+automatically.
 
 **Hermes Agent** connects to your own Hermes server. You watch its tools work
 live, approve sensitive steps before they run, and let scheduled agents run
@@ -216,6 +222,11 @@ then pick how you want to connect.
 4. Choose whether new direct chats use Open WebUI history when one is signed in,
    or stay only on this device. Existing chats keep their current location.
 5. Start chatting. No Open WebUI account required.
+
+For a ChatGPT account, choose the separate **ChatGPT account** backend, copy the
+one-time device code, and finish sign-in in Conduit's in-app browser. Conduit
+owns this chat history locally; it does not import or modify conversations from
+the ChatGPT website.
 
 </details>
 

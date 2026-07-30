@@ -2590,5 +2590,18 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "chatGptAccountTitle": "Account ChatGPT",
+  "chatGptAccountSubtitle": "Usa il tuo abbonamento ChatGPT per le chat salvate localmente in Conduit.",
+  "chatGptConnect": "Connetti ChatGPT",
+  "chatGptDeviceCodeInstructions": "Apri la pagina di verifica, accedi a ChatGPT e inserisci questo codice monouso.",
+  "chatGptOpenVerification": "Apri la pagina di verifica",
+  "chatGptConnected": "Account ChatGPT connesso",
+  "chatGptReconnect": "Riconnetti",
+  "chatGptDisconnect": "Disconnetti",
+  "chatGptDisconnectTitle": "Disconnettere ChatGPT?",
+  "chatGptDisconnectMessage": "Questa operazione rimuove definitivamente da questo dispositivo le chat locali, gli allegati, le immagini generate, i dati delle conversazioni e le credenziali dell’account. Gli altri provider restano invariati.",
+  "chatGptLoginExpired": "Il codice monouso è scaduto. Ricomincia per ottenere un nuovo codice.",
+  "chatGptLoginDenied": "L’accesso a ChatGPT è stato negato.",
+  "chatGptLoginError": "Impossibile completare l’accesso a ChatGPT. Riprova."
 }
