@@ -27,7 +27,9 @@ final class DirectImagePart extends DirectContentPart {
   }
 }
 
-/// A local PDF payload accepted only by Conduit's first-party OpenRouter path.
+/// A local document payload. Each adapter must explicitly opt into supported
+/// MIME types; existing HTTP adapters continue to reject anything they do not
+/// understand.
 ///
 /// Keeping this normalized part distinct from arbitrary provider content makes
 /// it impossible for callers to smuggle unsupported file types or provider
@@ -44,11 +46,22 @@ final class DirectFilePart extends DirectContentPart {
   final String mimeType;
 }
 
+/// Pre-encoded audio input. Existing adapters reject this part unless they
+/// explicitly advertise audio support.
+final class DirectAudioPart extends DirectContentPart {
+  const DirectAudioPart({required this.dataUrl, required this.mimeType});
+
+  final String dataUrl;
+  final String mimeType;
+}
+
 final class DirectChatMessage {
   DirectChatMessage({
     required this.role,
     required Iterable<DirectContentPart> parts,
     Iterable<Map<String, dynamic>> annotations = const [],
+    this.localMessageId,
+    this.parentMessageId,
   }) : parts = List.unmodifiable(parts),
        annotations = List.unmodifiable(
          annotations.map(
@@ -66,6 +79,8 @@ final class DirectChatMessage {
   final String role;
   final List<DirectContentPart> parts;
   final List<Map<String, dynamic>> annotations;
+  final String? localMessageId;
+  final String? parentMessageId;
 }
 
 final class DirectCompletionRequest {
@@ -76,6 +91,10 @@ final class DirectCompletionRequest {
     this.enableWebSearch = false,
     this.enableImageGeneration = false,
     this.imageGenerationModel,
+    this.localChatId,
+    this.headMessageId,
+    this.localAssistantMessageId,
+    this.regenerateFromMessageId,
   }) : messages = List.unmodifiable(messages),
        parameters = Map.unmodifiable(parameters) {
     if (remoteModelId.trim().isEmpty) {
@@ -88,6 +107,18 @@ final class DirectCompletionRequest {
   final bool enableWebSearch;
   final bool enableImageGeneration;
   final String? imageGenerationModel;
+  final String? localChatId;
+
+  /// The existing local assistant message at the branch point, if any.
+  /// Native adapters use this stable identity to resume or fork the matching
+  /// provider-side thread without making the provider authoritative for chat
+  /// history.
+  final String? headMessageId;
+
+  /// The local assistant placeholder that will own this completion.
+  /// This becomes the durable head for a successful provider turn.
+  final String? localAssistantMessageId;
+  final String? regenerateFromMessageId;
 
   /// Provider-compatible optional sampling/output parameters.
   ///

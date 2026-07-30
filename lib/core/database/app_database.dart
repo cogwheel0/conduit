@@ -6,6 +6,7 @@ import 'daos/app_cache_dao.dart';
 import 'daos/attachment_queue_dao.dart';
 import 'daos/chats_dao.dart';
 import 'daos/folders_dao.dart';
+import 'daos/direct_thread_bindings_dao.dart';
 import 'daos/messages_dao.dart';
 import 'daos/notes_dao.dart';
 import 'daos/outbox_dao.dart';
@@ -16,6 +17,7 @@ import 'tables/app_cache.dart';
 import 'tables/attachment_queue.dart';
 import 'tables/chats.dart';
 import 'tables/folders.dart';
+import 'tables/direct_thread_bindings.dart';
 import 'tables/messages.dart';
 import 'tables/notes.dart';
 import 'tables/outbox.dart';
@@ -25,11 +27,13 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Current schema version 8 includes sync metadata, chats, messages, folders,
+/// Current schema version 10 includes sync metadata, chats, messages, folders,
 /// outbox operations, notes, the shared chat/note FTS substrate, and (v6) the
 /// per-server app cache + attachment upload queue. Version 7 adds the bounded
 /// chat-list window index used by active and archived drawer pagination.
 /// Version 8 adds crash-safe native-share dedupe receipts to attachment rows.
+/// Version 9 adds message branch indexing. Version 10 adds durable ChatGPT
+/// account thread bindings.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
 /// on server switch or removal) is owned by [DatabaseManager].
@@ -43,6 +47,7 @@ part 'app_database.g.dart';
     Notes,
     AppCache,
     AttachmentQueue,
+    DirectThreadBindings,
   ],
   daos: [
     ChatsDao,
@@ -54,6 +59,7 @@ part 'app_database.g.dart';
     NotesDao,
     AppCacheDao,
     AttachmentQueueDao,
+    DirectThreadBindingsDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -75,7 +81,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -145,6 +151,10 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await _createMessageBranchIndex();
       }
+      if (from < 10) {
+        await m.createTable(directThreadBindings);
+        await _createDirectThreadBindingIndexes();
+      }
     },
     beforeOpen: (details) async {
       // Required for the messages -> chats cascade.
@@ -159,6 +169,20 @@ class AppDatabase extends _$AppDatabase {
     await _createNoteIndexes();
     await _createAttachmentReceiptIndex();
     await _createMessageBranchIndex();
+    await _createDirectThreadBindingIndexes();
+  }
+
+  Future<void> _createDirectThreadBindingIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_direct_thread_bindings_account '
+      'ON direct_thread_bindings (account_fingerprint, updated_at);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_direct_thread_bindings_latest '
+      'ON direct_thread_bindings '
+      '(local_chat_id, profile_id, updated_at DESC, created_at DESC, '
+      'head_message_id DESC);',
+    );
   }
 
   Future<void> _createMessageBranchIndex() {

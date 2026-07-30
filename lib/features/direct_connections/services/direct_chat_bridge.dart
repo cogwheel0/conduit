@@ -139,6 +139,7 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
   List<int>? directDocumentVerificationKey,
   DirectConnectionProfile? openRouterProfile,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
+  Map<String, DirectAudioPart> ephemeralAudioPartsByAttachmentId = const {},
   int maxImages = kDirectMaxImages,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
@@ -288,6 +289,11 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     if (role == 'user' && directDocumentVerificationKey != null) {
       final documents = <DirectPreparedDocument>[];
       for (final file in message.files ?? const <Map<String, dynamic>>[]) {
+        final attachmentId = file['url']?.toString();
+        if (attachmentId != null &&
+            ephemeralFilePartsByAttachmentId.containsKey(attachmentId)) {
+          continue;
+        }
         final document = trustedDirectDocumentFromDescriptor(
           file,
           verificationKey: directDocumentVerificationKey,
@@ -354,6 +360,11 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
           parts.add(filePart);
           continue;
         }
+        final audioPart = ephemeralAudioPartsByAttachmentId[attachment];
+        if (audioPart != null) {
+          parts.add(audioPart);
+          continue;
+        }
         if (explicitNonImageReferences.contains(
           _normalizeDirectFileReference(attachment),
         )) {
@@ -380,7 +391,12 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
 
     if (parts.isNotEmpty || annotations.isNotEmpty) {
       result.add(
-        DirectChatMessage(role: role, parts: parts, annotations: annotations),
+        DirectChatMessage(
+          role: role,
+          parts: parts,
+          annotations: annotations,
+          localMessageId: message.id,
+        ),
       );
     }
   }

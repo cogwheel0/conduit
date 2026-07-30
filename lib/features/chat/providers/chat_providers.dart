@@ -7467,13 +7467,31 @@ void ensureDirectMessagesCompatibleWithModel({
   required Model model,
   required Iterable<DirectChatMessage> messages,
 }) {
-  if (model.isMultimodal == true) return;
   final containsImage = messages.any(
     (message) => message.parts.any((part) => part is DirectImagePart),
   );
-  if (containsImage) {
+  if (containsImage && !directModelSupportsVision(model)) {
     throw const DirectChatInputException(
       'This direct model does not support image attachments.',
+    );
+  }
+  final containsAudio = messages.any(
+    (message) => message.parts.any((part) => part is DirectAudioPart),
+  );
+  if (containsAudio && model.capabilities?['audio_input'] != true) {
+    throw const DirectChatInputException(
+      'This direct model does not support audio attachments.',
+    );
+  }
+  final containsDocument = messages.any(
+    (message) => message.parts.any((part) => part is DirectFilePart),
+  );
+  final supportsDocuments =
+      model.capabilities?['file_upload'] == true ||
+      model.capabilities?['pdf_input'] == true;
+  if (containsDocument && !supportsDocuments) {
+    throw const DirectChatInputException(
+      'This direct model does not support document attachments.',
     );
   }
 }
@@ -7537,11 +7555,13 @@ final class _PreparedDirectDocuments {
     required this.files,
     required this.attachmentIds,
     required this.ephemeralFilePartsByAttachmentId,
+    required this.ephemeralAudioPartsByAttachmentId,
   });
 
   final List<Map<String, dynamic>> files;
   final Set<String> attachmentIds;
   final Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId;
+  final Map<String, DirectAudioPart> ephemeralAudioPartsByAttachmentId;
 }
 
 const int _kDirectMaxAggregatePdfBytes = 2 * kDirectMaxLocalDocumentBytes;
@@ -7550,6 +7570,8 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   dynamic ref, {
   required List<String>? attachmentIds,
   required bool supportsOpenRouterPdfInputs,
+  required bool supportsChatGptAudioInputs,
+  required bool supportsChatGptDocumentInputs,
 }) async {
   final attachedStates =
       ref.read(attachedFilesProvider) as List<FileUploadState>;
@@ -7559,7 +7581,9 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   };
   final references = <String>{};
   final sources = <DirectLocalDocumentSource>[];
+  final documentStates = <String, FileUploadState>{};
   final pdfStates = <String, FileUploadState>{};
+  final audioStates = <String, FileUploadState>{};
 
   for (final attachmentId in attachmentIds ?? const <String>[]) {
     if (attachmentId.startsWith('data:image/')) continue;
@@ -7567,7 +7591,8 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
     final state = stateById[attachmentId];
     if (state == null || state.isImage == true) {
       if (attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix) ||
-          attachmentId.startsWith(kDirectOpenRouterPdfAttachmentPrefix)) {
+          attachmentId.startsWith(kDirectOpenRouterPdfAttachmentPrefix) ||
+          attachmentId.startsWith(kDirectChatGptAudioAttachmentPrefix)) {
         throw const DirectChatInputException(
           'This local document is no longer available. Attach it again.',
         );
@@ -7576,6 +7601,12 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       continue;
     }
     if (!attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
+      if (supportsChatGptAudioInputs &&
+          attachmentId.startsWith(kDirectChatGptAudioAttachmentPrefix) &&
+          directAudioMimeTypeForFileName(state.fileName) != null) {
+        audioStates[attachmentId] = state;
+        continue;
+      }
       if (supportsOpenRouterPdfInputs &&
           attachmentId.startsWith(kDirectOpenRouterPdfAttachmentPrefix) &&
           isDirectOpenRouterPdfFileNameSupported(state.fileName)) {
@@ -7587,6 +7618,7 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       );
     }
     references.add(attachmentId);
+    documentStates[attachmentId] = state;
     sources.add(
       await DirectLocalDocumentSource.fromFile(
         state.file,
@@ -7605,6 +7637,7 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   final files = <Map<String, dynamic>>[];
   final preparedAttachmentIds = <String>{};
   final ephemeralFileParts = <String, DirectFilePart>{};
+  final ephemeralAudioParts = <String, DirectAudioPart>{};
   for (final document in documents.documents) {
     final attachmentId = document.sourceId;
     if (attachmentId == null ||
@@ -7621,6 +7654,26 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
         signingKey: signingKey!,
       ),
     );
+    if (supportsChatGptDocumentInputs &&
+        _chatGptNativeDocumentMimeSupported(document.mimeType)) {
+      final state = documentStates[attachmentId];
+      if (state == null) {
+        throw StateError(
+          'Direct document source disappeared during preparation.',
+        );
+      }
+      final bytes = await _readBoundedDirectAttachment(
+        state.file,
+        maxBytes: kDirectMaxLocalDocumentBytes,
+        tooLargeMessage:
+            'This document exceeds the Direct attachment size limit.',
+      );
+      ephemeralFileParts[attachmentId] = DirectFilePart(
+        filename: document.name,
+        dataUrl: 'data:${document.mimeType};base64,${base64Encode(bytes)}',
+        mimeType: document.mimeType,
+      );
+    }
   }
   var aggregatePdfBytes = 0;
   for (final entry in pdfStates.entries) {
@@ -7654,28 +7707,99 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       'content_type': 'application/pdf',
     });
   }
+  if (audioStates.length > kDirectMaxAudioAttachments) {
+    throw const DirectChatInputException(
+      'Direct chats support up to 4 audio attachments per message.',
+    );
+  }
+  var aggregateAudioBytes = 0;
+  for (final entry in audioStates.entries) {
+    final state = entry.value;
+    final measuredLength = await state.file.length();
+    aggregateAudioBytes += measuredLength;
+    if (aggregateAudioBytes > kDirectMaxAggregateAudioBytes) {
+      throw const DirectChatInputException(
+        'Audio attachments must be 40 MB or less in total.',
+      );
+    }
+    final bytes = await _readBoundedDirectAttachment(
+      state.file,
+      maxBytes: kDirectMaxAudioBytes,
+      tooLargeMessage: 'Audio attachments must be 20 MB or less.',
+    );
+    // Recheck against the bytes actually read so a file that changed after
+    // the initial stat cannot bypass the aggregate limit.
+    aggregateAudioBytes -= measuredLength;
+    aggregateAudioBytes += bytes.length;
+    if (aggregateAudioBytes > kDirectMaxAggregateAudioBytes) {
+      throw const DirectChatInputException(
+        'Audio attachments must be 40 MB or less in total.',
+      );
+    }
+    final mimeType = directAudioMimeTypeForFileName(state.fileName)!;
+    final attachmentId = entry.key;
+    preparedAttachmentIds.add(attachmentId);
+    ephemeralAudioParts[attachmentId] = DirectAudioPart(
+      dataUrl: 'data:$mimeType;base64,${base64Encode(bytes)}',
+      mimeType: mimeType,
+    );
+    files.add(<String, dynamic>{
+      'type': 'audio',
+      'source': 'direct_chatgpt_audio',
+      'url': attachmentId,
+      'name': state.fileName,
+      'filename': state.fileName,
+      'size': bytes.length,
+      'content_type': mimeType,
+    });
+  }
   return _PreparedDirectDocuments(
     files: List<Map<String, dynamic>>.unmodifiable(files),
     attachmentIds: Set<String>.unmodifiable(preparedAttachmentIds),
     ephemeralFilePartsByAttachmentId: Map<String, DirectFilePart>.unmodifiable(
       ephemeralFileParts,
     ),
+    ephemeralAudioPartsByAttachmentId:
+        Map<String, DirectAudioPart>.unmodifiable(ephemeralAudioParts),
   );
 }
 
-Future<Uint8List> _readBoundedDirectPdf(File file) async {
+bool _chatGptNativeDocumentMimeSupported(String mimeType) =>
+    mimeType.startsWith('text/') ||
+    const <String>{
+      'application/json',
+      'application/xml',
+      'application/yaml',
+      'application/x-yaml',
+    }.contains(mimeType);
+
+Future<Uint8List> _readBoundedDirectAttachment(
+  File file, {
+  required int maxBytes,
+  required String tooLargeMessage,
+}) async {
   final builder = BytesBuilder(copy: false);
   var length = 0;
   await for (final chunk in file.openRead()) {
     length += chunk.length;
-    if (length > kDirectMaxLocalDocumentBytes) {
-      throw const DirectChatInputException(
-        'This PDF exceeds the Direct attachment size limit.',
-      );
+    if (length > maxBytes) {
+      throw DirectChatInputException(tooLargeMessage);
     }
     builder.add(chunk);
   }
   final bytes = builder.takeBytes();
+  if (bytes.isEmpty) {
+    throw const DirectChatInputException('This attachment is empty.');
+  }
+  return bytes;
+}
+
+Future<Uint8List> _readBoundedDirectPdf(File file) async {
+  final bytes = await _readBoundedDirectAttachment(
+    file,
+    maxBytes: kDirectMaxLocalDocumentBytes,
+    tooLargeMessage: 'This PDF exceeds the Direct attachment size limit.',
+  );
   if (bytes.length < 5 ||
       bytes[0] != 0x25 ||
       bytes[1] != 0x50 ||
@@ -15104,6 +15228,7 @@ Future<void> _dispatchDirectRunFromChat(
   required bool enableImageGeneration,
   required String? reasoningEffort,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
+  Map<String, DirectAudioPart> ephemeralAudioPartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
@@ -15169,6 +15294,7 @@ Future<void> _dispatchDirectRunFromChat(
       enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
       ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+      ephemeralAudioPartsByAttachmentId: ephemeralAudioPartsByAttachmentId,
     );
   } finally {
     stopIndex.untrack(indexedRunKey);
@@ -15205,6 +15331,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required bool enableImageGeneration,
   required String? reasoningEffort,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
+  Map<String, DirectAudioPart> ephemeralAudioPartsByAttachmentId = const {},
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -15247,6 +15374,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         directDocumentVerificationKey: verificationKey,
         openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
         ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        ephemeralAudioPartsByAttachmentId: ephemeralAudioPartsByAttachmentId,
       );
     },
   );
@@ -15299,6 +15427,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     ref.read(imageGenerationEnabledProvider.notifier).set(false);
   }
   try {
+    final branchHeadMessageId = directMessages
+        .lastWhere(
+          (message) => message.role == 'user',
+          orElse: () => directMessages.last,
+        )
+        .parentMessageId;
     run = adapter.startCompletion(
       route.profile,
       DirectCompletionRequest(
@@ -15309,6 +15443,14 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         imageGenerationModel:
             route.profile.isOpenRouter && enableImageGeneration
             ? ref.read(appSettingsProvider).openRouterImageGenerationModel
+            : null,
+        localChatId: owner.conversationId,
+        headMessageId: branchHeadMessageId,
+        localAssistantMessageId: assistantMessageId,
+        regenerateFromMessageId:
+            assistantSeed.id == assistantMessageId &&
+                assistantSeed.content.trim().isNotEmpty
+            ? assistantMessageId
             : null,
         parameters:
             route.profile.adapterKey == kOllamaAdapterKey ||
@@ -16017,7 +16159,11 @@ Future<void> _sendMessageInternal(
           ref,
           attachmentIds: attachments,
           supportsOpenRouterPdfInputs:
-              directRoute.profile.supportsOpenRouterPdfInputs,
+              directRoute.model.capabilities?['pdf_input'] == true,
+          supportsChatGptAudioInputs:
+              directRoute.model.capabilities?['audio_input'] == true,
+          supportsChatGptDocumentInputs:
+              directRoute.model.capabilities?['file_upload'] == true,
         )
       : null;
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
@@ -16543,6 +16689,9 @@ Future<void> _sendMessageInternal(
         ephemeralFilePartsByAttachmentId:
             preparedDirectDocuments?.ephemeralFilePartsByAttachmentId ??
             const <String, DirectFilePart>{},
+        ephemeralAudioPartsByAttachmentId:
+            preparedDirectDocuments?.ephemeralAudioPartsByAttachmentId ??
+            const <String, DirectAudioPart>{},
         sendHandle: sendHandle,
       );
       if (_isDirectConversationOwnerActive(ref, runOwner) &&

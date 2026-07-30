@@ -67,7 +67,7 @@ import 'prompt_suggestion_overlay.dart';
 /// has been removed or replaced.
 bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
   if (model == null || !hasReservedDirectIdentity(model)) return true;
-  return registry.resolve(model) != null && model.isMultimodal == true;
+  return registry.resolve(model) != null && directModelSupportsVision(model);
 }
 
 /// Restricts local file picking to what the selected transport can consume.
@@ -84,6 +84,9 @@ List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
     final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
     if (selectedModel.capabilities?['pdf_input'] == true) {
       extensions.add('pdf');
+    }
+    if (selectedModel.capabilities?['audio_input'] == true) {
+      extensions.addAll(kDirectChatGptAudioPickerExtensions);
     }
     if (selectedModel.isMultimodal == true) {
       extensions.addAll(
