@@ -31,6 +31,9 @@ import '../services/ollama_adapter.dart';
 import '../services/openwebui_direct_connection_store.dart';
 import '../services/openwebui_direct_completion_relay.dart';
 import '../services/openai_compatible_adapter.dart';
+import '../../chatgpt/chatgpt_account_adapter.dart';
+import '../../chatgpt/chatgpt_feature.dart';
+import '../../chatgpt/chatgpt_providers.dart';
 
 export '../services/direct_connection_profile_store.dart'
     show DirectConnectionProfileConflictException;
@@ -259,6 +262,11 @@ final directProviderAdapterRegistryProvider =
       return DirectProviderAdapterRegistry([
         OpenAiCompatibleAdapter(clientPool: pool),
         OllamaAdapter(clientPool: pool),
+        if (kChatGptAccountEnabled)
+          ChatGptAccountAdapter(
+            runtime: ref.watch(chatGptRuntimeClientProvider),
+            bindings: ref.watch(chatGptThreadBindingStoreProvider),
+          ),
       ]);
     });
 
@@ -327,6 +335,30 @@ class DirectConnectionProfilesController
     _ensureMounted();
     profile.validate();
     final current = state.value ?? await resources.store.load();
+    final isChatGptProfileId = profile.id == kChatGptAccountProfileId;
+    final isChatGptAdapter = profile.adapterKey == kChatGptAccountAdapterKey;
+    if (isChatGptProfileId != isChatGptAdapter) {
+      throw const FormatException(
+        'The ChatGPT account profile id and adapter are reserved.',
+      );
+    }
+    if (isChatGptAdapter) {
+      if (!isCanonicalChatGptAccountProfile(profile) ||
+          current.any(
+            (item) =>
+                item.id == kChatGptAccountProfileId &&
+                item.adapterKey != kChatGptAccountAdapterKey,
+          ) ||
+          current.any(
+            (item) =>
+                item.adapterKey == kChatGptAccountAdapterKey &&
+                item.id != profile.id,
+          )) {
+        throw const FormatException(
+          'Only the fixed ChatGPT account connection is supported.',
+        );
+      }
+    }
     final index = current.indexWhere((item) => item.id == profile.id);
     final previous = index < 0 ? null : current[index];
     late final List<DirectConnectionProfile> persisted;
@@ -391,23 +423,45 @@ class DirectConnectionProfilesController
     }
   }
 
-  Future<void> remove(String profileId) async {
+  Future<void> remove(String profileId) =>
+      _removeProfilesWhere((profile) => profile.id == profileId);
+
+  Future<void> removeChatGptAccountProfiles() => _removeProfilesWhere(
+    (profile) =>
+        profile.id == kChatGptAccountProfileId ||
+        profile.adapterKey == kChatGptAccountAdapterKey,
+  );
+
+  Future<void> _removeProfilesWhere(
+    bool Function(DirectConnectionProfile profile) predicate,
+  ) async {
     final resources = _captureMutationResources();
     await _serializeMutation(() async {
       _ensureMounted();
       final current = state.value ?? await resources.store.load();
-      final updated = current
-          .where((profile) => profile.id != profileId)
+      final matches = <String>{
+        for (final profile in current)
+          if (predicate(profile)) profile.id,
+      };
+      final removed = current
+          .where((profile) => matches.contains(profile.id))
           .toList(growable: false);
-      if (updated.length == current.length) return;
+      if (removed.isEmpty) return;
+      final updated = current
+          .where((profile) => !matches.contains(profile.id))
+          .toList(growable: false);
       final persisted = await resources.store.save(updated);
-      _invalidateDirectProfileTransportBestEffort(
-        resources.clientPool,
-        profileId,
-      );
-      _removeProfileModelsBestEffort(resources.modelRegistry, profileId);
+      for (final profile in removed) {
+        _invalidateDirectProfileTransportBestEffort(
+          resources.clientPool,
+          profile.id,
+        );
+        _removeProfileModelsBestEffort(resources.modelRegistry, profile.id);
+      }
       if (ref.mounted) state = AsyncValue.data(persisted);
-      _cancelProfileRunsBestEffort(resources.runRegistry, profileId);
+      for (final profile in removed) {
+        _cancelProfileRunsBestEffort(resources.runRegistry, profile.id);
+      }
     });
   }
 

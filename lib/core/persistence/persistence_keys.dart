@@ -81,6 +81,12 @@ final class PreferenceKeys {
   static const String directHistoryPolicy = 'direct_history_policy_v1';
   static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';
 
+  /// Non-secret account fingerprint marking an interrupted ChatGPT disconnect.
+  static const String chatGptDisconnectTombstone =
+      'chatgpt_disconnect_tombstone_v1';
+  static const String chatGptAccountFingerprint =
+      'chatgpt_account_fingerprint_v1';
+
   /// Prefix for the per-server account owner marker that guards reopening an
   /// OpenWebUI database after process restart.
   static const String openWebUiAccountOwnerPrefix =

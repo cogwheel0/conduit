@@ -7,6 +7,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../chatgpt/chatgpt_feature.dart';
 
 /// First-run screen letting a fresh install choose its backend: a self-hosted
 /// Open WebUI, direct model APIs, or a Hermes Agent.
@@ -61,6 +62,17 @@ class BackendChooserPage extends ConsumerWidget {
                     subtitle: l10n.backendChooserOpenWebUISubtitle,
                     onTap: () => context.go(Routes.serverConnection),
                   ),
+                  if (kChatGptAccountEnabled) ...[
+                    const SizedBox(height: Spacing.md),
+                    _ChooserCard(
+                      leading: const _ChatGptIcon(),
+                      title: l10n.chatGptAccountTitle,
+                      subtitle: l10n.chatGptAccountSubtitle,
+                      onTap: () => context.go(
+                        '${Routes.chatGptAccount}?onboarding=true',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: Spacing.md),
                   _ChooserCard(
                     leading: const _DirectConnectionIcon(),
@@ -228,6 +240,30 @@ class _DirectConnectionIcon extends StatelessWidget {
       child: Icon(
         context.usesCupertinoChrome ? CupertinoIcons.link : Icons.api_rounded,
         color: theme.buttonPrimary,
+        size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+class _ChatGptIcon extends StatelessWidget {
+  const _ChatGptIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      width: TouchTarget.minimum,
+      height: TouchTarget.minimum,
+      decoration: BoxDecoration(
+        color: theme.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.chat_bubble_2
+            : Icons.chat_bubble_outline_rounded,
+        color: theme.success,
         size: IconSize.medium,
       ),
     );

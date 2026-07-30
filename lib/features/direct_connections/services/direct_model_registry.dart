@@ -7,6 +7,13 @@ import 'direct_connection_profile_store.dart';
 
 const String kDirectModelIdPrefix = 'direct:';
 
+bool directModelSupportsVision(Model model) {
+  final capabilities = model.capabilities;
+  return capabilities?.containsKey('vision') == true
+      ? capabilities!['vision'] == true
+      : model.isMultimodal == true;
+}
+
 /// Runtime provenance for a locally minted direct model.
 ///
 /// Device profiles use Conduit's native transport. Profiles projected from
@@ -95,6 +102,14 @@ final Expando<DirectModelBinding> _trustedBindings =
 /// Whether this exact object was minted locally. Routing must additionally use
 /// [DirectModelRegistry.resolve] so deleted/stale profiles cannot be selected.
 bool isLocallyMintedDirectModel(Model model) => _trustedBindings[model] != null;
+
+/// Whether this exact locally minted model belongs to [adapterKey].
+///
+/// Backend selection uses the trusted runtime binding instead of model ids or
+/// server-controlled capability metadata, so a remote model cannot impersonate
+/// a first-party account backend.
+bool isLocallyMintedDirectModelForAdapter(Model model, String adapterKey) =>
+    _trustedBindings[model]?.adapterKey == adapterKey;
 
 /// Whether this exact object belongs to Conduit's local direct namespace.
 /// Server-controlled ids and metadata are never provenance on their own.

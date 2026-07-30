@@ -19,6 +19,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
+import '../../chatgpt/chatgpt_feature.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
@@ -93,8 +94,10 @@ class ProfilePage extends ConsumerWidget {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final directPrimary =
-        ref.watch(preferredBackendProvider) == PreferredBackend.direct;
+    final preferredBackend = ref.watch(preferredBackendProvider);
+    final directPrimary = preferredBackend == PreferredBackend.direct;
+    final localChatPrimary =
+        directPrimary || preferredBackend == PreferredBackend.chatgpt;
     final hasOpenWebUiAccount = userData != null && api != null;
     final items = _buildSettingsItems(
       context,
@@ -102,7 +105,7 @@ class ProfilePage extends ConsumerWidget {
       userData: userData,
       api: api,
       hermesOnly: hermesOnly,
-      directPrimary: directPrimary,
+      directPrimary: localChatPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
     return ListView(
@@ -440,6 +443,18 @@ class ProfilePage extends ConsumerWidget {
           title: l10n.settingsDataAndConnection,
           subtitle: l10n.connectionHealth,
           onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
+        ),
+      if (kChatGptAccountEnabled)
+        _buildAccountOption(
+          context,
+          key: const Key('chatgpt-account-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.chat_bubble_2,
+            android: Icons.chat_bubble_outline_rounded,
+          ),
+          title: l10n.chatGptAccountTitle,
+          subtitle: l10n.chatGptAccountSubtitle,
+          onTap: () => context.pushNamed(RouteNames.chatGptAccount),
         ),
       _buildAccountOption(
         context,
