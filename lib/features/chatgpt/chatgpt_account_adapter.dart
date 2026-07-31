@@ -501,17 +501,11 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
           mediaType: mediaType,
         );
       }(),
-      native.RuntimeEventKind.toolStarted => DirectToolCallStarted(
-        id: _toolEventId(event),
-        name: event.text ?? 'chatgpt_tool',
-        arguments: _jsonMap(event.jsonData),
-      ),
-      native.RuntimeEventKind.toolCompleted => DirectToolCallCompleted(
-        id: _toolEventId(event),
-        name: event.text ?? 'chatgpt_tool',
-        arguments: const {},
-        result: _jsonMap(event.jsonData),
-      ),
+      // The ChatGPT surface presents web sources and generated images as
+      // results, not raw Codex protocol/tool JSON. Keep this guard even though
+      // current native runtimes already filter conversation item lifecycles.
+      native.RuntimeEventKind.toolStarted ||
+      native.RuntimeEventKind.toolCompleted => null,
       native.RuntimeEventKind.cancelled ||
       native.RuntimeEventKind.completed => const DirectStreamDone(),
       native.RuntimeEventKind.failure => DirectStreamError(
@@ -525,10 +519,6 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
       kind == native.RuntimeEventKind.completed ||
       kind == native.RuntimeEventKind.cancelled ||
       kind == native.RuntimeEventKind.failure;
-
-  static String _toolEventId(native.RuntimeEvent event) =>
-      event.itemId ??
-      '${event.runId ?? event.turnId ?? 'chatgpt'}:${event.text ?? 'tool'}';
 
   static Map<String, dynamic> _jsonMap(String? source) {
     if (source == null) return const {};

@@ -1215,41 +1215,36 @@ async fn map_notification(
             });
             Some(terminal)
         }
-        "item/started" => Some(event_with_ids(
-            RuntimeEventKind::ToolStarted,
-            item_label(&params),
-            sanitized_item_json(&params),
-            ids,
-        )),
+        // Codex reports every conversation item through this lifecycle,
+        // including userMessage, agentMessage, and reasoning. Those are
+        // protocol bookkeeping rather than user-visible ChatGPT tools.
+        "item/started" => None,
         "item/completed" => {
             let item_type = params
                 .pointer("/item/type")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            let kind = if item_type == "webSearch" {
-                RuntimeEventKind::Source
-            } else if item_type == "imageGeneration" {
-                RuntimeEventKind::GeneratedImage
-            } else {
-                RuntimeEventKind::ToolCompleted
-            };
+            let kind = visible_completed_item_kind(item_type)?;
             let mut event = event_with_ids(
                 kind,
-                item_label(&params),
+                None,
                 if kind == RuntimeEventKind::Source {
                     sanitized_source_json(&params)
-                } else if kind == RuntimeEventKind::GeneratedImage {
-                    sanitized_generated_image_json(&params)
                 } else {
-                    sanitized_item_json(&params)
+                    None
                 },
                 ids,
             );
             if kind == RuntimeEventKind::GeneratedImage {
-                event.binary_data = generated_image_bytes(&params, &context.codex_home).await;
-                if event.binary_data.is_none() {
-                    event.kind = RuntimeEventKind::Failure;
-                    event.text = Some("The generated image could not be imported.".to_owned());
+                match generated_image_bytes(&params, &context.codex_home).await {
+                    Some((bytes, media_type)) => {
+                        event.binary_data = Some(bytes);
+                        event.json_data = sanitized_generated_image_json(&params, media_type);
+                    }
+                    None => {
+                        event.kind = RuntimeEventKind::Failure;
+                        event.text = Some("The generated image could not be imported.".to_owned());
+                    }
                 }
             }
             Some(event)
@@ -1722,12 +1717,6 @@ fn sanitized_json(value: &Value) -> Option<String> {
         .filter(|text| text.len() <= 64 * 1024)
 }
 
-fn sanitized_item_json(value: &Value) -> Option<String> {
-    let item = value.get("item")?;
-    let safe = json!({"id": item.get("id"), "type": item.get("type"), "status": item.get("status"), "query": item.get("query"), "url": item.get("url"), "title": item.get("title")});
-    sanitized_json(&safe)
-}
-
 fn sanitized_usage_json(value: &Value) -> Option<String> {
     let usage = value.get("usage").or_else(|| value.get("tokenUsage"))?;
     let safe = json!({
@@ -1782,43 +1771,78 @@ fn bounded_string(value: Option<&Value>, max_bytes: usize) -> Option<String> {
     })
 }
 
-fn sanitized_generated_image_json(value: &Value) -> Option<String> {
+fn sanitized_generated_image_json(value: &Value, media_type: &str) -> Option<String> {
     let item = value.get("item")?;
     let safe = json!({
         "id": item.get("id"),
         "type": "imageGeneration",
         "status": item.get("status"),
-        "mediaType": generated_image_media_type(item),
+        "mediaType": media_type,
         "revisedPrompt": bounded_string(item.get("revisedPrompt"), 4_096),
     });
     sanitized_json(&safe)
 }
 
-fn generated_image_media_type(item: &Value) -> &str {
-    item.get("result")
-        .and_then(Value::as_str)
-        .and_then(|result| result.strip_prefix("data:"))
-        .and_then(|metadata| metadata.split(';').next())
-        .filter(|mime| mime.starts_with("image/"))
-        .unwrap_or("image/png")
+fn canonical_generated_image_media_type(media_type: &str) -> Option<&'static str> {
+    match media_type.to_ascii_lowercase().as_str() {
+        "image/png" => Some("image/png"),
+        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+        "image/gif" => Some("image/gif"),
+        "image/webp" => Some("image/webp"),
+        _ => None,
+    }
 }
 
-async fn generated_image_bytes(value: &Value, codex_home: &Path) -> Option<Vec<u8>> {
+fn generated_image_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+fn decode_generated_image(
+    encoded: &str,
+    declared_media_type: Option<&str>,
+) -> Option<(Vec<u8>, &'static str)> {
+    const MAX_ENCODED_IMAGE_BYTES: usize = MAX_BINARY_INPUT_BYTES.div_ceil(3) * 4;
+    if encoded.is_empty() || encoded.len() > MAX_ENCODED_IMAGE_BYTES {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    if bytes.is_empty() || bytes.len() > MAX_BINARY_INPUT_BYTES {
+        return None;
+    }
+    let media_type = generated_image_media_type(&bytes)?;
+    if let Some(declared_media_type) = declared_media_type
+        && canonical_generated_image_media_type(declared_media_type) != Some(media_type)
+    {
+        return None;
+    }
+    Some((bytes, media_type))
+}
+
+async fn generated_image_bytes(
+    value: &Value,
+    codex_home: &Path,
+) -> Option<(Vec<u8>, &'static str)> {
     let item = value.get("item")?;
     if let Some(result) = item.get("result").and_then(Value::as_str) {
-        let (metadata, encoded) = result.split_once(',')?;
-        if !metadata.starts_with("data:image/")
-            || !metadata.to_ascii_lowercase().ends_with(";base64")
-            || encoded.is_empty()
-        {
-            return None;
+        if result.starts_with("data:") {
+            let (metadata, encoded) = result.split_once(',')?;
+            let metadata = metadata.to_ascii_lowercase();
+            let declared_media_type = metadata.strip_prefix("data:")?.strip_suffix(";base64")?;
+            return decode_generated_image(encoded, Some(declared_media_type));
         }
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded)
-            && !bytes.is_empty()
-            && bytes.len() <= MAX_BINARY_INPUT_BYTES
-        {
-            return Some(bytes);
-        }
+        return decode_generated_image(result, None);
     }
     let saved_path = item.get("savedPath").and_then(Value::as_str)?;
     let images_root = tokio::fs::canonicalize(codex_home.join("generated_images"))
@@ -1833,7 +1857,9 @@ async fn generated_image_bytes(value: &Value, codex_home: &Path) -> Option<Vec<u
     {
         return None;
     }
-    tokio::fs::read(candidate).await.ok()
+    let bytes = tokio::fs::read(candidate).await.ok()?;
+    let media_type = generated_image_media_type(&bytes)?;
+    Some((bytes, media_type))
 }
 
 fn sanitized_account_json(value: &Value) -> Option<String> {
@@ -1854,11 +1880,12 @@ fn sanitized_warning(value: &Value) -> Option<String> {
         .map(|message| message.chars().take(512).collect())
 }
 
-fn item_label(params: &Value) -> Option<String> {
-    params
-        .pointer("/item/type")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+fn visible_completed_item_kind(item_type: &str) -> Option<RuntimeEventKind> {
+    match item_type {
+        "webSearch" => Some(RuntimeEventKind::Source),
+        "imageGeneration" => Some(RuntimeEventKind::GeneratedImage),
+        _ => None,
+    }
 }
 
 fn validated_runtime_root(data_directory: String) -> Result<PathBuf, BridgeError> {
@@ -1987,6 +2014,68 @@ async fn context_snapshot() -> Result<EventContext, BridgeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_protocol::openai_models::ToolMode;
+
+    #[test]
+    fn mobile_chat_exposes_extensions_directly_for_every_upstream_tool_mode() {
+        for upstream_mode in [
+            None,
+            Some(ToolMode::Direct),
+            Some(ToolMode::CodeMode),
+            Some(ToolMode::CodeModeOnly),
+        ] {
+            assert_eq!(
+                codex_app_server::mobile_chat_tool_mode(upstream_mode),
+                Some(ToolMode::Direct)
+            );
+        }
+    }
+
+    #[test]
+    fn only_chatgpt_results_cross_the_completed_item_boundary() {
+        assert_eq!(
+            visible_completed_item_kind("webSearch"),
+            Some(RuntimeEventKind::Source)
+        );
+        assert_eq!(
+            visible_completed_item_kind("imageGeneration"),
+            Some(RuntimeEventKind::GeneratedImage)
+        );
+        for protocol_item in ["userMessage", "agentMessage", "reasoning", "plan"] {
+            assert_eq!(visible_completed_item_kind(protocol_item), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_generated_image_becomes_a_fixed_failure_event() {
+        let notification: ServerNotification = serde_json::from_value(json!({
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "imageGeneration",
+                    "id": "image-1",
+                    "status": "completed",
+                    "revisedPrompt": null,
+                    "result": "not-an-image"
+                },
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "completedAtMs": 0
+            }
+        }))
+        .unwrap();
+
+        let event = map_notification(&test_context(TurnScheduler::default()), notification)
+            .await
+            .unwrap();
+
+        assert_eq!(event.kind, RuntimeEventKind::Failure);
+        assert_eq!(
+            event.text.as_deref(),
+            Some("The generated image could not be imported.")
+        );
+        assert!(event.binary_data.is_none());
+    }
 
     fn test_context(scheduler: TurnScheduler) -> EventContext {
         EventContext {
@@ -2153,29 +2242,38 @@ mod tests {
 
     #[tokio::test]
     async fn generated_images_cross_the_bridge_as_bounded_bytes() {
+        let raw_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode(raw_png)
+            .unwrap();
         let params = json!({
             "item": {
                 "type": "imageGeneration",
-                "result": "data:image/webp;base64,AQID",
-                "savedPath": "/private/secret/image.webp"
+                "result": format!("data:image/png;base64,{raw_png}"),
+                "savedPath": "/private/secret/image.png"
             }
         });
         assert_eq!(
             generated_image_bytes(&params, Path::new("/unavailable")).await,
-            Some(vec![1, 2, 3])
+            Some((png_bytes.clone(), "image/png"))
         );
-        let metadata = sanitized_generated_image_json(&params).unwrap();
-        assert!(metadata.contains("image/webp"));
+        let metadata = sanitized_generated_image_json(&params, "image/png").unwrap();
+        assert!(metadata.contains("image/png"));
         assert!(!metadata.contains("savedPath"));
         assert!(!metadata.contains("private/secret"));
 
-        let raw_base64 = json!({"item": {"result": "AQID"}});
+        let raw_base64 = json!({"item": {"result": raw_png}});
         assert_eq!(
             generated_image_bytes(&raw_base64, Path::new("/unavailable")).await,
+            Some((png_bytes, "image/png"))
+        );
+        let invalid_raw_base64 = json!({"item": {"result": "AQID"}});
+        assert_eq!(
+            generated_image_bytes(&invalid_raw_base64, Path::new("/unavailable")).await,
             None
         );
         let wrong_mime = json!({
-            "item": {"result": "data:text/plain;base64,AQID"}
+            "item": {"result": format!("data:text/plain;base64,{raw_png}")}
         });
         assert_eq!(
             generated_image_bytes(&wrong_mime, Path::new("/unavailable")).await,

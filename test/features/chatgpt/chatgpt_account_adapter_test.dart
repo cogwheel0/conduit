@@ -15,7 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('projects multimodal native events through the direct contract', () async {
+  test('hides protocol items from visible ChatGPT results', () async {
     final runtime = _FakeRuntime();
     final adapter = ChatGptAccountAdapter(runtime: runtime);
     final profile = chatGptAccountProfile();
@@ -80,14 +80,16 @@ void main() {
       events.whereType<DirectContentDelta>().single.content,
     ).equals('answer');
     check(
+      events.whereType<DirectReasoningDelta>().single.content,
+    ).equals('I should look this up.');
+    check(
       events.whereType<DirectSourceFound>().single.url,
     ).equals('https://example.com');
     check(
       events.whereType<DirectGeneratedImage>().single.mediaType,
     ).equals('image/webp');
-    final toolStart = events.whereType<DirectToolCallStarted>().single;
-    final toolEnd = events.whereType<DirectToolCallCompleted>().single;
-    check(toolEnd.id).equals(toolStart.id);
+    check(events.whereType<DirectToolCallStarted>()).isEmpty();
+    check(events.whereType<DirectToolCallCompleted>()).isEmpty();
     check(events.last).isA<DirectStreamDone>();
   });
 
@@ -385,6 +387,15 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
           threadId: threadId,
           turnId: turnId,
           text: 'webSearch',
+        ),
+      )
+      ..add(
+        _event(
+          native.RuntimeEventKind.reasoningDelta,
+          runId: runId,
+          threadId: threadId,
+          turnId: turnId,
+          text: 'I should look this up.',
         ),
       )
       ..add(

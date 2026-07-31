@@ -107,6 +107,9 @@ mod mcp_refresh;
 mod message_processor;
 mod models;
 mod models_refresh_worker;
+
+#[doc(hidden)]
+pub use models::mobile_chat_tool_mode;
 mod outgoing_message;
 mod request_processors;
 mod request_serialization;

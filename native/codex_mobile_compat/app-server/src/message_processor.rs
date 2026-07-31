@@ -262,7 +262,10 @@ impl MessageProcessor {
             ThreadManager::new(
                 config.as_ref(),
                 auth_manager.clone(),
-                codex_core::build_models_manager(config.as_ref(), auth_manager.clone()),
+                crate::models::mobile_chat_models_manager(codex_core::build_models_manager(
+                    config.as_ref(),
+                    auth_manager.clone(),
+                )),
                 codex_core::CodexAppsToolsCache::default(),
                 session_source,
                 environment_manager,

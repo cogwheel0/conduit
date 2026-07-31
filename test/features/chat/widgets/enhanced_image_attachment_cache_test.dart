@@ -191,6 +191,61 @@ void main() {
     ).isFalse();
   });
 
+  test('embedded C2PA SVG metadata does not turn a PNG into an SVG', () {
+    final c2paPngPrefix = Uint8List.fromList(<int>[
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      ...'caBXjumbimage/svg+xml<svg'.codeUnits,
+    ]);
+
+    check(imageAttachmentBytesAreSvg(c2paPngPrefix)).isFalse();
+    check(
+      imageAttachmentBytesAreSvg(
+        Uint8List.fromList('  <?xml version="1.0"?>\n<svg>'.codeUnits),
+      ),
+    ).isTrue();
+  });
+
+  test('SVG byte detection skips valid XML preamble nodes', () {
+    final withComment = Uint8List.fromList(
+      '<!-- generated -->\n<svg viewBox="0 0 1 1">'.codeUnits,
+    );
+    final withProcessingInstruction = Uint8List.fromList(
+      '<?xml version="1.0"?>\n<?xml-stylesheet href="theme.css"?>\n<svg/>'
+          .codeUnits,
+    );
+    final withDoctype = Uint8List.fromList(
+      '<!DOCTYPE svg [<!ENTITY label "a > b">]>\n<svg>\n'.codeUnits,
+    );
+
+    check(imageAttachmentBytesAreSvg(withComment)).isTrue();
+    check(imageAttachmentBytesAreSvg(withProcessingInstruction)).isTrue();
+    check(imageAttachmentBytesAreSvg(withDoctype)).isTrue();
+  });
+
+  test('SVG byte detection requires an XML root-name boundary', () {
+    check(
+      imageAttachmentBytesAreSvg(Uint8List.fromList('<svg>'.codeUnits)),
+    ).isTrue();
+    check(
+      imageAttachmentBytesAreSvg(Uint8List.fromList('<svg />'.codeUnits)),
+    ).isTrue();
+    check(
+      imageAttachmentBytesAreSvg(Uint8List.fromList('<svgx>'.codeUnits)),
+    ).isFalse();
+    check(
+      imageAttachmentBytesAreSvg(
+        Uint8List.fromList('<svg-something>'.codeUnits),
+      ),
+    ).isFalse();
+  });
+
   test('core cache deduplicates concurrent loads for the same owner', () async {
     final scope = ImageAttachmentCacheScope(
       api: null,

@@ -4,6 +4,8 @@ set -euo pipefail
 manifest="native/chatgpt_runtime/Cargo.toml"
 runtime="native/chatgpt_runtime/src/api/runtime.rs"
 mobile_app_server="native/codex_mobile_compat/app-server/src/in_process.rs"
+mobile_app_server_lib="native/codex_mobile_compat/app-server/src/lib.rs"
+mobile_app_server_models="native/codex_mobile_compat/app-server/src/models.rs"
 mobile_message_processor="native/codex_mobile_compat/app-server/src/message_processor.rs"
 audit_cargo="${CHATGPT_AUDIT_CARGO:-cargo}"
 
@@ -161,6 +163,16 @@ if [ "$actual_mobile_request_variants" != "$expected_mobile_request_variants" ];
 fi
 if ! grep -Fq 'request is outside the Conduit mobile-chat capability boundary' "$mobile_message_processor"; then
   fail "the mobile app-server dispatcher lacks its deny-by-default branch"
+fi
+
+# This deliberately tiny model-normalization helper is the sole new public
+# callable added to the app-server overlay. Keep both its re-export and forced
+# Direct result visible to the exposure audit.
+if ! grep -Fqx 'pub use models::mobile_chat_tool_mode;' "$mobile_app_server_lib"; then
+  fail "the audited mobile model-normalization re-export changed"
+fi
+if ! perl -0777 -e '$text = <>; exit($text =~ /pub fn mobile_chat_tool_mode\([^)]*\)\s*->\s*Option<ToolMode>\s*\{\s*Some\(ToolMode::Direct\)\s*\}/s ? 0 : 1)' "$mobile_app_server_models"; then
+  fail "the public mobile model-normalization helper no longer forces Direct mode"
 fi
 
 all_rpc_calls="$(perl -0777 -ne '$count++ while /\brpc\s*\(/g; print $count' "$runtime")"
