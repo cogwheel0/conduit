@@ -141,6 +141,37 @@ void main() {
     ).isFalse();
   });
 
+  test('surfaces only main-document or configured remote-frame failures', () {
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: true,
+        remoteEmbedUrl: null,
+        requestUrl: 'https://embed.conduit.local/',
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: false,
+        remoteEmbedUrl: 'https://example.com/widget',
+        requestUrl: 'https://example.com/widget',
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: false,
+        remoteEmbedUrl: 'https://example.com/widget',
+        requestUrl: 'https://example.com/broken-image.png',
+      ),
+    ).isFalse();
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: false,
+        remoteEmbedUrl: null,
+        requestUrl: 'https://example.com/script.js',
+      ),
+    ).isFalse();
+  });
+
   test(
     'requires positive activation evidence when gesture data is present',
     () {

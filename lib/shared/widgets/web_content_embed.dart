@@ -129,6 +129,17 @@ class WebContentEmbed extends StatefulWidget {
   static bool debugShouldAllowInlineFragmentNavigation(String targetUrl) =>
       _WebContentEmbedState._shouldAllowInlineFragmentNavigation(targetUrl);
 
+  @visibleForTesting
+  static bool debugShouldSurfaceLoadFailure({
+    required bool isForMainFrame,
+    required String? remoteEmbedUrl,
+    required String requestUrl,
+  }) => _WebContentEmbedState._shouldSurfaceLoadFailure(
+    isForMainFrame: isForMainFrame,
+    remoteEmbedUrl: remoteEmbedUrl,
+    requestUrl: requestUrl,
+  );
+
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
@@ -526,6 +537,18 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     return true;
   }
 
+  void _surfaceLoadError(int requestId, String description) {
+    if (!mounted || requestId != _loadRequestId) {
+      return;
+    }
+    setState(() {
+      _controller = null;
+      _shouldRenderWebView = false;
+      _isLoading = false;
+      _loadError = description;
+    });
+  }
+
   void _scheduleHeightUpdates(
     InAppWebViewController controller,
     int requestId,
@@ -647,17 +670,30 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
               _scheduleHeightUpdates(controller, requestId);
             },
             onReceivedError: (controller, request, error) {
-              if (requestId != _loadRequestId ||
-                  !(request.isForMainFrame ?? false) ||
-                  !mounted) {
+              if (!_shouldSurfaceLoadFailure(
+                isForMainFrame: request.isForMainFrame ?? false,
+                remoteEmbedUrl: _resolvedRemoteUri?.toString(),
+                requestUrl: request.url.toString(),
+              )) {
                 return;
               }
-              setState(() {
-                _controller = null;
-                _shouldRenderWebView = false;
-                _isLoading = false;
-                _loadError = error.description;
-              });
+              _surfaceLoadError(requestId, error.description);
+            },
+            onReceivedHttpError: (controller, request, errorResponse) {
+              if (!_shouldSurfaceLoadFailure(
+                isForMainFrame: request.isForMainFrame ?? false,
+                remoteEmbedUrl: _resolvedRemoteUri?.toString(),
+                requestUrl: request.url.toString(),
+              )) {
+                return;
+              }
+              final statusCode = errorResponse.statusCode;
+              _surfaceLoadError(
+                requestId,
+                statusCode == null
+                    ? 'Unable to load embedded content.'
+                    : 'Unable to load embedded content (HTTP $statusCode).',
+              );
             },
             shouldOverrideUrlLoading: (controller, navigationAction) =>
                 _handleNavigationAction(
@@ -915,6 +951,14 @@ ${_frameBootstrapScript(argsText)}
         uri.scheme.toLowerCase() == 'about' &&
         const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase());
   }
+
+  static bool _shouldSurfaceLoadFailure({
+    required bool isForMainFrame,
+    required String? remoteEmbedUrl,
+    required String requestUrl,
+  }) =>
+      isForMainFrame ||
+      (remoteEmbedUrl != null && requestUrl == remoteEmbedUrl);
 
   static bool _shouldHandleCreateWindow({
     required bool requestIsCurrent,
