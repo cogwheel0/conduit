@@ -4134,6 +4134,36 @@ Tail keeps growing
     expect(find.text('Output'), findsNothing);
   });
 
+  testWidgets('hides pending tool call embeds until completion', (
+    tester,
+  ) async {
+    const pendingContent = '''
+<details type="tool_calls" done="false" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executing</summary>
+</details>
+<details type="tool_calls" done="true" name="search" result="&quot;done&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+    const completedContent = '''
+<details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="search" result="&quot;done&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+    await tester.pumpWidget(buildHarness(pendingContent));
+
+    expect(find.text('Exploring browser, search'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+
+    await tester.pumpWidget(buildHarness(completedContent));
+
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
+  });
+
   testWidgets('does not surface raw html text for tool call embeds', (
     tester,
   ) async {

@@ -75,6 +75,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   bool get _deferHeavyContent => widget.deferHeavyContent;
 
+  bool get _canRenderToolCallEmbeds => !_deferHeavyContent && !_isPending;
+
   CompiledMarkdownToolCallData get _toolCallData {
     final data = _detailsData.toolCallData;
     if (data != null) {
@@ -125,7 +127,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   Widget build(BuildContext context) {
     final groupRenderMode = MarkdownDetailsGroupRenderScope.maybeOf(context);
     if (groupRenderMode == MarkdownDetailsGroupRenderMode.previewsOnly) {
-      if (_deferHeavyContent) {
+      if (!_canRenderToolCallEmbeds) {
         return const SizedBox.shrink();
       }
       final embeds = _buildToolCallEmbeds(context);
@@ -160,7 +162,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
             ),
           ),
           if (inlineBody != null) _buildInlineBody(context, inlineBody),
-          if (groupRenderMode == null && !_deferHeavyContent)
+          if (groupRenderMode == null && _canRenderToolCallEmbeds)
             ..._buildToolCallEmbeds(context),
         ],
       ),
