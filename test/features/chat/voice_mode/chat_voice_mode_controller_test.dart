@@ -325,6 +325,71 @@ void main() {
     check(container.read(isManualModelSelectionProvider)).isTrue();
   });
 
+  test(
+    'new voice conversation owns a transcript emitted during listener startup',
+    () async {
+      final input = _FakeVoiceInputService()
+        ..bufferedFinalWhenIntensityStarts = 'first words';
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          selectedModelProvider.overrideWith(
+            () => _SeededSelectedModel(_model),
+          ),
+          isManualModelSelectionProvider.overrideWith(
+            _ManualModelSelection.new,
+          ),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final existingConversation = Conversation(
+        id: 'existing-chat',
+        title: 'Existing chat',
+        createdAt: DateTime(2024),
+        updatedAt: DateTime(2024),
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(existingConversation);
+
+      final result = await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: true);
+      await _until(() => container.read(chatMessagesProvider).isNotEmpty);
+
+      final messages = container.read(chatMessagesProvider);
+      check(result).equals(ChatVoiceModeStartResult.started);
+      check(messages.first.content).equals('first words');
+      check(messages.first.role).equals('user');
+      final activeConversationId = container
+          .read(activeConversationProvider)
+          ?.id;
+      check(activeConversationId).isNotNull();
+      check(
+        activeConversationId,
+      ).not((id) => id.equals(existingConversation.id));
+    },
+  );
+
   test('voice eligibility allows trusted device Direct while signed out', () {
     final registry = DirectModelRegistry();
     final model = registry.replaceProfileModels(_directProfile, [
@@ -1580,7 +1645,7 @@ class _FakeVoiceInputService extends VoiceInputService {
   Completer<void>? nextStopListeningGate;
   Object? bufferedErrorWhenIntensityStarts;
   String? bufferedFinalWhenIntensityStarts;
-  bool _emittedBufferedFailure = false;
+  bool _emittedBufferedTranscriptSignal = false;
   final managedAudioFlags = <bool>[];
   StreamController<VoiceTranscriptEvent>? _transcriptController;
   StreamController<int>? _intensityController;
@@ -1624,7 +1689,9 @@ class _FakeVoiceInputService extends VoiceInputService {
     completedTranscriptSendable = false;
     managedAudioFlags.add(iosAudioSessionManagedExternally);
     _transcriptController = StreamController<VoiceTranscriptEvent>.broadcast(
-      sync: bufferedErrorWhenIntensityStarts != null,
+      sync:
+          bufferedErrorWhenIntensityStarts != null ||
+          bufferedFinalWhenIntensityStarts != null,
     );
     _intensityController = StreamController<int>.broadcast();
     return _transcriptController!.stream;
@@ -1633,11 +1700,14 @@ class _FakeVoiceInputService extends VoiceInputService {
   @override
   Stream<int> get intensityStream {
     final error = bufferedErrorWhenIntensityStarts;
-    if (!_emittedBufferedFailure && error != null) {
-      _emittedBufferedFailure = true;
+    final finalTranscript = bufferedFinalWhenIntensityStarts;
+    if (!_emittedBufferedTranscriptSignal &&
+        (error != null || finalTranscript != null)) {
+      _emittedBufferedTranscriptSignal = true;
       final controller = _transcriptController;
-      controller?.addError(error, StackTrace.current);
-      final finalTranscript = bufferedFinalWhenIntensityStarts;
+      if (error != null) {
+        controller?.addError(error, StackTrace.current);
+      }
       if (controller != null && finalTranscript != null) {
         controller.add(
           VoiceTranscriptEvent(text: finalTranscript, isFinal: true),

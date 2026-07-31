@@ -482,12 +482,17 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (!_isCurrent(startToken)) return;
           cancelIfRequested();
           _startElapsedTimer(startToken);
-          await _startListening(startToken);
+          await _startListening(
+            startToken,
+            beforeAcceptingTranscripts: startNewConversation
+                ? () {
+                    cancelIfRequested();
+                    startNewChat(ref, modelForNewConversation: model);
+                  }
+                : null,
+          );
           if (!_isCurrent(startToken)) return;
           cancelIfRequested();
-          if (startNewConversation) {
-            startNewChat(ref, modelForNewConversation: model);
-          }
           if (_isCurrent(startToken) && state.isActive) {
             result = ChatVoiceModeStartResult.started;
           }
@@ -885,9 +890,51 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     await background.setExternalAudioSessionOwner(false);
   }
 
-  Future<void> _startListening(int token) async {
+  Future<void> _startListening(
+    int token, {
+    VoidCallback? beforeAcceptingTranscripts,
+  }) async {
     if (!_isCurrent(token) || state.isMuted) {
       return;
+    }
+
+    final bufferedEvents = <VoiceTranscriptEvent>[];
+    Object? bufferedError;
+    StackTrace? bufferedErrorStackTrace;
+    var bufferedDone = false;
+    var acceptingTranscripts = beforeAcceptingTranscripts == null;
+
+    void onTranscriptEvent(VoiceTranscriptEvent event) {
+      if (!acceptingTranscripts) {
+        bufferedEvents.add(event);
+        return;
+      }
+      _handleTranscriptEvent(event, token);
+    }
+
+    void onTranscriptError(Object error, StackTrace stackTrace) {
+      if (!acceptingTranscripts) {
+        bufferedError ??= error;
+        bufferedErrorStackTrace ??= stackTrace;
+        return;
+      }
+      if (!_isCurrent(token)) return;
+      DebugLogger.error(
+        'listen-failed',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      unawaited(_fail(error.toString(), token));
+    }
+
+    void onTranscriptDone() {
+      if (!acceptingTranscripts) {
+        bufferedDone = true;
+        return;
+      }
+      _transcriptSub = null;
+      unawaited(_handleListeningDone(token));
     }
 
     final input = _voiceInput!;
@@ -925,23 +972,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       await _transcriptSub?.cancel();
       _transcriptSub = stream.listen(
-        (event) {
-          _handleTranscriptEvent(event, token);
-        },
-        onError: (Object error, StackTrace stackTrace) {
-          if (!_isCurrent(token)) return;
-          DebugLogger.error(
-            'listen-failed',
-            scope: 'chat/voice_mode',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          unawaited(_fail(error.toString(), token));
-        },
-        onDone: () {
-          _transcriptSub = null;
-          unawaited(_handleListeningDone(token));
-        },
+        onTranscriptEvent,
+        onError: onTranscriptError,
+        onDone: onTranscriptDone,
       );
     }
 
@@ -952,6 +985,31 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         state = state.copyWith(intensity: intensity);
       }
     });
+
+    final startupError = bufferedError;
+    if (startupError != null) {
+      final stackTrace = bufferedErrorStackTrace ?? StackTrace.current;
+      DebugLogger.error(
+        'listen-failed',
+        scope: 'chat/voice_mode',
+        error: startupError,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(startupError, stackTrace);
+    }
+
+    beforeAcceptingTranscripts?.call();
+    if (!_isCurrent(token)) return;
+    acceptingTranscripts = true;
+    for (final event in bufferedEvents) {
+      if (!_isCurrent(token)) return;
+      _handleTranscriptEvent(event, token);
+    }
+    bufferedEvents.clear();
+    if (bufferedDone && _isCurrent(token)) {
+      _transcriptSub = null;
+      unawaited(_handleListeningDone(token));
+    }
   }
 
   void _handleTranscriptEvent(VoiceTranscriptEvent event, int token) {
