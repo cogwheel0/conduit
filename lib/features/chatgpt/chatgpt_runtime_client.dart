@@ -10,13 +10,6 @@ abstract interface class ChatGptRuntimeClient {
   Future<DeviceCodeChallenge> beginDeviceCodeLogin();
   Future<void> cancelDeviceCodeLogin();
   Future<List<ModelInfo>> listModels();
-  Future<ThreadInfo> startThread(
-    String modelId, {
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  });
-  Future<ThreadInfo> resumeThread(String threadId);
-  Future<ThreadInfo> forkThread(String threadId, {String? turnId});
   Future<RunInfo> startTurn(TurnRequest request);
   Future<void> interruptTurn(String runId);
   Future<void> disconnectAccount();

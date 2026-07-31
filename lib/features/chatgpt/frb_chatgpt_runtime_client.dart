@@ -2,9 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-
 import '../../core/services/secure_credential_storage.dart';
 import '../../core/utils/debug_logger.dart';
 import 'chatgpt_runtime_client.dart';
@@ -89,20 +86,15 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
   Future<void> _initialize() async {
     await ChatGptNativeBootstrap.ensureLoaded();
     final protocol = await native.bridgeProtocolVersion();
-    if (protocol != 2) {
+    if (protocol != 3) {
       throw const BridgeError(
         kind: BridgeErrorKind.protocolMismatch,
         message: 'Native ChatGPT protocol version is unsupported.',
       );
     }
-    final support = await getApplicationSupportDirectory();
     final epoch = BigInt.from(DateTime.now().microsecondsSinceEpoch);
     final snapshot = await _snapshotStore.read();
-    await native.initializeRuntime(
-      clientEpoch: epoch,
-      dataDirectory: p.join(support.path, 'chatgpt-account'),
-      authSnapshot: snapshot,
-    );
+    await native.initializeRuntime(clientEpoch: epoch, authSnapshot: snapshot);
     _clientEpoch = epoch;
     await _nativeSubscription?.cancel();
     _nativeSubscription = native
@@ -237,27 +229,6 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
 
   @override
   Future<List<ModelInfo>> listModels() => _ready(native.listModels);
-
-  @override
-  Future<ThreadInfo> startThread(
-    String modelId, {
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  }) => _ready(
-    () => native.startThread(
-      modelId: modelId,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-    ),
-  );
-
-  @override
-  Future<ThreadInfo> resumeThread(String threadId) =>
-      _ready(() => native.resumeThread(threadId: threadId));
-
-  @override
-  Future<ThreadInfo> forkThread(String threadId, {String? turnId}) =>
-      _ready(() => native.forkThread(threadId: threadId, turnId: turnId));
 
   @override
   Future<RunInfo> startTurn(TurnRequest request) =>

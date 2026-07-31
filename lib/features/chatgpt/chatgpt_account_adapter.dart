@@ -138,7 +138,6 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
             'Connect a ChatGPT account before starting a chat.',
           );
         }
-        final inputMessage = _inputMessage(request.messages);
         final hasPersistentIdentity =
             request.localChatId?.trim().isNotEmpty == true &&
             request.localAssistantMessageId?.trim().isNotEmpty == true;
@@ -159,9 +158,6 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
                 profile.id,
                 request.headMessageId!,
               );
-        var replacementThread =
-            (request.headMessageId != null && baseBinding == null) ||
-            (request.headMessageId == null && request.messages.length > 1);
         if (baseBinding != null &&
             (baseBinding.modelId != request.remoteModelId ||
                 baseBinding.accountFingerprint != accountFingerprint ||
@@ -169,44 +165,43 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
                 baseBinding.imageGenerationEnabled !=
                     request.enableImageGeneration)) {
           baseBinding = null;
-          replacementThread = true;
         }
 
-        native.ThreadInfo thread;
-        if (baseBinding == null) {
-          thread = await _startThread(request);
-        } else {
-          try {
-            final isLatestHead =
-                latestBinding?.headMessageId == baseBinding.headMessageId;
-            final baseTurnId = baseBinding.lastCodexTurnId;
-            if (baseTurnId == null) {
-              thread = await _startThread(request);
-              replacementThread = true;
-            } else if (isLatestHead) {
-              thread = await _runtime.resumeThread(baseBinding.codexThreadId);
-            } else {
-              thread = await _runtime.forkThread(
-                baseBinding.codexThreadId,
-                turnId: baseTurnId,
-              );
-            }
-          } catch (_) {
-            thread = await _startThread(request);
-            replacementThread = true;
-          }
-        }
+        final isLatestHead =
+            baseBinding != null &&
+            latestBinding?.headMessageId == baseBinding.headMessageId;
+        final transportSessionId = isLatestHead
+            ? baseBinding.transportSessionId
+            : const Uuid().v4();
+        final canUseCheckpoint =
+            isLatestHead &&
+            baseBinding.compactCheckpoint != null &&
+            baseBinding.checkpointThroughMessageId != null;
+        final checkpointMessages = canUseCheckpoint
+            ? _messagesAfterCheckpoint(
+                request.messages,
+                baseBinding.checkpointThroughMessageId!,
+              )
+            : null;
+        final checkpoint = checkpointMessages == null
+            ? null
+            : baseBinding?.compactCheckpoint;
 
         final now = _nextBindingTimestamp();
         final binding = ChatGptThreadBinding(
           localChatId: localChatId,
           profileId: profile.id,
-          codexThreadId: thread.threadId,
+          transportSessionId: transportSessionId,
           modelId: request.remoteModelId,
           accountFingerprint: accountFingerprint,
           webSearchEnabled: request.enableWebSearch,
           imageGenerationEnabled: request.enableImageGeneration,
           headMessageId: resultHeadMessageId,
+          checkpointThroughMessageId: checkpoint == null
+              ? null
+              : baseBinding?.checkpointThroughMessageId,
+          compactCheckpoint: checkpoint,
+          lastInputTokens: baseBinding?.lastInputTokens,
           createdAt: baseBinding?.createdAt ?? now,
           updatedAt: now,
         );
@@ -229,21 +224,28 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
             return;
           }
           if (event.runId != activeRun) return;
-          if (event.kind == native.RuntimeEventKind.turnStarted &&
-              event.turnId != null) {
-            activeBinding = ChatGptThreadBinding(
-              localChatId: activeBinding.localChatId,
-              profileId: activeBinding.profileId,
-              codexThreadId: activeBinding.codexThreadId,
-              modelId: activeBinding.modelId,
-              accountFingerprint: activeBinding.accountFingerprint,
-              webSearchEnabled: activeBinding.webSearchEnabled,
-              imageGenerationEnabled: activeBinding.imageGenerationEnabled,
-              headMessageId: resultHeadMessageId,
-              lastCodexTurnId: event.turnId,
-              createdAt: activeBinding.createdAt,
-              updatedAt: _nextBindingTimestamp(),
-            );
+          if (event.kind == native.RuntimeEventKind.checkpointUpdated &&
+              event.binaryData?.isNotEmpty == true) {
+            final metadata = _jsonMap(event.jsonData);
+            final throughMessageId = metadata['throughMessageId'] as String?;
+            if (throughMessageId != null && throughMessageId.isNotEmpty) {
+              activeBinding = activeBinding.copyWith(
+                checkpointThroughMessageId: throughMessageId,
+                compactCheckpoint: Uint8List.fromList(event.binaryData!),
+                updatedAt: _nextBindingTimestamp(),
+              );
+            }
+            if (hasPersistentIdentity) {
+              bindingWrites = _queueBindingWrite(bindingWrites, activeBinding);
+            }
+          } else if (event.kind == native.RuntimeEventKind.usage) {
+            final inputTokens = _inputTokens(_jsonMap(event.jsonData));
+            if (inputTokens != null) {
+              activeBinding = activeBinding.copyWith(
+                lastInputTokens: inputTokens,
+                updatedAt: _nextBindingTimestamp(),
+              );
+            }
             if (hasPersistentIdentity) {
               bindingWrites = _queueBindingWrite(bindingWrites, activeBinding);
             }
@@ -267,33 +269,50 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
           onDone: handleEventStreamFailure,
         );
 
-        final started = await _runtime.startTurn(
-          native.TurnRequest(
-            threadId: binding.codexThreadId,
-            clientUserMessageId: inputMessage.localMessageId,
+        final fullMessages = request.messages.map(_turnMessage).toList();
+        var turnRequest = native.TurnRequest(
+          sessionId: binding.transportSessionId,
+          modelId: request.remoteModelId,
+          reasoningEffort: request.parameters['reasoning_effort'] as String?,
+          enableWebSearch: request.enableWebSearch,
+          enableImageGeneration: request.enableImageGeneration,
+          messages:
+              checkpointMessages?.map(_turnMessage).toList() ?? fullMessages,
+          checkpoint: checkpoint,
+          previousInputTokens: binding.lastInputTokens == null
+              ? null
+              : BigInt.from(binding.lastInputTokens!),
+        );
+        native.RunInfo started;
+        try {
+          started = await _runtime.startTurn(turnRequest);
+        } on native.BridgeError catch (error) {
+          if (error.kind != native.BridgeErrorKind.protocolMismatch ||
+              turnRequest.checkpoint == null) {
+            rethrow;
+          }
+          activeBinding = activeBinding.copyWith(
+            clearCheckpointThroughMessageId: true,
+            clearCompactCheckpoint: true,
+            updatedAt: _nextBindingTimestamp(),
+          );
+          if (hasPersistentIdentity) await _bindings.put(activeBinding);
+          turnRequest = native.TurnRequest(
+            sessionId: binding.transportSessionId,
             modelId: request.remoteModelId,
             reasoningEffort: request.parameters['reasoning_effort'] as String?,
             enableWebSearch: request.enableWebSearch,
             enableImageGeneration: request.enableImageGeneration,
-            inputs: _turnInputs(
-              request,
-              inputMessage: inputMessage,
-              replayHistory: replacementThread,
-            ),
-          ),
-        );
+            messages: fullMessages,
+            previousInputTokens: binding.lastInputTokens == null
+                ? null
+                : BigInt.from(binding.lastInputTokens!),
+          );
+          started = await _runtime.startTurn(turnRequest);
+        }
         nativeRunId = started.runId;
-        activeBinding = ChatGptThreadBinding(
-          localChatId: binding.localChatId,
-          profileId: binding.profileId,
-          codexThreadId: binding.codexThreadId,
-          modelId: binding.modelId,
-          accountFingerprint: binding.accountFingerprint,
-          webSearchEnabled: binding.webSearchEnabled,
-          imageGenerationEnabled: binding.imageGenerationEnabled,
+        activeBinding = activeBinding.copyWith(
           headMessageId: resultHeadMessageId,
-          lastCodexTurnId: started.turnId,
-          createdAt: binding.createdAt,
           updatedAt: _nextBindingTimestamp(),
         );
         if (hasPersistentIdentity) {
@@ -377,62 +396,42 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
     );
   }
 
-  Future<native.ThreadInfo> _startThread(DirectCompletionRequest request) =>
-      _runtime.startThread(
-        request.remoteModelId,
-        enableWebSearch: request.enableWebSearch,
-        enableImageGeneration: request.enableImageGeneration,
-      );
-
-  List<native.TurnInputPart> _turnInputs(
-    DirectCompletionRequest request, {
-    required DirectChatMessage inputMessage,
-    required bool replayHistory,
-  }) {
+  static List<DirectChatMessage>? _messagesAfterCheckpoint(
+    List<DirectChatMessage> messages,
+    String throughMessageId,
+  ) {
+    final throughIndex = messages.indexWhere(
+      (message) => message.localMessageId == throughMessageId,
+    );
+    if (throughIndex < 0) return null;
     return [
-      if (replayHistory && request.messages.length > 1)
-        native.TurnInputPart(
-          kind: 'text',
-          text: _replayTranscript(
-            request.messages.where(
-              (message) => !identical(message, inputMessage),
-            ),
-          ),
-        ),
-      for (final part in inputMessage.parts) _turnInput(part),
+      for (final message in messages)
+        if (message.role == 'system') message,
+      ...messages
+          .skip(throughIndex + 1)
+          .where((message) => message.role != 'system'),
     ];
   }
 
-  static DirectChatMessage _inputMessage(List<DirectChatMessage> messages) {
-    if (messages.isEmpty) {
-      throw const DirectProviderException(
-        'A ChatGPT request requires at least one message.',
-      );
-    }
-    return messages.lastWhere(
-      (candidate) => candidate.role == 'user',
-      orElse: () => messages.last,
+  native.TurnMessage _turnMessage(DirectChatMessage message) {
+    final role = switch (message.role) {
+      'system' || 'developer' => native.TurnMessageRole.system,
+      'assistant' => native.TurnMessageRole.assistant,
+      _ => native.TurnMessageRole.user,
+    };
+    return native.TurnMessage(
+      role: role,
+      messageId: message.localMessageId,
+      parts: message.parts.map(_turnInput).toList(growable: false),
     );
   }
 
-  static String _replayTranscript(Iterable<DirectChatMessage> messages) {
-    final buffer = StringBuffer(
-      'The native rollout was unavailable. Continue from this Conduit-owned conversation transcript:\n',
-    );
-    for (final message in messages) {
-      final text = message.parts.map(_replayPart).join('\n');
-      if (text.isNotEmpty) buffer.writeln('${message.role}: $text');
-    }
-    return buffer.toString();
-  }
-
-  static String _replayPart(DirectContentPart part) => switch (part) {
-    DirectTextPart(:final text) => text,
-    DirectImagePart() => '[Image attachment]',
-    DirectAudioPart(:final mimeType) => '[Audio attachment: $mimeType]',
-    DirectFilePart(:final filename, :final mimeType) =>
-      '[Document attachment: $filename ($mimeType)]',
-  };
+  static int? _inputTokens(Map<String, dynamic> usage) =>
+      switch (usage['input_tokens'] ?? usage['inputTokens']) {
+        final int value when value >= 0 => value,
+        final num value when value >= 0 => value.toInt(),
+        _ => null,
+      };
 
   native.TurnInputPart _turnInput(DirectContentPart part) {
     return switch (part) {
@@ -501,11 +500,6 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
           mediaType: mediaType,
         );
       }(),
-      // The ChatGPT surface presents web sources and generated images as
-      // results, not raw Codex protocol/tool JSON. Keep this guard even though
-      // current native runtimes already filter conversation item lifecycles.
-      native.RuntimeEventKind.toolStarted ||
-      native.RuntimeEventKind.toolCompleted => null,
       native.RuntimeEventKind.cancelled ||
       native.RuntimeEventKind.completed => const DirectStreamDone(),
       native.RuntimeEventKind.failure => DirectStreamError(

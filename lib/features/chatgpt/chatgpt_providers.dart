@@ -1,10 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/providers/app_providers.dart';
 import '../../core/database/database_provider.dart';
@@ -207,11 +204,6 @@ class ChatGptConnectionController
       instance: ref.read(secureStorageProvider),
     );
     await secureStorage.deleteChatGptAccountSnapshot();
-    final support = await getApplicationSupportDirectory();
-    final runtimeDirectory = Directory(p.join(support.path, 'chatgpt-account'));
-    if (await runtimeDirectory.exists()) {
-      await runtimeDirectory.delete(recursive: true);
-    }
     await ref
         .read(directConnectionProfilesProvider.notifier)
         .removeChatGptAccountProfiles();

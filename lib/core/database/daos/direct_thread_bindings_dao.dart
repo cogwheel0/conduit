@@ -91,7 +91,7 @@ class DirectThreadBindingsDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  /// Deletes every chat carrying a native-thread ownership binding. This is
+  /// Deletes every chat carrying a ChatGPT transport ownership binding. This is
   /// used only to resume a single-account disconnect whose non-secret
   /// fingerprint tombstone could not be written before termination.
   Future<int> deleteAllBoundChats() async {

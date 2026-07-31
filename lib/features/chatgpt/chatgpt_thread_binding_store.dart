@@ -6,28 +6,64 @@ final class ChatGptThreadBinding {
   const ChatGptThreadBinding({
     required this.localChatId,
     required this.profileId,
-    required this.codexThreadId,
+    required this.transportSessionId,
     required this.modelId,
     required this.accountFingerprint,
     required this.headMessageId,
     this.webSearchEnabled = false,
     this.imageGenerationEnabled = false,
-    this.lastCodexTurnId,
+    this.checkpointThroughMessageId,
+    this.compactCheckpoint,
+    this.lastInputTokens,
     required this.createdAt,
     required this.updatedAt,
   });
 
   final String localChatId;
   final String profileId;
-  final String codexThreadId;
+  final String transportSessionId;
   final String modelId;
   final String accountFingerprint;
   final String headMessageId;
   final bool webSearchEnabled;
   final bool imageGenerationEnabled;
-  final String? lastCodexTurnId;
+  final String? checkpointThroughMessageId;
+  final Uint8List? compactCheckpoint;
+  final int? lastInputTokens;
   final int createdAt;
   final int updatedAt;
+
+  ChatGptThreadBinding copyWith({
+    String? transportSessionId,
+    String? headMessageId,
+    String? checkpointThroughMessageId,
+    bool clearCheckpointThroughMessageId = false,
+    Uint8List? compactCheckpoint,
+    bool clearCompactCheckpoint = false,
+    int? lastInputTokens,
+    bool clearLastInputTokens = false,
+    int? updatedAt,
+  }) => ChatGptThreadBinding(
+    localChatId: localChatId,
+    profileId: profileId,
+    transportSessionId: transportSessionId ?? this.transportSessionId,
+    modelId: modelId,
+    accountFingerprint: accountFingerprint,
+    headMessageId: headMessageId ?? this.headMessageId,
+    webSearchEnabled: webSearchEnabled,
+    imageGenerationEnabled: imageGenerationEnabled,
+    checkpointThroughMessageId: clearCheckpointThroughMessageId
+        ? null
+        : checkpointThroughMessageId ?? this.checkpointThroughMessageId,
+    compactCheckpoint: clearCompactCheckpoint
+        ? null
+        : compactCheckpoint ?? this.compactCheckpoint,
+    lastInputTokens: clearLastInputTokens
+        ? null
+        : lastInputTokens ?? this.lastInputTokens,
+    createdAt: createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 }
 
 abstract interface class ChatGptThreadBindingStore {
@@ -85,13 +121,15 @@ final class DriftChatGptThreadBindingStore
         DirectThreadBindingsCompanion.insert(
           localChatId: binding.localChatId,
           profileId: binding.profileId,
-          codexThreadId: binding.codexThreadId,
+          transportSessionId: binding.transportSessionId,
           modelId: binding.modelId,
           accountFingerprint: binding.accountFingerprint,
           webSearchEnabled: Value(binding.webSearchEnabled),
           imageGenerationEnabled: Value(binding.imageGenerationEnabled),
           headMessageId: binding.headMessageId,
-          lastCodexTurnId: Value(binding.lastCodexTurnId),
+          checkpointThroughMessageId: Value(binding.checkpointThroughMessageId),
+          compactCheckpoint: Value(binding.compactCheckpoint),
+          lastInputTokens: Value(binding.lastInputTokens),
           createdAt: binding.createdAt,
           updatedAt: binding.updatedAt,
         ),
@@ -120,13 +158,17 @@ final class DriftChatGptThreadBindingStore
       ChatGptThreadBinding(
         localChatId: row.localChatId,
         profileId: row.profileId,
-        codexThreadId: row.codexThreadId,
+        transportSessionId: row.transportSessionId,
         modelId: row.modelId,
         accountFingerprint: row.accountFingerprint,
         webSearchEnabled: row.webSearchEnabled,
         imageGenerationEnabled: row.imageGenerationEnabled,
         headMessageId: row.headMessageId,
-        lastCodexTurnId: row.lastCodexTurnId,
+        checkpointThroughMessageId: row.checkpointThroughMessageId,
+        compactCheckpoint: row.compactCheckpoint == null
+            ? null
+            : Uint8List.fromList(row.compactCheckpoint!),
+        lastInputTokens: row.lastInputTokens,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       );
