@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -1053,7 +1055,8 @@ void main() {
 
     final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
     final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
-    expect(addIcon.size, IconSize.large);
+    final expectedAddIconSize = Platform.isAndroid ? 28 : IconSize.large;
+    expect(addIcon.size, expectedAddIconSize);
     expect(micIcon.size, IconSize.large);
 
     final addButton = find.byKey(

@@ -1015,16 +1015,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       textScaler: typography.textScaler,
       locale: typography.locale,
       maxLines: 2,
-    )..layout(maxWidth: _compactTextFieldWidth);
-
-    final isMultiline =
-        painter.didExceedMaxLines || painter.computeLineMetrics().length > 1;
-    _composerLineMeasurement = (
-      text: text,
-      layout: layout,
-      isMultiline: isMultiline,
     );
-    return isMultiline;
+    try {
+      painter.layout(maxWidth: _compactTextFieldWidth);
+      final isMultiline =
+          painter.didExceedMaxLines || painter.computeLineMetrics().length > 1;
+      _composerLineMeasurement = (
+        text: text,
+        layout: layout,
+        isMultiline: isMultiline,
+      );
+      return isMultiline;
+    } finally {
+      painter.dispose();
+    }
   }
 
   void _handleComposerChanged() {

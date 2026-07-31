@@ -97,11 +97,9 @@ class WebContentEmbed extends StatefulWidget {
   static bool debugShouldResolveMissingPopupUrl({
     required bool requestIsCurrent,
     required String? targetUrl,
-    required bool? hasGesture,
   }) => _WebContentEmbedState._shouldResolveMissingPopupUrl(
     requestIsCurrent: requestIsCurrent,
     targetUrl: targetUrl,
-    hasGesture: hasGesture,
   );
 
   @visibleForTesting
@@ -451,10 +449,12 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       return false;
     }
 
+    // javaScriptCanOpenWindowsAutomatically is false, so the platform has
+    // already approved this popup. Do not re-gate on Android's unreliable
+    // hasGesture metadata when recovering its omitted URL.
     if (!_shouldResolveMissingPopupUrl(
       requestIsCurrent: requestId == _loadRequestId,
       targetUrl: targetUrl,
-      hasGesture: createWindowAction.hasGesture,
     )) {
       return false;
     }
@@ -884,11 +884,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   static bool _shouldResolveMissingPopupUrl({
     required bool requestIsCurrent,
     required String? targetUrl,
-    required bool? hasGesture,
-  }) =>
-      requestIsCurrent &&
-      (targetUrl == null || targetUrl.isEmpty) &&
-      hasGesture == true;
+  }) => requestIsCurrent && (targetUrl == null || targetUrl.isEmpty);
 
   static bool _shouldOpenNavigationExternally({
     required String targetUrl,

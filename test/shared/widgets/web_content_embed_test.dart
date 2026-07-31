@@ -185,33 +185,23 @@ void main() {
     ).isFalse();
   });
 
-  test('resolves only user-activated popups whose URL Android omits', () {
+  test('resolves platform-approved popups whose URL Android omits', () {
     check(
       WebContentEmbed.debugShouldResolveMissingPopupUrl(
         requestIsCurrent: true,
         targetUrl: null,
-        hasGesture: true,
       ),
     ).isTrue();
     check(
       WebContentEmbed.debugShouldResolveMissingPopupUrl(
         requestIsCurrent: true,
-        targetUrl: null,
-        hasGesture: false,
-      ),
-    ).isFalse();
-    check(
-      WebContentEmbed.debugShouldResolveMissingPopupUrl(
-        requestIsCurrent: true,
         targetUrl: 'https://example.com/story',
-        hasGesture: true,
       ),
     ).isFalse();
     check(
       WebContentEmbed.debugShouldResolveMissingPopupUrl(
         requestIsCurrent: false,
         targetUrl: null,
-        hasGesture: true,
       ),
     ).isFalse();
   });
