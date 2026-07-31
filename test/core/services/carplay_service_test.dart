@@ -77,6 +77,7 @@ void main() {
         expect(result['success'], isTrue);
         expect(voice.startCalls, 1);
         expect(voice.startedByStartNewConversation.single, isTrue);
+        expect(voice.admittedModels.single?.id, hermesSyntheticModel().id);
       },
     );
 
@@ -266,6 +267,7 @@ final class _FakeVoiceCallController extends ChatVoiceModeController {
   final Completer<void>? startCompleter;
   final ChatVoiceModeStartResult startResult;
   final startedByStartNewConversation = <bool>[];
+  final admittedModels = <Model?>[];
   int startCalls = 0;
   int stopCalls = 0;
   int pauseCalls = 0;
@@ -278,10 +280,11 @@ final class _FakeVoiceCallController extends ChatVoiceModeController {
   Future<ChatVoiceModeStartResult> start({
     required bool startNewConversation,
     bool Function()? shouldStart,
-    bool readinessResolved = false,
+    Model? admittedModel,
   }) async {
     startCalls += 1;
     startedByStartNewConversation.add(startNewConversation);
+    admittedModels.add(admittedModel);
     await startCompleter?.future;
     if (shouldStart != null && !shouldStart()) {
       return ChatVoiceModeStartResult.cancelled;

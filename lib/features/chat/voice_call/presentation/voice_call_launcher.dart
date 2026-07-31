@@ -32,7 +32,7 @@ class VoiceCallLauncher {
         .read(chatVoiceModeControllerProvider.notifier)
         .start(
           startNewConversation: startNewConversation,
-          readinessResolved: true,
+          admittedModel: eligibility.model!,
         );
     final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (result == ChatVoiceModeStartResult.failed || !snapshot.isActive) {

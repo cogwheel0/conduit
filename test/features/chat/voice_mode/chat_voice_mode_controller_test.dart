@@ -4,11 +4,13 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/callkit_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/services/socket_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
@@ -114,6 +116,37 @@ void main() {
       container.read(chatVoiceModeControllerProvider).phase,
     ).equals(ChatVoiceModePhase.listening);
     await container.read(chatVoiceModeControllerProvider.notifier).stop();
+  });
+
+  test('launcher retains the model admitted before startup', () async {
+    final controller = _RecordingVoiceStartController();
+    late ProviderContainer container;
+    final socket = _SelectionChangingSocketService(() {
+      container
+          .read(selectedModelProvider.notifier)
+          .set(_fallbackModel, allowHidden: true);
+    });
+    container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(_model)),
+        socketServiceProvider.overrideWithValue(socket),
+        chatVoiceModeControllerProvider.overrideWith(() => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(socket.dispose);
+
+    await container
+        .read(voiceCallLauncherProvider)
+        .launch(startNewConversation: true);
+
+    check(container.read(selectedModelProvider)).identicalTo(_fallbackModel);
+    check(controller.admittedModels.single).identicalTo(_model);
+    check(controller.startedByStartNewConversation.single).isTrue();
   });
 
   test('launcher propagates controller-side start failure', () async {
@@ -238,6 +271,76 @@ void main() {
     ).equals(ChatVoiceModePhase.idle);
   });
 
+  test(
+    'start surfaces eligibility failures before services initialize',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          selectedModelProvider.overrideWithValue(_model),
+          voiceCallEligibilityProvider.overrideWith((ref) {
+            throw StateError('eligibility exploded');
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final result = await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false);
+      final snapshot = container.read(chatVoiceModeControllerProvider);
+
+      check(result).equals(ChatVoiceModeStartResult.failed);
+      check(snapshot.phase).equals(ChatVoiceModePhase.error);
+      check(snapshot.errorMessage).isNotNull().contains('eligibility exploded');
+      check(snapshot.activeCallId).isNull();
+    },
+  );
+
+  test('timeout clears the active CallKit call from error state', () async {
+    final input = _FakeVoiceInputService()
+      ..beginListeningError = TimeoutException('voice input timed out');
+    final callKit = _AvailableCallKitService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(callKit),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(callKit.dispose);
+
+    final result = await container
+        .read(chatVoiceModeControllerProvider.notifier)
+        .start(startNewConversation: false);
+    await _until(() => callKit.endedCallIds.contains('call-1'));
+    final snapshot = container.read(chatVoiceModeControllerProvider);
+
+    check(result).equals(ChatVoiceModeStartResult.failed);
+    check(snapshot.phase).equals(ChatVoiceModePhase.error);
+    check(snapshot.errorMessage).equals('Voice services timed out. Try again.');
+    check(snapshot.activeCallId).isNull();
+  });
+
   test('stop cancels a start during voice input initialization', () async {
     final input = _FakeVoiceInputService()..initializeGate = Completer<bool>();
     final container = ProviderContainer(
@@ -281,49 +384,60 @@ void main() {
     ).equals(ChatVoiceModePhase.ended);
   });
 
-  test('new voice conversation preserves the admitted model', () async {
-    final input = _FakeVoiceInputService();
-    final container = ProviderContainer(
-      overrides: [
-        ...openWebUiStorageOpenOverrides(),
-        authNavigationStateProvider.overrideWithValue(
-          AuthNavigationState.authenticated,
-        ),
-        reviewerModeProvider.overrideWithValue(true),
-        selectedModelProvider.overrideWith(() => _SeededSelectedModel(_model)),
-        isManualModelSelectionProvider.overrideWith(_ManualModelSelection.new),
-        modelsProvider.overrideWith(() => _FixedModels(const [_fallbackModel])),
-        optimizedStorageServiceProvider.overrideWithValue(
-          _FakeOptimizedStorageService(),
-        ),
-        appSettingsProvider.overrideWithValue(
-          const AppSettings(defaultModel: 'fallback-model'),
-        ),
-        voiceInputServiceProvider.overrideWithValue(input),
-        textToSpeechServiceProvider.overrideWithValue(
-          _FakeTextToSpeechService(),
-        ),
-        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
-        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
-          _FakeChatVoiceBackgroundCoordinator(),
-        ),
-        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
-          _FakeChatVoiceAudioSessionCoordinator(),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
+  test(
+    'new voice conversation preserves an admitted model after selection changes',
+    () async {
+      final input = _FakeVoiceInputService();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          selectedModelProvider.overrideWith(
+            () => _SeededSelectedModel(_fallbackModel),
+          ),
+          isManualModelSelectionProvider.overrideWith(
+            _ManualModelSelection.new,
+          ),
+          modelsProvider.overrideWith(
+            () => _FixedModels(const [_fallbackModel]),
+          ),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(defaultModel: 'fallback-model'),
+          ),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    final result = await container
-        .read(chatVoiceModeControllerProvider.notifier)
-        .start(startNewConversation: true);
-    final resolvedDefault = await container.read(defaultModelProvider.future);
+      final result = await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: true, admittedModel: _model);
+      final resolvedDefault = await container.read(defaultModelProvider.future);
 
-    check(result).equals(ChatVoiceModeStartResult.started);
-    check(resolvedDefault).identicalTo(_model);
-    check(container.read(selectedModelProvider)).identicalTo(_model);
-    check(container.read(isManualModelSelectionProvider)).isTrue();
-  });
+      check(result).equals(ChatVoiceModeStartResult.started);
+      check(resolvedDefault).identicalTo(_model);
+      check(container.read(selectedModelProvider)).identicalTo(_model);
+      check(container.read(isManualModelSelectionProvider)).isTrue();
+    },
+  );
 
   test(
     'new voice conversation owns a transcript emitted during listener startup',
@@ -366,23 +480,56 @@ void main() {
         title: 'Existing chat',
         createdAt: DateTime(2024),
         updatedAt: DateTime(2024),
+        messages: [
+          ChatMessage(
+            id: 'existing-message',
+            role: 'user',
+            content: 'existing words',
+            timestamp: DateTime(2024),
+          ),
+        ],
       );
       container
           .read(activeConversationProvider.notifier)
           .set(existingConversation);
+      final existingConversationSnapshots = <Conversation>[];
+      final activeConversationSubscription = container.listen(
+        activeConversationProvider,
+        (_, next) {
+          if (next?.id == existingConversation.id) {
+            existingConversationSnapshots.add(next!);
+          }
+        },
+        fireImmediately: true,
+      );
+      addTearDown(activeConversationSubscription.close);
 
       final result = await container
           .read(chatVoiceModeControllerProvider.notifier)
           .start(startNewConversation: true);
-      await _until(() => container.read(chatMessagesProvider).isNotEmpty);
+      await _until(() {
+        final active = container.read(activeConversationProvider);
+        return active != null &&
+            active.id != existingConversation.id &&
+            active.messages.any((message) => message.content == 'first words');
+      });
 
       final messages = container.read(chatMessagesProvider);
+      final activeConversation = container.read(activeConversationProvider)!;
       check(result).equals(ChatVoiceModeStartResult.started);
       check(messages.first.content).equals('first words');
       check(messages.first.role).equals('user');
-      final activeConversationId = container
-          .read(activeConversationProvider)
-          ?.id;
+      final persistedTranscript = activeConversation.messages.firstWhere(
+        (message) => message.content == 'first words',
+      );
+      check(persistedTranscript.role).equals('user');
+      final oldConversationTranscripts = existingConversationSnapshots.expand(
+        (conversation) => conversation.messages.where(
+          (message) => message.content == 'first words',
+        ),
+      );
+      check(oldConversationTranscripts).isEmpty();
+      final activeConversationId = activeConversation.id;
       check(activeConversationId).isNotNull();
       check(
         activeConversationId,
@@ -1584,13 +1731,56 @@ class _RejectedVoiceStartController extends ChatVoiceModeController {
   Future<ChatVoiceModeStartResult> start({
     required bool startNewConversation,
     bool Function()? shouldStart,
-    bool readinessResolved = false,
+    Model? admittedModel,
   }) async {
     state = const ChatVoiceModeSnapshot(
       phase: ChatVoiceModePhase.error,
       errorMessage: 'Rejected test voice start.',
     );
     return ChatVoiceModeStartResult.failed;
+  }
+}
+
+class _RecordingVoiceStartController extends ChatVoiceModeController {
+  final admittedModels = <Model?>[];
+  final startedByStartNewConversation = <bool>[];
+
+  @override
+  ChatVoiceModeSnapshot build() => const ChatVoiceModeSnapshot();
+
+  @override
+  Future<ChatVoiceModeStartResult> start({
+    required bool startNewConversation,
+    bool Function()? shouldStart,
+    Model? admittedModel,
+  }) async {
+    admittedModels.add(admittedModel);
+    startedByStartNewConversation.add(startNewConversation);
+    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
+    return ChatVoiceModeStartResult.started;
+  }
+}
+
+class _SelectionChangingSocketService extends SocketService {
+  _SelectionChangingSocketService(this._onConnectionRead)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'selection-changing',
+          name: 'Selection changing',
+          url: 'https://example.com',
+        ),
+      );
+
+  final void Function() _onConnectionRead;
+  bool _selectionChanged = false;
+
+  @override
+  bool get isConnected {
+    if (!_selectionChanged) {
+      _selectionChanged = true;
+      _onConnectionRead();
+    }
+    return true;
   }
 }
 
@@ -1643,6 +1833,7 @@ class _FakeVoiceInputService extends VoiceInputService {
   bool listening = false;
   int stopCalls = 0;
   Completer<void>? nextStopListeningGate;
+  Object? beginListeningError;
   Object? bufferedErrorWhenIntensityStarts;
   String? bufferedFinalWhenIntensityStarts;
   bool _emittedBufferedTranscriptSignal = false;
@@ -1685,6 +1876,10 @@ class _FakeVoiceInputService extends VoiceInputService {
     bool iosAudioSessionManagedExternally = false,
   }) async {
     beginCalls += 1;
+    final error = beginListeningError;
+    if (error != null) {
+      Error.throwWithStackTrace(error, StackTrace.current);
+    }
     listening = true;
     completedTranscriptSendable = false;
     managedAudioFlags.add(iosAudioSessionManagedExternally);

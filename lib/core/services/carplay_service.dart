@@ -100,7 +100,7 @@ final class CarPlayCoordinator {
         .start(
           startNewConversation: true,
           shouldStart: () => _isCurrentScene(sceneGeneration),
-          readinessResolved: true,
+          admittedModel: eligibility.model!,
         );
     if (!_isCurrentScene(sceneGeneration)) {
       final snapshot = _ref.read(chatVoiceModeControllerProvider);

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/model.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -373,7 +374,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<ChatVoiceModeStartResult> start({
     required bool startNewConversation,
     bool Function()? shouldStart,
-    bool readinessResolved = false,
+    Model? admittedModel,
   }) async {
     final stopGenerationAtRequest = _stopRequestGeneration;
     bool cancellationRequested() =>
@@ -387,9 +388,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
 
       int? token;
-      final readinessCancellation = readinessResolved
-          ? null
-          : Completer<void>();
+      final readinessCancellation = admittedModel == null
+          ? Completer<void>()
+          : null;
 
       try {
         await _serviceLifecycleGate.runExclusive(() async {
@@ -403,13 +404,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           }
 
           final VoiceCallEligibility eligibility;
-          if (readinessCancellation == null) {
-            eligibility = ref.read(voiceCallEligibilityProvider);
+          if (admittedModel != null) {
+            eligibility = VoiceCallEligibility.eligible(admittedModel);
           } else {
             _pendingStartReadinessCancellation = readinessCancellation;
             eligibility = await resolveVoiceCallEligibility(
               ref,
-              cancellationSignal: readinessCancellation.future,
+              cancellationSignal: readinessCancellation!.future,
               cancellationRequested: cancellationRequested,
             );
           }
@@ -527,7 +528,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           _setError('Voice services timed out. Try again.');
           return;
         }
-        if (startToken == null) return;
+        if (startToken == null) {
+          _setError(error.toString());
+          return;
+        }
         await _fail(error.toString(), startToken);
       } finally {
         if (identical(
@@ -1485,6 +1489,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
+      clearActiveCallId: true,
       clearSpokenResponse: true,
       intensity: 0,
     );
