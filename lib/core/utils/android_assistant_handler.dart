@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -145,7 +147,8 @@ class AndroidAssistantHandler {
       if (context == null || !context.mounted) return;
       final message = error is StateError
           ? error.message.toString()
-          : 'Unable to start a voice call.';
+          : AppLocalizations.of(context)?.errorMessage ??
+                'Unable to start a voice call.';
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));

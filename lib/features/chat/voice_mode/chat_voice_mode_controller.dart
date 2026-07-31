@@ -450,6 +450,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           cancelIfRequested();
           _startElapsedTimer(startToken);
           await _startListening(startToken);
+          if (!_isCurrent(startToken)) return;
           cancelIfRequested();
           if (startNewConversation) {
             startNewChat(ref);

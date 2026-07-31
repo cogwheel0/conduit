@@ -35,6 +35,12 @@ const _model = Model(id: 'test-model', name: 'Test Model');
 final _voiceReadinessTestProvider = FutureProvider<VoiceCallEligibility>(
   resolveVoiceCallEligibility,
 );
+final _boundedVoiceReadinessTestProvider = FutureProvider<VoiceCallEligibility>(
+  (ref) => resolveVoiceCallEligibility(
+    ref,
+    readinessTimeout: const Duration(milliseconds: 10),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -376,6 +382,39 @@ void main() {
       check(eligibility.canStart).isTrue();
       check(eligibility.model?.id).equals(model.id);
       check(container.read(isManualModelSelectionProvider)).isFalse();
+    },
+  );
+
+  test(
+    'voice readiness stops when Hermes model restoration is rejected',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.loading,
+          ),
+          reviewerModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(_HermesPreferredBackend.new),
+          selectedModelProvider.overrideWith(_IgnoringSelectedModel.new),
+          isManualModelSelectionProvider.overrideWith(
+            _ManualModelSelection.new,
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfig(_usableHermesConfig),
+          ),
+          hermesSecretsLoadingProvider.overrideWith(_SettledHermesSecrets.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final eligibility = await container
+          .read(_boundedVoiceReadinessTestProvider.future)
+          .timeout(const Duration(seconds: 1));
+
+      check(eligibility.canStart).isFalse();
+      check(
+        eligibility.reason,
+      ).equals(VoiceCallEligibilityReason.modelRequired);
     },
   );
 
@@ -962,60 +1001,75 @@ void main() {
     },
   );
 
-  test('listen failure ignores a buffered final transcript', () async {
-    final input = _FakeVoiceInputService()
-      ..bufferedErrorWhenIntensityStarts = StateError('recognizer failed')
-      ..bufferedFinalWhenIntensityStarts = 'must not be sent after failure';
-    final tts = _FakeTextToSpeechService();
-    final uncaught = <Object>[];
-    late List<ChatMessage> messages;
-    late ChatVoiceModeSnapshot snapshot;
-
-    await runZonedGuarded(() async {
-      final container = ProviderContainer(
-        overrides: [
-          ...openWebUiStorageOpenOverrides(),
-          authNavigationStateProvider.overrideWithValue(
-            AuthNavigationState.authenticated,
-          ),
-          selectedModelProvider.overrideWithValue(_model),
-          appSettingsProvider.overrideWithValue(const AppSettings()),
-          reviewerModeProvider.overrideWithValue(true),
-          voiceInputServiceProvider.overrideWithValue(input),
-          textToSpeechServiceProvider.overrideWithValue(tts),
-          callKitServiceProvider.overrideWithValue(
-            _UnavailableCallKitService(),
-          ),
-          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
-            _FakeChatVoiceBackgroundCoordinator(),
-          ),
-          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
-            _FakeChatVoiceAudioSessionCoordinator(),
-          ),
-        ],
+  test(
+    'listen failure ignores buffered input and preserves the active chat',
+    () async {
+      final input = _FakeVoiceInputService()
+        ..bufferedErrorWhenIntensityStarts = StateError('recognizer failed')
+        ..bufferedFinalWhenIntensityStarts = 'must not be sent after failure';
+      final tts = _FakeTextToSpeechService();
+      final uncaught = <Object>[];
+      final existingConversation = Conversation(
+        id: 'existing-chat',
+        title: 'Existing chat',
+        createdAt: DateTime(2024),
+        updatedAt: DateTime(2024),
       );
-      final controller = container.read(
-        chatVoiceModeControllerProvider.notifier,
-      );
-      await controller.start(startNewConversation: false);
-      await _until(
-        () =>
-            container.read(chatVoiceModeControllerProvider).phase ==
-            ChatVoiceModePhase.error,
-      );
-      await Future<void>.delayed(Duration.zero);
+      late List<ChatMessage> messages;
+      late ChatVoiceModeSnapshot snapshot;
+      late Conversation? activeConversation;
 
-      messages = container.read(chatMessagesProvider);
-      snapshot = container.read(chatVoiceModeControllerProvider);
-      container.dispose();
-      await Future<void>.delayed(Duration.zero);
-    }, (error, stackTrace) => uncaught.add(error));
+      await runZonedGuarded(() async {
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            authNavigationStateProvider.overrideWithValue(
+              AuthNavigationState.authenticated,
+            ),
+            selectedModelProvider.overrideWithValue(_model),
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            reviewerModeProvider.overrideWithValue(true),
+            voiceInputServiceProvider.overrideWithValue(input),
+            textToSpeechServiceProvider.overrideWithValue(tts),
+            callKitServiceProvider.overrideWithValue(
+              _UnavailableCallKitService(),
+            ),
+            chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+              _FakeChatVoiceBackgroundCoordinator(),
+            ),
+            chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+              _FakeChatVoiceAudioSessionCoordinator(),
+            ),
+          ],
+        );
+        final controller = container.read(
+          chatVoiceModeControllerProvider.notifier,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(existingConversation);
+        await controller.start(startNewConversation: true);
+        await _until(
+          () =>
+              container.read(chatVoiceModeControllerProvider).phase ==
+              ChatVoiceModePhase.error,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-    check(uncaught).isEmpty();
-    check(messages).isEmpty();
-    check(tts.startedStreaming).isFalse();
-    check(snapshot.errorMessage).isNotNull().contains('recognizer failed');
-  });
+        messages = container.read(chatMessagesProvider);
+        snapshot = container.read(chatVoiceModeControllerProvider);
+        activeConversation = container.read(activeConversationProvider);
+        container.dispose();
+        await Future<void>.delayed(Duration.zero);
+      }, (error, stackTrace) => uncaught.add(error));
+
+      check(uncaught).isEmpty();
+      check(messages).isEmpty();
+      check(tts.startedStreaming).isFalse();
+      check(snapshot.errorMessage).isNotNull().contains('recognizer failed');
+      check(activeConversation?.id).equals(existingConversation.id);
+    },
+  );
 
   test('replacement waits for stale teardown and keeps services live', () async {
     final input = _FakeVoiceInputService();
@@ -1294,6 +1348,11 @@ class _FixedDirectDiscovery extends DirectModelDiscoveryController {
 class _NullSelectedModel extends SelectedModel {
   @override
   Model? build() => null;
+}
+
+class _IgnoringSelectedModel extends _NullSelectedModel {
+  @override
+  void set(Model? model, {bool allowHidden = false}) {}
 }
 
 class _ManualModelSelection extends IsManualModelSelection {

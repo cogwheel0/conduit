@@ -165,6 +165,19 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
         return;
       }
 
+      final pendingUri = _pendingWidgetAction;
+      if (pendingUri != null &&
+          homeWidgetVoiceActionCanDispatch(
+            pendingUri,
+            canBypassOpenWebUiAuth: voiceCallCanResolveWithoutOpenWebUiAuth(
+              ref,
+            ),
+          )) {
+        _pendingWidgetAction = null;
+        await _handleWidgetClick(pendingUri);
+        return;
+      }
+
       final authState = ref.read(authNavigationStateProvider);
       if (authState == AuthNavigationState.authenticated) {
         DebugLogger.log(
@@ -207,9 +220,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       return;
     }
 
-    final action = uri.host.isNotEmpty
-        ? uri.host
-        : uri.pathSegments.firstOrNull;
+    final action = homeWidgetActionOf(uri);
     if (action == null || action.isEmpty) {
       // Default action: open new chat
       await _handleNewChat();
@@ -478,12 +489,15 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 }
 
 @visibleForTesting
+String? homeWidgetActionOf(Uri uri) =>
+    uri.host.isNotEmpty ? uri.host : uri.pathSegments.firstOrNull;
+
+@visibleForTesting
 bool homeWidgetVoiceActionCanDispatch(
   Uri uri, {
   required bool canBypassOpenWebUiAuth,
 }) {
-  final action = uri.host.isNotEmpty ? uri.host : uri.pathSegments.firstOrNull;
-  return action == WidgetActions.mic && canBypassOpenWebUiAuth;
+  return homeWidgetActionOf(uri) == WidgetActions.mic && canBypassOpenWebUiAuth;
 }
 
 /// Provider to trigger home widget initialization at app startup.

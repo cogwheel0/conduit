@@ -110,13 +110,14 @@ final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
   );
 });
 
-const _voiceCallReadinessTimeout = Duration(seconds: 3);
-
 /// Resolves transient startup state before returning the current admission
 /// decision. Native entry points can arrive before secure storage, auth, or
 /// default-model selection has finished hydrating.
-Future<VoiceCallEligibility> resolveVoiceCallEligibility(Ref ref) async {
-  final deadline = DateTime.now().add(_voiceCallReadinessTimeout);
+Future<VoiceCallEligibility> resolveVoiceCallEligibility(
+  Ref ref, {
+  Duration readinessTimeout = const Duration(seconds: 3),
+}) async {
+  final deadline = DateTime.now().add(readinessTimeout);
 
   while (true) {
     if (_voiceCallNeedsHermesHydration(ref)) {
@@ -142,15 +143,26 @@ Future<VoiceCallEligibility> resolveVoiceCallEligibility(Ref ref) async {
               'Hermes is unavailable. Check its server URL and API key.',
         );
       }
+      if (_remainingReadinessTime(deadline) == Duration.zero) {
+        return ref.read(voiceCallEligibilityProvider);
+      }
       // Hermes selection is independent from optional OpenWebUI auth. Restore
       // it directly so a slow OWUI secure-storage read cannot block a valid
       // Hermes-only native launch.
       await Future<void>.delayed(Duration.zero);
+      if (_remainingReadinessTime(deadline) == Duration.zero) {
+        return ref.read(voiceCallEligibilityProvider);
+      }
       if (ref.read(selectedModelProvider) == null &&
           ref.read(preferredBackendProvider) == PreferredBackend.hermes &&
           ref.read(hermesConfigProvider).isUsable) {
         ref.read(isManualModelSelectionProvider.notifier).set(false);
         ref.read(selectedModelProvider.notifier).set(hermesSyntheticModel());
+      }
+      if (ref.read(selectedModelProvider) == null &&
+          ref.read(preferredBackendProvider) == PreferredBackend.hermes &&
+          ref.read(hermesConfigProvider).isUsable) {
+        return ref.read(voiceCallEligibilityProvider);
       }
       continue;
     }

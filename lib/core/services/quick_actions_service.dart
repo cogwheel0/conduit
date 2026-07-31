@@ -262,12 +262,7 @@ int? quickActionDispatchIndex({
 
   final voiceIndex = queuedTypes.indexOf(_quickActionVoiceCall);
   if (voiceIndex < 0) return null;
-  if (voiceIndex > 0 && !voiceCanBypassAuthLoading) {
-    return null;
-  }
-  if (authState == AuthNavigationState.loading && !voiceCanBypassAuthLoading) {
-    return null;
-  }
+  if (!voiceCanBypassAuthLoading) return null;
   return voiceIndex;
 }
 

@@ -61,6 +61,14 @@ void main() {
   test('voice quick action bypasses a signed-out queue head', () {
     expect(
       quickActionDispatchIndex(
+        queuedTypes: const ['conduit_voice_call'],
+        authState: AuthNavigationState.needsLogin,
+        voiceCanBypassAuthLoading: false,
+      ),
+      isNull,
+    );
+    expect(
+      quickActionDispatchIndex(
         queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
         authState: AuthNavigationState.needsLogin,
         voiceCanBypassAuthLoading: false,
@@ -78,6 +86,14 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
+        authState: AuthNavigationState.needsLogin,
+        voiceCanBypassAuthLoading: true,
+      ),
+      0,
+    );
+    expect(
+      quickActionDispatchIndex(
+        queuedTypes: const ['conduit_voice_call'],
         authState: AuthNavigationState.loading,
         voiceCanBypassAuthLoading: false,
       ),
@@ -90,6 +106,14 @@ void main() {
         voiceCanBypassAuthLoading: true,
       ),
       1,
+    );
+    expect(
+      quickActionDispatchIndex(
+        queuedTypes: const ['conduit_voice_call'],
+        authState: AuthNavigationState.authenticated,
+        voiceCanBypassAuthLoading: false,
+      ),
+      0,
     );
   });
 
@@ -115,6 +139,9 @@ void main() {
       ),
       isFalse,
     );
+    expect(homeWidgetActionOf(Uri.parse('conduit://mic')), WidgetActions.mic);
+    expect(homeWidgetActionOf(Uri.parse('conduit:///mic')), WidgetActions.mic);
+    expect(homeWidgetActionOf(Uri.parse('conduit:///')), isNull);
   });
 }
 
