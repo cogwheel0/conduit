@@ -29,6 +29,7 @@ use codex_protocol::openai_models::{
 use flutter_rust_bridge::frb;
 use futures::StreamExt;
 use http::{HeaderMap, HeaderValue};
+use image::{ImageFormat, ImageReader, Limits};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -54,6 +55,8 @@ const MAX_CHECKPOINT_ITEMS: usize = 512;
 const MAX_TOOL_CALLS: usize = 8;
 const MAX_IMAGE_CALLS: usize = 2;
 const MAX_RECENT_IMAGES: usize = 5;
+const MAX_IMAGE_DIMENSION: u32 = 16_384;
+const MAX_DECODED_IMAGE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_SOURCES: usize = 20;
 const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const CODEX_CLIENT_VERSION: &str = "0.145.0";
@@ -1312,14 +1315,20 @@ async fn execute_image_tool(
     let encoded = response
         .data
         .first()
-        .map(|image| image.b64_json.as_str())
+        .map(|image| image.b64_json.clone())
         .ok_or_else(|| {
             BridgeError::new(
                 BridgeErrorKind::ProtocolMismatch,
                 "image generation returned no image",
             )
         })?;
-    let (bytes, media_type) = validated_image(encoded)?;
+    let validation = tokio::task::spawn_blocking(move || validated_image(&encoded));
+    let (bytes, media_type) = cancellable_bridge(cancellation, async move {
+        validation
+            .await
+            .map_err(|_| BridgeError::internal("generated image validation stopped"))?
+    })
+    .await?;
     runtime
         .hub
         .emit(
@@ -2123,18 +2132,30 @@ fn validated_image(encoded: &str) -> Result<(Vec<u8>, &'static str), BridgeError
             "generated image size is invalid",
         ));
     }
-    let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
+    let (media_type, format) = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        ("image/png", ImageFormat::Png)
     } else if bytes.starts_with(b"\xff\xd8\xff") {
-        "image/jpeg"
+        ("image/jpeg", ImageFormat::Jpeg)
     } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        "image/webp"
+        ("image/webp", ImageFormat::WebP)
     } else {
         return Err(BridgeError::new(
             BridgeErrorKind::ProtocolMismatch,
             "generated image format is unsupported",
         ));
     };
+    let mut reader = ImageReader::with_format(std::io::Cursor::new(bytes.as_slice()), format);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_DECODED_IMAGE_BYTES);
+    reader.limits(limits);
+    reader.decode().map_err(|_| {
+        BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "generated image data is invalid",
+        )
+    })?;
     Ok((bytes, media_type))
 }
 
@@ -2442,10 +2463,18 @@ mod tests {
     }
 
     #[test]
-    fn image_validation_uses_magic_bytes() {
-        let png = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nbody");
-        let (_, mime) = validated_image(&png).expect("valid image");
+    fn image_validation_checks_magic_bytes_and_decodes() {
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let (_, mime) = validated_image(png).expect("valid image");
         assert_eq!(mime, "image/png");
+
+        let truncated = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        assert_eq!(
+            validated_image(&truncated)
+                .expect_err("truncated image")
+                .kind,
+            BridgeErrorKind::ProtocolMismatch
+        );
     }
 
     #[test]

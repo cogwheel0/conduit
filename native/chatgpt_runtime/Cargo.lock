@@ -1521,6 +1521,7 @@ dependencies = [
  "flutter_rust_bridge",
  "futures",
  "http",
+ "image",
  "openssl-sys",
  "reqwest",
  "serde",
