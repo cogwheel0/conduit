@@ -9,32 +9,29 @@ publish = false
 crate-type = ["cdylib", "staticlib"]
 
 [features]
-# This feature names the mobile capability/API boundary. The pinned upstream
-# app-server graph still retains nine acknowledged coding-oriented crates; CI
-# verifies they are unreachable through the typed bridge and RPC allowlist.
+# This feature names the mobile capability/API boundary. The runtime talks to
+# the first-party ChatGPT endpoints through Codex's lower-level clients; it
+# does not embed the app-server or expose coding/workspace capabilities.
 default = ["mobile-chat"]
 mobile-chat = []
 
 [dependencies]
 flutter_rust_bridge = "=2.12.0"
 base64 = "0.22"
-codex-app-server = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-app-server-client = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-arg0 = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-config = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-core = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-exec-server = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
-codex-feedback = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
+codex-api = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
 codex-login = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
 codex-protocol = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
+futures = "0.3"
+http = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
-toml = "0.9"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
 tracing = "0.1"
+url = "2"
 uuid = { version = "1", features = ["v4"] }
 
 # The pinned Codex graph still enables reqwest's native-tls default through
@@ -59,10 +56,6 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 
 [patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
 tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
-
-[patch."https://github.com/openai/codex"]
-codex-app-server = { path = "../codex_mobile_compat/app-server" }
-codex-code-mode = { path = "../codex_mobile_stubs/code-mode" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
