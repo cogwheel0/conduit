@@ -263,6 +263,15 @@ class ModernChatInput extends ConsumerStatefulWidget {
   static TextStyle debugComposerInputTextStyle({required bool isRecording}) =>
       _composerInputTextStyle(isRecording);
 
+  @visibleForTesting
+  static double debugOverflowIconSize({
+    required bool isAndroid,
+    required bool attachmentPanelVisible,
+  }) => _overflowIconSize(
+    isAndroid: isAndroid,
+    attachmentPanelVisible: attachmentPanelVisible,
+  );
+
   @override
   ConsumerState<ModernChatInput> createState() => _ModernChatInputState();
 }
@@ -274,6 +283,15 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
       fontWeight: isRecording ? FontWeight.w500 : FontWeight.w400,
       fontStyle: isRecording ? FontStyle.italic : FontStyle.normal,
     );
+
+const double _androidOverflowAddIconSize = 28;
+
+double _overflowIconSize({
+  required bool isAndroid,
+  required bool attachmentPanelVisible,
+}) => isAndroid && !attachmentPanelVisible
+    ? _androidOverflowAddIconSize
+    : IconSize.large;
 
 typedef _ComposerTypography = ({
   ui.TextDirection direction,
@@ -308,7 +326,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const double _composerRadius = AppBorderRadius.card;
   static const double _composerHorizontalInset = Spacing.sm;
   static const double _composerControlSize = 36;
-  static const double _androidOverflowAddIconSize = 28;
   static int _nextGeneratedInsertionTargetId = 0;
 
   final MentionTextEditingController _controller =
@@ -3560,9 +3577,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // glyph. Compensate optically without changing the shared touch target.
     final iconSize = conduitScaledIconExtent(
       context,
-      !Platform.isIOS && !attachmentPanelVisible
-          ? _androidOverflowAddIconSize
-          : IconSize.large,
+      _overflowIconSize(
+        isAndroid: Platform.isAndroid,
+        attachmentPanelVisible: attachmentPanelVisible,
+      ),
     );
 
     return Focus(

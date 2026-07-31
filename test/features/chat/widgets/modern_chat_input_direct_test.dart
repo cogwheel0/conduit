@@ -13,6 +13,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,10 +27,31 @@ void main() {
       isRecording: false,
     );
 
-    expect(recordingStyle.fontWeight, FontWeight.w500);
-    expect(recordingStyle.fontStyle, FontStyle.italic);
-    expect(idleStyle.fontWeight, FontWeight.w400);
-    expect(idleStyle.fontStyle, FontStyle.normal);
+    check(recordingStyle.fontWeight).equals(FontWeight.w500);
+    check(recordingStyle.fontStyle).equals(FontStyle.italic);
+    check(idleStyle.fontWeight).equals(FontWeight.w400);
+    check(idleStyle.fontStyle).equals(FontStyle.normal);
+  });
+
+  test('only Android enlarges the compact overflow add glyph', () {
+    check(
+      ModernChatInput.debugOverflowIconSize(
+        isAndroid: true,
+        attachmentPanelVisible: false,
+      ),
+    ).equals(28);
+    check(
+      ModernChatInput.debugOverflowIconSize(
+        isAndroid: false,
+        attachmentPanelVisible: false,
+      ),
+    ).equals(IconSize.large);
+    check(
+      ModernChatInput.debugOverflowIconSize(
+        isAndroid: true,
+        attachmentPanelVisible: true,
+      ),
+    ).equals(IconSize.large);
   });
 
   test('OpenWebUI explicit attachment capability denials fail closed', () {
@@ -1006,7 +1028,7 @@ void main() {
     );
   });
 
-  testWidgets('Android add icon is optically balanced with the mic', (
+  testWidgets('non-Android add icon matches the standard mic glyph', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1031,7 +1053,7 @@ void main() {
 
     final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
     final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
-    expect(addIcon.size, 28);
+    expect(addIcon.size, IconSize.large);
     expect(micIcon.size, IconSize.large);
 
     final addButton = find.byKey(

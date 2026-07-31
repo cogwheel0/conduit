@@ -94,6 +94,17 @@ class WebContentEmbed extends StatefulWidget {
   );
 
   @visibleForTesting
+  static bool debugShouldResolveMissingPopupUrl({
+    required bool requestIsCurrent,
+    required String? targetUrl,
+    required bool? hasGesture,
+  }) => _WebContentEmbedState._shouldResolveMissingPopupUrl(
+    requestIsCurrent: requestIsCurrent,
+    targetUrl: targetUrl,
+    hasGesture: hasGesture,
+  );
+
+  @visibleForTesting
   static bool debugHasUserActivationEvidence({
     required bool? hasGesture,
     required bool linkActivated,
@@ -117,6 +128,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       };
 
   InAppWebViewController? _controller;
+  final Set<HeadlessInAppWebView> _popupWebViews = {};
   double _height = _embedDefaultHeight;
   bool _isLoading = true;
   bool _loadScheduled = false;
@@ -207,6 +219,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   void _resetControllerState({required bool isLoading}) {
+    _disposePopupWebViews();
     final hadController = _hasController;
     if (mounted) {
       setState(() {
@@ -230,6 +243,20 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     if (hadController) {
       widget.debugOnControllerReset?.call();
     }
+  }
+
+  void _disposePopupWebViews() {
+    final popupWebViews = _popupWebViews.toList(growable: false);
+    _popupWebViews.clear();
+    for (final popupWebView in popupWebViews) {
+      unawaited(popupWebView.dispose());
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposePopupWebViews();
+    super.dispose();
   }
 
   void _scheduleControllerInitialization(BuildContext context) {
@@ -416,14 +443,80 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     int requestId,
   ) async {
     final targetUrl = createWindowAction.request.url?.toString();
-    if (!_shouldHandleCreateWindow(
+    if (_shouldHandleCreateWindow(
       requestIsCurrent: requestId == _loadRequestId,
       targetUrl: targetUrl,
     )) {
+      await _openAllowedExternalLink(targetUrl!);
       return false;
     }
-    await _openAllowedExternalLink(targetUrl!);
-    return false;
+
+    if (!_shouldResolveMissingPopupUrl(
+      requestIsCurrent: requestId == _loadRequestId,
+      targetUrl: targetUrl,
+      hasGesture: createWindowAction.hasGesture,
+    )) {
+      return false;
+    }
+
+    // Android's WebChromeClient omits request.url for JavaScript window.open
+    // calls. Attach a non-scriptable headless WebView to the pending window so
+    // its first URL can be recovered, cancelled, and validated before launch.
+    late final HeadlessInAppWebView popupWebView;
+    var resolved = false;
+
+    Future<void> disposePopup() async {
+      if (_popupWebViews.remove(popupWebView)) {
+        await popupWebView.dispose();
+      }
+    }
+
+    Future<void> resolvePopupUrl(WebUri? url) async {
+      final rawUrl = url?.toString();
+      if (resolved || rawUrl == null || rawUrl.isEmpty) {
+        return;
+      }
+      final uri = Uri.tryParse(rawUrl);
+      if (uri?.scheme.toLowerCase() == 'about') {
+        return;
+      }
+
+      resolved = true;
+      try {
+        if (mounted && requestId == _loadRequestId) {
+          await _openAllowedExternalLink(rawUrl);
+        }
+      } finally {
+        await disposePopup();
+      }
+    }
+
+    popupWebView = HeadlessInAppWebView(
+      windowId: createWindowAction.windowId,
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: false,
+        supportMultipleWindows: false,
+        useShouldOverrideUrlLoading: true,
+      ),
+      shouldOverrideUrlLoading: (controller, navigationAction) async {
+        unawaited(resolvePopupUrl(navigationAction.request.url));
+        return NavigationActionPolicy.CANCEL;
+      },
+      onLoadStart: (controller, url) {
+        unawaited(resolvePopupUrl(url));
+      },
+    );
+    _popupWebViews.add(popupWebView);
+
+    try {
+      await popupWebView.run();
+    } catch (_) {
+      await disposePopup();
+      return false;
+    }
+
+    Future<void>.delayed(const Duration(seconds: 5), disposePopup);
+    return true;
   }
 
   void _scheduleHeightUpdates(
@@ -787,6 +880,15 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       targetUrl != null &&
       targetUrl.isNotEmpty &&
       parseAllowedExternalLink(targetUrl) != null;
+
+  static bool _shouldResolveMissingPopupUrl({
+    required bool requestIsCurrent,
+    required String? targetUrl,
+    required bool? hasGesture,
+  }) =>
+      requestIsCurrent &&
+      (targetUrl == null || targetUrl.isEmpty) &&
+      hasGesture == true;
 
   static bool _shouldOpenNavigationExternally({
     required String targetUrl,

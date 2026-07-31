@@ -185,6 +185,37 @@ void main() {
     ).isFalse();
   });
 
+  test('resolves only user-activated popups whose URL Android omits', () {
+    check(
+      WebContentEmbed.debugShouldResolveMissingPopupUrl(
+        requestIsCurrent: true,
+        targetUrl: null,
+        hasGesture: true,
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldResolveMissingPopupUrl(
+        requestIsCurrent: true,
+        targetUrl: null,
+        hasGesture: false,
+      ),
+    ).isFalse();
+    check(
+      WebContentEmbed.debugShouldResolveMissingPopupUrl(
+        requestIsCurrent: true,
+        targetUrl: 'https://example.com/story',
+        hasGesture: true,
+      ),
+    ).isFalse();
+    check(
+      WebContentEmbed.debugShouldResolveMissingPopupUrl(
+        requestIsCurrent: false,
+        targetUrl: null,
+        hasGesture: true,
+      ),
+    ).isFalse();
+  });
+
   test('rejects disallowed embed links before invoking the launcher', () async {
     final launcher = _MockExternalLinkLauncher();
     when(() => launcher(any())).thenAnswer((_) async => true);
