@@ -376,9 +376,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     bool readinessResolved = false,
   }) async {
     final stopGenerationAtRequest = _stopRequestGeneration;
+    bool cancellationRequested() =>
+        _disposed || stopGenerationAtRequest != _stopRequestGeneration;
+
     var result = ChatVoiceModeStartResult.failed;
     await _enqueue(() async {
-      if (stopGenerationAtRequest != _stopRequestGeneration) {
+      if (cancellationRequested()) {
         result = ChatVoiceModeStartResult.cancelled;
         return;
       }
@@ -387,13 +390,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final readinessCancellation = readinessResolved
           ? null
           : Completer<void>();
-      if (readinessCancellation != null) {
-        _pendingStartReadinessCancellation = readinessCancellation;
-      }
 
       try {
         await _serviceLifecycleGate.runExclusive(() async {
-          if (stopGenerationAtRequest != _stopRequestGeneration) {
+          if (cancellationRequested()) {
             result = ChatVoiceModeStartResult.cancelled;
             return;
           }
@@ -402,17 +402,18 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             return;
           }
 
-          final VoiceCallEligibility? eligibility;
+          final VoiceCallEligibility eligibility;
           if (readinessCancellation == null) {
             eligibility = ref.read(voiceCallEligibilityProvider);
           } else {
-            eligibility = await Future.any<VoiceCallEligibility?>([
-              resolveVoiceCallEligibility(ref),
-              readinessCancellation.future.then((_) => null),
-            ]);
+            _pendingStartReadinessCancellation = readinessCancellation;
+            eligibility = await resolveVoiceCallEligibility(
+              ref,
+              cancellationSignal: readinessCancellation.future,
+              cancellationRequested: cancellationRequested,
+            );
           }
-          if (eligibility == null ||
-              stopGenerationAtRequest != _stopRequestGeneration) {
+          if (cancellationRequested()) {
             result = ChatVoiceModeStartResult.cancelled;
             return;
           }
@@ -432,7 +433,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           _resetRuntime();
 
           void cancelIfRequested() {
-            if (shouldStart != null && !shouldStart()) {
+            if (cancellationRequested() ||
+                (shouldStart != null && !shouldStart())) {
               throw const _ChatVoiceModeStartCancelled();
             }
           }
@@ -496,7 +498,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           result = ChatVoiceModeStartResult.cancelled;
           return;
         }
-        if (error is _ChatVoiceModeStartCancelled) {
+        if (error is _ChatVoiceModeStartCancelled ||
+            error is VoiceCallEligibilityResolutionCancelled) {
           result = ChatVoiceModeStartResult.cancelled;
           if (startToken != null) {
             await _stopInternal(endCallKit: true);
@@ -561,6 +564,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       );
     }
   }
+
+  @visibleForTesting
+  bool get isWaitingForStartReadiness =>
+      _pendingStartReadinessCancellation != null;
 
   Future<void> stop() {
     ++_stopRequestGeneration;

@@ -225,8 +225,7 @@ void main() {
 
     final controller = container.read(chatVoiceModeControllerProvider.notifier);
     final start = controller.start(startNewConversation: false);
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
+    await _until(() => controller.isWaitingForStartReadiness);
 
     await controller.stop().timeout(const Duration(seconds: 1));
 
@@ -237,6 +236,49 @@ void main() {
     check(
       container.read(chatVoiceModeControllerProvider).phase,
     ).equals(ChatVoiceModePhase.idle);
+  });
+
+  test('stop cancels a start during voice input initialization', () async {
+    final input = _FakeVoiceInputService()..initializeGate = Completer<bool>();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    final start = controller.start(startNewConversation: false);
+    await _until(() => input.initializeCalls == 1);
+
+    final stop = controller.stop();
+    input.initializeGate!.complete(true);
+
+    check(
+      await start.timeout(const Duration(seconds: 1)),
+    ).equals(ChatVoiceModeStartResult.cancelled);
+    await stop.timeout(const Duration(seconds: 1));
+    check(input.beginCalls).equals(0);
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.ended);
   });
 
   test('new voice conversation preserves the admitted model', () async {

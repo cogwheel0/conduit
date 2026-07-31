@@ -45,6 +45,10 @@ class VoiceCallEligibility {
   bool get canStart => reason == VoiceCallEligibilityReason.eligible;
 }
 
+final class VoiceCallEligibilityResolutionCancelled implements Exception {
+  const VoiceCallEligibilityResolutionCancelled();
+}
+
 /// Resolves voice eligibility from the selected model's trusted transport.
 ///
 /// OpenWebUI models still require an authenticated session. Hermes and
@@ -116,12 +120,24 @@ final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
 Future<VoiceCallEligibility> resolveVoiceCallEligibility(
   Ref ref, {
   Duration readinessTimeout = const Duration(seconds: 3),
+  Future<void>? cancellationSignal,
+  bool Function()? cancellationRequested,
 }) async {
   final deadline = DateTime.now().add(readinessTimeout);
+  final cancellation = _VoiceCallEligibilityCancellation(
+    signal: cancellationSignal,
+    requested: cancellationRequested,
+  );
 
   while (true) {
+    cancellation.throwIfRequested();
     if (_voiceCallNeedsHermesHydration(ref)) {
-      final changed = await _waitForHermesStateChange(ref, deadline);
+      final changed = await _waitForHermesStateChange(
+        ref,
+        deadline,
+        cancellation,
+      );
+      cancellation.throwIfRequested();
       if (!changed && _voiceCallNeedsHermesHydration(ref)) {
         return const VoiceCallEligibility.blocked(
           reason: VoiceCallEligibilityReason.backendInitializing,
@@ -149,7 +165,8 @@ Future<VoiceCallEligibility> resolveVoiceCallEligibility(
       // Hermes selection is independent from optional OpenWebUI auth. Restore
       // it directly so a slow OWUI secure-storage read cannot block a valid
       // Hermes-only native launch.
-      await Future<void>.delayed(Duration.zero);
+      await cancellation.wait(Future<void>.delayed(Duration.zero));
+      cancellation.throwIfRequested();
       if (_remainingReadinessTime(deadline) == Duration.zero) {
         return ref.read(voiceCallEligibilityProvider);
       }
@@ -167,18 +184,29 @@ Future<VoiceCallEligibility> resolveVoiceCallEligibility(
       continue;
     }
     if (model == null && preferredBackend == PreferredBackend.direct) {
-      final restored = await _restorePreferredDeviceDirectModel(ref, deadline);
+      final restored = await _restorePreferredDeviceDirectModel(
+        ref,
+        deadline,
+        cancellation,
+      );
+      cancellation.throwIfRequested();
       if (restored) continue;
     }
 
     if (ref.read(authNavigationStateProvider) == AuthNavigationState.loading &&
         !voiceCallCanResolveWithoutOpenWebUiAuth(ref)) {
-      final changed = await _waitForOpenWebUiStateChange(ref, deadline);
+      final changed = await _waitForOpenWebUiStateChange(
+        ref,
+        deadline,
+        cancellation,
+      );
+      cancellation.throwIfRequested();
       if (changed) continue;
       return ref.read(voiceCallEligibilityProvider);
     }
 
-    await _resolveDefaultModelIfNeeded(ref, deadline);
+    await _resolveDefaultModelIfNeeded(ref, deadline, cancellation);
+    cancellation.throwIfRequested();
     final eligibility = ref.read(voiceCallEligibilityProvider);
     if (eligibility.canStart ||
         ref.read(authNavigationStateProvider) != AuthNavigationState.loading ||
@@ -186,7 +214,12 @@ Future<VoiceCallEligibility> resolveVoiceCallEligibility(
       return eligibility;
     }
 
-    final changed = await _waitForOpenWebUiStateChange(ref, deadline);
+    final changed = await _waitForOpenWebUiStateChange(
+      ref,
+      deadline,
+      cancellation,
+    );
+    cancellation.throwIfRequested();
     if (!changed) return ref.read(voiceCallEligibilityProvider);
   }
 }
@@ -234,14 +267,23 @@ Duration _remainingReadinessTime(DateTime deadline) {
   return remaining.isNegative ? Duration.zero : remaining;
 }
 
-Future<void> _resolveDefaultModelIfNeeded(Ref ref, DateTime deadline) async {
+Future<void> _resolveDefaultModelIfNeeded(
+  Ref ref,
+  DateTime deadline,
+  _VoiceCallEligibilityCancellation cancellation,
+) async {
+  cancellation.throwIfRequested();
   if (ref.read(selectedModelProvider) != null) return;
   final remaining = _remainingReadinessTime(deadline);
   if (remaining == Duration.zero) return;
   try {
-    await ref
-        .read(defaultModelProvider.future)
-        .timeout(remaining, onTimeout: () => null);
+    await cancellation.wait(
+      ref
+          .read(defaultModelProvider.future)
+          .timeout(remaining, onTimeout: () => null),
+    );
+  } on VoiceCallEligibilityResolutionCancelled {
+    rethrow;
   } catch (_) {
     // The eligibility result below provides the user-facing failure.
   }
@@ -250,19 +292,24 @@ Future<void> _resolveDefaultModelIfNeeded(Ref ref, DateTime deadline) async {
 Future<bool> _restorePreferredDeviceDirectModel(
   Ref ref,
   DateTime deadline,
+  _VoiceCallEligibilityCancellation cancellation,
 ) async {
+  cancellation.throwIfRequested();
   final remaining = _remainingReadinessTime(deadline);
   if (remaining == Duration.zero) return false;
 
   DirectModelDiscoveryState discovery;
   try {
-    discovery = await ref
-        .read(directModelDiscoveryProvider.future)
-        .timeout(remaining);
+    discovery = await cancellation.wait(
+      ref.read(directModelDiscoveryProvider.future).timeout(remaining),
+    );
+  } on VoiceCallEligibilityResolutionCancelled {
+    rethrow;
   } catch (_) {
     return false;
   }
 
+  cancellation.throwIfRequested();
   final registry = ref.read(directModelRegistryProvider);
   final candidates = discovery.models
       .where((candidate) {
@@ -277,7 +324,8 @@ Future<bool> _restorePreferredDeviceDirectModel(
     (candidate) => candidate.id == configuredId,
     orElse: () => candidates.first,
   );
-  await Future<void>.delayed(Duration.zero);
+  await cancellation.wait(Future<void>.delayed(Duration.zero));
+  cancellation.throwIfRequested();
   if (ref.read(selectedModelProvider) != null ||
       ref.read(preferredBackendProvider) != PreferredBackend.direct ||
       ref.read(directModelRegistryProvider).resolve(selected)?.source !=
@@ -289,7 +337,12 @@ Future<bool> _restorePreferredDeviceDirectModel(
   return ref.read(selectedModelProvider)?.id == selected.id;
 }
 
-Future<bool> _waitForHermesStateChange(Ref ref, DateTime deadline) async {
+Future<bool> _waitForHermesStateChange(
+  Ref ref,
+  DateTime deadline,
+  _VoiceCallEligibilityCancellation cancellation,
+) async {
+  cancellation.throwIfRequested();
   if (!_voiceCallNeedsHermesHydration(ref)) return true;
 
   final completer = Completer<bool>();
@@ -310,7 +363,7 @@ Future<bool> _waitForHermesStateChange(Ref ref, DateTime deadline) async {
   }
 
   try {
-    return await completer.future;
+    return await cancellation.wait(completer.future);
   } finally {
     timer.cancel();
     for (final subscription in subscriptions) {
@@ -319,7 +372,12 @@ Future<bool> _waitForHermesStateChange(Ref ref, DateTime deadline) async {
   }
 }
 
-Future<bool> _waitForOpenWebUiStateChange(Ref ref, DateTime deadline) async {
+Future<bool> _waitForOpenWebUiStateChange(
+  Ref ref,
+  DateTime deadline,
+  _VoiceCallEligibilityCancellation cancellation,
+) async {
+  cancellation.throwIfRequested();
   if (ref.read(authNavigationStateProvider) != AuthNavigationState.loading ||
       voiceCallCanResolveWithoutOpenWebUiAuth(ref)) {
     return true;
@@ -348,11 +406,36 @@ Future<bool> _waitForOpenWebUiStateChange(Ref ref, DateTime deadline) async {
   }
 
   try {
-    return await completer.future;
+    return await cancellation.wait(completer.future);
   } finally {
     timer.cancel();
     for (final subscription in subscriptions) {
       subscription.close();
     }
+  }
+}
+
+final class _VoiceCallEligibilityCancellation {
+  const _VoiceCallEligibilityCancellation({this.signal, this.requested});
+
+  final Future<void>? signal;
+  final bool Function()? requested;
+
+  void throwIfRequested() {
+    if (requested?.call() ?? false) {
+      throw const VoiceCallEligibilityResolutionCancelled();
+    }
+  }
+
+  Future<T> wait<T>(Future<T> operation) async {
+    throwIfRequested();
+    final cancellationSignal = signal;
+    if (cancellationSignal == null) return operation;
+    return Future.any<T>([
+      operation,
+      cancellationSignal.then<T>(
+        (_) => throw const VoiceCallEligibilityResolutionCancelled(),
+      ),
+    ]);
   }
 }
