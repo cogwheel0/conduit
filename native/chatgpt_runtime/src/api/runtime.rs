@@ -1,59 +1,65 @@
-use std::collections::{HashMap, VecDeque};
-use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 
 use base64::Engine as _;
-use codex_app_server_client::{
-    InProcessAppServerClient, InProcessAppServerRequestHandle, InProcessClientStartArgs,
-    InProcessServerEvent,
+use codex_api::{
+    ApiError, AuthProvider, CompactClient, CompactionInput, ImageEditRequest,
+    ImageGenerationRequest, ImageQuality, ImageResponse, ImageUrl, ImagesClient, ModelsClient,
+    Provider, Reasoning, ReqwestTransport, ResponseEvent, ResponsesApiRequest, ResponsesClient,
+    ResponsesOptions, RetryConfig, SearchClient, SearchCommands, SearchInput, SearchRequest,
+    SearchSettings, SharedAuthProvider,
 };
-use codex_app_server_protocol::{ClientRequest, ServerNotification};
-use codex_arg0::Arg0DispatchPaths;
-use codex_config::{CloudConfigBundleLoader, LoaderOverrides};
-use codex_core::config::ConfigBuilder;
-use codex_exec_server::EnvironmentManager;
-use codex_feedback::CodexFeedback;
 use codex_login::{
-    AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, load_auth_dot_json, save_auth,
+    AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, AuthManager, CLIENT_ID,
+    ServerOptions, complete_device_code_login, load_auth_dot_json, request_device_code, save_auth,
 };
-use codex_protocol::protocol::SessionSource;
+use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::models::{
+    ContentItem, FunctionCallOutputContentItem, FunctionCallOutputPayload, ImageDetail,
+    MessagePhase, ResponseItem,
+};
+use codex_protocol::openai_models::{
+    InputModality, ModelInfo as CodexModelInfo, ModelVisibility, ReasoningEffort,
+};
 use flutter_rust_bridge::frb;
+use futures::StreamExt;
+use http::{HeaderMap, HeaderValue};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Mutex, mpsc, oneshot};
-use tokio::time::{Instant, sleep_until, timeout};
+use tokio::time::{Instant, timeout};
+use tokio_util::sync::CancellationToken;
+use url::Url;
 use uuid::Uuid;
 
 use super::contract::*;
 use crate::frb_generated::StreamSink;
 
 const AUTH_ACK_TIMEOUT: Duration = Duration::from_secs(30);
-const RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DELTA_FLUSH_INTERVAL: Duration = Duration::from_millis(16);
 const DELTA_FLUSH_BYTES: usize = 8 * 1024;
-const ACTIVE_RUN_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-const ACTIVE_RUN_WATCHDOG_INTERVAL: Duration = Duration::from_secs(30);
+const MODEL_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const COMPACT_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_ACTIVE_RUNS: usize = 2;
-const ALLOWED_RPC_METHODS: &[&str] = &[
-    "account/login/cancel",
-    "account/login/start",
-    "account/logout",
-    "account/read",
-    "model/list",
-    "thread/fork",
-    "thread/resume",
-    "thread/start",
-    "turn/interrupt",
-    "turn/start",
-];
-const GENERAL_CHAT_INSTRUCTIONS: &str = "You are ChatGPT inside Conduit, a general-purpose chat client. Answer the user's request directly. Do not inspect or modify files, execute shell commands, apply patches, use MCP, ask for coding approvals, or access a workspace. Web search and image generation may be used only when the client explicitly enables them.";
+const MAX_CHECKPOINT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_CHECKPOINT_ITEMS: usize = 512;
+const MAX_TOOL_CALLS: usize = 8;
+const MAX_IMAGE_CALLS: usize = 2;
+const MAX_RECENT_IMAGES: usize = 5;
+const MAX_SOURCES: usize = 20;
+const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+const CODEX_CLIENT_VERSION: &str = "0.145.0";
+const GENERAL_CHAT_INSTRUCTIONS: &str = "You are ChatGPT inside Conduit, a general-purpose chat client. Answer the user's request directly. You have no shell, filesystem, workspace, patching, approval, MCP, or coding-agent capabilities. Use web search and image generation only when those tools are present. Never claim to have used a tool that was not provided.";
 
-static NEXT_REQUEST_ID: AtomicI64 = AtomicI64::new(1);
-static RUNTIME: LazyLock<Mutex<Option<RuntimeHandle>>> = LazyLock::new(|| Mutex::new(None));
+static RUNTIME: LazyLock<Mutex<Option<Arc<RuntimeHandle>>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LIFECYCLE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone)]
@@ -80,83 +86,82 @@ impl EventHub {
         rx
     }
 
-    async fn emit(&self, mut event: RuntimeEvent) {
-        // Serializing numbering and delivery keeps sequence order identical to
-        // subscriber order even when independent tasks emit concurrently.
+    async fn emit(&self, event: impl Into<RuntimeEvent>) {
+        let mut event = event.into();
         let _delivery = self.delivery.lock().await;
         event.client_epoch = self.epoch;
         event.sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        self.subscribers.lock().await.retain(|subscriber| {
+        let subscribers = self.subscribers.lock().await.clone();
+        let mut closed = Vec::new();
+        for subscriber in subscribers {
             match subscriber.try_send(event.clone()) {
-                Ok(()) => true,
-                Err(TrySendError::Closed(_)) => false,
-                Err(TrySendError::Full(_)) => {
-                    // A stale or stalled Dart isolate must not block auth
-                    // acknowledgements or the native event pump. Removing the
-                    // sender closes this subscriber with an explicit delivery
-                    // error from runtime_events.
-                    tracing::warn!(
-                        sequence = event.sequence,
-                        "native event subscriber exceeded its bounded queue"
-                    );
-                    false
+                Ok(()) => {}
+                Err(TrySendError::Closed(_)) => closed.push(subscriber),
+                Err(TrySendError::Full(event)) => {
+                    if subscriber.send(event).await.is_err() {
+                        closed.push(subscriber);
+                    }
                 }
             }
-        });
+        }
+        if !closed.is_empty() {
+            self.subscribers
+                .lock()
+                .await
+                .retain(|subscriber| !closed.iter().any(|closed| closed.same_channel(subscriber)));
+        }
     }
 }
 
 struct PendingAuthMutation {
-    expected_hash: Option<String>,
     acknowledgement: oneshot::Sender<bool>,
+}
+
+struct ActiveLogin {
+    login_id: String,
+    cancellation: CancellationToken,
+}
+
+struct CachedModels {
+    fingerprint: String,
+    expires_at: Instant,
+    bridge_models: Vec<ModelInfo>,
+    upstream_models: HashMap<String, CodexModelInfo>,
 }
 
 struct RuntimeHandle {
     epoch: u64,
-    request: InProcessAppServerRequestHandle,
-    hub: EventHub,
-    shutdown: mpsc::Sender<oneshot::Sender<()>>,
     codex_home: PathBuf,
-    committed_auth_hash: Arc<Mutex<Option<String>>>,
-    auth_persistence: Arc<Mutex<()>>,
-    pending_auth: Arc<Mutex<HashMap<String, PendingAuthMutation>>>,
-    active_login_id: Arc<Mutex<Option<String>>>,
-    turn_to_run: Arc<Mutex<HashMap<String, String>>>,
-    scheduler: Arc<Mutex<TurnScheduler>>,
-}
-
-#[derive(Clone)]
-struct EventContext {
+    auth_manager: Arc<AuthManager>,
+    auth_provider: SharedAuthProvider,
+    transport: ReqwestTransport,
+    provider: Provider,
     hub: EventHub,
-    codex_home: PathBuf,
-    committed_auth_hash: Arc<Mutex<Option<String>>>,
-    auth_persistence: Arc<Mutex<()>>,
-    pending_auth: Arc<Mutex<HashMap<String, PendingAuthMutation>>>,
-    active_login_id: Arc<Mutex<Option<String>>>,
-    turn_to_run: Arc<Mutex<HashMap<String, String>>>,
-    scheduler: Arc<Mutex<TurnScheduler>>,
+    committed_auth: Mutex<Option<Vec<u8>>>,
+    auth_persistence: Mutex<()>,
+    pending_auth: Mutex<HashMap<String, PendingAuthMutation>>,
+    active_login: Mutex<Option<ActiveLogin>>,
+    model_cache: Mutex<Option<CachedModels>>,
+    scheduler: Mutex<TurnScheduler>,
 }
 
 #[derive(Default)]
 #[frb(ignore)]
 struct TurnScheduler {
-    active_by_thread: HashMap<String, ActiveRun>,
+    active_by_session: HashMap<String, ActiveRun>,
     queued: VecDeque<QueuedRun>,
     queued_input_bytes: usize,
 }
 
 struct ActiveRun {
     run_id: String,
-    turn_id: Option<String>,
-    cancellation_requested: bool,
-    last_activity: Instant,
+    cancellation: CancellationToken,
 }
 
 struct QueuedRun {
     run_id: String,
     request: TurnRequest,
-    encoded_inputs: Vec<Value>,
-    encoded_input_bytes: usize,
+    input_bytes: usize,
 }
 
 impl TurnScheduler {
@@ -169,10 +174,8 @@ impl TurnScheduler {
         }
         let next_bytes = self
             .queued_input_bytes
-            .checked_add(queued.encoded_input_bytes)
-            .ok_or_else(|| {
-                BridgeError::new(BridgeErrorKind::RateLimit, "queued input size overflow")
-            })?;
+            .checked_add(queued.input_bytes)
+            .ok_or_else(|| BridgeError::new(BridgeErrorKind::RateLimit, "queued input overflow"))?;
         if next_bytes > MAX_QUEUED_INPUT_BYTES {
             return Err(BridgeError::new(
                 BridgeErrorKind::RateLimit,
@@ -186,37 +189,70 @@ impl TurnScheduler {
 
     fn remove_queued(&mut self, position: usize) -> Option<QueuedRun> {
         let queued = self.queued.remove(position)?;
-        self.queued_input_bytes = self
-            .queued_input_bytes
-            .saturating_sub(queued.encoded_input_bytes);
+        self.queued_input_bytes = self.queued_input_bytes.saturating_sub(queued.input_bytes);
         Some(queued)
     }
 
-    fn pop_queued(&mut self) -> Option<QueuedRun> {
-        let queued = self.queued.pop_front()?;
-        self.queued_input_bytes = self
-            .queued_input_bytes
-            .saturating_sub(queued.encoded_input_bytes);
-        Some(queued)
-    }
-
-    fn drain_queued(&mut self) -> Vec<QueuedRun> {
-        self.queued_input_bytes = 0;
-        self.queued.drain(..).collect()
+    fn take_next_ready(&mut self) -> Option<QueuedRun> {
+        if self.active_by_session.len() >= MAX_ACTIVE_RUNS {
+            return None;
+        }
+        let position = self.queued.iter().position(|queued| {
+            !self
+                .active_by_session
+                .contains_key(&queued.request.session_id)
+        })?;
+        self.remove_queued(position)
     }
 }
 
 #[derive(Clone)]
-struct PendingDelta {
-    event: RuntimeEvent,
-    deadline: Instant,
+struct DynamicBearerAuth {
+    manager: Arc<AuthManager>,
+}
+
+impl AuthProvider for DynamicBearerAuth {
+    fn add_auth_headers(&self, headers: &mut HeaderMap) {
+        let Some(auth) = self.manager.auth_cached() else {
+            return;
+        };
+        if let Ok(token) = auth.get_token()
+            && let Ok(value) = HeaderValue::from_str(&format!("Bearer {token}"))
+        {
+            headers.insert(http::header::AUTHORIZATION, value);
+        }
+        if let Some(account_id) = auth.get_account_id()
+            && let Ok(value) = HeaderValue::from_str(&account_id)
+        {
+            headers.insert("ChatGPT-Account-ID", value);
+        }
+        if auth.is_fedramp_account() {
+            headers.insert("X-OpenAI-Fedramp", HeaderValue::from_static("true"));
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckpointEnvelope {
+    version: u32,
+    account_fingerprint: String,
+    model_id: String,
+    session_id: String,
+    tool_policy_hash: String,
+    through_message_id: String,
+    items: Vec<ResponseItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImageToolArgs {
+    prompt: String,
+    num_last_images_to_include: Option<usize>,
 }
 
 #[frb(init)]
 pub fn init_app() {
-    // FRB's default initializer enables TRACE console logging. Codex HTTP
-    // debug events can include response headers, so keep only crash backtrace
-    // capture and route operational diagnostics through the sanitized bridge.
     flutter_rust_bridge::setup_backtrace();
 }
 
@@ -226,7 +262,6 @@ pub fn bridge_protocol_version() -> u32 {
 
 pub async fn initialize_runtime(
     client_epoch: u64,
-    data_directory: String,
     auth_snapshot: Option<Vec<u8>>,
 ) -> Result<(), BridgeError> {
     if client_epoch == 0 {
@@ -236,252 +271,61 @@ pub async fn initialize_runtime(
         ));
     }
     let _lifecycle = RUNTIME_LIFECYCLE.lock().await;
-    let active_epoch = RUNTIME.lock().await.as_ref().map(|runtime| runtime.epoch);
-    validate_client_epoch(active_epoch, client_epoch)?;
-    let root = validated_runtime_root(data_directory)?;
-    let codex_home = root.join("rollouts");
-    std::fs::create_dir_all(&codex_home)
-        .map_err(|_| BridgeError::internal("unable to create the native runtime directory"))?;
+    if let Some(active) = RUNTIME.lock().await.as_ref()
+        && active.epoch == client_epoch
+    {
+        return Ok(());
+    }
+    shutdown_runtime_inner().await;
 
-    shutdown_runtime_inner().await?;
-
+    let codex_home = PathBuf::from(format!("conduit-chatgpt-{}-{client_epoch}", Uuid::new_v4()));
     if let Some(snapshot) = auth_snapshot.as_deref() {
         install_auth_snapshot(&codex_home, snapshot)?;
     }
-
-    let cli_overrides = vec![
-        (
-            "model_provider".to_owned(),
-            toml::Value::String("conduit-chatgpt".to_owned()),
-        ),
-        (
-            "model_providers.conduit-chatgpt.name".to_owned(),
-            toml::Value::String("OpenAI".to_owned()),
-        ),
-        (
-            "model_providers.conduit-chatgpt.wire_api".to_owned(),
-            toml::Value::String("responses".to_owned()),
-        ),
-        (
-            "model_providers.conduit-chatgpt.http_headers.version".to_owned(),
-            toml::Value::String("0.145.0".to_owned()),
-        ),
-        (
-            "model_providers.conduit-chatgpt.requires_openai_auth".to_owned(),
-            toml::Value::Boolean(true),
-        ),
-        (
-            "model_providers.conduit-chatgpt.supports_websockets".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "cli_auth_credentials_store".to_owned(),
-            toml::Value::String("ephemeral".to_owned()),
-        ),
-        (
-            "approval_policy".to_owned(),
-            toml::Value::String("never".to_owned()),
-        ),
-        (
-            "sandbox_mode".to_owned(),
-            toml::Value::String("read-only".to_owned()),
-        ),
-        ("features.skills".to_owned(), toml::Value::Boolean(false)),
-        ("features.apps".to_owned(), toml::Value::Boolean(false)),
-        ("features.plugins".to_owned(), toml::Value::Boolean(false)),
-        (
-            "features.plugin_hooks".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "features.tool_search".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "features.tool_suggest".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "features.shell_tool".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        ("features.code_mode".to_owned(), toml::Value::Boolean(false)),
-        (
-            "features.multi_agent".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "features.multi_agent_v2".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-        (
-            "features.request_permissions_tool".to_owned(),
-            toml::Value::Boolean(false),
-        ),
-    ];
-    let config = ConfigBuilder::default()
-        .codex_home(codex_home.clone())
-        .fallback_cwd(Some(root.clone()))
-        .cli_overrides(cli_overrides.clone())
-        .build()
-        .await
-        .map_err(|_| BridgeError::internal("unable to configure the native runtime"))?;
-
-    let args = InProcessClientStartArgs {
-        arg0_paths: Arg0DispatchPaths::default(),
-        config: Arc::new(config),
-        cli_overrides,
-        loader_overrides: LoaderOverrides::default(),
-        strict_config: false,
-        cloud_config_bundle: CloudConfigBundleLoader::default(),
-        feedback: CodexFeedback::new(),
-        log_db: None,
-        state_db: None,
-        environment_manager: Arc::new(EnvironmentManager::without_environments()),
-        config_warnings: Vec::new(),
-        session_source: SessionSource::Custom("conduit".to_owned()),
-        enable_codex_api_key_env: false,
-        client_name: "Conduit".to_owned(),
-        client_version: env!("CARGO_PKG_VERSION").to_owned(),
-        experimental_api: true,
-        mcp_server_openai_form_elicitation: false,
-        opt_out_notification_methods: vec![
-            "skills/changed".to_owned(),
-            "fs/changed".to_owned(),
-            "mcpServer/startupStatus/updated".to_owned(),
-        ],
-        channel_capacity: EVENT_QUEUE_CAPACITY,
-    };
-    let mut client = InProcessAppServerClient::start(args)
-        .await
-        .map_err(|error| {
-            BridgeError::internal(format!("unable to start the native runtime: {error}"))
-        })?;
-    let request = client.request_handle();
-    let hub = EventHub::new(client_epoch);
-    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
-    let committed_auth_hash = Arc::new(Mutex::new(snapshot_hash(auth_snapshot.as_deref())));
-    let auth_persistence = Arc::new(Mutex::new(()));
-    let pending_auth = Arc::new(Mutex::new(HashMap::new()));
-    let active_login_id = Arc::new(Mutex::new(None));
-    let turn_to_run = Arc::new(Mutex::new(HashMap::new()));
-    let scheduler = Arc::new(Mutex::new(TurnScheduler::default()));
-    let event_context = EventContext {
-        hub: hub.clone(),
-        codex_home: codex_home.clone(),
-        committed_auth_hash: committed_auth_hash.clone(),
-        auth_persistence: auth_persistence.clone(),
-        pending_auth: pending_auth.clone(),
-        active_login_id: active_login_id.clone(),
-        turn_to_run: turn_to_run.clone(),
-        scheduler: scheduler.clone(),
-    };
-    tokio::spawn(async move {
-        let mut pending_delta: Option<PendingDelta> = None;
-        let mut watchdog = tokio::time::interval(ACTIVE_RUN_WATCHDOG_INTERVAL);
-        watchdog.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            tokio::select! {
-                shutdown = shutdown_rx.recv() => {
-                    if let Some(delta) = pending_delta.take() {
-                        event_context.hub.emit(delta.event).await;
-                    }
-                    let _ = client.shutdown().await;
-                    if let Some(done) = shutdown { let _ = done.send(()); }
-                    break;
-                }
-                _ = sleep_until(pending_delta.as_ref().map(|d| d.deadline).unwrap_or_else(|| Instant::now() + Duration::from_secs(86400))), if pending_delta.is_some() => {
-                    if let Some(delta) = pending_delta.take() {
-                        event_context.hub.emit(delta.event).await;
-                    }
-                }
-                _ = watchdog.tick() => {
-                    expire_stalled_runs(&event_context).await;
-                }
-                event = client.next_event() => {
-                    let Some(event) = event else {
-                        fail_all_runtime_runs(
-                            &event_context,
-                            "The native ChatGPT event stream ended unexpectedly.",
-                        ).await;
-                        break;
-                    };
-                    match event {
-                        InProcessServerEvent::ServerNotification(notification) => {
-                            if let Some(mapped) = map_notification(&event_context, notification).await {
-                                if matches!(mapped.kind, RuntimeEventKind::TextDelta | RuntimeEventKind::ReasoningDelta) {
-                                    merge_or_flush_delta(&event_context.hub, &mut pending_delta, mapped).await;
-                                } else {
-                                    if let Some(delta) = pending_delta.take() {
-                                        event_context.hub.emit(delta.event).await;
-                                    }
-                                    emit_runtime_event(&event_context, mapped).await;
-                                }
-                            }
-                        }
-                        InProcessServerEvent::ServerRequest(request) => {
-                            let request_id = request.id().clone();
-                            let params = serde_json::to_value(&request)
-                                .ok()
-                                .and_then(|value| value.get("params").cloned())
-                                .unwrap_or(Value::Null);
-                            let ids = notification_ids(&params, &event_context.turn_to_run).await;
-                            let payload = if ids.run_id.is_some() && ids.thread_id.is_some() {
-                                event_with_ids(
-                                    RuntimeEventKind::Failure,
-                                    Some("The model requested a disabled capability.".to_owned()),
-                                    None,
-                                    ids,
-                                )
-                            } else {
-                                RuntimeEvent {
-                                    kind: RuntimeEventKind::Diagnostic,
-                                    text: Some("A disabled native capability was rejected.".to_owned()),
-                                    ..blank_event()
-                                }
-                            };
-                            emit_runtime_event(&event_context, payload).await;
-                            let _ = client.reject_server_request(
-                                request_id,
-                                codex_app_server_protocol::JSONRPCErrorError {
-                                    code: -32004,
-                                    message: "capability disabled by Conduit mobile-chat runtime".to_owned(),
-                                    data: None,
-                                },
-                            ).await;
-                        }
-                        InProcessServerEvent::Lagged { skipped } => {
-                            fail_all_runtime_runs(
-                                &event_context,
-                                &format!("Native event queue overflowed ({skipped} events)."),
-                            ).await;
-                        }
-                    }
-                }
-            }
-        }
-        let mut runtime = RUNTIME.lock().await;
-        if runtime
-            .as_ref()
-            .is_some_and(|active| active.epoch == event_context.hub.epoch)
-        {
-            runtime.take();
-        }
+    let auth_manager = AuthManager::shared(
+        codex_home.clone(),
+        false,
+        AuthCredentialsStoreMode::Ephemeral,
+        None,
+        Some("https://chatgpt.com".to_string()),
+        AuthKeyringBackendKind::default(),
+        None,
+    )
+    .await;
+    let auth_provider: SharedAuthProvider = Arc::new(DynamicBearerAuth {
+        manager: Arc::clone(&auth_manager),
     });
-
-    *RUNTIME.lock().await = Some(RuntimeHandle {
+    let provider = Provider {
+        name: "conduit-chatgpt".to_string(),
+        base_url: CHATGPT_CODEX_BASE_URL.to_string(),
+        query_params: None,
+        headers: HeaderMap::new(),
+        retry: RetryConfig {
+            max_attempts: 3,
+            base_delay: Duration::from_millis(250),
+            retry_429: true,
+            retry_5xx: true,
+            retry_transport: true,
+        },
+        stream_idle_timeout: STREAM_IDLE_TIMEOUT,
+    };
+    let transport = ReqwestTransport::new(codex_login::default_client::build_reqwest_client());
+    let runtime = Arc::new(RuntimeHandle {
         epoch: client_epoch,
-        request,
-        hub,
-        shutdown: shutdown_tx,
         codex_home,
-        committed_auth_hash,
-        auth_persistence,
-        pending_auth,
-        active_login_id,
-        turn_to_run,
-        scheduler,
+        auth_manager,
+        auth_provider,
+        transport,
+        provider,
+        hub: EventHub::new(client_epoch),
+        committed_auth: Mutex::new(auth_snapshot),
+        auth_persistence: Mutex::new(()),
+        pending_auth: Mutex::new(HashMap::new()),
+        active_login: Mutex::new(None),
+        model_cache: Mutex::new(None),
+        scheduler: Mutex::new(TurnScheduler::default()),
     });
+    *RUNTIME.lock().await = Some(runtime);
     Ok(())
 }
 
@@ -489,1097 +333,1728 @@ pub async fn runtime_events(
     client_epoch: u64,
     sink: StreamSink<RuntimeEvent>,
 ) -> Result<(), BridgeError> {
-    let hub = {
-        let guard = RUNTIME.lock().await;
-        let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-        if runtime.epoch != client_epoch {
-            return Err(BridgeError::new(
-                BridgeErrorKind::ProtocolMismatch,
-                "stale native runtime epoch",
-            ));
-        }
-        runtime.hub.clone()
-    };
-    let mut receiver = hub.subscribe().await;
+    let runtime = runtime_handle().await?;
+    if runtime.epoch != client_epoch {
+        return Err(BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "the native event stream belongs to a stale client epoch",
+        ));
+    }
+    let mut receiver = runtime.hub.subscribe().await;
     while let Some(event) = receiver.recv().await {
         if sink.add(event).is_err() {
-            return Ok(());
+            break;
         }
-    }
-    Err(BridgeError::new(
-        BridgeErrorKind::Network,
-        "native event delivery queue closed",
-    ))
-}
-
-pub async fn auth_state() -> Result<AuthStateInfo, BridgeError> {
-    let value = rpc("account/read", json!({"refreshToken": false})).await?;
-    let account_id = {
-        let guard = RUNTIME.lock().await;
-        let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-        chatgpt_account_id(&runtime.codex_home)
-    };
-    Ok(parse_auth_state(&value, account_id))
-}
-
-pub async fn begin_device_code_login() -> Result<DeviceCodeChallenge, BridgeError> {
-    let value = rpc("account/login/start", json!({"type": "chatgptDeviceCode"})).await?;
-    let challenge = DeviceCodeChallenge {
-        login_id: required_string(&value, "loginId")?,
-        verification_url: required_string(&value, "verificationUrl")?,
-        user_code: required_string(&value, "userCode")?,
-    };
-    let guard = RUNTIME.lock().await;
-    let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-    *runtime.active_login_id.lock().await = Some(challenge.login_id.clone());
-    Ok(challenge)
-}
-
-pub async fn cancel_device_code_login() -> Result<(), BridgeError> {
-    let login_id = {
-        let guard = RUNTIME.lock().await;
-        let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-        runtime.active_login_id.lock().await.take()
-    };
-    if let Some(login_id) = login_id {
-        let _ = rpc("account/login/cancel", json!({"loginId": login_id})).await?;
     }
     Ok(())
 }
 
+pub async fn auth_state() -> Result<AuthStateInfo, BridgeError> {
+    let runtime = runtime_handle().await?;
+    if runtime.auth_manager.auth_cached().is_some() {
+        let _ = prepare_auth(&runtime).await?;
+    }
+    Ok(auth_state_info(&runtime.auth_manager))
+}
+
+pub async fn begin_device_code_login() -> Result<DeviceCodeChallenge, BridgeError> {
+    let runtime = runtime_handle().await?;
+    cancel_device_code_login_inner(&runtime).await;
+    let mut options = device_login_options(runtime.codex_home.clone());
+    options.open_browser = false;
+    let device_code = request_device_code(&options).await.map_err(|_| {
+        BridgeError::new(BridgeErrorKind::Network, "unable to start ChatGPT sign in")
+    })?;
+    let verification_url = device_code.verification_url.clone();
+    let user_code = device_code.user_code.clone();
+    let login_id = Uuid::new_v4().to_string();
+    let cancellation = CancellationToken::new();
+    *runtime.active_login.lock().await = Some(ActiveLogin {
+        login_id: login_id.clone(),
+        cancellation: cancellation.clone(),
+    });
+
+    let task_runtime = Arc::clone(&runtime);
+    let task_login_id = login_id.clone();
+    tokio::spawn(async move {
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => Err("cancelled".to_string()),
+            result = complete_device_code_login(options, device_code) => {
+                result.map_err(|error| classify_login_failure(&error.to_string()).to_string())
+            }
+        };
+        let is_current = task_runtime
+            .active_login
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|login| login.login_id == task_login_id);
+        if !is_current {
+            return;
+        }
+        *task_runtime.active_login.lock().await = None;
+
+        match result {
+            Ok(()) => {
+                task_runtime.auth_manager.reload().await;
+                let persisted = persist_current_auth(&task_runtime).await;
+                let success = persisted.is_ok();
+                let metadata = if success {
+                    json!({"success": true})
+                } else {
+                    json!({"success": false, "reason": "persistence"})
+                };
+                task_runtime
+                    .hub
+                    .emit(event(RuntimeEventKind::LoginCompleted).with_json(metadata))
+                    .await;
+                if success {
+                    task_runtime
+                        .hub
+                        .emit(auth_event(auth_state_info(&task_runtime.auth_manager)))
+                        .await;
+                }
+            }
+            Err(reason) => {
+                task_runtime
+                    .hub
+                    .emit(
+                        event(RuntimeEventKind::LoginCompleted)
+                            .with_json(json!({"success": false, "reason": reason})),
+                    )
+                    .await;
+            }
+        }
+    });
+
+    Ok(DeviceCodeChallenge {
+        login_id,
+        verification_url,
+        user_code,
+    })
+}
+
+pub async fn cancel_device_code_login() -> Result<(), BridgeError> {
+    let runtime = runtime_handle().await?;
+    cancel_device_code_login_inner(&runtime).await;
+    Ok(())
+}
+
 pub async fn list_models() -> Result<Vec<ModelInfo>, BridgeError> {
-    let value = rpc("model/list", json!({"includeHidden": false, "limit": 100})).await?;
-    let data = value
-        .get("data")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    Ok(data
-        .into_iter()
-        .filter_map(|model| {
-            let id = model
-                .get("model")
-                .or_else(|| model.get("id"))?
-                .as_str()?
-                .to_owned();
-            let modalities = model
-                .get("inputModalities")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let efforts = model
-                .get("supportedReasoningEfforts")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            Some(ModelInfo {
-                display_name: model
-                    .get("displayName")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&id)
-                    .to_owned(),
-                description: model
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                supports_images: modalities.iter().any(|item| item.as_str() == Some("image")),
-                supports_audio: modalities.iter().any(|item| item.as_str() == Some("audio")),
-                supported_reasoning_efforts: efforts
-                    .iter()
-                    .filter_map(|item| {
-                        item.get("reasoningEffort")
-                            .or(Some(item))
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-                    .collect(),
-                default_reasoning_effort: model
-                    .get("defaultReasoningEffort")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                id,
-            })
-        })
-        .collect())
-}
+    let runtime = runtime_handle().await?;
+    let fingerprint = prepare_auth(&runtime).await?;
+    if let Some(cache) = runtime.model_cache.lock().await.as_ref()
+        && cache.fingerprint == fingerprint
+        && cache.expires_at > Instant::now()
+    {
+        return Ok(cache.bridge_models.clone());
+    }
 
-pub async fn start_thread(
-    model_id: String,
-    enable_web_search: bool,
-    enable_image_generation: bool,
-) -> Result<ThreadInfo, BridgeError> {
-    validate_identifier(&model_id, "model id")?;
-    let value = rpc(
-        "thread/start",
-        json!({
-            "model": model_id,
-            "approvalPolicy": "never",
-            "sandbox": "read-only",
-            "baseInstructions": GENERAL_CHAT_INSTRUCTIONS,
-            "developerInstructions": GENERAL_CHAT_INSTRUCTIONS,
-            "config": {
-                "web_search": if enable_web_search { "live" } else { "disabled" },
-                "features.image_generation": enable_image_generation,
-            },
-            "environments": [],
-            "dynamicTools": [],
-            "ephemeral": false
-        }),
-    )
-    .await?;
-    Ok(ThreadInfo {
-        thread_id: required_nested_string(&value, &["thread", "id"])?,
-        model_id: required_string(&value, "model")?,
-    })
-}
-
-pub async fn resume_thread(thread_id: String) -> Result<ThreadInfo, BridgeError> {
-    validate_identifier(&thread_id, "thread id")?;
-    let value = rpc("thread/resume", json!({"threadId": thread_id})).await?;
-    Ok(ThreadInfo {
-        thread_id: required_nested_string(&value, &["thread", "id"])?,
-        model_id: value
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-    })
-}
-
-pub async fn fork_thread(
-    thread_id: String,
-    turn_id: Option<String>,
-) -> Result<ThreadInfo, BridgeError> {
-    validate_identifier(&thread_id, "thread id")?;
-    let value = rpc(
-        "thread/fork",
-        json!({"threadId": thread_id, "turnId": turn_id}),
-    )
-    .await?;
-    Ok(ThreadInfo {
-        thread_id: required_nested_string(&value, &["thread", "id"])?,
-        model_id: value
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-    })
+    let client = ModelsClient::new(
+        runtime.transport.clone(),
+        runtime.provider.clone(),
+        Arc::clone(&runtime.auth_provider),
+    );
+    let request_url =
+        ModelsClient::<ReqwestTransport>::request_url(&runtime.provider, CODEX_CLIENT_VERSION);
+    let (models, _) = match client
+        .list_models(request_url.clone(), HeaderMap::new())
+        .await
+    {
+        Ok(result) => result,
+        Err(ApiError::Api { status, .. }) if status.as_u16() == 401 => {
+            refresh_after_unauthorized(&runtime).await?;
+            client
+                .list_models(request_url, HeaderMap::new())
+                .await
+                .map_err(map_api_error)?
+        }
+        Err(error) => return Err(map_api_error(error)),
+    };
+    let mut bridge_models = Vec::new();
+    let mut upstream_models = HashMap::new();
+    for model in models {
+        if model.visibility != ModelVisibility::List || !model.supported_in_api {
+            continue;
+        }
+        let supports_images = model.input_modalities.contains(&InputModality::Image);
+        let supports_audio = model.input_modalities.contains(&InputModality::Audio);
+        bridge_models.push(ModelInfo {
+            id: model.slug.clone(),
+            display_name: model.display_name.clone(),
+            description: model.description.clone().unwrap_or_default(),
+            supports_images,
+            supports_audio,
+            supported_reasoning_efforts: model
+                .supported_reasoning_levels
+                .iter()
+                .map(|preset| preset.effort.to_string())
+                .collect(),
+            default_reasoning_effort: model
+                .default_reasoning_level
+                .as_ref()
+                .map(ToString::to_string),
+        });
+        upstream_models.insert(model.slug.clone(), model);
+    }
+    *runtime.model_cache.lock().await = Some(CachedModels {
+        fingerprint,
+        expires_at: Instant::now() + MODEL_CACHE_TTL,
+        bridge_models: bridge_models.clone(),
+        upstream_models,
+    });
+    Ok(bridge_models)
 }
 
 pub async fn start_turn(request: TurnRequest) -> Result<RunInfo, BridgeError> {
-    validate_identifier(&request.thread_id, "thread id")?;
-    validate_identifier(&request.model_id, "model id")?;
-    if request.inputs.is_empty() {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "a turn requires at least one input",
-        ));
+    validate_turn_request(&request)?;
+    let runtime = runtime_handle().await?;
+    if let Some(checkpoint) = request.checkpoint.as_deref() {
+        let fingerprint = prepare_auth(&runtime).await?;
+        decode_checkpoint(
+            checkpoint,
+            &fingerprint,
+            &request.model_id,
+            &request.session_id,
+            &tool_policy_hash(request.enable_web_search, request.enable_image_generation),
+        )?;
     }
-    // Validate and bound all inputs before accepting a run into the FIFO.
-    let encoded_inputs = encode_turn_inputs(&request.inputs)?;
-    let encoded_input_bytes = encoded_inputs_size(&encoded_inputs)?;
+    let input_bytes = turn_request_size(&request)?;
     let run_id = Uuid::new_v4().to_string();
-    let context = context_snapshot().await?;
-    let starts_now = {
-        let mut scheduler = context.scheduler.lock().await;
-        if scheduler.active_by_thread.len() < MAX_ACTIVE_RUNS
-            && !scheduler.active_by_thread.contains_key(&request.thread_id)
-            && scheduler.queued.is_empty()
+    let cancellation = CancellationToken::new();
+    let session_id = request.session_id.clone();
+    let queued = QueuedRun {
+        run_id: run_id.clone(),
+        request,
+        input_bytes,
+    };
+    let start_now = {
+        let mut scheduler = runtime.scheduler.lock().await;
+        if scheduler.active_by_session.contains_key(&session_id)
+            || scheduler.active_by_session.len() >= MAX_ACTIVE_RUNS
         {
-            scheduler.active_by_thread.insert(
-                request.thread_id.clone(),
+            scheduler.enqueue(queued)?;
+            None
+        } else {
+            scheduler.active_by_session.insert(
+                session_id.clone(),
                 ActiveRun {
                     run_id: run_id.clone(),
-                    turn_id: None,
-                    cancellation_requested: false,
-                    last_activity: Instant::now(),
+                    cancellation: cancellation.clone(),
                 },
             );
-            true
-        } else {
-            let mut queued_request = request.clone();
-            queued_request.inputs.clear();
-            scheduler.enqueue(QueuedRun {
-                run_id: run_id.clone(),
-                request: queued_request,
-                encoded_inputs: encoded_inputs.clone(),
-                encoded_input_bytes,
-            })?;
-            false
+            Some((queued, cancellation))
         }
     };
-    let turn_id = if starts_now {
-        match start_native_turn(&context, &run_id, &request, &encoded_inputs).await {
-            Ok(turn_id) => Some(turn_id),
-            Err(error) => {
-                finish_scheduled_run(context, &run_id, &request.thread_id).await;
-                return Err(error);
-            }
-        }
-    } else {
-        None
-    };
-    Ok(RunInfo {
-        run_id,
-        thread_id: request.thread_id,
-        turn_id,
-    })
+    if let Some((queued, cancellation)) = start_now {
+        spawn_run(Arc::clone(&runtime), queued, cancellation);
+    }
+    Ok(RunInfo { run_id, session_id })
 }
 
 pub async fn interrupt_turn(run_id: String) -> Result<(), BridgeError> {
     validate_identifier(&run_id, "run id")?;
-    let context = context_snapshot().await?;
-    let action = {
-        let mut scheduler = context.scheduler.lock().await;
-        if let Some(position) = scheduler
-            .queued
-            .iter()
-            .position(|queued| queued.run_id == run_id)
-        {
-            let queued = scheduler
-                .remove_queued(position)
-                .expect("queued run exists");
-            Some((queued.request.thread_id, None, true))
-        } else if let Some((thread_id, active)) = scheduler
-            .active_by_thread
-            .iter_mut()
-            .find(|(_, active)| active.run_id == run_id)
-        {
-            active.cancellation_requested = true;
-            Some((thread_id.clone(), active.turn_id.clone(), false))
+    let runtime = runtime_handle().await?;
+    let queued = {
+        let mut scheduler = runtime.scheduler.lock().await;
+        if let Some(position) = scheduler.queued.iter().position(|run| run.run_id == run_id) {
+            scheduler.remove_queued(position)
         } else {
+            if let Some(active) = scheduler
+                .active_by_session
+                .values()
+                .find(|active| active.run_id == run_id)
+            {
+                active.cancellation.cancel();
+            }
             None
         }
     };
-    let Some((thread_id, turn_id, was_queued)) = action else {
-        return Err(BridgeError::new(
-            BridgeErrorKind::Cancellation,
-            "run is no longer active",
-        ));
-    };
-    if was_queued {
-        context
+    if let Some(queued) = queued {
+        runtime
             .hub
-            .emit(RuntimeEvent {
-                kind: RuntimeEventKind::Cancelled,
-                run_id: Some(run_id),
-                thread_id: Some(thread_id),
-                ..blank_event()
-            })
+            .emit(run_event(
+                RuntimeEventKind::Cancelled,
+                &queued.run_id,
+                &queued.request.session_id,
+            ))
             .await;
-        start_next_queued_run(context).await;
-    } else if let Some(turn_id) = turn_id {
-        let _ = rpc(
-            "turn/interrupt",
-            json!({"threadId": thread_id, "turnId": turn_id}),
-        )
-        .await?;
     }
     Ok(())
 }
 
 pub async fn ack_auth_mutation(mutation_id: String, persisted: bool) -> Result<(), BridgeError> {
-    validate_identifier(&mutation_id, "auth mutation id")?;
-    let pending = {
-        let guard = RUNTIME.lock().await;
-        let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-        runtime.pending_auth.lock().await.remove(&mutation_id)
+    validate_identifier(&mutation_id, "mutation id")?;
+    let runtime = runtime_handle().await?;
+    let pending = runtime.pending_auth.lock().await.remove(&mutation_id);
+    let Some(pending) = pending else {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "the authentication mutation is no longer pending",
+        ));
     };
-    let pending = pending.ok_or_else(|| {
-        BridgeError::new(
-            BridgeErrorKind::ProtocolMismatch,
-            "auth mutation is not pending",
-        )
-    })?;
-    if persisted {
-        let guard = RUNTIME.lock().await;
-        if let Some(runtime) = guard.as_ref() {
-            *runtime.committed_auth_hash.lock().await = pending.expected_hash.clone();
-        }
-    }
     let _ = pending.acknowledgement.send(persisted);
     Ok(())
 }
 
 pub async fn disconnect_account() -> Result<(), BridgeError> {
-    let _ = cancel_device_code_login().await;
-    let context = context_snapshot().await?;
-    let (queued, active) = {
-        let mut scheduler = context.scheduler.lock().await;
-        let queued = scheduler.drain_queued();
-        let active = scheduler
-            .active_by_thread
-            .iter_mut()
-            .map(|(thread_id, run)| {
-                run.cancellation_requested = true;
-                (thread_id.clone(), run.run_id.clone(), run.turn_id.clone())
-            })
-            .collect::<Vec<_>>();
-        (queued, active)
-    };
-    for queued in queued {
-        context
-            .hub
-            .emit(RuntimeEvent {
-                kind: RuntimeEventKind::Cancelled,
-                run_id: Some(queued.run_id),
-                thread_id: Some(queued.request.thread_id),
-                ..blank_event()
-            })
-            .await;
-    }
-    for (thread_id, _, turn_id) in active {
-        if let Some(turn_id) = turn_id {
-            let _ = rpc(
-                "turn/interrupt",
-                json!({"threadId": thread_id, "turnId": turn_id}),
-            )
-            .await;
-        }
-    }
-    let _ = rpc("account/logout", Value::Null).await;
-    let _single_flight = context.auth_persistence.lock().await;
-    request_auth_persistence(context.clone(), Vec::new(), None).await?;
-    Ok(())
-}
-
-async fn start_native_turn(
-    context: &EventContext,
-    run_id: &str,
-    request: &TurnRequest,
-    encoded_inputs: &[Value],
-) -> Result<String, BridgeError> {
-    let mut input = encoded_inputs.to_vec();
-    input.insert(
-        0,
-        json!({
-            "type": "text",
-            "text": format!(
-                "Conduit tool policy for this turn: web search is {}; image generation is {}. Never use a disabled tool.",
-                if request.enable_web_search { "enabled" } else { "disabled" },
-                if request.enable_image_generation { "enabled" } else { "disabled" },
-            ),
-            "text_elements": []
-        }),
-    );
-    let mut params = json!({
-        "threadId": request.thread_id,
-        "clientUserMessageId": request.client_user_message_id,
-        "input": input,
-        "model": request.model_id,
-        "environments": [],
-        "approvalPolicy": "never",
-        "responsesapiClientMetadata": {
-            "conduit_run_id": run_id,
-            "web_search": request.enable_web_search.to_string(),
-            "image_generation": request.enable_image_generation.to_string()
-        }
-    });
-    if let Some(effort) = request.reasoning_effort.as_deref() {
-        params["effort"] = Value::String(effort.to_owned());
-    }
-    let value = rpc("turn/start", params).await?;
-    let turn_id = required_nested_string(&value, &["turn", "id"])?;
-    context
-        .turn_to_run
-        .lock()
+    let runtime = runtime_handle().await?;
+    cancel_all_work(&runtime).await;
+    let previous = runtime.committed_auth.lock().await.clone();
+    runtime
+        .auth_manager
+        .logout_with_revoke()
         .await
-        .insert(turn_id.clone(), run_id.to_owned());
-    let active_state = {
-        let mut scheduler = context.scheduler.lock().await;
-        scheduler
-            .active_by_thread
-            .get_mut(&request.thread_id)
-            .filter(|active| active.run_id == run_id)
-            .map(|active| {
-                active.turn_id = Some(turn_id.clone());
-                active.cancellation_requested
-            })
-    };
-    let Some(cancel_now) = active_state else {
-        context.turn_to_run.lock().await.remove(&turn_id);
-        let _ = rpc(
-            "turn/interrupt",
-            json!({"threadId": request.thread_id, "turnId": turn_id}),
-        )
-        .await;
-        return Err(BridgeError::new(
-            BridgeErrorKind::Cancellation,
-            "run was cancelled before it started",
-        ));
-    };
-    context
+        .map_err(|_| {
+            BridgeError::new(
+                BridgeErrorKind::Authentication,
+                "unable to clear ChatGPT credentials",
+            )
+        })?;
+    if let Err(error) = request_auth_mutation(&runtime, None).await {
+        restore_auth(&runtime, previous.as_deref()).await;
+        return Err(error);
+    }
+    *runtime.committed_auth.lock().await = None;
+    *runtime.model_cache.lock().await = None;
+    runtime
         .hub
-        .emit(RuntimeEvent {
-            kind: RuntimeEventKind::TurnStarted,
-            run_id: Some(run_id.to_owned()),
-            thread_id: Some(request.thread_id.clone()),
-            turn_id: Some(turn_id.clone()),
-            ..blank_event()
-        })
+        .emit(auth_event(auth_state_info(&runtime.auth_manager)))
         .await;
-    if cancel_now {
-        let _ = rpc(
-            "turn/interrupt",
-            json!({"threadId": request.thread_id, "turnId": turn_id}),
-        )
-        .await;
-    }
-    Ok(turn_id)
-}
-
-async fn finish_scheduled_run(context: EventContext, run_id: &str, thread_id: &str) {
-    let next = release_and_take_next(&context, run_id, thread_id).await;
-    if let Some(queued) = next {
-        tokio::spawn(run_queued_chain(context, queued));
-    }
-}
-
-async fn start_next_queued_run(context: EventContext) {
-    let next = {
-        let mut scheduler = context.scheduler.lock().await;
-        take_next_ready_run(&mut scheduler)
-    };
-    if let Some(queued) = next {
-        tokio::spawn(run_queued_chain(context, queued));
-    }
-}
-
-async fn release_and_take_next(
-    context: &EventContext,
-    run_id: &str,
-    thread_id: &str,
-) -> Option<QueuedRun> {
-    let mut scheduler = context.scheduler.lock().await;
-    if scheduler
-        .active_by_thread
-        .get(thread_id)
-        .is_some_and(|active| active.run_id == run_id)
-    {
-        scheduler.active_by_thread.remove(thread_id);
-    }
-    take_next_ready_run(&mut scheduler)
-}
-
-fn take_next_ready_run(scheduler: &mut TurnScheduler) -> Option<QueuedRun> {
-    let can_start_head = scheduler.active_by_thread.len() < MAX_ACTIVE_RUNS
-        && scheduler.queued.front().is_some_and(|queued| {
-            !scheduler
-                .active_by_thread
-                .contains_key(&queued.request.thread_id)
-        });
-    if !can_start_head {
-        return None;
-    }
-    let queued = scheduler.pop_queued().expect("queued head exists");
-    scheduler.active_by_thread.insert(
-        queued.request.thread_id.clone(),
-        ActiveRun {
-            run_id: queued.run_id.clone(),
-            turn_id: None,
-            cancellation_requested: false,
-            last_activity: Instant::now(),
-        },
-    );
-    Some(queued)
-}
-
-async fn run_queued_chain(context: EventContext, mut queued: QueuedRun) {
-    loop {
-        if let Err(error) = start_native_turn(
-            &context,
-            &queued.run_id,
-            &queued.request,
-            &queued.encoded_inputs,
-        )
-        .await
-        {
-            context
-                .hub
-                .emit(RuntimeEvent {
-                    kind: RuntimeEventKind::Failure,
-                    run_id: Some(queued.run_id.clone()),
-                    thread_id: Some(queued.request.thread_id.clone()),
-                    text: Some(error.message),
-                    ..blank_event()
-                })
-                .await;
-            if let Some(next) =
-                release_and_take_next(&context, &queued.run_id, &queued.request.thread_id).await
-            {
-                queued = next;
-                continue;
-            }
-        }
-        break;
-    }
-}
-
-async fn touch_active_run(context: &EventContext, ids: &NotificationIds) {
-    let (Some(run_id), Some(thread_id)) = (ids.run_id.as_deref(), ids.thread_id.as_deref()) else {
-        return;
-    };
-    let mut scheduler = context.scheduler.lock().await;
-    if let Some(active) = scheduler
-        .active_by_thread
-        .get_mut(thread_id)
-        .filter(|active| active.run_id == run_id)
-    {
-        active.last_activity = Instant::now();
-    }
-}
-
-async fn expire_stalled_runs(context: &EventContext) {
-    let expired = {
-        let mut scheduler = context.scheduler.lock().await;
-        let threads = scheduler
-            .active_by_thread
-            .iter()
-            .filter(|(_, active)| active.last_activity.elapsed() >= ACTIVE_RUN_IDLE_TIMEOUT)
-            .map(|(thread_id, _)| thread_id.clone())
-            .collect::<Vec<_>>();
-        threads
-            .into_iter()
-            .filter_map(|thread_id| {
-                scheduler
-                    .active_by_thread
-                    .remove(&thread_id)
-                    .map(|active| (thread_id, active))
-            })
-            .collect::<Vec<_>>()
-    };
-    for (thread_id, active) in expired {
-        if let Some(turn_id) = active.turn_id.as_deref() {
-            context.turn_to_run.lock().await.remove(turn_id);
-            let _ = rpc(
-                "turn/interrupt",
-                json!({"threadId": thread_id, "turnId": turn_id}),
-            )
-            .await;
-        }
-        context
-            .hub
-            .emit(RuntimeEvent {
-                kind: RuntimeEventKind::Failure,
-                run_id: Some(active.run_id),
-                thread_id: Some(thread_id),
-                turn_id: active.turn_id,
-                text: Some("The ChatGPT turn stopped responding.".to_owned()),
-                ..blank_event()
-            })
-            .await;
-        start_next_queued_run(context.clone()).await;
-    }
-}
-
-async fn fail_all_runtime_runs(context: &EventContext, message: &str) {
-    let failed = {
-        let mut scheduler = context.scheduler.lock().await;
-        let mut runs = scheduler
-            .active_by_thread
-            .drain()
-            .map(|(thread_id, active)| (active.run_id, thread_id, active.turn_id))
-            .collect::<Vec<_>>();
-        runs.extend(
-            scheduler
-                .drain_queued()
-                .into_iter()
-                .map(|queued| (queued.run_id, queued.request.thread_id, None)),
-        );
-        runs
-    };
-    context.turn_to_run.lock().await.clear();
-    for (run_id, thread_id, turn_id) in failed {
-        context
-            .hub
-            .emit(RuntimeEvent {
-                kind: RuntimeEventKind::Failure,
-                run_id: Some(run_id),
-                thread_id: Some(thread_id),
-                turn_id,
-                text: Some(message.to_owned()),
-                ..blank_event()
-            })
-            .await;
-    }
+    Ok(())
 }
 
 pub async fn shutdown_runtime() -> Result<(), BridgeError> {
     let _lifecycle = RUNTIME_LIFECYCLE.lock().await;
-    shutdown_runtime_inner().await
+    shutdown_runtime_inner().await;
+    Ok(())
 }
 
-async fn shutdown_runtime_inner() -> Result<(), BridgeError> {
-    let previous = RUNTIME.lock().await.take();
-    if let Some(runtime) = previous {
-        let (tx, rx) = oneshot::channel();
-        if runtime.shutdown.send(tx).await.is_ok() {
-            let _ = timeout(Duration::from_secs(6), rx).await;
+async fn shutdown_runtime_inner() {
+    let runtime = RUNTIME.lock().await.take();
+    if let Some(runtime) = runtime {
+        cancel_all_work(&runtime).await;
+        runtime.hub.subscribers.lock().await.clear();
+        let _ = runtime.auth_manager.logout().await;
+    }
+}
+
+async fn cancel_all_work(runtime: &Arc<RuntimeHandle>) {
+    cancel_device_code_login_inner(runtime).await;
+    let (active, queued) = {
+        let mut scheduler = runtime.scheduler.lock().await;
+        let active = scheduler
+            .active_by_session
+            .values()
+            .map(|run| run.cancellation.clone())
+            .collect::<Vec<_>>();
+        let queued = scheduler.queued.drain(..).collect::<Vec<_>>();
+        scheduler.queued_input_bytes = 0;
+        (active, queued)
+    };
+    for cancellation in active {
+        cancellation.cancel();
+    }
+    for queued in queued {
+        runtime
+            .hub
+            .emit(run_event(
+                RuntimeEventKind::Cancelled,
+                &queued.run_id,
+                &queued.request.session_id,
+            ))
+            .await;
+    }
+}
+
+fn spawn_run(runtime: Arc<RuntimeHandle>, queued: QueuedRun, cancellation: CancellationToken) {
+    tokio::spawn(async move {
+        let run_id = queued.run_id.clone();
+        let session_id = queued.request.session_id.clone();
+        runtime
+            .hub
+            .emit(run_event(
+                RuntimeEventKind::TurnStarted,
+                &run_id,
+                &session_id,
+            ))
+            .await;
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => Err(BridgeError::new(BridgeErrorKind::Cancellation, "generation stopped")),
+            result = execute_turn(&runtime, &run_id, &queued.request, &cancellation) => result,
+        };
+        match result {
+            Ok(()) => {
+                runtime
+                    .hub
+                    .emit(run_event(RuntimeEventKind::Completed, &run_id, &session_id))
+                    .await;
+            }
+            Err(error) if error.kind == BridgeErrorKind::Cancellation => {
+                runtime
+                    .hub
+                    .emit(run_event(RuntimeEventKind::Cancelled, &run_id, &session_id))
+                    .await;
+            }
+            Err(error) => {
+                runtime
+                    .hub
+                    .emit(
+                        run_event(RuntimeEventKind::Failure, &run_id, &session_id)
+                            .with_text(error.message),
+                    )
+                    .await;
+            }
         }
+        finish_run(&runtime, &run_id, &session_id).await;
+    });
+}
+
+async fn finish_run(runtime: &Arc<RuntimeHandle>, run_id: &str, session_id: &str) {
+    let next = {
+        let mut scheduler = runtime.scheduler.lock().await;
+        if scheduler
+            .active_by_session
+            .get(session_id)
+            .is_some_and(|active| active.run_id == run_id)
+        {
+            scheduler.active_by_session.remove(session_id);
+        }
+        let next = scheduler.take_next_ready();
+        next.map(|queued| {
+            let cancellation = CancellationToken::new();
+            scheduler.active_by_session.insert(
+                queued.request.session_id.clone(),
+                ActiveRun {
+                    run_id: queued.run_id.clone(),
+                    cancellation: cancellation.clone(),
+                },
+            );
+            (queued, cancellation)
+        })
+    };
+    if let Some((queued, cancellation)) = next {
+        spawn_run(Arc::clone(runtime), queued, cancellation);
+    }
+}
+
+async fn execute_turn(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    request: &TurnRequest,
+    cancellation: &CancellationToken,
+) -> Result<(), BridgeError> {
+    let fingerprint = prepare_auth(runtime).await?;
+    let policy_hash = tool_policy_hash(request.enable_web_search, request.enable_image_generation);
+    let mut conversation = if let Some(checkpoint) = request.checkpoint.as_deref() {
+        decode_checkpoint(
+            checkpoint,
+            &fingerprint,
+            &request.model_id,
+            &request.session_id,
+            &policy_hash,
+        )?
+        .items
+    } else {
+        Vec::new()
+    };
+    conversation.extend(encode_messages(&request.messages)?);
+    let through_message_id = request
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role != TurnMessageRole::System)
+        .and_then(|message| message.message_id.clone())
+        .unwrap_or_else(|| request.session_id.clone());
+
+    let compact_limit = model_compact_limit(runtime, &request.model_id).await;
+    let should_compact = request
+        .previous_input_tokens
+        .zip(compact_limit)
+        .is_some_and(|(used, limit)| used >= limit);
+    if should_compact {
+        conversation = compact_history(runtime, request, &conversation, None, cancellation).await?;
+        emit_checkpoint(
+            runtime,
+            run_id,
+            request,
+            &fingerprint,
+            &policy_hash,
+            &through_message_id,
+            &conversation,
+        )
+        .await?;
+    }
+
+    let visible_output = Arc::new(AtomicBool::new(false));
+    let turn_state = Arc::new(OnceLock::new());
+    let first = execute_response_loop(
+        runtime,
+        run_id,
+        request,
+        &mut conversation,
+        cancellation,
+        Arc::clone(&visible_output),
+        Arc::clone(&turn_state),
+    )
+    .await;
+    if let Err(ref error) = first
+        && error.kind == BridgeErrorKind::InvalidInput
+        && error.message == "the conversation is too long"
+        && !visible_output.load(Ordering::Relaxed)
+        && !should_compact
+    {
+        conversation = compact_history(
+            runtime,
+            request,
+            &conversation,
+            Some(&turn_state),
+            cancellation,
+        )
+        .await?;
+        emit_checkpoint(
+            runtime,
+            run_id,
+            request,
+            &fingerprint,
+            &policy_hash,
+            &through_message_id,
+            &conversation,
+        )
+        .await?;
+        return execute_response_loop(
+            runtime,
+            run_id,
+            request,
+            &mut conversation,
+            cancellation,
+            visible_output,
+            turn_state,
+        )
+        .await;
+    }
+    first
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_response_loop(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    request: &TurnRequest,
+    conversation: &mut Vec<ResponseItem>,
+    cancellation: &CancellationToken,
+    visible_output: Arc<AtomicBool>,
+    turn_state: Arc<OnceLock<String>>,
+) -> Result<(), BridgeError> {
+    let mut total_tools = 0usize;
+    let mut image_tools = 0usize;
+    let mut tools_enabled = request.enable_web_search || request.enable_image_generation;
+
+    loop {
+        prepare_auth(runtime).await?;
+        let client = ResponsesClient::new(
+            runtime.transport.clone(),
+            runtime.provider.clone(),
+            Arc::clone(&runtime.auth_provider),
+        );
+        let api_request = ResponsesApiRequest {
+            model: request.model_id.clone(),
+            instructions: GENERAL_CHAT_INSTRUCTIONS.to_string(),
+            input: conversation.clone(),
+            tools: tools_enabled.then(|| tool_specs(request)),
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: request.enable_web_search,
+            reasoning: Some(Reasoning {
+                effort: request
+                    .reasoning_effort
+                    .as_deref()
+                    .map(ReasoningEffort::from_str)
+                    .transpose()
+                    .map_err(|_| {
+                        BridgeError::new(BridgeErrorKind::InvalidInput, "invalid reasoning effort")
+                    })?,
+                summary: Some(ReasoningSummary::Auto),
+                context: None,
+            }),
+            store: false,
+            stream: true,
+            stream_options: None,
+            include: vec!["reasoning.encrypted_content".to_string()],
+            service_tier: None,
+            prompt_cache_key: Some(request.session_id.clone()),
+            text: None,
+            client_metadata: None,
+        };
+        let options = ResponsesOptions {
+            session_id: Some(request.session_id.clone()),
+            thread_id: Some(request.session_id.clone()),
+            turn_state: Some(Arc::clone(&turn_state)),
+            ..Default::default()
+        };
+        let mut stream =
+            match cancellable_api(cancellation, client.stream_request(api_request, options)).await?
+            {
+                Ok(stream) => stream,
+                Err(ApiError::Api { status, .. }) if status.as_u16() == 401 => {
+                    cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
+                    let retry_request = ResponsesApiRequest {
+                        model: request.model_id.clone(),
+                        instructions: GENERAL_CHAT_INSTRUCTIONS.to_string(),
+                        input: conversation.clone(),
+                        tools: tools_enabled.then(|| tool_specs(request)),
+                        tool_choice: "auto".to_string(),
+                        parallel_tool_calls: request.enable_web_search,
+                        reasoning: Some(Reasoning {
+                            effort: request
+                                .reasoning_effort
+                                .as_deref()
+                                .map(ReasoningEffort::from_str)
+                                .transpose()
+                                .map_err(|_| {
+                                    BridgeError::new(
+                                        BridgeErrorKind::InvalidInput,
+                                        "invalid reasoning effort",
+                                    )
+                                })?,
+                            summary: Some(ReasoningSummary::Auto),
+                            context: None,
+                        }),
+                        store: false,
+                        stream: true,
+                        stream_options: None,
+                        include: vec!["reasoning.encrypted_content".to_string()],
+                        service_tier: None,
+                        prompt_cache_key: Some(request.session_id.clone()),
+                        text: None,
+                        client_metadata: None,
+                    };
+                    cancellable_api(
+                        cancellation,
+                        client.stream_request(
+                            retry_request,
+                            ResponsesOptions {
+                                session_id: Some(request.session_id.clone()),
+                                thread_id: Some(request.session_id.clone()),
+                                turn_state: Some(Arc::clone(&turn_state)),
+                                ..Default::default()
+                            },
+                        ),
+                    )
+                    .await?
+                    .map_err(map_api_error)?
+                }
+                Err(error) => return Err(map_api_error(error)),
+            };
+
+        let mut output_items = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut pending: Option<(RuntimeEventKind, String, Instant)> = None;
+        let mut completed = false;
+        loop {
+            let pending_deadline = pending.as_ref().map(|(_, _, deadline)| *deadline);
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                    return Err(BridgeError::new(BridgeErrorKind::Cancellation, "generation stopped"));
+                }
+                _ = async {
+                    if let Some(deadline) = pending_deadline {
+                        tokio::time::sleep_until(deadline).await;
+                    }
+                }, if pending_deadline.is_some() => {
+                    flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                }
+                next = stream.next() => {
+                    let Some(next) = next else { break; };
+                    match next {
+                        Ok(ResponseEvent::OutputTextDelta(delta)) => {
+                            visible_output.store(true, Ordering::Relaxed);
+                            coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::TextDelta, delta, &mut pending).await;
+                        }
+                        Ok(ResponseEvent::ReasoningSummaryDelta { delta, .. }) => {
+                            visible_output.store(true, Ordering::Relaxed);
+                            coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::ReasoningDelta, delta, &mut pending).await;
+                        }
+                        Ok(ResponseEvent::OutputItemDone(item)) => {
+                            flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                            match &item {
+                                ResponseItem::FunctionCall { .. } => tool_calls.push(item.clone()),
+                                ResponseItem::Message { .. } | ResponseItem::Reasoning { .. } => output_items.push(item),
+                                ResponseItem::WebSearchCall { .. }
+                                | ResponseItem::ImageGenerationCall { .. }
+                                | ResponseItem::AdditionalTools { .. }
+                                | ResponseItem::AgentMessage { .. }
+                                | ResponseItem::LocalShellCall { .. }
+                                | ResponseItem::ToolSearchCall { .. }
+                                | ResponseItem::FunctionCallOutput { .. }
+                                | ResponseItem::CustomToolCall { .. }
+                                | ResponseItem::CustomToolCallOutput { .. }
+                                | ResponseItem::ToolSearchOutput { .. }
+                                | ResponseItem::Compaction { .. }
+                                | ResponseItem::CompactionTrigger { .. }
+                                | ResponseItem::ContextCompaction { .. }
+                                | ResponseItem::Other => {
+                                    return Err(BridgeError::new(BridgeErrorKind::Unsupported, "the model returned an unsupported operation"));
+                                }
+                            }
+                        }
+                        Ok(ResponseEvent::Completed { token_usage, .. }) => {
+                            flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                            if let Some(usage) = token_usage {
+                                runtime.hub.emit(
+                                    run_event(RuntimeEventKind::Usage, run_id, &request.session_id)
+                                        .with_json(serde_json::to_value(usage).unwrap_or_else(|_| json!({}))),
+                                ).await;
+                            }
+                            completed = true;
+                            break;
+                        }
+                        Ok(ResponseEvent::ReasoningContentDelta { .. })
+                        | Ok(ResponseEvent::Created)
+                        | Ok(ResponseEvent::SafetyBuffering(_))
+                        | Ok(ResponseEvent::OutputItemAdded(_))
+                        | Ok(ResponseEvent::ServerModel(_))
+                        | Ok(ResponseEvent::ModelVerifications(_))
+                        | Ok(ResponseEvent::TurnModerationMetadata(_))
+                        | Ok(ResponseEvent::ServerReasoningIncluded(_))
+                        | Ok(ResponseEvent::ToolCallInputDelta { .. })
+                        | Ok(ResponseEvent::ReasoningSummaryDone { .. })
+                        | Ok(ResponseEvent::ReasoningSummaryPartAdded { .. })
+                        | Ok(ResponseEvent::RateLimits(_))
+                        | Ok(ResponseEvent::ModelsEtag(_)) => {}
+                        Err(error) => return Err(map_api_error(error)),
+                    }
+                }
+            }
+        }
+        flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+        if !completed {
+            return Err(BridgeError::new(
+                BridgeErrorKind::Network,
+                "the ChatGPT response ended unexpectedly",
+            ));
+        }
+        conversation.extend(output_items);
+        if tool_calls.is_empty() {
+            return Ok(());
+        }
+        if !tools_enabled {
+            return Err(BridgeError::new(
+                BridgeErrorKind::Unsupported,
+                "the model requested a disabled tool",
+            ));
+        }
+
+        let mut hit_limit = false;
+        for call in tool_calls {
+            let ResponseItem::FunctionCall {
+                name,
+                namespace,
+                arguments,
+                call_id,
+                ..
+            } = call
+            else {
+                unreachable!();
+            };
+            conversation.push(ResponseItem::FunctionCall {
+                id: None,
+                name: name.clone(),
+                namespace: namespace.clone(),
+                arguments: arguments.clone(),
+                call_id: call_id.clone(),
+                internal_chat_message_metadata_passthrough: None,
+            });
+            if total_tools >= MAX_TOOL_CALLS {
+                hit_limit = true;
+                conversation.push(tool_text_output(
+                    call_id,
+                    "The tool execution limit was reached. Answer with the information already available.",
+                    false,
+                ));
+                continue;
+            }
+            total_tools += 1;
+            let output = match (namespace.as_deref(), name.as_str()) {
+                (Some("web"), "run") if request.enable_web_search => {
+                    execute_web_tool(
+                        runtime,
+                        run_id,
+                        request,
+                        conversation,
+                        &call_id,
+                        &arguments,
+                        cancellation,
+                    )
+                    .await?
+                }
+                (Some("image_gen"), "imagegen") if request.enable_image_generation => {
+                    if image_tools >= MAX_IMAGE_CALLS {
+                        tool_text_output(call_id, "The image generation limit was reached.", false)
+                    } else {
+                        image_tools += 1;
+                        execute_image_tool(
+                            runtime,
+                            run_id,
+                            request,
+                            conversation,
+                            &call_id,
+                            &arguments,
+                            cancellation,
+                        )
+                        .await?
+                    }
+                }
+                _ => {
+                    return Err(BridgeError::new(
+                        BridgeErrorKind::Unsupported,
+                        "the model requested an unapproved tool",
+                    ));
+                }
+            };
+            conversation.push(output);
+        }
+        if hit_limit {
+            tools_enabled = false;
+        }
+    }
+}
+
+async fn execute_web_tool(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    request: &TurnRequest,
+    conversation: &[ResponseItem],
+    call_id: &str,
+    arguments: &str,
+    cancellation: &CancellationToken,
+) -> Result<ResponseItem, BridgeError> {
+    let commands = if arguments.trim().is_empty() {
+        SearchCommands::default()
+    } else {
+        serde_json::from_str(arguments).map_err(|_| {
+            BridgeError::new(
+                BridgeErrorKind::InvalidInput,
+                "web search arguments were invalid",
+            )
+        })?
+    };
+    prepare_auth(runtime).await?;
+    let client = SearchClient::new(
+        runtime.transport.clone(),
+        runtime.provider.clone(),
+        Arc::clone(&runtime.auth_provider),
+    );
+    let recent = conversation
+        .iter()
+        .rev()
+        .take(32)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let search_request = SearchRequest {
+        id: request.session_id.clone(),
+        model: request.model_id.clone(),
+        reasoning: None,
+        input: Some(SearchInput::Items(recent)),
+        commands: Some(commands),
+        settings: Some(SearchSettings::default()),
+        max_output_tokens: Some(12_000),
+    };
+    let response = match cancellable_api(
+        cancellation,
+        client.search(&search_request, HeaderMap::new()),
+    )
+    .await?
+    {
+        Ok(response) => response,
+        Err(error) if is_unauthorized(&error) => {
+            cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
+            cancellable_api(
+                cancellation,
+                client.search(&search_request, HeaderMap::new()),
+            )
+            .await?
+            .map_err(map_api_error)?
+        }
+        Err(error) => return Err(map_api_error(error)),
+    };
+    emit_sources(
+        runtime,
+        run_id,
+        &request.session_id,
+        response.results.as_deref(),
+    )
+    .await;
+    Ok(tool_text_output(
+        call_id.to_string(),
+        &response.output,
+        true,
+    ))
+}
+
+async fn execute_image_tool(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    request: &TurnRequest,
+    conversation: &[ResponseItem],
+    call_id: &str,
+    arguments: &str,
+    cancellation: &CancellationToken,
+) -> Result<ResponseItem, BridgeError> {
+    let args: ImageToolArgs = serde_json::from_str(arguments).map_err(|_| {
+        BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "image generation arguments were invalid",
+        )
+    })?;
+    let prompt = args.prompt.trim();
+    if prompt.is_empty() || prompt.len() > 32_000 {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "the image prompt is invalid",
+        ));
+    }
+    let requested_images = args.num_last_images_to_include.unwrap_or(0);
+    if requested_images > MAX_RECENT_IMAGES {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "too many image references were requested",
+        ));
+    }
+    let recent_images = recent_image_urls(conversation, requested_images);
+    if requested_images > 0 && recent_images.len() < requested_images {
+        return Ok(tool_text_output(
+            call_id.to_string(),
+            "The requested recent images are not available in this conversation.",
+            false,
+        ));
+    }
+    prepare_auth(runtime).await?;
+    let client = ImagesClient::new(
+        runtime.transport.clone(),
+        runtime.provider.clone(),
+        Arc::clone(&runtime.auth_provider),
+    );
+    let generation_request = recent_images.is_empty().then(|| ImageGenerationRequest {
+        prompt: prompt.to_string(),
+        background: None,
+        model: "gpt-image-2".to_string(),
+        n: Some(1),
+        quality: Some(ImageQuality::Auto),
+        size: None,
+    });
+    let edit_request = (!recent_images.is_empty()).then(|| ImageEditRequest {
+        images: recent_images
+            .into_iter()
+            .map(|image_url| ImageUrl { image_url })
+            .collect(),
+        prompt: prompt.to_string(),
+        background: None,
+        model: "gpt-image-2".to_string(),
+        n: Some(1),
+        quality: Some(ImageQuality::Auto),
+        size: None,
+    });
+    let response = match cancellable_api(
+        cancellation,
+        request_image(&client, generation_request.as_ref(), edit_request.as_ref()),
+    )
+    .await?
+    {
+        Ok(response) => response,
+        Err(error) if is_unauthorized(&error) => {
+            cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
+            cancellable_api(
+                cancellation,
+                request_image(&client, generation_request.as_ref(), edit_request.as_ref()),
+            )
+            .await?
+            .map_err(map_api_error)?
+        }
+        Err(error) => return Err(map_api_error(error)),
+    };
+    let encoded = response
+        .data
+        .first()
+        .map(|image| image.b64_json.as_str())
+        .ok_or_else(|| {
+            BridgeError::new(
+                BridgeErrorKind::ProtocolMismatch,
+                "image generation returned no image",
+            )
+        })?;
+    let (bytes, media_type) = validated_image(encoded)?;
+    runtime
+        .hub
+        .emit(
+            run_event(
+                RuntimeEventKind::GeneratedImage,
+                run_id,
+                &request.session_id,
+            )
+            .with_item(call_id)
+            .with_json(json!({"mediaType": media_type, "prompt": bounded(prompt, 2048)}))
+            .with_binary(bytes.clone()),
+        )
+        .await;
+    let data_url = format!(
+        "data:{media_type};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    );
+    Ok(ResponseItem::FunctionCallOutput {
+        id: None,
+        call_id: call_id.to_string(),
+        output: FunctionCallOutputPayload::from_content_items(vec![
+            FunctionCallOutputContentItem::InputImage {
+                image_url: data_url,
+                detail: Some(ImageDetail::High),
+            },
+            FunctionCallOutputContentItem::InputText {
+                text: "The image was generated and attached to the response.".to_string(),
+            },
+        ]),
+        internal_chat_message_metadata_passthrough: None,
+    })
+}
+
+async fn request_image(
+    client: &ImagesClient<ReqwestTransport>,
+    generation: Option<&ImageGenerationRequest>,
+    edit: Option<&ImageEditRequest>,
+) -> Result<ImageResponse, ApiError> {
+    match (generation, edit) {
+        (Some(request), None) => client.generate(request, HeaderMap::new()).await,
+        (None, Some(request)) => client.edit(request, HeaderMap::new()).await,
+        _ => Err(ApiError::Stream(
+            "invalid internal image request".to_string(),
+        )),
+    }
+}
+
+async fn compact_history(
+    runtime: &Arc<RuntimeHandle>,
+    request: &TurnRequest,
+    conversation: &[ResponseItem],
+    turn_state: Option<&Arc<OnceLock<String>>>,
+    cancellation: &CancellationToken,
+) -> Result<Vec<ResponseItem>, BridgeError> {
+    prepare_auth(runtime).await?;
+    let client = CompactClient::new(
+        runtime.transport.clone(),
+        runtime.provider.clone(),
+        Arc::clone(&runtime.auth_provider),
+    );
+    let tools = tool_specs(request);
+    let input = CompactionInput {
+        model: &request.model_id,
+        input: conversation,
+        instructions: GENERAL_CHAT_INSTRUCTIONS,
+        tools: (!tools.is_empty()).then_some(tools),
+        parallel_tool_calls: request.enable_web_search,
+        reasoning: Some(Reasoning {
+            effort: request
+                .reasoning_effort
+                .as_deref()
+                .map(ReasoningEffort::from_str)
+                .transpose()
+                .map_err(|_| {
+                    BridgeError::new(BridgeErrorKind::InvalidInput, "invalid reasoning effort")
+                })?,
+            summary: Some(ReasoningSummary::Auto),
+            context: None,
+        }),
+        service_tier: None,
+        prompt_cache_key: Some(&request.session_id),
+        text: None,
+    };
+    let compacted = match cancellable_api(
+        cancellation,
+        client.compact_input(
+            &input,
+            HeaderMap::new(),
+            COMPACT_TIMEOUT,
+            turn_state.map(AsRef::as_ref),
+        ),
+    )
+    .await?
+    {
+        Ok(compacted) => compacted,
+        Err(error) if is_unauthorized(&error) => {
+            cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
+            cancellable_api(
+                cancellation,
+                client.compact_input(
+                    &input,
+                    HeaderMap::new(),
+                    COMPACT_TIMEOUT,
+                    turn_state.map(AsRef::as_ref),
+                ),
+            )
+            .await?
+            .map_err(map_api_error)?
+        }
+        Err(error) => return Err(map_api_error(error)),
+    };
+    validate_checkpoint_items(&compacted)?;
+    Ok(compacted)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn emit_checkpoint(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    request: &TurnRequest,
+    fingerprint: &str,
+    policy_hash: &str,
+    through_message_id: &str,
+    items: &[ResponseItem],
+) -> Result<(), BridgeError> {
+    let envelope = CheckpointEnvelope {
+        version: 1,
+        account_fingerprint: fingerprint.to_string(),
+        model_id: request.model_id.clone(),
+        session_id: request.session_id.clone(),
+        tool_policy_hash: policy_hash.to_string(),
+        through_message_id: through_message_id.to_string(),
+        items: items.to_vec(),
+    };
+    let bytes = serde_json::to_vec(&envelope)
+        .map_err(|_| BridgeError::internal("unable to encode the conversation checkpoint"))?;
+    if bytes.len() > MAX_CHECKPOINT_BYTES {
+        return Err(BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "the conversation checkpoint is too large",
+        ));
+    }
+    runtime
+        .hub
+        .emit(
+            run_event(
+                RuntimeEventKind::CheckpointUpdated,
+                run_id,
+                &request.session_id,
+            )
+            .with_json(json!({"throughMessageId": through_message_id}))
+            .with_binary(bytes),
+        )
+        .await;
+    Ok(())
+}
+
+fn decode_checkpoint(
+    bytes: &[u8],
+    fingerprint: &str,
+    model_id: &str,
+    session_id: &str,
+    policy_hash: &str,
+) -> Result<CheckpointEnvelope, BridgeError> {
+    if bytes.len() > MAX_CHECKPOINT_BYTES {
+        return Err(checkpoint_mismatch());
+    }
+    let checkpoint: CheckpointEnvelope =
+        serde_json::from_slice(bytes).map_err(|_| checkpoint_mismatch())?;
+    if checkpoint.version != 1
+        || checkpoint.account_fingerprint != fingerprint
+        || checkpoint.model_id != model_id
+        || checkpoint.session_id != session_id
+        || checkpoint.tool_policy_hash != policy_hash
+        || checkpoint.through_message_id.trim().is_empty()
+    {
+        return Err(checkpoint_mismatch());
+    }
+    validate_checkpoint_items(&checkpoint.items)?;
+    Ok(checkpoint)
+}
+
+fn validate_checkpoint_items(items: &[ResponseItem]) -> Result<(), BridgeError> {
+    if items.len() > MAX_CHECKPOINT_ITEMS
+        || items.iter().any(|item| {
+            !matches!(
+                item,
+                ResponseItem::Message { role, .. }
+                    if role == "user" || role == "assistant" || role == "developer"
+            ) && !matches!(
+                item,
+                ResponseItem::Compaction { .. } | ResponseItem::ContextCompaction { .. }
+            )
+        })
+    {
+        return Err(checkpoint_mismatch());
     }
     Ok(())
 }
 
-async fn rpc(method: &str, params: Value) -> Result<Value, BridgeError> {
-    if !ALLOWED_RPC_METHODS.contains(&method) {
-        return Err(BridgeError::new(
-            BridgeErrorKind::Unsupported,
-            "native protocol method is outside the mobile-chat capability boundary",
-        ));
-    }
-    let request = {
-        let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-        serde_json::from_value::<ClientRequest>(
-            json!({"method": method, "id": request_id, "params": params}),
-        )
-        .map_err(|_| {
-            BridgeError::new(
-                BridgeErrorKind::ProtocolMismatch,
-                "unable to encode native protocol request",
-            )
-        })?
-    };
-    let handle = {
-        let guard = RUNTIME.lock().await;
-        guard
-            .as_ref()
-            .ok_or_else(runtime_not_initialized)?
-            .request
-            .clone()
-    };
-    let response = timeout(RPC_REQUEST_TIMEOUT, handle.request(request))
-        .await
-        .map_err(|_| {
-            BridgeError::new(
-                BridgeErrorKind::Network,
-                "native protocol request timed out",
-            )
-        })?
-        .map_err(|_| {
-            BridgeError::new(BridgeErrorKind::Network, "native protocol transport failed")
-        })?;
-    response.map_err(|error| classify_protocol_error(error.code, &error.message))
+fn checkpoint_mismatch() -> BridgeError {
+    BridgeError::new(
+        BridgeErrorKind::ProtocolMismatch,
+        "the conversation checkpoint is incompatible",
+    )
 }
 
-async fn map_notification(
-    context: &EventContext,
-    notification: ServerNotification,
-) -> Option<RuntimeEvent> {
-    let value = serde_json::to_value(&notification).ok()?;
-    let method = value.get("method")?.as_str()?;
-    let params = value.get("params").cloned().unwrap_or(Value::Null);
-    let ids = notification_ids(&params, &context.turn_to_run).await;
-    touch_active_run(context, &ids).await;
-    match method {
-        "item/agentMessage/delta" => Some(event_with_ids(
-            RuntimeEventKind::TextDelta,
-            params
-                .get("delta")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            None,
-            ids,
-        )),
-        "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" => Some(event_with_ids(
-            RuntimeEventKind::ReasoningDelta,
-            params
-                .get("delta")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            None,
-            ids,
-        )),
-        "thread/tokenUsage/updated" | "rawResponse/completed" => Some(event_with_ids(
-            RuntimeEventKind::Usage,
-            None,
-            sanitized_usage_json(&params),
-            ids,
-        )),
-        "turn/completed" => {
-            let status = params
-                .pointer("/turn/status")
-                .and_then(Value::as_str)
-                .unwrap_or("completed");
-            let kind = if status == "interrupted" {
-                RuntimeEventKind::Cancelled
-            } else if status == "failed" {
-                RuntimeEventKind::Failure
-            } else {
-                RuntimeEventKind::Completed
-            };
-            let terminal = event_with_ids(kind, None, sanitized_json(&params), ids);
-            let auth_context = context.clone();
-            tokio::spawn(async move {
-                let _ = maybe_request_auth_persistence(auth_context).await;
-            });
-            Some(terminal)
+fn encode_messages(messages: &[TurnMessage]) -> Result<Vec<ResponseItem>, BridgeError> {
+    let mut output = Vec::with_capacity(messages.len());
+    for message in messages {
+        let role = match message.role {
+            TurnMessageRole::System => "developer",
+            TurnMessageRole::User => "user",
+            TurnMessageRole::Assistant => "assistant",
+        };
+        let mut content = Vec::new();
+        for part in &message.parts {
+            content.push(encode_part(part, message.role)?);
         }
-        // Codex reports every conversation item through this lifecycle,
-        // including userMessage, agentMessage, and reasoning. Those are
-        // protocol bookkeeping rather than user-visible ChatGPT tools.
-        "item/started" => None,
-        "item/completed" => {
-            let item_type = params
-                .pointer("/item/type")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let kind = visible_completed_item_kind(item_type)?;
-            let mut event = event_with_ids(
-                kind,
-                None,
-                if kind == RuntimeEventKind::Source {
-                    sanitized_source_json(&params)
-                } else {
-                    None
+        if content.is_empty() {
+            continue;
+        }
+        output.push(ResponseItem::Message {
+            id: None,
+            role: role.to_string(),
+            content,
+            phase: (message.role == TurnMessageRole::Assistant)
+                .then_some(MessagePhase::FinalAnswer),
+            internal_chat_message_metadata_passthrough: None,
+        });
+    }
+    if output.is_empty() {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "a ChatGPT turn requires at least one message",
+        ));
+    }
+    Ok(output)
+}
+
+fn encode_part(part: &TurnInputPart, role: TurnMessageRole) -> Result<ContentItem, BridgeError> {
+    match part.kind.as_str() {
+        "text" => {
+            let text = part.text.as_deref().unwrap_or_default();
+            if text.len() > MAX_TEXT_INPUT_BYTES {
+                return Err(BridgeError::new(
+                    BridgeErrorKind::InvalidInput,
+                    "text input is too large",
+                ));
+            }
+            Ok(if role == TurnMessageRole::Assistant {
+                ContentItem::OutputText {
+                    text: text.to_string(),
+                }
+            } else {
+                ContentItem::InputText {
+                    text: text.to_string(),
+                }
+            })
+        }
+        "image" => {
+            let mime = validated_mime(part.mime_type.as_deref(), "image/")?;
+            let bytes = validated_binary(part.bytes.as_deref())?;
+            Ok(ContentItem::InputImage {
+                image_url: data_url(&mime, bytes),
+                detail: Some(ImageDetail::High),
+            })
+        }
+        "audio" => {
+            let mime = validated_mime(part.mime_type.as_deref(), "audio/")?;
+            let bytes = validated_binary(part.bytes.as_deref())?;
+            Ok(ContentItem::InputAudio {
+                audio_url: data_url(&mime, bytes),
+            })
+        }
+        "document" => {
+            let bytes = validated_binary(part.bytes.as_deref())?;
+            let text = std::str::from_utf8(bytes).map_err(|_| {
+                BridgeError::new(
+                    BridgeErrorKind::Unsupported,
+                    "this document must contain readable text",
+                )
+            })?;
+            let filename = bounded(part.filename.as_deref().unwrap_or("document"), 256);
+            let mime = bounded(part.mime_type.as_deref().unwrap_or("text/plain"), 128);
+            Ok(ContentItem::InputText {
+                text: format!(
+                    "<document filename=\"{filename}\" mime=\"{mime}\">\n{text}\n</document>"
+                ),
+            })
+        }
+        _ => Err(BridgeError::new(
+            BridgeErrorKind::Unsupported,
+            "the input type is unsupported",
+        )),
+    }
+}
+
+fn tool_specs(request: &TurnRequest) -> Vec<Value> {
+    let mut tools = Vec::new();
+    if request.enable_web_search {
+        tools.push(web_tool_spec());
+    }
+    if request.enable_image_generation {
+        tools.push(image_tool_spec());
+    }
+    tools
+}
+
+fn web_tool_spec() -> Value {
+    json!({
+        "type": "namespace",
+        "name": "web",
+        "description": "Current-information tools. Results include sources for citation.",
+        "tools": [{
+            "type": "function",
+            "name": "run",
+            "description": "Search, open, inspect, or look up current web information.",
+            "strict": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {"type": "array", "items": {"type": "object", "properties": {"q": {"type": "string"}, "recency": {"type": "integer"}, "domains": {"type": "array", "items": {"type": "string"}}}, "required": ["q"]}},
+                    "image_query": {"type": "array", "items": {"type": "object", "properties": {"q": {"type": "string"}, "recency": {"type": "integer"}, "domains": {"type": "array", "items": {"type": "string"}}}, "required": ["q"]}},
+                    "open": {"type": "array", "items": {"type": "object", "properties": {"ref_id": {"type": "string"}, "lineno": {"type": "integer"}}, "required": ["ref_id"]}},
+                    "click": {"type": "array", "items": {"type": "object", "properties": {"ref_id": {"type": "string"}, "id": {"type": "integer"}}, "required": ["ref_id", "id"]}},
+                    "find": {"type": "array", "items": {"type": "object", "properties": {"ref_id": {"type": "string"}, "pattern": {"type": "string"}}, "required": ["ref_id", "pattern"]}},
+                    "screenshot": {"type": "array", "items": {"type": "object", "properties": {"ref_id": {"type": "string"}, "pageno": {"type": "integer"}}, "required": ["ref_id", "pageno"]}},
+                    "finance": {"type": "array", "items": {"type": "object", "properties": {"ticker": {"type": "string"}, "type": {"type": "string", "enum": ["equity", "fund", "crypto", "index"]}, "market": {"type": "string"}}, "required": ["ticker", "type"]}},
+                    "weather": {"type": "array", "items": {"type": "object", "properties": {"location": {"type": "string"}, "start": {"type": "string"}, "duration": {"type": "integer"}}, "required": ["location"]}},
+                    "sports": {"type": "array", "items": {"type": "object", "properties": {"fn": {"type": "string", "enum": ["schedule", "standings"]}, "league": {"type": "string"}, "team": {"type": "string"}, "opponent": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}, "num_games": {"type": "integer"}, "locale": {"type": "string"}}, "required": ["fn", "league"]}},
+                    "time": {"type": "array", "items": {"type": "object", "properties": {"utc_offset": {"type": "string"}}, "required": ["utc_offset"]}},
+                    "response_length": {"type": "string", "enum": ["short", "medium", "long"]}
                 },
-                ids,
-            );
-            if kind == RuntimeEventKind::GeneratedImage {
-                match generated_image_bytes(&params, &context.codex_home).await {
-                    Some((bytes, media_type)) => {
-                        event.binary_data = Some(bytes);
-                        event.json_data = sanitized_generated_image_json(&params, media_type);
-                    }
-                    None => {
-                        event.kind = RuntimeEventKind::Failure;
-                        event.text = Some("The generated image could not be imported.".to_owned());
+                "additionalProperties": false
+            }
+        }]
+    })
+}
+
+fn image_tool_spec() -> Value {
+    json!({
+        "type": "namespace",
+        "name": "image_gen",
+        "description": "Generate or edit an image for the user.",
+        "tools": [{
+            "type": "function",
+            "name": "imagegen",
+            "description": "Generate an image from a prompt, optionally using up to five recent conversation images.",
+            "strict": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "num_last_images_to_include": {"type": "integer", "minimum": 1, "maximum": 5}
+                },
+                "required": ["prompt"],
+                "additionalProperties": false
+            }
+        }]
+    })
+}
+
+fn tool_text_output(call_id: impl Into<String>, text: &str, success: bool) -> ResponseItem {
+    let mut output = FunctionCallOutputPayload::from_text(bounded(text, 512 * 1024));
+    output.success = Some(success);
+    ResponseItem::FunctionCallOutput {
+        id: None,
+        call_id: call_id.into(),
+        output,
+        internal_chat_message_metadata_passthrough: None,
+    }
+}
+
+fn recent_image_urls(conversation: &[ResponseItem], count: usize) -> Vec<String> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut images = Vec::new();
+    for item in conversation.iter().rev() {
+        if let ResponseItem::Message { content, .. } = item {
+            for part in content.iter().rev() {
+                if let ContentItem::InputImage { image_url, .. } = part {
+                    images.push(image_url.clone());
+                    if images.len() == count {
+                        images.reverse();
+                        return images;
                     }
                 }
             }
-            Some(event)
         }
-        "account/login/completed" => {
-            let success = params
-                .get("success")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            *context.active_login_id.lock().await = None;
-            if success {
-                let auth_context = context.clone();
-                tokio::spawn(async move {
-                    let result = maybe_request_auth_persistence(auth_context.clone()).await;
-                    let success = result.is_ok();
-                    let text = result.err().map(|error| error.message);
-                    auth_context
-                        .hub
-                        .emit(RuntimeEvent {
-                            kind: if success {
-                                RuntimeEventKind::LoginCompleted
-                            } else {
-                                RuntimeEventKind::Failure
-                            },
-                            text,
-                            json_data: Some(json!({"success": success}).to_string()),
-                            ..blank_event()
-                        })
-                        .await;
-                });
-                None
-            } else {
-                let reason = params
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .map(str::to_ascii_lowercase)
-                    .map(|error| {
-                        if error.contains("denied") {
-                            "denied"
-                        } else if error.contains("expir") {
-                            "expired"
-                        } else if error.contains("cancel") {
-                            "cancelled"
-                        } else {
-                            "error"
-                        }
-                    })
-                    .unwrap_or("error");
-                Some(RuntimeEvent {
-                    kind: RuntimeEventKind::LoginCompleted,
-                    text: Some("ChatGPT sign-in did not complete.".to_owned()),
-                    json_data: Some(json!({"success": false, "reason": reason}).to_string()),
-                    ..blank_event()
-                })
-            }
+    }
+    images.reverse();
+    images
+}
+
+async fn emit_sources(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    session_id: &str,
+    results: Option<&[Value]>,
+) {
+    let mut seen = HashSet::new();
+    for result in results.unwrap_or_default() {
+        if seen.len() >= MAX_SOURCES {
+            break;
         }
-        "account/updated" => Some(RuntimeEvent {
-            kind: RuntimeEventKind::AuthState,
-            json_data: sanitized_account_json(&params),
-            ..blank_event()
-        }),
-        "error" => Some(event_with_ids(
-            RuntimeEventKind::Failure,
-            Some("The ChatGPT request failed.".to_owned()),
-            sanitized_error_json(&params),
-            ids,
-        )),
-        "warning" | "guardianWarning" | "model/rerouted" => Some(event_with_ids(
-            RuntimeEventKind::Diagnostic,
-            sanitized_warning(&params),
-            None,
-            ids,
-        )),
-        _ => None,
+        let Some(url) = result.get("url").and_then(Value::as_str) else {
+            continue;
+        };
+        if !safe_web_url(url) || !seen.insert(url.to_string()) {
+            continue;
+        }
+        runtime
+            .hub
+            .emit(
+                run_event(RuntimeEventKind::Source, run_id, session_id).with_json(json!({
+                    "url": bounded(url, 4096),
+                    "title": result.get("title").and_then(Value::as_str).map(|value| bounded(value, 512)),
+                    "snippet": result.get("snippet").or_else(|| result.get("text")).and_then(Value::as_str).map(|value| bounded(value, 2048)),
+                })),
+            )
+            .await;
     }
 }
 
-async fn emit_runtime_event(context: &EventContext, event: RuntimeEvent) {
-    let terminal = matches!(
-        event.kind,
-        RuntimeEventKind::Completed | RuntimeEventKind::Cancelled | RuntimeEventKind::Failure
-    );
-    let run_id = event.run_id.clone();
-    let thread_id = event.thread_id.clone();
-    let turn_id = event.turn_id.clone();
-    context.hub.emit(event).await;
-    if !terminal {
+async fn coalesce_delta(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    session_id: &str,
+    kind: RuntimeEventKind,
+    delta: String,
+    pending: &mut Option<(RuntimeEventKind, String, Instant)>,
+) {
+    if delta.is_empty() {
         return;
     }
-    if let Some(turn_id) = turn_id {
-        context.turn_to_run.lock().await.remove(&turn_id);
+    if try_coalesce_delta(pending, kind, &delta) {
+        return;
     }
-    if let (Some(run_id), Some(thread_id)) = (run_id, thread_id) {
-        finish_scheduled_run(context.clone(), &run_id, &thread_id).await;
-    }
+    flush_pending(runtime, run_id, session_id, pending).await;
+    *pending = Some((kind, delta, Instant::now() + DELTA_FLUSH_INTERVAL));
 }
 
-async fn merge_or_flush_delta(
-    hub: &EventHub,
-    pending: &mut Option<PendingDelta>,
-    incoming: RuntimeEvent,
+fn try_coalesce_delta(
+    pending: &mut Option<(RuntimeEventKind, String, Instant)>,
+    kind: RuntimeEventKind,
+    delta: &str,
+) -> bool {
+    let Some((pending_kind, text, _)) = pending else {
+        return false;
+    };
+    if *pending_kind != kind || text.len() + delta.len() > DELTA_FLUSH_BYTES {
+        return false;
+    }
+    text.push_str(delta);
+    true
+}
+
+async fn flush_pending(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    session_id: &str,
+    pending: &mut Option<(RuntimeEventKind, String, Instant)>,
 ) {
-    if let Some(current) = pending.as_mut() {
-        let same_stream = current.event.kind == incoming.kind
-            && current.event.run_id == incoming.run_id
-            && current.event.thread_id == incoming.thread_id
-            && current.event.turn_id == incoming.turn_id
-            && current.event.item_id == incoming.item_id;
-        let incoming_len = incoming.text.as_deref().map(str::len).unwrap_or(0);
-        let current_len = current.event.text.as_deref().map(str::len).unwrap_or(0);
-        if same_stream && current_len + incoming_len <= DELTA_FLUSH_BYTES {
-            current
-                .event
-                .text
-                .get_or_insert_with(String::new)
-                .push_str(incoming.text.as_deref().unwrap_or_default());
-            return;
-        }
-        let previous = pending.take().expect("pending delta exists");
-        hub.emit(previous.event).await;
+    if let Some((kind, text, _)) = pending.take() {
+        runtime
+            .hub
+            .emit(run_event(kind, run_id, session_id).with_text(text))
+            .await;
     }
-    *pending = Some(PendingDelta {
-        event: incoming,
-        deadline: Instant::now() + DELTA_FLUSH_INTERVAL,
-    });
 }
 
-async fn maybe_request_auth_persistence(context: EventContext) -> Result<(), BridgeError> {
-    let _single_flight = context.auth_persistence.lock().await;
-    let snapshot = load_auth_dot_json(
-        &context.codex_home,
-        AuthCredentialsStoreMode::Ephemeral,
-        AuthKeyringBackendKind::default(),
-    )
-    .map_err(|_| {
+async fn prepare_auth(runtime: &Arc<RuntimeHandle>) -> Result<String, BridgeError> {
+    let auth = runtime.auth_manager.auth().await.ok_or_else(|| {
         BridgeError::new(
             BridgeErrorKind::Authentication,
-            "unable to read refreshed credentials",
-        )
-    })?
-    .ok_or_else(|| {
-        BridgeError::new(
-            BridgeErrorKind::Authentication,
-            "ChatGPT did not return credentials",
+            "connect a ChatGPT account first",
         )
     })?;
-    let bytes = serde_json::to_vec(&snapshot)
-        .map_err(|_| BridgeError::internal("unable to encode refreshed credentials"))?;
-    let hash = snapshot_hash(Some(&bytes));
-    if *context.committed_auth_hash.lock().await == hash {
-        return Ok(());
+    if !auth.is_chatgpt_auth() {
+        return Err(BridgeError::new(
+            BridgeErrorKind::Authentication,
+            "the stored credentials are not a ChatGPT account",
+        ));
     }
-    request_auth_persistence(context.clone(), bytes, hash).await
+    persist_current_auth(runtime).await?;
+    account_fingerprint(&auth).ok_or_else(|| {
+        BridgeError::new(
+            BridgeErrorKind::Authentication,
+            "the ChatGPT account identity is missing",
+        )
+    })
 }
 
-async fn request_auth_persistence(
-    context: EventContext,
-    snapshot: Vec<u8>,
-    expected_hash: Option<String>,
+async fn refresh_after_unauthorized(runtime: &Arc<RuntimeHandle>) -> Result<(), BridgeError> {
+    runtime.auth_manager.refresh_token().await.map_err(|_| {
+        BridgeError::new(
+            BridgeErrorKind::Authentication,
+            "ChatGPT authentication expired",
+        )
+    })?;
+    persist_current_auth(runtime).await
+}
+
+async fn cancellable_api<T, F>(
+    cancellation: &CancellationToken,
+    future: F,
+) -> Result<Result<T, ApiError>, BridgeError>
+where
+    F: Future<Output = Result<T, ApiError>>,
+{
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(cancellation_error()),
+        result = future => Ok(result),
+    }
+}
+
+async fn cancellable_bridge<T, F>(
+    cancellation: &CancellationToken,
+    future: F,
+) -> Result<T, BridgeError>
+where
+    F: Future<Output = Result<T, BridgeError>>,
+{
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(cancellation_error()),
+        result = future => result,
+    }
+}
+
+fn cancellation_error() -> BridgeError {
+    BridgeError::new(BridgeErrorKind::Cancellation, "generation stopped")
+}
+
+fn is_unauthorized(error: &ApiError) -> bool {
+    matches!(error, ApiError::Api { status, .. } if status.as_u16() == 401)
+}
+
+async fn persist_current_auth(runtime: &Arc<RuntimeHandle>) -> Result<(), BridgeError> {
+    let snapshot = current_auth_snapshot(runtime)?;
+    let current_hash = snapshot_hash(snapshot.as_deref());
+    let committed = runtime.committed_auth.lock().await.clone();
+    if current_hash == snapshot_hash(committed.as_deref()) {
+        return Ok(());
+    }
+    if let Err(error) = request_auth_mutation(runtime, snapshot.clone()).await {
+        restore_auth(runtime, committed.as_deref()).await;
+        return Err(error);
+    }
+    *runtime.committed_auth.lock().await = snapshot;
+    Ok(())
+}
+
+async fn request_auth_mutation(
+    runtime: &Arc<RuntimeHandle>,
+    snapshot: Option<Vec<u8>>,
 ) -> Result<(), BridgeError> {
+    let _persistence = runtime.auth_persistence.lock().await;
     let mutation_id = Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
-    context.pending_auth.lock().await.insert(
+    runtime.pending_auth.lock().await.insert(
         mutation_id.clone(),
         PendingAuthMutation {
-            expected_hash: expected_hash.clone(),
             acknowledgement: tx,
         },
     );
-    context
+    runtime
         .hub
-        .emit(RuntimeEvent {
-            kind: RuntimeEventKind::AuthMutationRequired,
-            json_data: Some(
-                json!({"mutationId": mutation_id, "delete": snapshot.is_empty()}).to_string(),
-            ),
-            binary_data: Some(snapshot),
-            ..blank_event()
-        })
+        .emit(
+            event(RuntimeEventKind::AuthMutationRequired)
+                .with_json(json!({"mutationId": mutation_id, "delete": snapshot.is_none()}))
+                .with_optional_binary(snapshot),
+        )
         .await;
     match timeout(AUTH_ACK_TIMEOUT, rx).await {
-        Ok(Ok(true)) => {
-            *context.committed_auth_hash.lock().await = expected_hash;
-            Ok(())
-        }
-        _ => {
-            context.pending_auth.lock().await.remove(&mutation_id);
+        Ok(Ok(true)) => Ok(()),
+        Ok(Ok(false)) => Err(BridgeError::new(
+            BridgeErrorKind::Authentication,
+            "secure credential persistence failed",
+        )),
+        Ok(Err(_)) | Err(_) => {
+            runtime.pending_auth.lock().await.remove(&mutation_id);
             Err(BridgeError::new(
                 BridgeErrorKind::Authentication,
-                "secure credential persistence was not acknowledged",
+                "secure credential persistence timed out",
             ))
         }
     }
 }
 
-fn install_auth_snapshot(codex_home: &Path, snapshot: &[u8]) -> Result<(), BridgeError> {
+async fn restore_auth(runtime: &Arc<RuntimeHandle>, snapshot: Option<&[u8]>) {
+    let _ = runtime.auth_manager.logout().await;
+    if let Some(snapshot) = snapshot {
+        let _ = install_auth_snapshot(&runtime.codex_home, snapshot);
+    }
+    runtime.auth_manager.reload().await;
+}
+
+fn current_auth_snapshot(runtime: &RuntimeHandle) -> Result<Option<Vec<u8>>, BridgeError> {
+    let auth = load_auth_dot_json(
+        &runtime.codex_home,
+        AuthCredentialsStoreMode::Ephemeral,
+        AuthKeyringBackendKind::default(),
+    )
+    .map_err(|_| BridgeError::internal("unable to read the in-memory authentication snapshot"))?;
+    auth.map(|auth| {
+        serde_json::to_vec(&auth)
+            .map_err(|_| BridgeError::internal("unable to encode the authentication snapshot"))
+    })
+    .transpose()
+}
+
+fn install_auth_snapshot(codex_home: &std::path::Path, snapshot: &[u8]) -> Result<(), BridgeError> {
     let auth: AuthDotJson = serde_json::from_slice(snapshot).map_err(|_| {
         BridgeError::new(
             BridgeErrorKind::Authentication,
-            "stored ChatGPT credentials are invalid",
+            "the secure authentication snapshot is invalid",
         )
     })?;
+    if auth.tokens.is_none() {
+        return Err(BridgeError::new(
+            BridgeErrorKind::Authentication,
+            "the secure authentication snapshot has no ChatGPT tokens",
+        ));
+    }
     save_auth(
         codex_home,
         &auth,
         AuthCredentialsStoreMode::Ephemeral,
         AuthKeyringBackendKind::default(),
     )
-    .map_err(|_| {
-        BridgeError::new(
-            BridgeErrorKind::Authentication,
-            "unable to load stored ChatGPT credentials",
-        )
-    })
+    .map_err(|_| BridgeError::internal("unable to install the in-memory authentication snapshot"))
 }
 
-fn encode_turn_inputs(parts: &[TurnInputPart]) -> Result<Vec<Value>, BridgeError> {
-    let mut encoded = Vec::with_capacity(parts.len());
-    let mut aggregate_input_bytes = 0usize;
-    for part in parts {
-        let bytes = part.bytes.as_deref().unwrap_or_default();
-        let text_bytes = part.text.as_deref().map(str::len).unwrap_or_default();
-        if text_bytes > MAX_TEXT_INPUT_BYTES {
-            return Err(BridgeError::new(
-                BridgeErrorKind::InvalidInput,
-                "a text input exceeds the 1 MiB limit",
-            ));
-        }
-        if bytes.len() > MAX_BINARY_INPUT_BYTES {
-            return Err(BridgeError::new(
-                BridgeErrorKind::InvalidInput,
-                "an input exceeds the 20 MiB limit",
-            ));
-        }
-        aggregate_input_bytes = aggregate_input_bytes
-            .checked_add(bytes.len())
-            .and_then(|size| size.checked_add(text_bytes))
-            .ok_or_else(|| {
-                BridgeError::new(BridgeErrorKind::InvalidInput, "input size overflow")
-            })?;
-        if aggregate_input_bytes > MAX_AGGREGATE_INPUT_BYTES {
-            return Err(BridgeError::new(
-                BridgeErrorKind::InvalidInput,
-                "inputs exceed the 40 MiB aggregate limit",
-            ));
-        }
-        match part.kind.as_str() {
-            "text" => encoded.push(json!({"type": "text", "text": part.text.as_deref().unwrap_or_default(), "text_elements": []})),
-            "image" => {
-                let mime = validated_media_type(
-                    part.mime_type.as_deref().unwrap_or("image/jpeg"),
-                    "image/",
-                )?;
-                encoded.push(json!({"type": "image", "image_url": data_url(&mime, bytes)}));
-            }
-            "audio" => {
-                let mime = validated_media_type(
-                    part.mime_type.as_deref().unwrap_or("audio/mpeg"),
-                    "audio/",
-                )?;
-                encoded.push(json!({"type": "audio", "audio_url": data_url(&mime, bytes)}));
-            }
-            "document" => {
-                let mime = validated_media_type(
-                    part.mime_type.as_deref().unwrap_or("application/octet-stream"),
-                    "",
-                )?;
-                if !(mime.starts_with("text/") || matches!(mime.as_str(), "application/json" | "application/xml" | "application/yaml" | "application/x-yaml")) {
-                    return Err(BridgeError::new(BridgeErrorKind::Unsupported, "this document type is not supported by the pinned ChatGPT runtime"));
-                }
-                let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::new(BridgeErrorKind::InvalidInput, "document text is not valid UTF-8"))?;
-                let text = escaped_document_text(text);
-                let name = sanitized_document_attribute(
-                    part.filename.as_deref().unwrap_or("document"),
-                    "document",
-                );
-                let mime = sanitized_document_attribute(&mime, "application/octet-stream");
-                encoded.push(json!({"type": "text", "text": format!("<document name=\"{name}\" mime=\"{mime}\">\n{text}\n</document>"), "text_elements": []}));
-            }
-            _ => return Err(BridgeError::new(BridgeErrorKind::Unsupported, "unsupported turn input kind")),
-        }
+fn auth_state_info(manager: &AuthManager) -> AuthStateInfo {
+    let auth = manager.auth_cached();
+    AuthStateInfo {
+        authenticated: auth.as_ref().is_some_and(|auth| auth.is_chatgpt_auth()),
+        email: auth.as_ref().and_then(|auth| auth.get_account_email()),
+        plan_type: auth
+            .as_ref()
+            .and_then(|auth| auth.get_token_data().ok())
+            .and_then(|tokens| tokens.id_token.get_chatgpt_plan_type()),
+        account_id: auth.as_ref().and_then(|auth| auth.get_account_id()),
+        account_fingerprint: auth.as_ref().and_then(account_fingerprint),
     }
-    Ok(encoded)
 }
 
-fn encoded_inputs_size(inputs: &[Value]) -> Result<usize, BridgeError> {
-    inputs.iter().try_fold(0usize, |total, input| {
-        let bytes = serde_json::to_vec(input)
-            .map_err(|_| BridgeError::internal("unable to size encoded turn inputs"))?
-            .len();
-        total.checked_add(bytes).ok_or_else(|| {
-            BridgeError::new(BridgeErrorKind::RateLimit, "queued input size overflow")
-        })
-    })
+fn account_fingerprint(auth: &codex_login::CodexAuth) -> Option<String> {
+    let identity = auth
+        .get_account_id()
+        .or_else(|| auth.get_chatgpt_user_id())?;
+    let digest = Sha256::digest(identity.as_bytes());
+    Some(hex_prefix(&digest[..16]))
 }
 
-fn sanitized_document_attribute(value: &str, fallback: &str) -> String {
-    let sanitized = value
-        .chars()
-        .filter(|character| {
-            character.is_ascii_alphanumeric()
-                || matches!(character, '.' | '_' | '-' | '/' | '+' | ' ')
-        })
-        .take(128)
-        .collect::<String>();
-    if sanitized.is_empty() {
-        fallback.to_owned()
+fn device_login_options(codex_home: PathBuf) -> ServerOptions {
+    ServerOptions::new(
+        codex_home,
+        CLIENT_ID.to_string(),
+        None,
+        AuthCredentialsStoreMode::Ephemeral,
+        AuthKeyringBackendKind::default(),
+        None,
+    )
+}
+
+async fn cancel_device_code_login_inner(runtime: &Arc<RuntimeHandle>) {
+    if let Some(login) = runtime.active_login.lock().await.take() {
+        login.cancellation.cancel();
+    }
+}
+
+fn classify_login_failure(message: &str) -> &'static str {
+    let message = message.to_ascii_lowercase();
+    if message.contains("timed out") || message.contains("expired") {
+        "expired"
+    } else if message.contains("denied") || message.contains("permission") {
+        "denied"
     } else {
-        sanitized
+        "error"
     }
 }
 
-fn validated_media_type(value: &str, required_prefix: &str) -> Result<String, BridgeError> {
-    let normalized = value.trim().to_ascii_lowercase();
-    let valid = !normalized.is_empty()
-        && normalized.len() <= 128
-        && normalized.starts_with(required_prefix)
-        && normalized.contains('/')
-        && normalized.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '/' | '.' | '+' | '-')
-        });
-    if !valid {
+async fn model_compact_limit(runtime: &Arc<RuntimeHandle>, model_id: &str) -> Option<u64> {
+    let cache = runtime.model_cache.lock().await;
+    cache
+        .as_ref()
+        .and_then(|cache| cache.upstream_models.get(model_id))
+        .and_then(CodexModelInfo::auto_compact_token_limit)
+        .and_then(|value| u64::try_from(value).ok())
+}
+
+fn validate_turn_request(request: &TurnRequest) -> Result<(), BridgeError> {
+    validate_identifier(&request.session_id, "session id")?;
+    validate_identifier(&request.model_id, "model id")?;
+    if request.messages.is_empty() {
         return Err(BridgeError::new(
             BridgeErrorKind::InvalidInput,
-            "input media type is invalid",
+            "a ChatGPT turn requires at least one message",
         ));
     }
-    Ok(normalized)
+    if let Some(checkpoint) = request.checkpoint.as_ref()
+        && checkpoint.len() > MAX_CHECKPOINT_BYTES
+    {
+        return Err(checkpoint_mismatch());
+    }
+    Ok(())
 }
 
-fn escaped_document_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+fn turn_request_size(request: &TurnRequest) -> Result<usize, BridgeError> {
+    let mut total = request.checkpoint.as_ref().map_or(0, Vec::len);
+    for message in &request.messages {
+        for part in &message.parts {
+            let size =
+                part.text.as_ref().map_or(0, String::len) + part.bytes.as_ref().map_or(0, Vec::len);
+            if part
+                .bytes
+                .as_ref()
+                .is_some_and(|bytes| bytes.len() > MAX_BINARY_INPUT_BYTES)
+            {
+                return Err(BridgeError::new(
+                    BridgeErrorKind::InvalidInput,
+                    "binary input is too large",
+                ));
+            }
+            total = total.checked_add(size).ok_or_else(|| {
+                BridgeError::new(BridgeErrorKind::InvalidInput, "turn input size overflow")
+            })?;
+        }
+    }
+    if total > MAX_AGGREGATE_INPUT_BYTES + MAX_CHECKPOINT_BYTES {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "turn inputs exceed the aggregate size limit",
+        ));
+    }
+    Ok(total)
+}
+
+fn validated_binary(bytes: Option<&[u8]>) -> Result<&[u8], BridgeError> {
+    let bytes = bytes.ok_or_else(|| {
+        BridgeError::new(BridgeErrorKind::InvalidInput, "binary input is missing")
+    })?;
+    if bytes.is_empty() || bytes.len() > MAX_BINARY_INPUT_BYTES {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "binary input size is invalid",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn validated_mime(value: Option<&str>, prefix: &str) -> Result<String, BridgeError> {
+    let value = value.unwrap_or_default().trim().to_ascii_lowercase();
+    if !value.starts_with(prefix)
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'+' | b'-' | b'.'))
+    {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "the attachment media type is invalid",
+        ));
+    }
+    Ok(value)
 }
 
 fn data_url(mime: &str, bytes: &[u8]) -> String {
@@ -1589,864 +2064,403 @@ fn data_url(mime: &str, bytes: &[u8]) -> String {
     )
 }
 
-fn chatgpt_account_id(codex_home: &Path) -> Option<String> {
-    let tokens = load_auth_dot_json(
-        codex_home,
-        AuthCredentialsStoreMode::Ephemeral,
-        AuthKeyringBackendKind::default(),
-    )
-    .ok()
-    .flatten()?
-    .tokens?;
-    tokens
-        .account_id
-        .filter(|id| !id.trim().is_empty())
-        .or_else(|| {
-            tokens
-                .id_token
-                .chatgpt_account_id
-                .filter(|id| !id.trim().is_empty())
-        })
-        .or_else(|| {
-            tokens
-                .id_token
-                .chatgpt_user_id
-                .filter(|id| !id.trim().is_empty())
-        })
-}
-
-fn parse_auth_state(value: &Value, account_id: Option<String>) -> AuthStateInfo {
-    let account = value.get("account").filter(|account| account.is_object());
-    let email = account
-        .and_then(|account| account.get("email"))
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let fingerprint_source = account_id
-        .as_ref()
-        .map(|id| format!("account:{id}"))
-        .or_else(|| {
-            email
-                .as_deref()
-                .map(str::trim)
-                .filter(|email| !email.is_empty())
-                .map(|email| format!("email:{}", email.to_ascii_lowercase()))
-        });
-    AuthStateInfo {
-        // `requiresOpenaiAuth` describes the configured provider and remains
-        // true after login. The typed account object is the session signal.
-        authenticated: account
-            .and_then(|account| account.get("type"))
-            .and_then(Value::as_str)
-            == Some("chatgpt"),
-        email,
-        plan_type: account
-            .and_then(|account| account.get("planType"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        account_fingerprint: fingerprint_source
-            .as_ref()
-            .map(|id| hex_prefix(&Sha256::digest(id.as_bytes()))),
-        account_id,
-    }
-}
-
-async fn notification_ids(
-    params: &Value,
-    turns: &Arc<Mutex<HashMap<String, String>>>,
-) -> NotificationIds {
-    let thread_id = json_string_at(params, &["threadId"]);
-    let turn_id =
-        json_string_at(params, &["turnId"]).or_else(|| json_string_at(params, &["turn", "id"]));
-    let item_id =
-        json_string_at(params, &["itemId"]).or_else(|| json_string_at(params, &["item", "id"]));
-    let run_id = match turn_id.as_ref() {
-        Some(id) => turns.lock().await.get(id).cloned(),
-        None => None,
-    };
-    NotificationIds {
-        run_id,
-        thread_id,
-        turn_id,
-        item_id,
-    }
-}
-
-struct NotificationIds {
-    run_id: Option<String>,
-    thread_id: Option<String>,
-    turn_id: Option<String>,
-    item_id: Option<String>,
-}
-
-fn event_with_ids(
-    kind: RuntimeEventKind,
-    text: Option<String>,
-    json_data: Option<String>,
-    ids: NotificationIds,
-) -> RuntimeEvent {
-    RuntimeEvent {
-        kind,
-        run_id: ids.run_id,
-        thread_id: ids.thread_id,
-        turn_id: ids.turn_id,
-        item_id: ids.item_id,
-        text,
-        json_data,
-        ..blank_event()
-    }
-}
-
-fn blank_event() -> RuntimeEvent {
-    RuntimeEvent {
-        client_epoch: 0,
-        sequence: 0,
-        kind: RuntimeEventKind::Diagnostic,
-        run_id: None,
-        thread_id: None,
-        turn_id: None,
-        item_id: None,
-        text: None,
-        json_data: None,
-        binary_data: None,
-    }
-}
-
-fn sanitized_json(value: &Value) -> Option<String> {
-    serde_json::to_string(value)
-        .ok()
-        .filter(|text| text.len() <= 64 * 1024)
-}
-
-fn sanitized_usage_json(value: &Value) -> Option<String> {
-    let usage = value.get("usage").or_else(|| value.get("tokenUsage"))?;
-    let safe = json!({
-        "totalTokens": usage.get("totalTokens"),
-        "inputTokens": usage.get("inputTokens"),
-        "cachedInputTokens": usage.get("cachedInputTokens"),
-        "outputTokens": usage.get("outputTokens"),
-        "reasoningOutputTokens": usage.get("reasoningOutputTokens"),
-        "total": usage.get("total"),
-        "last": usage.get("last"),
-        "modelContextWindow": usage.get("modelContextWindow"),
-    });
-    sanitized_json(&safe)
-}
-
-fn sanitized_source_json(value: &Value) -> Option<String> {
-    let item = value.get("item")?;
-    let result = item
-        .get("results")
-        .and_then(Value::as_array)
-        .and_then(|results| {
-            results
-                .iter()
-                .find(|result| safe_web_url(result.get("url")))
-        })
-        .unwrap_or(item);
-    let url = result.get("url").and_then(Value::as_str)?;
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return None;
-    }
-    let safe = json!({
-        "url": url,
-        "title": bounded_string(result.get("title"), 512),
-        "snippet": bounded_string(result.get("snippet").or_else(|| result.get("text")), 2_048),
-    });
-    sanitized_json(&safe)
-}
-
-fn safe_web_url(value: Option<&Value>) -> bool {
-    value
-        .and_then(Value::as_str)
-        .is_some_and(|url| url.starts_with("https://") || url.starts_with("http://"))
-}
-
-fn bounded_string(value: Option<&Value>, max_bytes: usize) -> Option<String> {
-    value.and_then(Value::as_str).map(|text| {
-        let mut end = text.len().min(max_bytes);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text[..end].to_owned()
-    })
-}
-
-fn sanitized_generated_image_json(value: &Value, media_type: &str) -> Option<String> {
-    let item = value.get("item")?;
-    let safe = json!({
-        "id": item.get("id"),
-        "type": "imageGeneration",
-        "status": item.get("status"),
-        "mediaType": media_type,
-        "revisedPrompt": bounded_string(item.get("revisedPrompt"), 4_096),
-    });
-    sanitized_json(&safe)
-}
-
-fn canonical_generated_image_media_type(media_type: &str) -> Option<&'static str> {
-    match media_type.to_ascii_lowercase().as_str() {
-        "image/png" => Some("image/png"),
-        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
-        "image/gif" => Some("image/gif"),
-        "image/webp" => Some("image/webp"),
-        _ => None,
-    }
-}
-
-fn generated_image_media_type(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else {
-        None
-    }
-}
-
-fn decode_generated_image(
-    encoded: &str,
-    declared_media_type: Option<&str>,
-) -> Option<(Vec<u8>, &'static str)> {
-    const MAX_ENCODED_IMAGE_BYTES: usize = MAX_BINARY_INPUT_BYTES.div_ceil(3) * 4;
-    if encoded.is_empty() || encoded.len() > MAX_ENCODED_IMAGE_BYTES {
-        return None;
-    }
+fn validated_image(encoded: &str) -> Result<(Vec<u8>, &'static str), BridgeError> {
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .ok()?;
-    if bytes.is_empty() || bytes.len() > MAX_BINARY_INPUT_BYTES {
-        return None;
-    }
-    let media_type = generated_image_media_type(&bytes)?;
-    if let Some(declared_media_type) = declared_media_type
-        && canonical_generated_image_media_type(declared_media_type) != Some(media_type)
-    {
-        return None;
-    }
-    Some((bytes, media_type))
-}
-
-async fn generated_image_bytes(
-    value: &Value,
-    codex_home: &Path,
-) -> Option<(Vec<u8>, &'static str)> {
-    let item = value.get("item")?;
-    if let Some(result) = item.get("result").and_then(Value::as_str) {
-        if result.starts_with("data:") {
-            let (metadata, encoded) = result.split_once(',')?;
-            let metadata = metadata.to_ascii_lowercase();
-            let declared_media_type = metadata.strip_prefix("data:")?.strip_suffix(";base64")?;
-            return decode_generated_image(encoded, Some(declared_media_type));
-        }
-        return decode_generated_image(result, None);
-    }
-    let saved_path = item.get("savedPath").and_then(Value::as_str)?;
-    let images_root = tokio::fs::canonicalize(codex_home.join("generated_images"))
-        .await
-        .ok()?;
-    let candidate = tokio::fs::canonicalize(saved_path).await.ok()?;
-    if !candidate.starts_with(&images_root) {
-        return None;
-    }
-    let metadata = tokio::fs::metadata(&candidate).await.ok()?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_BINARY_INPUT_BYTES as u64
-    {
-        return None;
-    }
-    let bytes = tokio::fs::read(candidate).await.ok()?;
-    let media_type = generated_image_media_type(&bytes)?;
-    Some((bytes, media_type))
-}
-
-fn sanitized_account_json(value: &Value) -> Option<String> {
-    let safe = json!({"authMode": value.get("authMode"), "planType": value.pointer("/account/planType"), "email": value.pointer("/account/email")});
-    sanitized_json(&safe)
-}
-
-fn sanitized_error_json(value: &Value) -> Option<String> {
-    let safe = json!({"code": value.get("code"), "status": value.get("status")});
-    sanitized_json(&safe)
-}
-
-fn sanitized_warning(value: &Value) -> Option<String> {
-    value
-        .get("message")
-        .or_else(|| value.get("summary"))
-        .and_then(Value::as_str)
-        .map(|message| message.chars().take(512).collect())
-}
-
-fn visible_completed_item_kind(item_type: &str) -> Option<RuntimeEventKind> {
-    match item_type {
-        "webSearch" => Some(RuntimeEventKind::Source),
-        "imageGeneration" => Some(RuntimeEventKind::GeneratedImage),
-        _ => None,
-    }
-}
-
-fn validated_runtime_root(data_directory: String) -> Result<PathBuf, BridgeError> {
-    let path = PathBuf::from(data_directory);
-    if !path.is_absolute()
-        || path
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "native runtime directory must be an absolute, normalized path",
-        ));
-    }
-    Ok(path)
-}
-
-fn validate_client_epoch(active_epoch: Option<u64>, requested: u64) -> Result<(), BridgeError> {
-    if active_epoch.is_some_and(|active| requested <= active) {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "client epoch must advance beyond the active runtime",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_identifier(value: &str, name: &str) -> Result<(), BridgeError> {
-    if value.trim().is_empty() || value.len() > 512 {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            format!("invalid {name}"),
-        ));
-    }
-    Ok(())
-}
-
-fn required_string(value: &Value, key: &str) -> Result<String, BridgeError> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| {
+        .decode(encoded.trim().as_bytes())
+        .map_err(|_| {
             BridgeError::new(
                 BridgeErrorKind::ProtocolMismatch,
-                format!("missing {key} in native response"),
+                "generated image data is invalid",
             )
-        })
+        })?;
+    if bytes.is_empty() || bytes.len() > MAX_BINARY_INPUT_BYTES {
+        return Err(BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "generated image size is invalid",
+        ));
+    }
+    let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        return Err(BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "generated image format is unsupported",
+        ));
+    };
+    Ok((bytes, media_type))
 }
 
-fn required_nested_string(value: &Value, path: &[&str]) -> Result<String, BridgeError> {
-    json_string_at(value, path).ok_or_else(|| {
-        BridgeError::new(
-            BridgeErrorKind::ProtocolMismatch,
-            "native response is missing an identifier",
-        )
+fn safe_web_url(url: &str) -> bool {
+    Url::parse(url).ok().is_some_and(|url| {
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
     })
 }
 
-fn json_string_at(value: &Value, path: &[&str]) -> Option<String> {
-    path.iter()
-        .try_fold(value, |current, key| current.get(*key))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+fn tool_policy_hash(web: bool, image: bool) -> String {
+    let digest = Sha256::digest(format!("web={web};image={image};v=1").as_bytes());
+    hex_prefix(&digest[..16])
 }
 
-fn snapshot_hash(snapshot: Option<&[u8]>) -> Option<String> {
-    snapshot.map(|bytes| hex_prefix(&Sha256::digest(bytes)))
+fn snapshot_hash(snapshot: Option<&[u8]>) -> Option<[u8; 32]> {
+    snapshot.map(|snapshot| Sha256::digest(snapshot).into())
 }
 
 fn hex_prefix(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .take(16)
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn classify_protocol_error(code: i64, message: &str) -> BridgeError {
-    let lower = message.to_ascii_lowercase();
-    let kind = if code == 429 || lower.contains("rate limit") {
-        BridgeErrorKind::RateLimit
-    } else if code == 401 || lower.contains("auth") || lower.contains("login") {
-        BridgeErrorKind::Authentication
-    } else if lower.contains("cancel") || lower.contains("interrupt") {
-        BridgeErrorKind::Cancellation
-    } else if code == -32602 {
-        BridgeErrorKind::InvalidInput
-    } else {
-        BridgeErrorKind::Network
-    };
-    BridgeError::new(
-        kind,
-        match kind {
-            BridgeErrorKind::RateLimit => "ChatGPT rate limit reached.",
-            BridgeErrorKind::Authentication => "ChatGPT authentication is required.",
-            BridgeErrorKind::Cancellation => "The ChatGPT request was cancelled.",
-            BridgeErrorKind::InvalidInput => "ChatGPT rejected the request.",
-            _ => "The ChatGPT request failed.",
+fn bounded(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_string()
+}
+
+fn validate_identifier(value: &str, name: &str) -> Result<(), BridgeError> {
+    if value.trim().is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            format!("{name} is invalid"),
+        ));
+    }
+    Ok(())
+}
+
+fn map_api_error(error: ApiError) -> BridgeError {
+    match error {
+        ApiError::Api { status, .. } if status.as_u16() == 401 || status.as_u16() == 403 => {
+            BridgeError::new(
+                BridgeErrorKind::Authentication,
+                "ChatGPT authentication expired",
+            )
+        }
+        ApiError::Api { status, .. } if status.as_u16() == 429 => BridgeError::new(
+            BridgeErrorKind::RateLimit,
+            "ChatGPT is temporarily rate limited",
+        ),
+        ApiError::ContextWindowExceeded => BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "the conversation is too long",
+        ),
+        ApiError::QuotaExceeded | ApiError::RateLimit(_) => BridgeError::new(
+            BridgeErrorKind::RateLimit,
+            "ChatGPT usage is temporarily unavailable",
+        ),
+        ApiError::InvalidRequest { .. } => BridgeError::new(
+            BridgeErrorKind::InvalidInput,
+            "ChatGPT rejected the request",
+        ),
+        ApiError::Transport(_) | ApiError::Retryable { .. } | ApiError::ServerOverloaded => {
+            BridgeError::new(
+                BridgeErrorKind::Network,
+                "the ChatGPT service is unavailable",
+            )
+        }
+        ApiError::Api { .. }
+        | ApiError::Stream(_)
+        | ApiError::UsageNotIncluded
+        | ApiError::CyberPolicy { .. } => BridgeError::new(
+            BridgeErrorKind::ProtocolMismatch,
+            "the ChatGPT response was not understood",
+        ),
+    }
+}
+
+async fn runtime_handle() -> Result<Arc<RuntimeHandle>, BridgeError> {
+    RUNTIME
+        .lock()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| BridgeError::internal("the ChatGPT runtime is not initialized"))
+}
+
+fn event(kind: RuntimeEventKind) -> RuntimeEventBuilder {
+    RuntimeEventBuilder {
+        event: RuntimeEvent {
+            client_epoch: 0,
+            sequence: 0,
+            kind,
+            run_id: None,
+            session_id: None,
+            item_id: None,
+            text: None,
+            json_data: None,
+            binary_data: None,
         },
-    )
+    }
 }
 
-fn runtime_not_initialized() -> BridgeError {
-    BridgeError::new(
-        BridgeErrorKind::ProtocolMismatch,
-        "native runtime is not initialized",
-    )
+fn run_event(kind: RuntimeEventKind, run_id: &str, session_id: &str) -> RuntimeEventBuilder {
+    let mut builder = event(kind);
+    builder.event.run_id = Some(run_id.to_string());
+    builder.event.session_id = Some(session_id.to_string());
+    builder
 }
 
-async fn context_snapshot() -> Result<EventContext, BridgeError> {
-    let guard = RUNTIME.lock().await;
-    let runtime = guard.as_ref().ok_or_else(runtime_not_initialized)?;
-    Ok(EventContext {
-        hub: runtime.hub.clone(),
-        codex_home: runtime.codex_home.clone(),
-        committed_auth_hash: runtime.committed_auth_hash.clone(),
-        auth_persistence: runtime.auth_persistence.clone(),
-        pending_auth: runtime.pending_auth.clone(),
-        active_login_id: runtime.active_login_id.clone(),
-        turn_to_run: runtime.turn_to_run.clone(),
-        scheduler: runtime.scheduler.clone(),
-    })
+fn auth_event(state: AuthStateInfo) -> RuntimeEvent {
+    event(RuntimeEventKind::AuthState)
+        .with_json(serde_json::to_value(state).unwrap_or_else(|_| json!({})))
+        .build()
+}
+
+struct RuntimeEventBuilder {
+    event: RuntimeEvent,
+}
+
+impl RuntimeEventBuilder {
+    fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.event.text = Some(text.into());
+        self
+    }
+
+    fn with_json(mut self, value: Value) -> Self {
+        self.event.json_data = serde_json::to_string(&value).ok();
+        self
+    }
+
+    fn with_binary(mut self, bytes: Vec<u8>) -> Self {
+        self.event.binary_data = Some(bytes);
+        self
+    }
+
+    fn with_optional_binary(mut self, bytes: Option<Vec<u8>>) -> Self {
+        self.event.binary_data = bytes;
+        self
+    }
+
+    fn with_item(mut self, item_id: &str) -> Self {
+        self.event.item_id = Some(item_id.to_string());
+        self
+    }
+
+    fn build(self) -> RuntimeEvent {
+        self.event
+    }
+}
+
+impl From<RuntimeEventBuilder> for RuntimeEvent {
+    fn from(builder: RuntimeEventBuilder) -> Self {
+        builder.build()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_protocol::openai_models::ToolMode;
 
-    #[test]
-    fn mobile_chat_exposes_extensions_directly_for_every_upstream_tool_mode() {
-        for upstream_mode in [
-            None,
-            Some(ToolMode::Direct),
-            Some(ToolMode::CodeMode),
-            Some(ToolMode::CodeModeOnly),
-        ] {
-            assert_eq!(
-                codex_app_server::mobile_chat_tool_mode(upstream_mode),
-                Some(ToolMode::Direct)
-            );
-        }
-    }
-
-    #[test]
-    fn only_chatgpt_results_cross_the_completed_item_boundary() {
-        assert_eq!(
-            visible_completed_item_kind("webSearch"),
-            Some(RuntimeEventKind::Source)
-        );
-        assert_eq!(
-            visible_completed_item_kind("imageGeneration"),
-            Some(RuntimeEventKind::GeneratedImage)
-        );
-        for protocol_item in ["userMessage", "agentMessage", "reasoning", "plan"] {
-            assert_eq!(visible_completed_item_kind(protocol_item), None);
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_generated_image_becomes_a_fixed_failure_event() {
-        let notification: ServerNotification = serde_json::from_value(json!({
-            "method": "item/completed",
-            "params": {
-                "item": {
-                    "type": "imageGeneration",
-                    "id": "image-1",
-                    "status": "completed",
-                    "revisedPrompt": null,
-                    "result": "not-an-image"
-                },
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "completedAtMs": 0
-            }
-        }))
-        .unwrap();
-
-        let event = map_notification(&test_context(TurnScheduler::default()), notification)
-            .await
-            .unwrap();
-
-        assert_eq!(event.kind, RuntimeEventKind::Failure);
-        assert_eq!(
-            event.text.as_deref(),
-            Some("The generated image could not be imported.")
-        );
-        assert!(event.binary_data.is_none());
-    }
-
-    fn test_context(scheduler: TurnScheduler) -> EventContext {
-        EventContext {
-            hub: EventHub::new(1),
-            codex_home: PathBuf::new(),
-            committed_auth_hash: Arc::new(Mutex::new(None)),
-            auth_persistence: Arc::new(Mutex::new(())),
-            pending_auth: Arc::new(Mutex::new(HashMap::new())),
-            active_login_id: Arc::new(Mutex::new(None)),
-            turn_to_run: Arc::new(Mutex::new(HashMap::new())),
-            scheduler: Arc::new(Mutex::new(scheduler)),
-        }
-    }
-
-    fn queued_run(run_id: &str, thread_id: &str) -> QueuedRun {
-        let mut request = TurnRequest {
-            thread_id: thread_id.to_owned(),
-            client_user_message_id: None,
-            model_id: "model".to_owned(),
+    fn turn_request(session_id: &str) -> TurnRequest {
+        TurnRequest {
+            session_id: session_id.to_string(),
+            model_id: "gpt-test".to_string(),
             reasoning_effort: None,
-            enable_web_search: false,
-            enable_image_generation: false,
-            inputs: vec![TurnInputPart {
-                kind: "text".to_owned(),
-                text: Some("hello".to_owned()),
-                filename: None,
-                mime_type: None,
-                bytes: None,
+            enable_web_search: true,
+            enable_image_generation: true,
+            messages: vec![TurnMessage {
+                role: TurnMessageRole::User,
+                message_id: Some("message-1".to_string()),
+                parts: vec![TurnInputPart {
+                    kind: "text".to_string(),
+                    text: Some("hello".to_string()),
+                    filename: None,
+                    mime_type: None,
+                    bytes: None,
+                }],
             }],
-        };
-        let encoded_inputs = encode_turn_inputs(&request.inputs).unwrap();
-        let encoded_input_bytes = encoded_inputs_size(&encoded_inputs).unwrap();
-        request.inputs.clear();
-        QueuedRun {
-            run_id: run_id.to_owned(),
-            request,
-            encoded_inputs,
-            encoded_input_bytes,
+            checkpoint: None,
+            previous_input_tokens: None,
         }
     }
 
     #[test]
-    fn document_input_accepts_text_and_rejects_opaque_binary() {
-        let text = TurnInputPart {
-            kind: "document".to_owned(),
-            text: None,
-            filename: Some("notes.md".to_owned()),
-            mime_type: Some("text/markdown".to_owned()),
-            bytes: Some(b"hello </document> & goodbye".to_vec()),
-        };
-        let encoded = encode_turn_inputs(&[text]).unwrap();
-        let rendered = encoded[0].get("text").and_then(Value::as_str).unwrap();
-        assert!(rendered.contains("hello &lt;/document&gt; &amp; goodbye"));
-        assert!(!rendered.contains("hello </document>"));
-        let pdf = TurnInputPart {
-            kind: "document".to_owned(),
-            text: None,
-            filename: Some("file.pdf".to_owned()),
-            mime_type: Some("application/pdf".to_owned()),
-            bytes: Some(vec![1, 2, 3]),
-        };
+    fn bridge_exposes_only_two_fixed_tools() {
+        let request = turn_request("session-1");
+        let tools = tool_specs(&request);
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["name"], "web");
+        assert_eq!(tools[0]["tools"][0]["name"], "run");
+        assert_eq!(tools[1]["name"], "image_gen");
+        assert_eq!(tools[1]["tools"][0]["name"], "imagegen");
+    }
+
+    #[test]
+    fn checkpoint_rejects_executable_items() {
+        let items = vec![ResponseItem::FunctionCall {
+            id: None,
+            name: "run".to_string(),
+            namespace: Some("shell".to_string()),
+            arguments: "{}".to_string(),
+            call_id: "call-1".to_string(),
+            internal_chat_message_metadata_passthrough: None,
+        }];
         assert_eq!(
-            encode_turn_inputs(&[pdf]).unwrap_err().kind,
-            BridgeErrorKind::Unsupported
+            validate_checkpoint_items(&items).unwrap_err().kind,
+            BridgeErrorKind::ProtocolMismatch
         );
     }
 
     #[test]
-    fn binary_input_media_types_are_validated() {
-        for (kind, mime_type) in [
-            ("image", "text/plain"),
-            ("audio", "audio/mpeg;codecs=mp3"),
-            ("image", "image/png\ninvalid"),
-        ] {
-            let part = TurnInputPart {
-                kind: kind.to_owned(),
-                text: None,
-                filename: None,
-                mime_type: Some(mime_type.to_owned()),
-                bytes: Some(vec![1, 2, 3]),
-            };
-            assert_eq!(
-                encode_turn_inputs(&[part]).unwrap_err().kind,
-                BridgeErrorKind::InvalidInput
-            );
+    fn image_validation_uses_magic_bytes() {
+        let png = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nbody");
+        let (_, mime) = validated_image(&png).expect("valid image");
+        assert_eq!(mime, "image/png");
+    }
+
+    #[test]
+    fn identifiers_reject_path_or_shell_syntax() {
+        assert!(validate_identifier("session-123", "session").is_ok());
+        assert!(validate_identifier("../session", "session").is_err());
+        assert!(validate_identifier("$(command)", "session").is_err());
+    }
+
+    #[test]
+    fn fragmented_deltas_coalesce_only_with_the_same_kind_and_size_bound() {
+        let mut pending = Some((
+            RuntimeEventKind::TextDelta,
+            "hel".to_string(),
+            Instant::now(),
+        ));
+        assert!(try_coalesce_delta(
+            &mut pending,
+            RuntimeEventKind::TextDelta,
+            "lo"
+        ));
+        assert_eq!(
+            pending.as_ref().map(|(_, text, _)| text.as_str()),
+            Some("hello")
+        );
+        assert!(!try_coalesce_delta(
+            &mut pending,
+            RuntimeEventKind::ReasoningDelta,
+            "thinking"
+        ));
+
+        pending.as_mut().expect("pending delta").1 = "x".repeat(DELTA_FLUSH_BYTES);
+        assert!(!try_coalesce_delta(
+            &mut pending,
+            RuntimeEventKind::TextDelta,
+            "overflow"
+        ));
+    }
+
+    #[test]
+    fn scheduler_preserves_session_fifo_and_uses_two_session_slots() {
+        let mut scheduler = TurnScheduler::default();
+        scheduler.active_by_session.insert(
+            "session-a".to_string(),
+            ActiveRun {
+                run_id: "active-a".to_string(),
+                cancellation: CancellationToken::new(),
+            },
+        );
+        scheduler
+            .enqueue(QueuedRun {
+                run_id: "queued-a".to_string(),
+                request: turn_request("session-a"),
+                input_bytes: 4,
+            })
+            .expect("queue same session");
+        scheduler
+            .enqueue(QueuedRun {
+                run_id: "queued-b".to_string(),
+                request: turn_request("session-b"),
+                input_bytes: 8,
+            })
+            .expect("queue second session");
+
+        let second_session = scheduler.take_next_ready().expect("second slot");
+        assert_eq!(second_session.run_id, "queued-b");
+        assert_eq!(
+            scheduler.queued.front().map(|run| run.run_id.as_str()),
+            Some("queued-a")
+        );
+        assert_eq!(scheduler.queued_input_bytes, 4);
+    }
+
+    #[tokio::test]
+    async fn priority_events_survive_a_full_bounded_queue() {
+        let hub = EventHub::new(7);
+        let mut receiver = hub.subscribe().await;
+        for _ in 0..EVENT_QUEUE_CAPACITY {
+            hub.emit(event(RuntimeEventKind::TextDelta).with_text("delta"))
+                .await;
         }
-    }
 
-    #[test]
-    fn text_inputs_are_bounded() {
-        let oversized = TurnInputPart {
-            kind: "text".to_owned(),
-            text: Some("x".repeat(MAX_TEXT_INPUT_BYTES + 1)),
-            filename: None,
-            mime_type: None,
-            bytes: None,
-        };
-        assert_eq!(
-            encode_turn_inputs(&[oversized]).unwrap_err().kind,
-            BridgeErrorKind::InvalidInput
-        );
-    }
-    #[test]
-    fn protocol_errors_are_redacted_and_typed() {
-        let error = classify_protocol_error(401, "token abc-secret was invalid");
-        assert_eq!(error.kind, BridgeErrorKind::Authentication);
-        assert!(!error.message.contains("abc-secret"));
-    }
+        let pending_hub = hub.clone();
+        let terminal = tokio::spawn(async move {
+            pending_hub.emit(event(RuntimeEventKind::Completed)).await;
+        });
+        tokio::task::yield_now().await;
+        assert!(!terminal.is_finished());
+        let _ = receiver.recv().await;
+        terminal.await.expect("terminal delivery task");
 
-    #[test]
-    fn chatgpt_account_response_is_authenticated() {
-        let auth = parse_auth_state(
-            &json!({
-                "account": {
-                    "type": "chatgpt",
-                    "email": "person@example.com",
-                    "planType": "plus"
-                },
-                "requiresOpenaiAuth": true
-            }),
-            Some("workspace-123".to_owned()),
-        );
-
-        assert!(auth.authenticated);
-        assert_eq!(auth.email.as_deref(), Some("person@example.com"));
-        assert_eq!(auth.plan_type.as_deref(), Some("plus"));
-        assert!(auth.account_fingerprint.is_some());
-    }
-
-    #[test]
-    fn missing_chatgpt_account_response_is_disconnected() {
-        let auth = parse_auth_state(&json!({"account": null, "requiresOpenaiAuth": true}), None);
-
-        assert!(!auth.authenticated);
-        assert!(auth.account_fingerprint.is_none());
-    }
-
-    #[test]
-    fn rpc_allowlist_contains_only_mobile_chat_methods() {
-        assert_eq!(
-            ALLOWED_RPC_METHODS,
-            [
-                "account/login/cancel",
-                "account/login/start",
-                "account/logout",
-                "account/read",
-                "model/list",
-                "thread/fork",
-                "thread/resume",
-                "thread/start",
-                "turn/interrupt",
-                "turn/start",
-            ]
-        );
-        assert!(!ALLOWED_RPC_METHODS.iter().any(|method| {
-            method.contains("exec")
-                || method.contains("mcp")
-                || method.contains("command")
-                || method.contains("workspace")
-                || method.contains("approval")
-                || method.contains("patch")
-        }));
+        let mut saw_terminal = false;
+        for _ in 0..EVENT_QUEUE_CAPACITY {
+            let delivered = receiver.recv().await.expect("queued event");
+            saw_terminal |= delivered.kind == RuntimeEventKind::Completed;
+        }
+        assert!(saw_terminal);
     }
 
     #[tokio::test]
-    async fn generated_images_cross_the_bridge_as_bounded_bytes() {
-        let raw_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-        let png_bytes = base64::engine::general_purpose::STANDARD
-            .decode(raw_png)
-            .unwrap();
-        let params = json!({
-            "item": {
-                "type": "imageGeneration",
-                "result": format!("data:image/png;base64,{raw_png}"),
-                "savedPath": "/private/secret/image.png"
-            }
-        });
+    async fn cancellation_preempts_an_in_flight_api_operation() {
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let result = cancellable_api::<(), _>(&cancellation, std::future::pending()).await;
         assert_eq!(
-            generated_image_bytes(&params, Path::new("/unavailable")).await,
-            Some((png_bytes.clone(), "image/png"))
-        );
-        let metadata = sanitized_generated_image_json(&params, "image/png").unwrap();
-        assert!(metadata.contains("image/png"));
-        assert!(!metadata.contains("savedPath"));
-        assert!(!metadata.contains("private/secret"));
-
-        let raw_base64 = json!({"item": {"result": raw_png}});
-        assert_eq!(
-            generated_image_bytes(&raw_base64, Path::new("/unavailable")).await,
-            Some((png_bytes, "image/png"))
-        );
-        let invalid_raw_base64 = json!({"item": {"result": "AQID"}});
-        assert_eq!(
-            generated_image_bytes(&invalid_raw_base64, Path::new("/unavailable")).await,
-            None
-        );
-        let wrong_mime = json!({
-            "item": {"result": format!("data:text/plain;base64,{raw_png}")}
-        });
-        assert_eq!(
-            generated_image_bytes(&wrong_mime, Path::new("/unavailable")).await,
-            None
+            result.expect_err("cancelled request").kind,
+            BridgeErrorKind::Cancellation
         );
     }
 
     #[test]
-    fn source_and_usage_payloads_drop_untrusted_response_fields() {
-        let source = json!({
-            "item": {
-                "type": "webSearch",
-                "query": "secret query",
-                "results": [{
-                    "url": "https://example.com/source",
-                    "title": "Example",
-                    "snippet": "A result",
-                    "raw_html": "<private>"
-                }]
-            }
+    fn provider_errors_are_sanitized_and_typed() {
+        let unauthorized = map_api_error(ApiError::Api {
+            status: http::StatusCode::UNAUTHORIZED,
+            message: "secret provider body".to_string(),
         });
-        let source_json = sanitized_source_json(&source).unwrap();
-        assert!(source_json.contains("https://example.com/source"));
-        assert!(!source_json.contains("secret query"));
-        assert!(!source_json.contains("raw_html"));
+        assert_eq!(unauthorized.kind, BridgeErrorKind::Authentication);
+        assert!(!unauthorized.message.contains("secret"));
 
-        let usage = json!({
-            "responseId": "sensitive-response-id",
-            "usage": {"inputTokens": 12, "outputTokens": 4},
-            "raw": "provider payload"
+        let limited = map_api_error(ApiError::Api {
+            status: http::StatusCode::TOO_MANY_REQUESTS,
+            message: "account details".to_string(),
         });
-        let usage_json = sanitized_usage_json(&usage).unwrap();
-        assert!(usage_json.contains("12"));
-        assert!(!usage_json.contains("sensitive-response-id"));
-        assert!(!usage_json.contains("provider payload"));
-    }
+        assert_eq!(limited.kind, BridgeErrorKind::RateLimit);
+        assert!(!limited.message.contains("account details"));
 
-    #[tokio::test]
-    async fn delta_coalescer_preserves_order_and_limit() {
-        let hub = EventHub::new(7);
-        let mut receiver = hub.subscribe().await;
-        let mut pending = None;
-        let first = RuntimeEvent {
-            kind: RuntimeEventKind::TextDelta,
-            text: Some("a".to_owned()),
-            ..blank_event()
-        };
-        let second = RuntimeEvent {
-            kind: RuntimeEventKind::TextDelta,
-            text: Some("b".to_owned()),
-            ..blank_event()
-        };
-        merge_or_flush_delta(&hub, &mut pending, first).await;
-        merge_or_flush_delta(&hub, &mut pending, second).await;
-        hub.emit(pending.take().unwrap().event).await;
-        let event = receiver.recv().await.unwrap();
-        assert_eq!(event.text.as_deref(), Some("ab"));
-        assert_eq!(event.client_epoch, 7);
-    }
-
-    #[tokio::test]
-    async fn delta_coalescer_never_merges_different_turns() {
-        let hub = EventHub::new(7);
-        let mut receiver = hub.subscribe().await;
-        let mut pending = None;
-        let first = RuntimeEvent {
-            kind: RuntimeEventKind::TextDelta,
-            run_id: Some("run".to_owned()),
-            thread_id: Some("thread-a".to_owned()),
-            turn_id: Some("turn-a".to_owned()),
-            item_id: Some("item".to_owned()),
-            text: Some("a".to_owned()),
-            ..blank_event()
-        };
-        let second = RuntimeEvent {
-            kind: RuntimeEventKind::TextDelta,
-            run_id: Some("run".to_owned()),
-            thread_id: Some("thread-b".to_owned()),
-            turn_id: Some("turn-b".to_owned()),
-            item_id: Some("item".to_owned()),
-            text: Some("b".to_owned()),
-            ..blank_event()
-        };
-
-        merge_or_flush_delta(&hub, &mut pending, first).await;
-        merge_or_flush_delta(&hub, &mut pending, second).await;
-        hub.emit(pending.take().unwrap().event).await;
-
-        assert_eq!(receiver.recv().await.unwrap().text.as_deref(), Some("a"));
-        assert_eq!(receiver.recv().await.unwrap().text.as_deref(), Some("b"));
+        let offline = map_api_error(ApiError::Retryable {
+            message: "socket details".to_string(),
+            delay: None,
+        });
+        assert_eq!(offline.kind, BridgeErrorKind::Network);
+        assert!(!offline.message.contains("socket details"));
     }
 
     #[test]
-    fn client_epoch_must_advance_beyond_active_runtime() {
-        assert!(validate_client_epoch(None, 1).is_ok());
-        assert!(validate_client_epoch(Some(7), 8).is_ok());
-        assert!(validate_client_epoch(Some(7), 7).is_err());
-        assert!(validate_client_epoch(Some(7), 6).is_err());
-    }
-
-    #[tokio::test]
-    async fn scheduler_keeps_fifo_and_one_run_per_thread() {
-        let queued = VecDeque::from([
-            queued_run("run-a2", "thread-a"),
-            queued_run("run-c", "thread-c"),
-        ]);
-        let queued_input_bytes = queued.iter().map(|run| run.encoded_input_bytes).sum();
-        let context = test_context(TurnScheduler {
-            active_by_thread: HashMap::from([
-                (
-                    "thread-a".to_owned(),
-                    ActiveRun {
-                        run_id: "run-a".to_owned(),
-                        turn_id: Some("turn-a".to_owned()),
-                        cancellation_requested: false,
-                        last_activity: Instant::now(),
-                    },
-                ),
-                (
-                    "thread-b".to_owned(),
-                    ActiveRun {
-                        run_id: "run-b".to_owned(),
-                        turn_id: Some("turn-b".to_owned()),
-                        cancellation_requested: false,
-                        last_activity: Instant::now(),
-                    },
-                ),
-            ]),
-            queued,
-            queued_input_bytes,
-        });
-
-        // Completing B opens capacity, but strict FIFO keeps C behind A2.
-        assert!(
-            release_and_take_next(&context, "run-b", "thread-b")
-                .await
-                .is_none()
-        );
-        let next = release_and_take_next(&context, "run-a", "thread-a")
-            .await
-            .expect("head becomes eligible");
-        assert_eq!(next.run_id, "run-a2");
-        let scheduler = context.scheduler.lock().await;
-        assert_eq!(scheduler.active_by_thread.len(), 1);
-        assert_eq!(scheduler.queued.front().unwrap().run_id, "run-c");
-    }
-
-    #[tokio::test]
-    async fn watchdog_releases_a_stalled_run_and_emits_failure() {
-        let context = test_context(TurnScheduler {
-            active_by_thread: HashMap::from([(
-                "thread-a".to_owned(),
-                ActiveRun {
-                    run_id: "run-a".to_owned(),
-                    turn_id: None,
-                    cancellation_requested: false,
-                    last_activity: Instant::now() - ACTIVE_RUN_IDLE_TIMEOUT,
-                },
-            )]),
-            queued: VecDeque::new(),
-            queued_input_bytes: 0,
-        });
-        let mut receiver = context.hub.subscribe().await;
-
-        expire_stalled_runs(&context).await;
-
-        let event = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
-            .await
-            .expect("watchdog event timed out")
-            .expect("watchdog event stream closed");
-        assert_eq!(event.kind, RuntimeEventKind::Failure);
-        assert_eq!(event.run_id.as_deref(), Some("run-a"));
-        assert_eq!(event.thread_id.as_deref(), Some("thread-a"));
-        assert!(context.scheduler.lock().await.active_by_thread.is_empty());
+    fn tool_and_checkpoint_limits_stay_bounded() {
+        assert_eq!(MAX_TOOL_CALLS, 8);
+        assert_eq!(MAX_IMAGE_CALLS, 2);
+        assert_eq!(MAX_RECENT_IMAGES, 5);
+        assert_eq!(MAX_SOURCES, 20);
+        assert_eq!(MAX_CHECKPOINT_BYTES, 4 * 1024 * 1024);
+        assert_eq!(MAX_CHECKPOINT_ITEMS, 512);
     }
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const BRIDGE_PROTOCOL_VERSION: u32 = 2;
+pub const BRIDGE_PROTOCOL_VERSION: u32 = 3;
 pub const EVENT_QUEUE_CAPACITY: usize = 256;
 pub const MAX_QUEUED_TURNS: usize = 64;
 pub const MAX_QUEUED_INPUT_BYTES: usize = 80 * 1024 * 1024;
@@ -71,12 +71,6 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ThreadInfo {
-    pub thread_id: String,
-    pub model_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnInputPart {
     /// `text`, `image`, `audio`, or `document`.
     pub kind: String,
@@ -86,22 +80,36 @@ pub struct TurnInputPart {
     pub bytes: Option<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TurnMessageRole {
+    System,
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnMessage {
+    pub role: TurnMessageRole,
+    pub message_id: Option<String>,
+    pub parts: Vec<TurnInputPart>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnRequest {
-    pub thread_id: String,
-    pub client_user_message_id: Option<String>,
+    pub session_id: String,
     pub model_id: String,
     pub reasoning_effort: Option<String>,
     pub enable_web_search: bool,
     pub enable_image_generation: bool,
-    pub inputs: Vec<TurnInputPart>,
+    pub messages: Vec<TurnMessage>,
+    pub checkpoint: Option<Vec<u8>>,
+    pub previous_input_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunInfo {
     pub run_id: String,
-    pub thread_id: String,
-    pub turn_id: Option<String>,
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,11 +120,10 @@ pub enum RuntimeEventKind {
     TurnStarted,
     TextDelta,
     ReasoningDelta,
-    ToolStarted,
-    ToolCompleted,
     Source,
     GeneratedImage,
     Usage,
+    CheckpointUpdated,
     Cancelled,
     Completed,
     Failure,
@@ -129,8 +136,7 @@ pub struct RuntimeEvent {
     pub sequence: u64,
     pub kind: RuntimeEventKind,
     pub run_id: Option<String>,
-    pub thread_id: Option<String>,
-    pub turn_id: Option<String>,
+    pub session_id: Option<String>,
     pub item_id: Option<String>,
     pub text: Option<String>,
     /// Sanitized structured metadata. Authentication material is never placed here.

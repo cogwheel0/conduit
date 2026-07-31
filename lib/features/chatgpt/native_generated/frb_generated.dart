@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1262678885;
+  int get rustContentHash => -415713412;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -94,16 +94,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiRuntimeDisconnectAccount();
 
-  Future<ThreadInfo> crateApiRuntimeForkThread({
-    required String threadId,
-    String? turnId,
-  });
-
   Future<void> crateApiRuntimeInitApp();
 
   Future<void> crateApiRuntimeInitializeRuntime({
     required BigInt clientEpoch,
-    required String dataDirectory,
     Uint8List? authSnapshot,
   });
 
@@ -111,19 +105,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<List<ModelInfo>> crateApiRuntimeListModels();
 
-  Future<ThreadInfo> crateApiRuntimeResumeThread({required String threadId});
-
   Stream<RuntimeEvent> crateApiRuntimeRuntimeEvents({
     required BigInt clientEpoch,
   });
 
   Future<void> crateApiRuntimeShutdownRuntime();
-
-  Future<ThreadInfo> crateApiRuntimeStartThread({
-    required String modelId,
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  });
 
   Future<RunInfo> crateApiRuntimeStartTurn({required TurnRequest request});
 }
@@ -307,40 +293,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "disconnect_account", argNames: []);
 
   @override
-  Future<ThreadInfo> crateApiRuntimeForkThread({
-    required String threadId,
-    String? turnId,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(threadId, serializer);
-          sse_encode_opt_String(turnId, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 7,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_thread_info,
-          decodeErrorData: sse_decode_bridge_error,
-        ),
-        constMeta: kCrateApiRuntimeForkThreadConstMeta,
-        argValues: [threadId, turnId],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiRuntimeForkThreadConstMeta => const TaskConstMeta(
-    debugName: "fork_thread",
-    argNames: ["threadId", "turnId"],
-  );
-
-  @override
   Future<void> crateApiRuntimeInitApp() {
     return handler.executeNormal(
       NormalTask(
@@ -349,7 +301,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 7,
             port: port_,
           );
         },
@@ -370,7 +322,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<void> crateApiRuntimeInitializeRuntime({
     required BigInt clientEpoch,
-    required String dataDirectory,
     Uint8List? authSnapshot,
   }) {
     return handler.executeNormal(
@@ -378,12 +329,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_u_64(clientEpoch, serializer);
-          sse_encode_String(dataDirectory, serializer);
           sse_encode_opt_list_prim_u_8_strict(authSnapshot, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 8,
             port: port_,
           );
         },
@@ -392,7 +342,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_bridge_error,
         ),
         constMeta: kCrateApiRuntimeInitializeRuntimeConstMeta,
-        argValues: [clientEpoch, dataDirectory, authSnapshot],
+        argValues: [clientEpoch, authSnapshot],
         apiImpl: this,
       ),
     );
@@ -401,7 +351,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiRuntimeInitializeRuntimeConstMeta =>
       const TaskConstMeta(
         debugName: "initialize_runtime",
-        argNames: ["clientEpoch", "dataDirectory", "authSnapshot"],
+        argNames: ["clientEpoch", "authSnapshot"],
       );
 
   @override
@@ -414,7 +364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 9,
             port: port_,
           );
         },
@@ -441,7 +391,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 10,
             port: port_,
           );
         },
@@ -460,34 +410,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "list_models", argNames: []);
 
   @override
-  Future<ThreadInfo> crateApiRuntimeResumeThread({required String threadId}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(threadId, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 12,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_thread_info,
-          decodeErrorData: sse_decode_bridge_error,
-        ),
-        constMeta: kCrateApiRuntimeResumeThreadConstMeta,
-        argValues: [threadId],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiRuntimeResumeThreadConstMeta =>
-      const TaskConstMeta(debugName: "resume_thread", argNames: ["threadId"]);
-
-  @override
   Stream<RuntimeEvent> crateApiRuntimeRuntimeEvents({
     required BigInt clientEpoch,
   }) {
@@ -502,7 +424,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 13,
+              funcId: 11,
               port: port_,
             );
           },
@@ -534,7 +456,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 12,
             port: port_,
           );
         },
@@ -553,42 +475,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "shutdown_runtime", argNames: []);
 
   @override
-  Future<ThreadInfo> crateApiRuntimeStartThread({
-    required String modelId,
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(modelId, serializer);
-          sse_encode_bool(enableWebSearch, serializer);
-          sse_encode_bool(enableImageGeneration, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 15,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_thread_info,
-          decodeErrorData: sse_decode_bridge_error,
-        ),
-        constMeta: kCrateApiRuntimeStartThreadConstMeta,
-        argValues: [modelId, enableWebSearch, enableImageGeneration],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiRuntimeStartThreadConstMeta => const TaskConstMeta(
-    debugName: "start_thread",
-    argNames: ["modelId", "enableWebSearch", "enableImageGeneration"],
-  );
-
-  @override
   Future<RunInfo> crateApiRuntimeStartTurn({required TurnRequest request}) {
     return handler.executeNormal(
       NormalTask(
@@ -598,7 +484,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 13,
             port: port_,
           );
         },
@@ -670,6 +556,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_64(raw);
+  }
+
+  @protected
   BridgeError dco_decode_bridge_error(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -732,6 +624,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TurnMessage> dco_decode_list_turn_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_turn_message).toList();
+  }
+
+  @protected
   ModelInfo dco_decode_model_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -761,6 +659,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
@@ -770,12 +674,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RunInfo dco_decode_run_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
     return RunInfo(
       runId: dco_decode_String(arr[0]),
-      threadId: dco_decode_String(arr[1]),
-      turnId: dco_decode_opt_String(arr[2]),
+      sessionId: dco_decode_String(arr[1]),
     );
   }
 
@@ -783,19 +686,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RuntimeEvent dco_decode_runtime_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return RuntimeEvent(
       clientEpoch: dco_decode_u_64(arr[0]),
       sequence: dco_decode_u_64(arr[1]),
       kind: dco_decode_runtime_event_kind(arr[2]),
       runId: dco_decode_opt_String(arr[3]),
-      threadId: dco_decode_opt_String(arr[4]),
-      turnId: dco_decode_opt_String(arr[5]),
-      itemId: dco_decode_opt_String(arr[6]),
-      text: dco_decode_opt_String(arr[7]),
-      jsonData: dco_decode_opt_String(arr[8]),
-      binaryData: dco_decode_opt_list_prim_u_8_strict(arr[9]),
+      sessionId: dco_decode_opt_String(arr[4]),
+      itemId: dco_decode_opt_String(arr[5]),
+      text: dco_decode_opt_String(arr[6]),
+      jsonData: dco_decode_opt_String(arr[7]),
+      binaryData: dco_decode_opt_list_prim_u_8_strict(arr[8]),
     );
   }
 
@@ -803,18 +705,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RuntimeEventKind dco_decode_runtime_event_kind(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return RuntimeEventKind.values[raw as int];
-  }
-
-  @protected
-  ThreadInfo dco_decode_thread_info(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
-    return ThreadInfo(
-      threadId: dco_decode_String(arr[0]),
-      modelId: dco_decode_String(arr[1]),
-    );
   }
 
   @protected
@@ -833,19 +723,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TurnMessage dco_decode_turn_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return TurnMessage(
+      role: dco_decode_turn_message_role(arr[0]),
+      messageId: dco_decode_opt_String(arr[1]),
+      parts: dco_decode_list_turn_input_part(arr[2]),
+    );
+  }
+
+  @protected
+  TurnMessageRole dco_decode_turn_message_role(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TurnMessageRole.values[raw as int];
+  }
+
+  @protected
   TurnRequest dco_decode_turn_request(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return TurnRequest(
-      threadId: dco_decode_String(arr[0]),
-      clientUserMessageId: dco_decode_opt_String(arr[1]),
-      modelId: dco_decode_String(arr[2]),
-      reasoningEffort: dco_decode_opt_String(arr[3]),
-      enableWebSearch: dco_decode_bool(arr[4]),
-      enableImageGeneration: dco_decode_bool(arr[5]),
-      inputs: dco_decode_list_turn_input_part(arr[6]),
+      sessionId: dco_decode_String(arr[0]),
+      modelId: dco_decode_String(arr[1]),
+      reasoningEffort: dco_decode_opt_String(arr[2]),
+      enableWebSearch: dco_decode_bool(arr[3]),
+      enableImageGeneration: dco_decode_bool(arr[4]),
+      messages: dco_decode_list_turn_message(arr[5]),
+      checkpoint: dco_decode_opt_list_prim_u_8_strict(arr[6]),
+      previousInputTokens: dco_decode_opt_box_autoadd_u_64(arr[7]),
     );
   }
 
@@ -930,6 +840,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_64(deserializer));
   }
 
   @protected
@@ -1019,6 +935,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TurnMessage> sse_decode_list_turn_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TurnMessage>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_turn_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   ModelInfo sse_decode_model_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_id = sse_decode_String(deserializer);
@@ -1062,6 +990,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1076,13 +1015,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RunInfo sse_decode_run_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_runId = sse_decode_String(deserializer);
-    var var_threadId = sse_decode_String(deserializer);
-    var var_turnId = sse_decode_opt_String(deserializer);
-    return RunInfo(
-      runId: var_runId,
-      threadId: var_threadId,
-      turnId: var_turnId,
-    );
+    var var_sessionId = sse_decode_String(deserializer);
+    return RunInfo(runId: var_runId, sessionId: var_sessionId);
   }
 
   @protected
@@ -1092,8 +1026,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_sequence = sse_decode_u_64(deserializer);
     var var_kind = sse_decode_runtime_event_kind(deserializer);
     var var_runId = sse_decode_opt_String(deserializer);
-    var var_threadId = sse_decode_opt_String(deserializer);
-    var var_turnId = sse_decode_opt_String(deserializer);
+    var var_sessionId = sse_decode_opt_String(deserializer);
     var var_itemId = sse_decode_opt_String(deserializer);
     var var_text = sse_decode_opt_String(deserializer);
     var var_jsonData = sse_decode_opt_String(deserializer);
@@ -1103,8 +1036,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       sequence: var_sequence,
       kind: var_kind,
       runId: var_runId,
-      threadId: var_threadId,
-      turnId: var_turnId,
+      sessionId: var_sessionId,
       itemId: var_itemId,
       text: var_text,
       jsonData: var_jsonData,
@@ -1117,14 +1049,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return RuntimeEventKind.values[inner];
-  }
-
-  @protected
-  ThreadInfo sse_decode_thread_info(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_threadId = sse_decode_String(deserializer);
-    var var_modelId = sse_decode_String(deserializer);
-    return ThreadInfo(threadId: var_threadId, modelId: var_modelId);
   }
 
   @protected
@@ -1145,23 +1069,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TurnMessage sse_decode_turn_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_role = sse_decode_turn_message_role(deserializer);
+    var var_messageId = sse_decode_opt_String(deserializer);
+    var var_parts = sse_decode_list_turn_input_part(deserializer);
+    return TurnMessage(
+      role: var_role,
+      messageId: var_messageId,
+      parts: var_parts,
+    );
+  }
+
+  @protected
+  TurnMessageRole sse_decode_turn_message_role(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return TurnMessageRole.values[inner];
+  }
+
+  @protected
   TurnRequest sse_decode_turn_request(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_threadId = sse_decode_String(deserializer);
-    var var_clientUserMessageId = sse_decode_opt_String(deserializer);
+    var var_sessionId = sse_decode_String(deserializer);
     var var_modelId = sse_decode_String(deserializer);
     var var_reasoningEffort = sse_decode_opt_String(deserializer);
     var var_enableWebSearch = sse_decode_bool(deserializer);
     var var_enableImageGeneration = sse_decode_bool(deserializer);
-    var var_inputs = sse_decode_list_turn_input_part(deserializer);
+    var var_messages = sse_decode_list_turn_message(deserializer);
+    var var_checkpoint = sse_decode_opt_list_prim_u_8_strict(deserializer);
+    var var_previousInputTokens = sse_decode_opt_box_autoadd_u_64(deserializer);
     return TurnRequest(
-      threadId: var_threadId,
-      clientUserMessageId: var_clientUserMessageId,
+      sessionId: var_sessionId,
       modelId: var_modelId,
       reasoningEffort: var_reasoningEffort,
       enableWebSearch: var_enableWebSearch,
       enableImageGeneration: var_enableImageGeneration,
-      inputs: var_inputs,
+      messages: var_messages,
+      checkpoint: var_checkpoint,
+      previousInputTokens: var_previousInputTokens,
     );
   }
 
@@ -1255,6 +1201,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self, serializer);
+  }
+
+  @protected
   void sse_encode_bridge_error(BridgeError self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bridge_error_kind(self.kind, serializer);
@@ -1332,6 +1284,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_turn_message(
+    List<TurnMessage> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_turn_message(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_model_info(ModelInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.id, serializer);
@@ -1364,6 +1328,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_list_prim_u_8_strict(
     Uint8List? self,
     SseSerializer serializer,
@@ -1380,8 +1354,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_run_info(RunInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.runId, serializer);
-    sse_encode_String(self.threadId, serializer);
-    sse_encode_opt_String(self.turnId, serializer);
+    sse_encode_String(self.sessionId, serializer);
   }
 
   @protected
@@ -1391,8 +1364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.sequence, serializer);
     sse_encode_runtime_event_kind(self.kind, serializer);
     sse_encode_opt_String(self.runId, serializer);
-    sse_encode_opt_String(self.threadId, serializer);
-    sse_encode_opt_String(self.turnId, serializer);
+    sse_encode_opt_String(self.sessionId, serializer);
     sse_encode_opt_String(self.itemId, serializer);
     sse_encode_opt_String(self.text, serializer);
     sse_encode_opt_String(self.jsonData, serializer);
@@ -1409,13 +1381,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_thread_info(ThreadInfo self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.threadId, serializer);
-    sse_encode_String(self.modelId, serializer);
-  }
-
-  @protected
   void sse_encode_turn_input_part(
     TurnInputPart self,
     SseSerializer serializer,
@@ -1429,15 +1394,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_turn_message(TurnMessage self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_turn_message_role(self.role, serializer);
+    sse_encode_opt_String(self.messageId, serializer);
+    sse_encode_list_turn_input_part(self.parts, serializer);
+  }
+
+  @protected
+  void sse_encode_turn_message_role(
+    TurnMessageRole self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_turn_request(TurnRequest self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.threadId, serializer);
-    sse_encode_opt_String(self.clientUserMessageId, serializer);
+    sse_encode_String(self.sessionId, serializer);
     sse_encode_String(self.modelId, serializer);
     sse_encode_opt_String(self.reasoningEffort, serializer);
     sse_encode_bool(self.enableWebSearch, serializer);
     sse_encode_bool(self.enableImageGeneration, serializer);
-    sse_encode_list_turn_input_part(self.inputs, serializer);
+    sse_encode_list_turn_message(self.messages, serializer);
+    sse_encode_opt_list_prim_u_8_strict(self.checkpoint, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.previousInputTokens, serializer);
   }
 
   @protected

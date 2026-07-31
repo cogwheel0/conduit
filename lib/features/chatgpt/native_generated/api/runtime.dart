@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import 'contract.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `blank_event`, `bounded_string`, `chatgpt_account_id`, `classify_protocol_error`, `context_snapshot`, `data_url`, `drain_queued`, `emit_runtime_event`, `emit`, `encode_turn_inputs`, `encoded_inputs_size`, `enqueue`, `escaped_document_text`, `event_with_ids`, `expire_stalled_runs`, `fail_all_runtime_runs`, `finish_scheduled_run`, `generated_image_bytes`, `generated_image_media_type`, `hex_prefix`, `install_auth_snapshot`, `item_label`, `json_string_at`, `map_notification`, `maybe_request_auth_persistence`, `merge_or_flush_delta`, `new`, `notification_ids`, `parse_auth_state`, `pop_queued`, `release_and_take_next`, `remove_queued`, `request_auth_persistence`, `required_nested_string`, `required_string`, `rpc`, `run_queued_chain`, `runtime_not_initialized`, `safe_web_url`, `sanitized_account_json`, `sanitized_document_attribute`, `sanitized_error_json`, `sanitized_generated_image_json`, `sanitized_item_json`, `sanitized_json`, `sanitized_source_json`, `sanitized_usage_json`, `sanitized_warning`, `shutdown_runtime_inner`, `snapshot_hash`, `start_native_turn`, `start_next_queued_run`, `subscribe`, `take_next_ready_run`, `touch_active_run`, `validate_client_epoch`, `validate_identifier`, `validated_media_type`, `validated_runtime_root`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveRun`, `EventContext`, `EventHub`, `NotificationIds`, `PendingAuthMutation`, `PendingDelta`, `QueuedRun`, `RuntimeHandle`, `TurnScheduler`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
+// These functions are ignored because they are not marked as `pub`: `account_fingerprint`, `auth_event`, `auth_state_info`, `bounded`, `build`, `cancel_all_work`, `cancel_device_code_login_inner`, `cancellable_api`, `cancellable_bridge`, `cancellation_error`, `checkpoint_mismatch`, `classify_login_failure`, `coalesce_delta`, `compact_history`, `current_auth_snapshot`, `data_url`, `decode_checkpoint`, `device_login_options`, `emit_checkpoint`, `emit_sources`, `emit`, `encode_messages`, `encode_part`, `enqueue`, `event`, `execute_image_tool`, `execute_response_loop`, `execute_turn`, `execute_web_tool`, `finish_run`, `flush_pending`, `hex_prefix`, `image_tool_spec`, `install_auth_snapshot`, `is_unauthorized`, `map_api_error`, `model_compact_limit`, `new`, `persist_current_auth`, `prepare_auth`, `recent_image_urls`, `refresh_after_unauthorized`, `remove_queued`, `request_auth_mutation`, `request_image`, `restore_auth`, `run_event`, `runtime_handle`, `safe_web_url`, `shutdown_runtime_inner`, `snapshot_hash`, `spawn_run`, `subscribe`, `take_next_ready`, `tool_policy_hash`, `tool_specs`, `tool_text_output`, `try_coalesce_delta`, `turn_request_size`, `validate_checkpoint_items`, `validate_identifier`, `validate_turn_request`, `validated_binary`, `validated_image`, `validated_mime`, `web_tool_spec`, `with_binary`, `with_item`, `with_json`, `with_optional_binary`, `with_text`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveLogin`, `ActiveRun`, `CachedModels`, `CheckpointEnvelope`, `DynamicBearerAuth`, `EventHub`, `ImageToolArgs`, `PendingAuthMutation`, `QueuedRun`, `RuntimeEventBuilder`, `RuntimeHandle`, `TurnScheduler`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add_auth_headers`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `from`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 Future<int> bridgeProtocolVersion() =>
@@ -17,11 +17,9 @@ Future<int> bridgeProtocolVersion() =>
 
 Future<void> initializeRuntime({
   required BigInt clientEpoch,
-  required String dataDirectory,
   Uint8List? authSnapshot,
 }) => RustLib.instance.api.crateApiRuntimeInitializeRuntime(
   clientEpoch: clientEpoch,
-  dataDirectory: dataDirectory,
   authSnapshot: authSnapshot,
 );
 
@@ -39,25 +37,6 @@ Future<void> cancelDeviceCodeLogin() =>
 
 Future<List<ModelInfo>> listModels() =>
     RustLib.instance.api.crateApiRuntimeListModels();
-
-Future<ThreadInfo> startThread({
-  required String modelId,
-  required bool enableWebSearch,
-  required bool enableImageGeneration,
-}) => RustLib.instance.api.crateApiRuntimeStartThread(
-  modelId: modelId,
-  enableWebSearch: enableWebSearch,
-  enableImageGeneration: enableImageGeneration,
-);
-
-Future<ThreadInfo> resumeThread({required String threadId}) =>
-    RustLib.instance.api.crateApiRuntimeResumeThread(threadId: threadId);
-
-Future<ThreadInfo> forkThread({required String threadId, String? turnId}) =>
-    RustLib.instance.api.crateApiRuntimeForkThread(
-      threadId: threadId,
-      turnId: turnId,
-    );
 
 Future<RunInfo> startTurn({required TurnRequest request}) =>
     RustLib.instance.api.crateApiRuntimeStartTurn(request: request);

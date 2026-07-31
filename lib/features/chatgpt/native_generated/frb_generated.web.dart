@@ -45,6 +45,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
   BridgeError dco_decode_bridge_error(dynamic raw);
 
   @protected
@@ -69,6 +72,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TurnInputPart> dco_decode_list_turn_input_part(dynamic raw);
 
   @protected
+  List<TurnMessage> dco_decode_list_turn_message(dynamic raw);
+
+  @protected
   ModelInfo dco_decode_model_info(dynamic raw);
 
   @protected
@@ -76,6 +82,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
@@ -90,10 +99,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RuntimeEventKind dco_decode_runtime_event_kind(dynamic raw);
 
   @protected
-  ThreadInfo dco_decode_thread_info(dynamic raw);
+  TurnInputPart dco_decode_turn_input_part(dynamic raw);
 
   @protected
-  TurnInputPart dco_decode_turn_input_part(dynamic raw);
+  TurnMessage dco_decode_turn_message(dynamic raw);
+
+  @protected
+  TurnMessageRole dco_decode_turn_message_role(dynamic raw);
 
   @protected
   TurnRequest dco_decode_turn_request(dynamic raw);
@@ -134,6 +146,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   BridgeError sse_decode_bridge_error(SseDeserializer deserializer);
 
   @protected
@@ -162,6 +177,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<TurnMessage> sse_decode_list_turn_message(SseDeserializer deserializer);
+
+  @protected
   ModelInfo sse_decode_model_info(SseDeserializer deserializer);
 
   @protected
@@ -169,6 +187,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
@@ -183,10 +204,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RuntimeEventKind sse_decode_runtime_event_kind(SseDeserializer deserializer);
 
   @protected
-  ThreadInfo sse_decode_thread_info(SseDeserializer deserializer);
+  TurnInputPart sse_decode_turn_input_part(SseDeserializer deserializer);
 
   @protected
-  TurnInputPart sse_decode_turn_input_part(SseDeserializer deserializer);
+  TurnMessage sse_decode_turn_message(SseDeserializer deserializer);
+
+  @protected
+  TurnMessageRole sse_decode_turn_message_role(SseDeserializer deserializer);
 
   @protected
   TurnRequest sse_decode_turn_request(SseDeserializer deserializer);
@@ -234,6 +258,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bridge_error(BridgeError self, SseSerializer serializer);
 
   @protected
@@ -273,6 +300,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_turn_message(
+    List<TurnMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_model_info(ModelInfo self, SseSerializer serializer);
 
   @protected
@@ -280,6 +313,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_prim_u_8_strict(
@@ -300,10 +336,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_thread_info(ThreadInfo self, SseSerializer serializer);
+  void sse_encode_turn_input_part(TurnInputPart self, SseSerializer serializer);
 
   @protected
-  void sse_encode_turn_input_part(TurnInputPart self, SseSerializer serializer);
+  void sse_encode_turn_message(TurnMessage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_turn_message_role(
+    TurnMessageRole self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_turn_request(TurnRequest self, SseSerializer serializer);

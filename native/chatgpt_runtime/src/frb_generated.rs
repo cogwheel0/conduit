@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1262678885;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -415713412;
 
 // Section: executor
 
@@ -258,44 +258,6 @@ fn wire__crate__api__runtime__disconnect_account_impl(
         },
     )
 }
-fn wire__crate__api__runtime__fork_thread_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "fork_thread",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_thread_id = <String>::sse_decode(&mut deserializer);
-            let api_turn_id = <Option<String>>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::api::contract::BridgeError>(
-                    (move || async move {
-                        let output_ok =
-                            crate::api::runtime::fork_thread(api_thread_id, api_turn_id).await?;
-                        Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
 fn wire__crate__api__runtime__init_app_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -353,7 +315,6 @@ fn wire__crate__api__runtime__initialize_runtime_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_client_epoch = <u64>::sse_decode(&mut deserializer);
-            let api_data_directory = <String>::sse_decode(&mut deserializer);
             let api_auth_snapshot = <Option<Vec<u8>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
@@ -361,7 +322,6 @@ fn wire__crate__api__runtime__initialize_runtime_impl(
                     (move || async move {
                         let output_ok = crate::api::runtime::initialize_runtime(
                             api_client_epoch,
-                            api_data_directory,
                             api_auth_snapshot,
                         )
                         .await?;
@@ -444,42 +404,6 @@ fn wire__crate__api__runtime__list_models_impl(
         },
     )
 }
-fn wire__crate__api__runtime__resume_thread_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "resume_thread",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_thread_id = <String>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::api::contract::BridgeError>(
-                    (move || async move {
-                        let output_ok = crate::api::runtime::resume_thread(api_thread_id).await?;
-                        Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
 fn wire__crate__api__runtime__runtime_events_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -548,49 +472,6 @@ fn wire__crate__api__runtime__shutdown_runtime_impl(
                 transform_result_sse::<_, crate::api::contract::BridgeError>(
                     (move || async move {
                         let output_ok = crate::api::runtime::shutdown_runtime().await?;
-                        Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
-fn wire__crate__api__runtime__start_thread_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "start_thread",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_model_id = <String>::sse_decode(&mut deserializer);
-            let api_enable_web_search = <bool>::sse_decode(&mut deserializer);
-            let api_enable_image_generation = <bool>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::api::contract::BridgeError>(
-                    (move || async move {
-                        let output_ok = crate::api::runtime::start_thread(
-                            api_model_id,
-                            api_enable_web_search,
-                            api_enable_image_generation,
-                        )
-                        .await?;
                         Ok(output_ok)
                     })()
                     .await,
@@ -792,6 +673,20 @@ impl SseDecode for Vec<crate::api::contract::TurnInputPart> {
     }
 }
 
+impl SseDecode for Vec<crate::api::contract::TurnMessage> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::contract::TurnMessage>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for crate::api::contract::ModelInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -836,6 +731,17 @@ impl SseDecode for Option<u32> {
     }
 }
 
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<Vec<u8>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -851,12 +757,10 @@ impl SseDecode for crate::api::contract::RunInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_runId = <String>::sse_decode(deserializer);
-        let mut var_threadId = <String>::sse_decode(deserializer);
-        let mut var_turnId = <Option<String>>::sse_decode(deserializer);
+        let mut var_sessionId = <String>::sse_decode(deserializer);
         return crate::api::contract::RunInfo {
             run_id: var_runId,
-            thread_id: var_threadId,
-            turn_id: var_turnId,
+            session_id: var_sessionId,
         };
     }
 }
@@ -868,8 +772,7 @@ impl SseDecode for crate::api::contract::RuntimeEvent {
         let mut var_sequence = <u64>::sse_decode(deserializer);
         let mut var_kind = <crate::api::contract::RuntimeEventKind>::sse_decode(deserializer);
         let mut var_runId = <Option<String>>::sse_decode(deserializer);
-        let mut var_threadId = <Option<String>>::sse_decode(deserializer);
-        let mut var_turnId = <Option<String>>::sse_decode(deserializer);
+        let mut var_sessionId = <Option<String>>::sse_decode(deserializer);
         let mut var_itemId = <Option<String>>::sse_decode(deserializer);
         let mut var_text = <Option<String>>::sse_decode(deserializer);
         let mut var_jsonData = <Option<String>>::sse_decode(deserializer);
@@ -879,8 +782,7 @@ impl SseDecode for crate::api::contract::RuntimeEvent {
             sequence: var_sequence,
             kind: var_kind,
             run_id: var_runId,
-            thread_id: var_threadId,
-            turn_id: var_turnId,
+            session_id: var_sessionId,
             item_id: var_itemId,
             text: var_text,
             json_data: var_jsonData,
@@ -900,28 +802,15 @@ impl SseDecode for crate::api::contract::RuntimeEventKind {
             3 => crate::api::contract::RuntimeEventKind::TurnStarted,
             4 => crate::api::contract::RuntimeEventKind::TextDelta,
             5 => crate::api::contract::RuntimeEventKind::ReasoningDelta,
-            6 => crate::api::contract::RuntimeEventKind::ToolStarted,
-            7 => crate::api::contract::RuntimeEventKind::ToolCompleted,
-            8 => crate::api::contract::RuntimeEventKind::Source,
-            9 => crate::api::contract::RuntimeEventKind::GeneratedImage,
-            10 => crate::api::contract::RuntimeEventKind::Usage,
-            11 => crate::api::contract::RuntimeEventKind::Cancelled,
-            12 => crate::api::contract::RuntimeEventKind::Completed,
-            13 => crate::api::contract::RuntimeEventKind::Failure,
-            14 => crate::api::contract::RuntimeEventKind::Diagnostic,
+            6 => crate::api::contract::RuntimeEventKind::Source,
+            7 => crate::api::contract::RuntimeEventKind::GeneratedImage,
+            8 => crate::api::contract::RuntimeEventKind::Usage,
+            9 => crate::api::contract::RuntimeEventKind::CheckpointUpdated,
+            10 => crate::api::contract::RuntimeEventKind::Cancelled,
+            11 => crate::api::contract::RuntimeEventKind::Completed,
+            12 => crate::api::contract::RuntimeEventKind::Failure,
+            13 => crate::api::contract::RuntimeEventKind::Diagnostic,
             _ => unreachable!("Invalid variant for RuntimeEventKind: {}", inner),
-        };
-    }
-}
-
-impl SseDecode for crate::api::contract::ThreadInfo {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_threadId = <String>::sse_decode(deserializer);
-        let mut var_modelId = <String>::sse_decode(deserializer);
-        return crate::api::contract::ThreadInfo {
-            thread_id: var_threadId,
-            model_id: var_modelId,
         };
     }
 }
@@ -944,24 +833,53 @@ impl SseDecode for crate::api::contract::TurnInputPart {
     }
 }
 
+impl SseDecode for crate::api::contract::TurnMessage {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_role = <crate::api::contract::TurnMessageRole>::sse_decode(deserializer);
+        let mut var_messageId = <Option<String>>::sse_decode(deserializer);
+        let mut var_parts = <Vec<crate::api::contract::TurnInputPart>>::sse_decode(deserializer);
+        return crate::api::contract::TurnMessage {
+            role: var_role,
+            message_id: var_messageId,
+            parts: var_parts,
+        };
+    }
+}
+
+impl SseDecode for crate::api::contract::TurnMessageRole {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::contract::TurnMessageRole::System,
+            1 => crate::api::contract::TurnMessageRole::User,
+            2 => crate::api::contract::TurnMessageRole::Assistant,
+            _ => unreachable!("Invalid variant for TurnMessageRole: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for crate::api::contract::TurnRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_threadId = <String>::sse_decode(deserializer);
-        let mut var_clientUserMessageId = <Option<String>>::sse_decode(deserializer);
+        let mut var_sessionId = <String>::sse_decode(deserializer);
         let mut var_modelId = <String>::sse_decode(deserializer);
         let mut var_reasoningEffort = <Option<String>>::sse_decode(deserializer);
         let mut var_enableWebSearch = <bool>::sse_decode(deserializer);
         let mut var_enableImageGeneration = <bool>::sse_decode(deserializer);
-        let mut var_inputs = <Vec<crate::api::contract::TurnInputPart>>::sse_decode(deserializer);
+        let mut var_messages = <Vec<crate::api::contract::TurnMessage>>::sse_decode(deserializer);
+        let mut var_checkpoint = <Option<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_previousInputTokens = <Option<u64>>::sse_decode(deserializer);
         return crate::api::contract::TurnRequest {
-            thread_id: var_threadId,
-            client_user_message_id: var_clientUserMessageId,
+            session_id: var_sessionId,
             model_id: var_modelId,
             reasoning_effort: var_reasoningEffort,
             enable_web_search: var_enableWebSearch,
             enable_image_generation: var_enableImageGeneration,
-            inputs: var_inputs,
+            messages: var_messages,
+            checkpoint: var_checkpoint,
+            previous_input_tokens: var_previousInputTokens,
         };
     }
 }
@@ -1022,16 +940,13 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         6 => wire__crate__api__runtime__disconnect_account_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__runtime__fork_thread_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__runtime__init_app_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__runtime__initialize_runtime_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__runtime__interrupt_turn_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__runtime__list_models_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__runtime__resume_thread_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__runtime__runtime_events_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__runtime__shutdown_runtime_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__runtime__start_thread_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__runtime__start_turn_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__runtime__init_app_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__runtime__initialize_runtime_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__runtime__interrupt_turn_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__runtime__list_models_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__runtime__runtime_events_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__runtime__shutdown_runtime_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__runtime__start_turn_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1178,8 +1093,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::contract::RunInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.run_id.into_into_dart().into_dart(),
-            self.thread_id.into_into_dart().into_dart(),
-            self.turn_id.into_into_dart().into_dart(),
+            self.session_id.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1200,8 +1114,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::contract::RuntimeEvent {
             self.sequence.into_into_dart().into_dart(),
             self.kind.into_into_dart().into_dart(),
             self.run_id.into_into_dart().into_dart(),
-            self.thread_id.into_into_dart().into_dart(),
-            self.turn_id.into_into_dart().into_dart(),
+            self.session_id.into_into_dart().into_dart(),
             self.item_id.into_into_dart().into_dart(),
             self.text.into_into_dart().into_dart(),
             self.json_data.into_into_dart().into_dart(),
@@ -1231,15 +1144,14 @@ impl flutter_rust_bridge::IntoDart for crate::api::contract::RuntimeEventKind {
             Self::TurnStarted => 3.into_dart(),
             Self::TextDelta => 4.into_dart(),
             Self::ReasoningDelta => 5.into_dart(),
-            Self::ToolStarted => 6.into_dart(),
-            Self::ToolCompleted => 7.into_dart(),
-            Self::Source => 8.into_dart(),
-            Self::GeneratedImage => 9.into_dart(),
-            Self::Usage => 10.into_dart(),
-            Self::Cancelled => 11.into_dart(),
-            Self::Completed => 12.into_dart(),
-            Self::Failure => 13.into_dart(),
-            Self::Diagnostic => 14.into_dart(),
+            Self::Source => 6.into_dart(),
+            Self::GeneratedImage => 7.into_dart(),
+            Self::Usage => 8.into_dart(),
+            Self::CheckpointUpdated => 9.into_dart(),
+            Self::Cancelled => 10.into_dart(),
+            Self::Completed => 11.into_dart(),
+            Self::Failure => 12.into_dart(),
+            Self::Diagnostic => 13.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -1252,27 +1164,6 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::contract::RuntimeEventKind>
     for crate::api::contract::RuntimeEventKind
 {
     fn into_into_dart(self) -> crate::api::contract::RuntimeEventKind {
-        self
-    }
-}
-// Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::api::contract::ThreadInfo {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.thread_id.into_into_dart().into_dart(),
-            self.model_id.into_into_dart().into_dart(),
-        ]
-        .into_dart()
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::contract::ThreadInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::contract::ThreadInfo>
-    for crate::api::contract::ThreadInfo
-{
-    fn into_into_dart(self) -> crate::api::contract::ThreadInfo {
         self
     }
 }
@@ -1301,16 +1192,61 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::contract::TurnInputPart>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::contract::TurnMessage {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.role.into_into_dart().into_dart(),
+            self.message_id.into_into_dart().into_dart(),
+            self.parts.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::contract::TurnMessage
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::contract::TurnMessage>
+    for crate::api::contract::TurnMessage
+{
+    fn into_into_dart(self) -> crate::api::contract::TurnMessage {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::contract::TurnMessageRole {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::System => 0.into_dart(),
+            Self::User => 1.into_dart(),
+            Self::Assistant => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::contract::TurnMessageRole
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::contract::TurnMessageRole>
+    for crate::api::contract::TurnMessageRole
+{
+    fn into_into_dart(self) -> crate::api::contract::TurnMessageRole {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::contract::TurnRequest {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.thread_id.into_into_dart().into_dart(),
-            self.client_user_message_id.into_into_dart().into_dart(),
+            self.session_id.into_into_dart().into_dart(),
             self.model_id.into_into_dart().into_dart(),
             self.reasoning_effort.into_into_dart().into_dart(),
             self.enable_web_search.into_into_dart().into_dart(),
             self.enable_image_generation.into_into_dart().into_dart(),
-            self.inputs.into_into_dart().into_dart(),
+            self.messages.into_into_dart().into_dart(),
+            self.checkpoint.into_into_dart().into_dart(),
+            self.previous_input_tokens.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1455,6 +1391,16 @@ impl SseEncode for Vec<crate::api::contract::TurnInputPart> {
     }
 }
 
+impl SseEncode for Vec<crate::api::contract::TurnMessage> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::contract::TurnMessage>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for crate::api::contract::ModelInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1488,6 +1434,16 @@ impl SseEncode for Option<u32> {
     }
 }
 
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<Vec<u8>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1502,8 +1458,7 @@ impl SseEncode for crate::api::contract::RunInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.run_id, serializer);
-        <String>::sse_encode(self.thread_id, serializer);
-        <Option<String>>::sse_encode(self.turn_id, serializer);
+        <String>::sse_encode(self.session_id, serializer);
     }
 }
 
@@ -1514,8 +1469,7 @@ impl SseEncode for crate::api::contract::RuntimeEvent {
         <u64>::sse_encode(self.sequence, serializer);
         <crate::api::contract::RuntimeEventKind>::sse_encode(self.kind, serializer);
         <Option<String>>::sse_encode(self.run_id, serializer);
-        <Option<String>>::sse_encode(self.thread_id, serializer);
-        <Option<String>>::sse_encode(self.turn_id, serializer);
+        <Option<String>>::sse_encode(self.session_id, serializer);
         <Option<String>>::sse_encode(self.item_id, serializer);
         <Option<String>>::sse_encode(self.text, serializer);
         <Option<String>>::sse_encode(self.json_data, serializer);
@@ -1534,29 +1488,20 @@ impl SseEncode for crate::api::contract::RuntimeEventKind {
                 crate::api::contract::RuntimeEventKind::TurnStarted => 3,
                 crate::api::contract::RuntimeEventKind::TextDelta => 4,
                 crate::api::contract::RuntimeEventKind::ReasoningDelta => 5,
-                crate::api::contract::RuntimeEventKind::ToolStarted => 6,
-                crate::api::contract::RuntimeEventKind::ToolCompleted => 7,
-                crate::api::contract::RuntimeEventKind::Source => 8,
-                crate::api::contract::RuntimeEventKind::GeneratedImage => 9,
-                crate::api::contract::RuntimeEventKind::Usage => 10,
-                crate::api::contract::RuntimeEventKind::Cancelled => 11,
-                crate::api::contract::RuntimeEventKind::Completed => 12,
-                crate::api::contract::RuntimeEventKind::Failure => 13,
-                crate::api::contract::RuntimeEventKind::Diagnostic => 14,
+                crate::api::contract::RuntimeEventKind::Source => 6,
+                crate::api::contract::RuntimeEventKind::GeneratedImage => 7,
+                crate::api::contract::RuntimeEventKind::Usage => 8,
+                crate::api::contract::RuntimeEventKind::CheckpointUpdated => 9,
+                crate::api::contract::RuntimeEventKind::Cancelled => 10,
+                crate::api::contract::RuntimeEventKind::Completed => 11,
+                crate::api::contract::RuntimeEventKind::Failure => 12,
+                crate::api::contract::RuntimeEventKind::Diagnostic => 13,
                 _ => {
                     unimplemented!("");
                 }
             },
             serializer,
         );
-    }
-}
-
-impl SseEncode for crate::api::contract::ThreadInfo {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <String>::sse_encode(self.thread_id, serializer);
-        <String>::sse_encode(self.model_id, serializer);
     }
 }
 
@@ -1571,16 +1516,43 @@ impl SseEncode for crate::api::contract::TurnInputPart {
     }
 }
 
+impl SseEncode for crate::api::contract::TurnMessage {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::api::contract::TurnMessageRole>::sse_encode(self.role, serializer);
+        <Option<String>>::sse_encode(self.message_id, serializer);
+        <Vec<crate::api::contract::TurnInputPart>>::sse_encode(self.parts, serializer);
+    }
+}
+
+impl SseEncode for crate::api::contract::TurnMessageRole {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::contract::TurnMessageRole::System => 0,
+                crate::api::contract::TurnMessageRole::User => 1,
+                crate::api::contract::TurnMessageRole::Assistant => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::api::contract::TurnRequest {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <String>::sse_encode(self.thread_id, serializer);
-        <Option<String>>::sse_encode(self.client_user_message_id, serializer);
+        <String>::sse_encode(self.session_id, serializer);
         <String>::sse_encode(self.model_id, serializer);
         <Option<String>>::sse_encode(self.reasoning_effort, serializer);
         <bool>::sse_encode(self.enable_web_search, serializer);
         <bool>::sse_encode(self.enable_image_generation, serializer);
-        <Vec<crate::api::contract::TurnInputPart>>::sse_encode(self.inputs, serializer);
+        <Vec<crate::api::contract::TurnMessage>>::sse_encode(self.messages, serializer);
+        <Option<Vec<u8>>>::sse_encode(self.checkpoint, serializer);
+        <Option<u64>>::sse_encode(self.previous_input_tokens, serializer);
     }
 }
 

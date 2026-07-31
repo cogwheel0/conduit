@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `internal`, `new`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 class AuthStateInfo {
   final bool authenticated;
@@ -150,13 +150,12 @@ class ModelInfo {
 
 class RunInfo {
   final String runId;
-  final String threadId;
-  final String? turnId;
+  final String sessionId;
 
-  const RunInfo({required this.runId, required this.threadId, this.turnId});
+  const RunInfo({required this.runId, required this.sessionId});
 
   @override
-  int get hashCode => runId.hashCode ^ threadId.hashCode ^ turnId.hashCode;
+  int get hashCode => runId.hashCode ^ sessionId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -164,8 +163,7 @@ class RunInfo {
       other is RunInfo &&
           runtimeType == other.runtimeType &&
           runId == other.runId &&
-          threadId == other.threadId &&
-          turnId == other.turnId;
+          sessionId == other.sessionId;
 }
 
 class RuntimeEvent {
@@ -173,8 +171,7 @@ class RuntimeEvent {
   final BigInt sequence;
   final RuntimeEventKind kind;
   final String? runId;
-  final String? threadId;
-  final String? turnId;
+  final String? sessionId;
   final String? itemId;
   final String? text;
 
@@ -189,8 +186,7 @@ class RuntimeEvent {
     required this.sequence,
     required this.kind,
     this.runId,
-    this.threadId,
-    this.turnId,
+    this.sessionId,
     this.itemId,
     this.text,
     this.jsonData,
@@ -203,8 +199,7 @@ class RuntimeEvent {
       sequence.hashCode ^
       kind.hashCode ^
       runId.hashCode ^
-      threadId.hashCode ^
-      turnId.hashCode ^
+      sessionId.hashCode ^
       itemId.hashCode ^
       text.hashCode ^
       jsonData.hashCode ^
@@ -219,8 +214,7 @@ class RuntimeEvent {
           sequence == other.sequence &&
           kind == other.kind &&
           runId == other.runId &&
-          threadId == other.threadId &&
-          turnId == other.turnId &&
+          sessionId == other.sessionId &&
           itemId == other.itemId &&
           text == other.text &&
           jsonData == other.jsonData &&
@@ -234,33 +228,14 @@ enum RuntimeEventKind {
   turnStarted,
   textDelta,
   reasoningDelta,
-  toolStarted,
-  toolCompleted,
   source,
   generatedImage,
   usage,
+  checkpointUpdated,
   cancelled,
   completed,
   failure,
   diagnostic,
-}
-
-class ThreadInfo {
-  final String threadId;
-  final String modelId;
-
-  const ThreadInfo({required this.threadId, required this.modelId});
-
-  @override
-  int get hashCode => threadId.hashCode ^ modelId.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ThreadInfo &&
-          runtimeType == other.runtimeType &&
-          threadId == other.threadId &&
-          modelId == other.modelId;
 }
 
 class TurnInputPart {
@@ -299,45 +274,71 @@ class TurnInputPart {
           bytes == other.bytes;
 }
 
+class TurnMessage {
+  final TurnMessageRole role;
+  final String? messageId;
+  final List<TurnInputPart> parts;
+
+  const TurnMessage({required this.role, this.messageId, required this.parts});
+
+  @override
+  int get hashCode => role.hashCode ^ messageId.hashCode ^ parts.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TurnMessage &&
+          runtimeType == other.runtimeType &&
+          role == other.role &&
+          messageId == other.messageId &&
+          parts == other.parts;
+}
+
+enum TurnMessageRole { system, user, assistant }
+
 class TurnRequest {
-  final String threadId;
-  final String? clientUserMessageId;
+  final String sessionId;
   final String modelId;
   final String? reasoningEffort;
   final bool enableWebSearch;
   final bool enableImageGeneration;
-  final List<TurnInputPart> inputs;
+  final List<TurnMessage> messages;
+  final Uint8List? checkpoint;
+  final BigInt? previousInputTokens;
 
   const TurnRequest({
-    required this.threadId,
-    this.clientUserMessageId,
+    required this.sessionId,
     required this.modelId,
     this.reasoningEffort,
     required this.enableWebSearch,
     required this.enableImageGeneration,
-    required this.inputs,
+    required this.messages,
+    this.checkpoint,
+    this.previousInputTokens,
   });
 
   @override
   int get hashCode =>
-      threadId.hashCode ^
-      clientUserMessageId.hashCode ^
+      sessionId.hashCode ^
       modelId.hashCode ^
       reasoningEffort.hashCode ^
       enableWebSearch.hashCode ^
       enableImageGeneration.hashCode ^
-      inputs.hashCode;
+      messages.hashCode ^
+      checkpoint.hashCode ^
+      previousInputTokens.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is TurnRequest &&
           runtimeType == other.runtimeType &&
-          threadId == other.threadId &&
-          clientUserMessageId == other.clientUserMessageId &&
+          sessionId == other.sessionId &&
           modelId == other.modelId &&
           reasoningEffort == other.reasoningEffort &&
           enableWebSearch == other.enableWebSearch &&
           enableImageGeneration == other.enableImageGeneration &&
-          inputs == other.inputs;
+          messages == other.messages &&
+          checkpoint == other.checkpoint &&
+          previousInputTokens == other.previousInputTokens;
 }
