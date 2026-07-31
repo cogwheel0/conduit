@@ -284,8 +284,6 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     await showReleaseNotesSheet(
       context: context,
       currentVersion: info.version,
-      previousVersion: null,
-      showSubtitle: false,
       notes: notes,
     );
   }

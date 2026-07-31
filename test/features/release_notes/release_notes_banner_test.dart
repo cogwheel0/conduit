@@ -95,7 +95,6 @@ Future<void> _pumpBanner(
       .show(
         ReleaseNotesBannerData(
           currentVersion: '4.0.1',
-          previousVersion: '3.4.3',
           notes: [
             ReleaseNote(
               version: '4.0.1',

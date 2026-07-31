@@ -41,4 +41,13 @@ void main() {
       () => parseReleaseNotes('{"notes":[{"version":"1.0.0"}]}'),
     ).throws<FormatException>();
   });
+
+  test('parser rejects a non-string bullet icon with FormatException', () {
+    check(
+      () => parseReleaseNotes(
+        '{"notes":[{"version":"1.0.0","title":"Title",'
+        '"intro":"Intro","bullets":[{"text":"Bullet","icon":7}]}]}',
+      ),
+    ).throws<FormatException>();
+  });
 }

@@ -19,9 +19,6 @@ class ReleaseNotesSheet extends StatelessWidget {
   const ReleaseNotesSheet({
     super.key,
     required this.currentVersion,
-    required this.previousVersion,
-    this.subtitle,
-    this.showSubtitle = true,
     required this.notes,
     required this.onReview,
     required this.onOpenSupport,
@@ -31,9 +28,6 @@ class ReleaseNotesSheet extends StatelessWidget {
   });
 
   final String currentVersion;
-  final String? previousVersion;
-  final String? subtitle;
-  final bool showSubtitle;
   final List<ReleaseNote> notes;
   final VoidCallback onReview;
   final VoidCallback onOpenSupport;
@@ -53,7 +47,6 @@ class ReleaseNotesSheet extends StatelessWidget {
     final sheetHeight =
         (viewportHeight * 0.84).clamp(0.0, 720.0) + composerBottomInset;
     final textScale = MediaQuery.textScalerOf(context).scale(1);
-    final useScrollableSummary = viewportHeight < 700 || textScale > 1.3;
     final useCompactSupport = viewportHeight < 600 || textScale > 1.3;
     final highlights = <_ReleaseHighlight>[
       for (final note in notes)
@@ -107,13 +100,11 @@ class ReleaseNotesSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
-                    child: useScrollableSummary
-                        ? SingleChildScrollView(
-                            key: const ValueKey('release-notes-summary-scroll'),
-                            physics: const BouncingScrollPhysics(),
-                            child: summary,
-                          )
-                        : summary,
+                    child: SingleChildScrollView(
+                      key: const ValueKey('release-notes-summary-scroll'),
+                      physics: const BouncingScrollPhysics(),
+                      child: summary,
+                    ),
                   ),
                   SizedBox(height: useCompactSupport ? Spacing.sm : Spacing.md),
                   _StaggeredReveal(

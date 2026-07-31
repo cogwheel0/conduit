@@ -269,6 +269,38 @@ void main() {
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
   });
 
+  testWidgets('undismissed banner reloads its notes after a locale change', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.lastSeenReleaseVersion: '3.3.2',
+      PreferenceKeys.releaseNotesBannerPreviousVersion: '3.3.1',
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+
+    await tester.pumpWidget(
+      _app(authState: AuthNavigationState.authenticated, showBanner: true),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.pumpWidget(
+      _app(
+        authState: AuthNavigationState.authenticated,
+        showBanner: true,
+        locale: const Locale('es'),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(releaseNotesBannerKey));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Hola, esta actualización está incluida.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('authenticated iOS banner opens the donation link sheet', (
     tester,
   ) async {
@@ -333,11 +365,30 @@ class _FakeNotesBundle extends CachingAssetBundle {
     ],
   };
 
+  static const _spanishDocument = {
+    'notes': [
+      {
+        'version': '3.3.2',
+        'title': 'Novedades',
+        'intro': 'Hola, esta actualización está incluida.',
+        'bullets': [
+          {'text': 'Registro incluido'},
+          {'text': 'Texto localizado'},
+        ],
+      },
+    ],
+  };
+
   @override
   Future<ByteData> load(String key) async {
-    if (key == 'assets/release_notes/en.json') {
+    final document = switch (key) {
+      'assets/release_notes/en.json' => _document,
+      'assets/release_notes/es.json' => _spanishDocument,
+      _ => null,
+    };
+    if (document != null) {
       return ByteData.sublistView(
-        Uint8List.fromList(utf8.encode(jsonEncode(_document))),
+        Uint8List.fromList(utf8.encode(jsonEncode(document))),
       );
     }
     throw FlutterError('missing asset: $key');
@@ -349,6 +400,7 @@ Widget _app({
   TargetPlatform platform = TargetPlatform.android,
   bool showBanner = false,
   String packageVersion = '3.3.2',
+  Locale locale = const Locale('en'),
 }) {
   return ProviderScope(
     overrides: [
@@ -364,6 +416,7 @@ Widget _app({
     ],
     child: MaterialApp(
       theme: ThemeData(platform: platform),
+      locale: locale,
       navigatorKey: NavigationService.navigatorKey,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

@@ -6,7 +6,9 @@ class ReleaseVersion implements Comparable<ReleaseVersion> {
   final int minor;
   final int patch;
 
-  static final RegExp _versionPattern = RegExp(r'^(\d+)\.(\d+)\.(\d+)$');
+  static final RegExp _versionPattern = RegExp(
+    r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$',
+  );
 
   factory ReleaseVersion.parse(String value) {
     final parsed = tryParse(value);

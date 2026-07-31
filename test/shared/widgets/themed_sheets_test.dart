@@ -81,6 +81,58 @@ void main() {
     expect(find.byType(SheetBackground), findsOneWidget);
   });
 
+  for (final entry in <TargetPlatform, double>{
+    TargetPlatform.iOS: 36,
+    TargetPlatform.android: 24,
+  }.entries) {
+    testWidgets(
+      'reduced-motion adaptive sheets keep the ${entry.key.name} shape',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(
+              TweakcnThemes.t3Chat,
+            ).copyWith(platform: entry.key),
+            home: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: Builder(
+                  builder: (reducedMotionContext) => Scaffold(
+                    body: TextButton(
+                      onPressed: () => ThemedSheets.showAdaptive<void>(
+                        context: reducedMotionContext,
+                        builder: (_) => const ConduitAdaptiveSheetSurface(
+                          child: Text('Reduced-motion content'),
+                        ),
+                      ),
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        final bottomSheet = tester.widget<BottomSheet>(
+          find.byType(BottomSheet),
+        );
+        final shape = bottomSheet.shape! as RoundedSuperellipseBorder;
+        expect(
+          shape.borderRadius.resolve(TextDirection.ltr).topLeft.x,
+          entry.value,
+        );
+        final dismissBarrier = tester
+            .widgetList<ModalBarrier>(find.byType(ModalBarrier))
+            .firstWhere((barrier) => barrier.dismissible);
+        expect(dismissBarrier.semanticsLabel, 'Dismiss');
+      },
+    );
+  }
+
   testWidgets('adaptive surfaces can defer the bottom safe area to the route', (
     tester,
   ) async {

@@ -50,10 +50,7 @@ Future<void> requestReleaseNotesReview({
 Future<void> showReleaseNotesSheet({
   required BuildContext context,
   required String currentVersion,
-  required String? previousVersion,
   required List<ReleaseNote> notes,
-  String? subtitle,
-  bool showSubtitle = true,
 }) async {
   await ThemedSheets.showAdaptive<void>(
     context: context,
@@ -87,9 +84,6 @@ Future<void> showReleaseNotesSheet({
         ),
         child: ReleaseNotesSheet(
           currentVersion: currentVersion,
-          previousVersion: previousVersion,
-          subtitle: subtitle,
-          showSubtitle: showSubtitle,
           notes: notes,
           onReview: requestReview,
           onOpenSupport: openSupport,

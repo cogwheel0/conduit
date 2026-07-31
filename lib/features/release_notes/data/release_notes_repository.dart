@@ -89,7 +89,14 @@ List<ReleaseNote> parseReleaseNotes(String raw) {
             );
           }
           texts.add(bullet['text'] as String);
-          final iconName = bullet['icon'] as String?;
+          final iconValue = bullet['icon'];
+          if (iconValue != null && iconValue is! String) {
+            throw FormatException(
+              'Release note ${note['version']} has a bullet with an invalid '
+              '"icon".',
+            );
+          }
+          final iconName = iconValue as String?;
           icons.add(releaseNoteIcon(iconName));
           iconAssets.add(releaseNoteIconAsset(iconName));
         }

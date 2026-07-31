@@ -6,15 +6,15 @@
       "intro": "你好！這是 Conduit 有史以來最大的一次更新，很高興能與你分享。你的聊天現在優先儲存在裝置上，而且完全不需要伺服器也能使用 Conduit。",
       "bullets": [
         {
-          "text": "Hermes Agent：連接伺服器，查看工具執行，核准敏感步驟，也可安排 Agent 稍後執行。",
+          "text": "Hermes Agent: 連接伺服器，查看工具執行，核准敏感步驟，也可安排 Agent 稍後執行。",
           "icon": "hermes"
         },
         {
-          "text": "直接連線：與 OpenRouter、LM Studio、Ollama Cloud 等 OpenAI 相容服務或 Ollama 對話。",
+          "text": "直接連線: 與 OpenRouter、LM Studio、Ollama Cloud 等 OpenAI 相容服務或 Ollama 對話。",
           "icon": "direct"
         },
         {
-          "text": "貼心細節：聊天更流暢，導覽更從容。謝謝你的陪伴！",
+          "text": "貼心細節: 聊天更流暢，導覽更從容。謝謝你的陪伴！",
           "icon": "polish"
         }
       ]

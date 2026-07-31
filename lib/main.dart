@@ -819,8 +819,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     await showReleaseNotesSheet(
       context: context,
       currentVersion: packageInfo.version,
-      previousVersion: null,
-      showSubtitle: false,
       notes: notes,
     );
   }

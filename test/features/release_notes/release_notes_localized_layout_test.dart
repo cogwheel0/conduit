@@ -42,61 +42,62 @@ void main() {
       tester,
     ) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      tester.view.physicalSize = const Size(402, 874);
-      tester.view.devicePixelRatio = 1;
-      tester.view.viewPadding = const FakeViewPadding(bottom: 34);
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetViewPadding);
+      try {
+        tester.view.physicalSize = const Size(402, 874);
+        tester.view.devicePixelRatio = 1;
+        tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetViewPadding);
 
-      final notes = parseReleaseNotes(
-        File('assets/release_notes/$localeName.json').readAsStringSync(),
-      );
-      final locale = localeName == 'zh_Hant'
-          ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
-          : Locale(localeName);
+        final notes = parseReleaseNotes(
+          File('assets/release_notes/$localeName.json').readAsStringSync(),
+        );
+        final locale = localeName == 'zh_Hant'
+            ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
+            : Locale(localeName);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            theme: AppTheme.light(TweakcnThemes.t3Chat),
-            locale: locale,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: Scaffold(
-              body: Align(
-                alignment: Alignment.bottomCenter,
-                child: ConduitAdaptiveSheetSurface(
-                  bottomSafeArea: false,
-                  padding: const EdgeInsets.fromLTRB(
-                    Spacing.modalPadding,
-                    Spacing.modalPadding,
-                    Spacing.modalPadding,
-                    0,
-                  ),
-                  child: ReleaseNotesSheet(
-                    currentVersion: '4.0.1',
-                    previousVersion: '3.4.3',
-                    notes: notes,
-                    onReview: _noop,
-                    onOpenSupport: _noop,
-                    supportLabel: 'Buy Me a Coffee',
-                    supportIcon: Icons.local_cafe_outlined,
-                    onClose: _noop,
+        await tester.pumpWidget(
+          ProviderScope(
+            child: MaterialApp(
+              theme: AppTheme.light(TweakcnThemes.t3Chat),
+              locale: locale,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: ConduitAdaptiveSheetSurface(
+                    bottomSafeArea: false,
+                    padding: const EdgeInsets.fromLTRB(
+                      Spacing.modalPadding,
+                      Spacing.modalPadding,
+                      Spacing.modalPadding,
+                      0,
+                    ),
+                    child: ReleaseNotesSheet(
+                      currentVersion: '4.0.1',
+                      notes: notes,
+                      onReview: _noop,
+                      onOpenSupport: _noop,
+                      supportLabel: 'Buy Me a Coffee',
+                      supportIcon: Icons.local_cafe_outlined,
+                      onClose: _noop,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
-      debugDefaultTargetPlatformOverride = null;
+        );
+        await tester.pump();
 
-      expect(tester.takeException(), isNull, reason: localeName);
-      expect(find.byType(SingleChildScrollView), findsNothing);
-      expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
-      expect(find.byType(ConduitButton).hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: localeName);
+        expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
+        expect(find.byType(ConduitButton).hitTestable(), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
   }
 }

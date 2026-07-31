@@ -61,7 +61,6 @@ class ReleaseNotesBanner extends ConsumerWidget {
                         onTap: () => showReleaseNotesSheet(
                           context: context,
                           currentVersion: data.currentVersion,
-                          previousVersion: data.previousVersion,
                           notes: data.notes,
                         ),
                         child: Row(

@@ -131,7 +131,8 @@ class ThemedSheets {
           isScrollControlled: true,
           backgroundColor: backgroundColor,
           barrierColor: Colors.black54,
-          shape: glassShape,
+          barrierLabel: barrierLabel,
+          shape: platform == TargetPlatform.iOS ? glassShape : plainShape,
           clipBehavior: Clip.antiAlias,
           sheetAnimationStyle: AnimationStyle.noAnimation,
           builder: (sheetContext) => _SheetCoverageBoundary(

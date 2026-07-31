@@ -163,31 +163,9 @@
   "@releaseNotesLearnMore": {
     "description": "Prompt shown beneath the release announcement banner title."
   },
-  "releaseNotesSubtitle": "Since {previousVersion}, now on {currentVersion}",
-  "@releaseNotesSubtitle": {
-    "description": "Subtitle for release notes shown after an app update.",
-    "placeholders": {
-      "previousVersion": {
-        "type": "String",
-        "example": "3.3.1"
-      },
-      "currentVersion": {
-        "type": "String",
-        "example": "3.3.2"
-      }
-    }
-  },
   "releaseNotesReviewButton": "Review Conduit",
   "@releaseNotesReviewButton": {
     "description": "Button opening the app store review/listing page."
-  },
-  "releaseNotesReviewHeading": "Share a quick review",
-  "@releaseNotesReviewHeading": {
-    "description": "Heading above the optional App Store review link in release notes."
-  },
-  "releaseNotesReviewMessage": "If Conduit has earned a place on your phone, a short store review helps more people find it.",
-  "@releaseNotesReviewMessage": {
-    "description": "Personal developer message asking for an optional store review."
   },
   "releaseNotesDoneButton": "Done",
   "@releaseNotesDoneButton": {
@@ -202,14 +180,6 @@
         "example": "3.3.2"
       }
     }
-  },
-  "releaseNotesSupportHeading": "Support independent development",
-  "@releaseNotesSupportHeading": {
-    "description": "Heading above optional support links in release notes."
-  },
-  "releaseNotesSupportMessage": "You can also support ongoing work directly.",
-  "@releaseNotesSupportMessage": {
-    "description": "Personal developer message asking for optional direct support."
   },
   "signOut": "Sign Out",
   "@signOut": {

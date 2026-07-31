@@ -71,13 +71,8 @@
   "releaseNotesAnnouncementTitle": "Conduit {version} が登場",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "詳細を見る",
-  "releaseNotesSubtitle": "{previousVersion} 以降、現在は {currentVersion}",
   "releaseNotesReviewButton": "Conduit をレビュー",
-  "releaseNotesReviewHeading": "短いレビューを書く",
-  "releaseNotesReviewMessage": "Conduit があなたのスマートフォンに残る価値のあるアプリになっているなら、ストアでの短いレビューが、より多くの人に見つけてもらう助けになります。",
   "releaseNotesDoneButton": "完了",
-  "releaseNotesSupportHeading": "独立した開発を支援",
-  "releaseNotesSupportMessage": "継続的な開発を直接支援することもできます。",
   "signOut": "サインアウト",
   "@signOut": {
     "description": "Button/title for signing out of the app."

@@ -6,7 +6,6 @@ import 'package:conduit/features/release_notes/models/release_version.dart';
 /// Localization keys the release-notes sheet chrome still reads from ARB.
 const releaseNotesShellLocalizationKeys = <String>[
   'releaseNotesTitle',
-  'releaseNotesSubtitle',
   'releaseNotesReviewButton',
   'releaseNotesDoneButton',
   'releaseNotesSupportPromptHeading',

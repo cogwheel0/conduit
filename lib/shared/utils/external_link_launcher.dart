@@ -63,13 +63,12 @@ Future<bool> launchExternalLink(
   }
 }
 
-/// Opens an allowlisted URL in the platform in-app browser
-/// (SFSafariViewController on iOS, Custom Tabs on Android).
+/// Opens allowlisted web URLs in the platform in-app browser and hands other
+/// allowlisted schemes, such as `mailto:`, to the OS.
 Future<bool> launchInAppBrowserLink(String url, {String scope = 'links'}) {
   return launchExternalLink(
     url,
     scope: scope,
-    mode: LaunchMode.inAppBrowserView,
     browserConfiguration: const BrowserConfiguration(showTitle: true),
   );
 }

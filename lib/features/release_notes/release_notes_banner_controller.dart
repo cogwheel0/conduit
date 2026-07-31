@@ -7,12 +7,10 @@ import 'models/release_note.dart';
 class ReleaseNotesBannerData {
   const ReleaseNotesBannerData({
     required this.currentVersion,
-    required this.previousVersion,
     required this.notes,
   });
 
   final String currentVersion;
-  final String previousVersion;
   final List<ReleaseNote> notes;
 }
 

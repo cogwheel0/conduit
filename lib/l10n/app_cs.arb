@@ -71,13 +71,8 @@
   "releaseNotesAnnouncementTitle": "Conduit {version} je tady",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "Zjistit více",
-  "releaseNotesSubtitle": "Od verze {previousVersion}, nyní {currentVersion}",
   "releaseNotesReviewButton": "Ohodnotit Conduit",
-  "releaseNotesReviewHeading": "Přidejte krátkou recenzi",
-  "releaseNotesReviewMessage": "Pokud si Conduit zasloužil místo ve vašem telefonu, krátká recenze v obchodě pomůže dalším lidem aplikaci objevit.",
   "releaseNotesDoneButton": "Hotovo",
-  "releaseNotesSupportHeading": "Podpořte nezávislý vývoj",
-  "releaseNotesSupportMessage": "Průběžný vývoj můžete podpořit také přímo.",
   "signOut": "Odhlásit se",
   "@signOut": {
     "description": "Button/title for signing out of the app."

@@ -80,6 +80,12 @@ void main() {
     check(version310.compareTo(version39)).isGreaterThan(0);
   });
 
+  test('release versions reject leading zeroes', () {
+    check(ReleaseVersion.tryParse('04.0.0')).isNull();
+    check(ReleaseVersion.tryParse('4.00.0')).isNull();
+    check(ReleaseVersion.tryParse('4.0.01')).isNull();
+  });
+
   test(
     'manual presenter picks the latest bundled note at or before current',
     () {

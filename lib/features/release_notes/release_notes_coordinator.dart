@@ -38,6 +38,17 @@ class _ReleaseNotesCoordinatorState
     extends ConsumerState<ReleaseNotesCoordinator> {
   bool _attemptInFlight = false;
   bool _completedForSession = false;
+  Locale? _locale;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final locale = Localizations.localeOf(context);
+    if (_locale != locale) {
+      _locale = locale;
+      _completedForSession = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +72,7 @@ class _ReleaseNotesCoordinatorState
 
   Future<void> _maybeShowReleaseNotes() async {
     var completed = false;
+    Locale? attemptedLocale;
     try {
       if (!mounted || !PreferencesStore.isReady) {
         return;
@@ -92,9 +104,8 @@ class _ReleaseNotesCoordinatorState
         return;
       }
 
-      final notes = await widget.repository.load(
-        Localizations.localeOf(l10nContext),
-      );
+      attemptedLocale = Localizations.localeOf(l10nContext);
+      final notes = await widget.repository.load(attemptedLocale);
       if (!mounted || !l10nContext.mounted) {
         return;
       }
@@ -130,8 +141,11 @@ class _ReleaseNotesCoordinatorState
     } finally {
       if (mounted) {
         _attemptInFlight = false;
-        if (completed) {
-          _completedForSession = true;
+        final localeChanged =
+            attemptedLocale != null && attemptedLocale != _locale;
+        _completedForSession = completed && !localeChanged;
+        if (localeChanged) {
+          _scheduleAttempt();
         }
       }
     }
@@ -171,7 +185,6 @@ class _ReleaseNotesCoordinatorState
         .show(
           ReleaseNotesBannerData(
             currentVersion: decision.currentVersion,
-            previousVersion: previousVersion,
             notes: decision.notes,
           ),
         );
@@ -199,7 +212,6 @@ class _ReleaseNotesCoordinatorState
         .show(
           ReleaseNotesBannerData(
             currentVersion: decision.currentVersion,
-            previousVersion: decision.previousVersion!,
             notes: decision.notes,
           ),
         );

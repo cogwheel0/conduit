@@ -30,7 +30,6 @@ void main() {
             home: Scaffold(
               body: ReleaseNotesSheet(
                 currentVersion: '3.3.2',
-                previousVersion: '3.3.1',
                 notes: [
                   ReleaseNote(
                     version: '3.3.2',
@@ -186,12 +185,50 @@ void main() {
       await _pumpReleaseNotesSheet(tester, disableAnimations: true);
       await tester.pump();
 
-      expect(find.byType(SingleChildScrollView), findsNothing);
+      expect(
+        find.byKey(const ValueKey('release-notes-summary-scroll')),
+        findsOneWidget,
+      );
       expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
       expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
       expect(find.text('Done').hitTestable(), findsOneWidget);
     },
   );
+
+  testWidgets('long multi-release summaries scroll behind fixed actions', (
+    tester,
+  ) async {
+    await _pumpReleaseNotesSheet(
+      tester,
+      disableAnimations: true,
+      notes: [
+        for (var release = 0; release < 3; release++)
+          ReleaseNote(
+            version: '4.0.$release',
+            title: 'Release $release',
+            intro: 'A warm hello from release $release.',
+            bullets: [
+              for (var bullet = 0; bullet < 4; bullet++)
+                'Feature $release.$bullet: A concise improvement.',
+            ],
+          ),
+      ],
+    );
+    await tester.pump();
+
+    final reviewBefore = tester.getTopLeft(find.text('Review Conduit')).dy;
+    await tester.drag(
+      find.byKey(const ValueKey('release-notes-summary-scroll')),
+      const Offset(0, -240),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
+    expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
+    expect(find.text('Done').hitTestable(), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Review Conduit')).dy, reviewBefore);
+  });
 
   testWidgets('matches the iOS compact composer bottom inset', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -322,6 +359,7 @@ Future<void> _pumpReleaseNotesSheet(
   bool disableAnimations = false,
   bool darkMode = false,
   Locale locale = const Locale('en'),
+  List<ReleaseNote>? notes,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -350,18 +388,19 @@ Future<void> _pumpReleaseNotesSheet(
                 child: Scaffold(
                   body: ReleaseNotesSheet(
                     currentVersion: '4.0.1',
-                    previousVersion: '3.4.3',
-                    notes: [
-                      ReleaseNote(
-                        version: '4.0.1',
-                        title: "What's new",
-                        intro: 'A focused update, bundled with the app.',
-                        bullets: [
-                          'Local models: Chat privately on your device.',
-                          'Polished details: A calmer, clearer experience.',
+                    notes:
+                        notes ??
+                        [
+                          ReleaseNote(
+                            version: '4.0.1',
+                            title: "What's new",
+                            intro: 'A focused update, bundled with the app.',
+                            bullets: [
+                              'Local models: Chat privately on your device.',
+                              'Polished details: A calmer, clearer experience.',
+                            ],
+                          ),
                         ],
-                      ),
-                    ],
                     onReview: _noop,
                     onOpenSupport: _noop,
                     supportLabel: 'Buy Me a Coffee',
