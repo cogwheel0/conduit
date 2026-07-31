@@ -129,7 +129,7 @@ exposes the capabilities your server actually reports.
 
 | Chat | Sidebar | Themes | Settings |
 | --- | --- | --- | --- |
-| <img src="docs/screenshots/1.png" alt="A conversation with a generated image and streaming response" width="200" /> | <img src="docs/screenshots/2.png" alt="Sidebar with pinned chats, folders, and recent conversations" width="200" /> | <img src="docs/screenshots/3.png" alt="Accent palette picker with Conduit, Claude, T3 Chat, Catppuccin, and Tangerine themes" width="200" /> | <img src="docs/screenshots/4.png" alt="Customization settings for display, language, and speech to text" width="200" /> |
+| <img src="docs/screenshots/1.png" alt="Multimodal chat with an image attachment and streaming response" width="200" /> | <img src="docs/screenshots/2.png" alt="Sidebar with pinned chats, folders, and recent conversations" width="200" /> | <img src="docs/screenshots/3.png" alt="Accent palette picker with Conduit, Claude, T3 Chat, Catppuccin, and Tangerine themes" width="200" /> | <img src="docs/screenshots/4.png" alt="Settings with appearance, chats, voice, and connection options" width="200" /> |
 
 ## What you get
 

@@ -15,7 +15,7 @@
 .swiftpm/
 migrate_working_dir/
 .home/
-Archive/
+app-store-screenshots/
 
 # IntelliJ related
 *.iml
