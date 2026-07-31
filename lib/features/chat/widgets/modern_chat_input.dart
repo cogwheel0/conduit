@@ -265,6 +265,29 @@ class ModernChatInput extends ConsumerStatefulWidget {
 
 // (Removed legacy _MicButton; inline mic logic now lives in primary button)
 
+typedef _ComposerTypography = ({
+  ui.TextDirection direction,
+  TextScaler textScaler,
+  Locale? locale,
+  TextStyle style,
+  double scaledFontSize,
+  bool isRtl,
+});
+
+typedef _ComposerLayoutMetrics = ({
+  double width,
+  double scaledFontSize,
+  bool isRtl,
+  Locale? locale,
+  bool isRecording,
+});
+
+typedef _ComposerLineMeasurement = ({
+  String text,
+  _ComposerLayoutMetrics layout,
+  bool isMultiline,
+});
+
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
@@ -289,33 +312,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// remount the TextField, losing focus and keyboard state.
   final GlobalKey _textFieldKey = GlobalKey();
   double _compactTextFieldWidth = 0;
-  ({
-    double width,
-    double scaledFontSize,
-    bool isRtl,
-    Locale? locale,
-    bool isRecording,
-  })?
-  _composerLayoutMetrics;
-  ({
-    double width,
-    double scaledFontSize,
-    bool isRtl,
-    Locale? locale,
-    bool isRecording,
-  })?
-  _pendingComposerLayoutMetrics;
+  _ComposerLayoutMetrics? _composerLayoutMetrics;
+  _ComposerLayoutMetrics? _pendingComposerLayoutMetrics;
   bool _composerLayoutMeasurementScheduled = false;
-  ({
-    String text,
-    double width,
-    double scaledFontSize,
-    bool isRtl,
-    Locale? locale,
-    bool isRecording,
-    bool isMultiline,
-  })?
-  _composerLineMeasurement;
+  _ComposerLineMeasurement? _composerLineMeasurement;
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -888,23 +888,38 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
-  void _scheduleComposerLineMeasurement(
-    BuildContext context,
-    double compactTextFieldWidth,
-  ) {
-    if (!compactTextFieldWidth.isFinite || compactTextFieldWidth <= 0) return;
-
+  _ComposerTypography _composerTypography(BuildContext context) {
     final direction = Directionality.of(context);
     final textScaler = MediaQuery.textScalerOf(context);
     final locale = Localizations.maybeLocaleOf(context);
     final style = AppTypography.chatMessageStyle.copyWith(
       fontWeight: _isRecording ? FontWeight.w500 : FontWeight.w400,
     );
-    final metrics = (
-      width: compactTextFieldWidth,
+    return (
+      direction: direction,
+      textScaler: textScaler,
+      locale: locale,
+      style: style,
       scaledFontSize: textScaler.scale(style.fontSize ?? 14),
       isRtl: direction == ui.TextDirection.rtl,
-      locale: locale,
+    );
+  }
+
+  bool _shouldShowComposerExpandButton(String text, bool isMultiline) =>
+      isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+
+  void _scheduleComposerLineMeasurement(
+    BuildContext context,
+    double compactTextFieldWidth,
+  ) {
+    if (!compactTextFieldWidth.isFinite || compactTextFieldWidth <= 0) return;
+
+    final typography = _composerTypography(context);
+    final metrics = (
+      width: compactTextFieldWidth,
+      scaledFontSize: typography.scaledFontSize,
+      isRtl: typography.isRtl,
+      locale: typography.locale,
       isRecording: _isRecording,
     );
     if (metrics == _composerLayoutMetrics &&
@@ -930,8 +945,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _recomputeComposerLineState() {
     final text = _controller.text;
     final isMultiline = _composerTextUsesMultipleLines(text);
-    final showExpand =
-        isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+    final showExpand = _shouldShowComposerExpandButton(text, isMultiline);
     if (isMultiline == _isMultiline && showExpand == _showExpandButton) {
       return;
     }
@@ -946,30 +960,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (text.contains('\n')) return true;
     if (text.isEmpty || _compactTextFieldWidth <= 0) return false;
 
-    final direction = Directionality.of(context);
-    final textScaler = MediaQuery.textScalerOf(context);
-    final locale = Localizations.maybeLocaleOf(context);
-    final isRtl = direction == ui.TextDirection.rtl;
-    final style = AppTypography.chatMessageStyle.copyWith(
-      fontWeight: _isRecording ? FontWeight.w500 : FontWeight.w400,
+    final typography = _composerTypography(context);
+    final layout = (
+      width: _compactTextFieldWidth,
+      scaledFontSize: typography.scaledFontSize,
+      isRtl: typography.isRtl,
+      locale: typography.locale,
+      isRecording: _isRecording,
     );
-    final scaledFontSize = textScaler.scale(style.fontSize ?? 14);
     final cached = _composerLineMeasurement;
-    if (cached != null &&
-        cached.text == text &&
-        cached.width == _compactTextFieldWidth &&
-        cached.scaledFontSize == scaledFontSize &&
-        cached.isRtl == isRtl &&
-        cached.locale == locale &&
-        cached.isRecording == _isRecording) {
+    if (cached != null && cached.text == text && cached.layout == layout) {
       return cached.isMultiline;
     }
 
     final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
-      textDirection: direction,
-      textScaler: textScaler,
-      locale: locale,
+      text: TextSpan(text: text, style: typography.style),
+      textDirection: typography.direction,
+      textScaler: typography.textScaler,
+      locale: typography.locale,
       maxLines: 2,
     )..layout(maxWidth: _compactTextFieldWidth);
 
@@ -977,11 +985,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         painter.didExceedMaxLines || painter.computeLineMetrics().length > 1;
     _composerLineMeasurement = (
       text: text,
-      width: _compactTextFieldWidth,
-      scaledFontSize: scaledFontSize,
-      isRtl: isRtl,
-      locale: locale,
-      isRecording: _isRecording,
+      layout: layout,
       isMultiline: isMultiline,
     );
     return isMultiline;
@@ -997,8 +1001,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool isMultiline = _composerTextUsesMultipleLines(text);
     // Show the expand button when content is tall enough
     // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
-    final bool showExpand =
-        isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+    final bool showExpand = _shouldShowComposerExpandButton(text, isMultiline);
     final PromptCommandMatch? match = _resolvePromptCommand(
       text,
       selection,

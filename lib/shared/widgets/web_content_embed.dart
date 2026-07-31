@@ -93,6 +93,15 @@ class WebContentEmbed extends StatefulWidget {
     targetUrl: targetUrl,
   );
 
+  @visibleForTesting
+  static bool debugHasUserActivationEvidence({
+    required bool? hasGesture,
+    required bool linkActivated,
+  }) => _WebContentEmbedState._hasUserActivationEvidence(
+    hasGesture: hasGesture,
+    linkActivated: linkActivated,
+  );
+
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
@@ -727,8 +736,20 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   static bool _isUserActivatedNavigation(NavigationAction action) =>
-      action.hasGesture == true ||
-      action.navigationType == NavigationType.LINK_ACTIVATED;
+      _hasUserActivationEvidence(
+        hasGesture: action.hasGesture,
+        linkActivated: action.navigationType == NavigationType.LINK_ACTIVATED,
+      );
+
+  static bool _hasUserActivationEvidence({
+    required bool? hasGesture,
+    required bool linkActivated,
+  }) {
+    // Android reports hasGesture, so an explicit false must stay authoritative
+    // for scripted anchor clicks. iOS reports null and exposes only the
+    // navigation type, which remains the fallback for genuine link taps there.
+    return hasGesture == true || (hasGesture == null && linkActivated);
+  }
 
   static bool _shouldAllowAutomaticNavigation(String targetUrl) {
     final uri = Uri.tryParse(targetUrl.trim());

@@ -2,9 +2,17 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html_unescape/html_unescape.dart';
+import 'package:mocktail/mocktail.dart';
+
+abstract interface class _ExternalLinkLauncher {
+  Future<bool> call(String url);
+}
+
+class _MockExternalLinkLauncher extends Mock implements _ExternalLinkLauncher {}
 
 Widget _buildHarness({
   required String source,
@@ -35,14 +43,13 @@ void main() {
       '<div>chart</div><script>renderChart()</script>',
     );
 
-    expect(
+    check(
       document,
-      contains('sandbox="allow-scripts allow-forms allow-popups"'),
-    );
-    expect(document, contains('referrerpolicy="no-referrer"'));
-    expect(document, contains('srcdoc="'));
-    expect(document, contains('&lt;script&gt;renderChart()&lt;/script&gt;'));
-    expect(document, isNot(contains('<script>renderChart()</script>')));
+    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document).contains('referrerpolicy="no-referrer"');
+    check(document).contains('srcdoc="');
+    check(document).contains('&lt;script&gt;renderChart()&lt;/script&gt;');
+    check(document).not((it) => it.contains('<script>renderChart()</script>'));
   });
 
   test('allows popup links without granting same-origin access', () {
@@ -51,116 +58,131 @@ void main() {
     );
     final decodedDocument = HtmlUnescape().convert(document);
 
-    expect(decodedDocument, contains('target="_blank"'));
-    expect(
+    check(decodedDocument).contains('target="_blank"');
+    check(
       document,
-      contains('sandbox="allow-scripts allow-forms allow-popups"'),
-    );
-    expect(document, isNot(contains('allow-same-origin')));
+    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document).not((it) => it.contains('allow-same-origin'));
   });
 
   test('opens only user-activated external navigations', () {
-    expect(
+    check(
       WebContentEmbed.debugShouldOpenNavigationExternally(
         targetUrl: 'https://example.com/story',
         currentUrl: 'https://embed.example.com/widget',
         userActivated: true,
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       WebContentEmbed.debugShouldOpenNavigationExternally(
         targetUrl: 'https://example.com/story',
         currentUrl: 'https://embed.example.com/widget',
         userActivated: false,
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       WebContentEmbed.debugShouldOpenNavigationExternally(
         targetUrl: 'https://embed.example.com/widget#forecast',
         currentUrl: 'https://embed.example.com/widget',
         userActivated: true,
       ),
-      isFalse,
-    );
+    ).isFalse();
   });
 
+  test(
+    'requires positive activation evidence when gesture data is present',
+    () {
+      check(
+        WebContentEmbed.debugHasUserActivationEvidence(
+          hasGesture: true,
+          linkActivated: false,
+        ),
+      ).isTrue();
+      check(
+        WebContentEmbed.debugHasUserActivationEvidence(
+          hasGesture: false,
+          linkActivated: true,
+        ),
+      ).isFalse();
+      check(
+        WebContentEmbed.debugHasUserActivationEvidence(
+          hasGesture: null,
+          linkActivated: true,
+        ),
+      ).isTrue();
+      check(
+        WebContentEmbed.debugHasUserActivationEvidence(
+          hasGesture: null,
+          linkActivated: false,
+        ),
+      ).isFalse();
+    },
+  );
+
   test('automatic embed navigation is limited to web redirects', () {
-    expect(
+    check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation(
         'https://example.com/redirect',
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation('about:blank'),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation('about:srcdoc'),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation(
         'mailto:reader@example.com',
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation(
         'javascript:alert(1)',
       ),
-      isFalse,
-    );
+    ).isFalse();
   });
 
   test('popup handling does not depend on platform gesture metadata', () {
-    expect(
+    check(
       WebContentEmbed.debugShouldHandleCreateWindow(
         requestIsCurrent: true,
         targetUrl: 'https://example.com/story',
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       WebContentEmbed.debugShouldHandleCreateWindow(
         requestIsCurrent: false,
         targetUrl: 'https://example.com/story',
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       WebContentEmbed.debugShouldHandleCreateWindow(
         requestIsCurrent: true,
         targetUrl: 'javascript:alert(1)',
       ),
-      isFalse,
-    );
+    ).isFalse();
   });
 
   test('rejects disallowed embed links before invoking the launcher', () async {
-    var launches = 0;
-    Future<bool> launcher(String url) async {
-      launches += 1;
-      return true;
-    }
+    final launcher = _MockExternalLinkLauncher();
+    when(() => launcher(any())).thenAnswer((_) async => true);
 
-    expect(
+    check(
       await WebContentEmbed.debugOpenExternalLink(
         'javascript:alert(1)',
-        launcher: launcher,
+        launcher: launcher.call,
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    verifyNever(() => launcher(any()));
+
+    check(
       await WebContentEmbed.debugOpenExternalLink(
         'https://example.com/story',
-        launcher: launcher,
+        launcher: launcher.call,
       ),
-      isTrue,
-    );
-    expect(launches, 1);
+    ).isTrue();
+    verify(() => launcher('https://example.com/story')).called(1);
   });
 
   test('escapes injected arguments before adding them to sandbox HTML', () {
@@ -169,13 +191,12 @@ void main() {
       argsText: '</script><script>steal()</script>',
     );
 
-    expect(
-      document,
-      contains(
-        r'window.args = &quot;\u003C/script\u003E\u003Cscript\u003Esteal()\u003C/script\u003E&quot;;',
-      ),
+    check(document).contains(
+      r'window.args = &quot;\u003C/script\u003E\u003Cscript\u003Esteal()\u003C/script\u003E&quot;;',
     );
-    expect(document, isNot(contains('</script><script>steal()</script>')));
+    check(
+      document,
+    ).not((it) => it.contains('</script><script>steal()</script>'));
   });
 
   test('full-height documents ignore sandbox resize messages', () {
@@ -184,17 +205,17 @@ void main() {
       fillAvailableHeight: true,
     );
 
-    expect(document, contains('height: 100vh'));
-    expect(document, contains('const fillAvailableHeight = true;'));
-    expect(document, contains('if (fillAvailableHeight) return;'));
+    check(document).contains('height: 100vh');
+    check(document).contains('const fillAvailableHeight = true;');
+    check(document).contains('if (fillAvailableHeight) return;');
   });
 
   test('intrinsic-height documents retain sandbox resize handling', () {
     final document = WebContentEmbed.debugWrapHtmlDocument('<div>chart</div>');
 
-    expect(document, contains('height: 360.0px'));
-    expect(document, contains('const fillAvailableHeight = false;'));
-    expect(document, contains(r'frame.style.height = `${clamped}px`;'));
+    check(document).contains('height: 360.0px');
+    check(document).contains('const fillAvailableHeight = false;');
+    check(document).contains(r'frame.style.height = `${clamped}px`;');
   });
 
   testWidgets('collapsed source changes clear stale controllers', (
