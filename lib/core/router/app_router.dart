@@ -68,7 +68,7 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
       location == Routes.personalization ||
-      location == Routes.chatGptAccount ||
+      isChatGptAccountSetupLocation(location) ||
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
@@ -80,6 +80,12 @@ bool isDirectConnectionsLocation(String location) {
   return location == Routes.directConnections ||
       location.startsWith('${Routes.directConnections}/');
 }
+
+@visibleForTesting
+bool isChatGptAccountSetupLocation(
+  String location, {
+  bool enabled = kChatGptAccountEnabled,
+}) => enabled && location == Routes.chatGptAccount;
 
 /// App-local surfaces available when direct APIs are the primary backend.
 @visibleForTesting
@@ -211,7 +217,7 @@ class RouterNotifier extends ChangeNotifier {
         (prefersHermes && hermesUsable);
     final isLocalBackendSetup =
         location == Routes.backendChooser ||
-        location == Routes.chatGptAccount ||
+        isChatGptAccountSetupLocation(location) ||
         location == Routes.hermesSettings ||
         isDirectConnectionsLocation(location);
     final chatGptSetupDestination = kChatGptAccountEnabled

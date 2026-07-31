@@ -215,6 +215,15 @@ void main() {
       }
     });
 
+    test('compile-time rollback excludes the ChatGPT setup route', () {
+      check(
+        isChatGptAccountSetupLocation(Routes.chatGptAccount),
+      ).equals(kChatGptAccountEnabled);
+      check(
+        isChatGptAccountSetupLocation(Routes.chatGptAccount, enabled: false),
+      ).isFalse();
+    });
+
     test('settled incomplete Hermes config opens settings, not splash', () {
       check(
         incompleteHermesDestination(secretsLoading: false),

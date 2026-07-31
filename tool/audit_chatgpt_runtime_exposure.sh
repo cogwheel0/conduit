@@ -78,8 +78,15 @@ if [ "$actual_clients" != "$expected_clients" ]; then
   echo "actual clients:" >&2
   echo "$actual_clients" >&2
 fi
+auth_bound_client_count="$(grep -Fc 'Arc::clone(&runtime.auth_provider)' "$runtime")"
+if [ "$auth_bound_client_count" -ne 5 ]; then
+  fail "every approved endpoint client must use the fixed ChatGPT auth provider"
+fi
 if ! grep -Fq 'const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";' "$runtime"; then
   fail "the transport base URL is no longer fixed to the ChatGPT Codex API"
+fi
+if ! grep -Fq 'store: false' "$runtime"; then
+  fail "Responses requests must not synchronize Conduit chats to website history"
 fi
 if grep -Eq 'base_url|endpoint_url|provider_url' "$contract"; then
   fail "the bridge can supply an arbitrary provider endpoint"
