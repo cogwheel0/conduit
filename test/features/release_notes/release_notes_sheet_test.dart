@@ -216,6 +216,8 @@ void main() {
     );
     await tester.pump();
 
+    final firstFeature = find.text('Feature 0.0');
+    final featureBefore = tester.getTopLeft(firstFeature).dy;
     final reviewBefore = tester.getTopLeft(find.text('Review Conduit')).dy;
     await tester.drag(
       find.byKey(const ValueKey('release-notes-summary-scroll')),
@@ -223,6 +225,7 @@ void main() {
     );
     await tester.pump();
 
+    expect(tester.getTopLeft(firstFeature).dy, lessThan(featureBefore));
     expect(tester.takeException(), isNull);
     expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
     expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);

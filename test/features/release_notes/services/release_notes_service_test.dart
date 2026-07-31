@@ -98,15 +98,12 @@ void main() {
     },
   );
 
-  test(
-    'manual presenter falls back to latest bundled note for pre-release app versions',
-    () {
-      final notes = latestBundledReleaseNotesForVersion(
-        currentVersion: '3.3.1',
-        notes: [note('3.3.2')],
-      );
+  test('manual presenter omits notes newer than the installed app version', () {
+    final notes = latestBundledReleaseNotesForVersion(
+      currentVersion: '3.3.1',
+      notes: [note('3.3.2')],
+    );
 
-      check(notes.map((release) => release.version)).deepEquals(['3.3.2']);
-    },
-  );
+    check(notes).isEmpty();
+  });
 }

@@ -7,7 +7,6 @@ import '../../core/persistence/persistence_keys.dart';
 import '../../core/persistence/preferences_store.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/backend_mode_providers.dart';
-import '../../core/services/navigation_service.dart';
 import '../../core/utils/debug_logger.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../l10n/app_localizations.dart';
@@ -72,6 +71,7 @@ class _ReleaseNotesCoordinatorState
 
   Future<void> _maybeShowReleaseNotes() async {
     var completed = false;
+    var retryForLocaleChange = false;
     Locale? attemptedLocale;
     try {
       if (!mounted || !PreferencesStore.isReady) {
@@ -93,20 +93,17 @@ class _ReleaseNotesCoordinatorState
       final lastSeenVersion = releaseNotesPreviousVersionForEvaluation(
         PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       );
-      final l10nContext = NavigationService.context;
-      if (l10nContext == null) {
-        return;
-      }
-      if (!l10nContext.mounted) {
-        return;
-      }
-      if (AppLocalizations.of(l10nContext) == null) {
+      if (AppLocalizations.of(context) == null) {
         return;
       }
 
-      attemptedLocale = Localizations.localeOf(l10nContext);
+      attemptedLocale = _locale ?? Localizations.localeOf(context);
       final notes = await widget.repository.load(attemptedLocale);
-      if (!mounted || !l10nContext.mounted) {
+      if (!mounted) {
+        return;
+      }
+      if (attemptedLocale != _locale) {
+        retryForLocaleChange = true;
         return;
       }
       final decision = widget.service.evaluate(
@@ -142,7 +139,8 @@ class _ReleaseNotesCoordinatorState
       if (mounted) {
         _attemptInFlight = false;
         final localeChanged =
-            attemptedLocale != null && attemptedLocale != _locale;
+            retryForLocaleChange ||
+            (attemptedLocale != null && attemptedLocale != _locale);
         _completedForSession = completed && !localeChanged;
         if (localeChanged) {
           _scheduleAttempt();

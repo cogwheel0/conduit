@@ -1,12 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'dart:convert';
-
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
+import 'package:conduit/features/release_notes/models/release_note.dart';
 import 'package:conduit/features/release_notes/release_notes_bootstrap.dart';
 import 'package:conduit/features/release_notes/release_notes_coordinator.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_banner.dart';
@@ -301,6 +303,45 @@ void main() {
     );
   });
 
+  testWidgets('does not publish notes loaded for an obsolete locale', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final repository = _DeferredReleaseNotesRepository();
+    final locale = ValueNotifier(const Locale('en'));
+    addTearDown(locale.dispose);
+
+    await tester.pumpWidget(
+      _app(
+        authState: AuthNavigationState.authenticated,
+        showBanner: true,
+        repository: repository,
+        localeListenable: locale,
+      ),
+    );
+    await tester.pump();
+    expect(repository.requestedLocales, [const Locale('en')]);
+
+    locale.value = const Locale('es');
+    await tester.pump(const Duration(milliseconds: 100));
+    repository.complete(
+      const Locale('en'),
+      _releaseNotes(intro: 'English notes loaded too late.'),
+    );
+    await tester.idle();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(releaseNotesBannerKey), findsNothing);
+    expect(
+      PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
+      '3.3.1',
+    );
+    expect(find.text('English notes loaded too late.'), findsNothing);
+  });
+
   testWidgets('authenticated iOS banner opens the donation link sheet', (
     tester,
   ) async {
@@ -395,13 +436,69 @@ class _FakeNotesBundle extends CachingAssetBundle {
   }
 }
 
+class _DeferredReleaseNotesRepository extends ReleaseNotesRepository {
+  final requestedLocales = <Locale>[];
+  final _loads = <Locale, Completer<List<ReleaseNote>>>{};
+
+  @override
+  Future<List<ReleaseNote>> load(Locale locale) {
+    requestedLocales.add(locale);
+    return (_loads[locale] ??= Completer<List<ReleaseNote>>()).future;
+  }
+
+  void complete(Locale locale, List<ReleaseNote> notes) {
+    _loads[locale]!.complete(notes);
+  }
+}
+
+List<ReleaseNote> _releaseNotes({required String intro}) => [
+  ReleaseNote(
+    version: '3.3.2',
+    title: 'Localized release',
+    intro: intro,
+    bullets: const ['Localized feature'],
+  ),
+];
+
 Widget _app({
   required AuthNavigationState authState,
   TargetPlatform platform = TargetPlatform.android,
   bool showBanner = false,
   String packageVersion = '3.3.2',
   Locale locale = const Locale('en'),
+  ReleaseNotesRepository? repository,
+  ValueListenable<Locale>? localeListenable,
 }) {
+  final coordinator = ReleaseNotesCoordinator(
+    repository:
+        repository ?? ReleaseNotesRepository(bundle: _FakeNotesBundle()),
+    child: Scaffold(
+      body: showBanner
+          ? const Column(children: [Text('Home'), ReleaseNotesBanner()])
+          : const Text('Home'),
+    ),
+  );
+  final home = localeListenable == null
+      ? coordinator
+      : ValueListenableBuilder<Locale>(
+          valueListenable: localeListenable,
+          child: coordinator,
+          builder: (context, activeLocale, child) => Localizations.override(
+            context: context,
+            locale: activeLocale,
+            child: child,
+          ),
+        );
+
+  final app = MaterialApp(
+    theme: ThemeData(platform: platform),
+    locale: locale,
+    navigatorKey: NavigationService.navigatorKey,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: home,
+  );
+
   return ProviderScope(
     overrides: [
       authNavigationStateProvider.overrideWithValue(authState),
@@ -414,20 +511,6 @@ Widget _app({
         ),
       ),
     ],
-    child: MaterialApp(
-      theme: ThemeData(platform: platform),
-      locale: locale,
-      navigatorKey: NavigationService.navigatorKey,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: ReleaseNotesCoordinator(
-        repository: ReleaseNotesRepository(bundle: _FakeNotesBundle()),
-        child: Scaffold(
-          body: showBanner
-              ? const Column(children: [Text('Home'), ReleaseNotesBanner()])
-              : const Text('Home'),
-        ),
-      ),
-    ),
+    child: app,
   );
 }

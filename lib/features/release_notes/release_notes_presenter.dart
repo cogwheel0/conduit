@@ -116,5 +116,5 @@ List<ReleaseNote> latestBundledReleaseNotesForVersion({
       return <ReleaseNote>[allNotes[i]];
     }
   }
-  return <ReleaseNote>[allNotes.last];
+  return const <ReleaseNote>[];
 }
