@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -68,6 +69,10 @@ class WebContentEmbed extends StatefulWidget {
     Uri.parse(source),
     fillAvailableHeight: fillAvailableHeight,
   );
+
+  @visibleForTesting
+  static String debugFrameBootstrapScript(String argsText) =>
+      _WebContentEmbedState._frameBootstrapScript(argsText);
 
   @visibleForTesting
   static Future<bool> debugOpenExternalLink(
@@ -614,6 +619,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
           child: InAppWebView(
             key: ValueKey<int>(requestId),
             gestureRecognizers: _gestureRecognizers,
+            initialUserScripts: UnmodifiableListView([
+              UserScript(
+                source: _frameBootstrapScript(widget.argsText),
+                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                forMainFrameOnly: false,
+                allowedOriginRules: const {'*'},
+              ),
+            ]),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               // Keep script-created popups disabled. onCreateWindow therefore
@@ -784,39 +797,10 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     String source, {
     required String argsText,
   }) {
-    final assignments = <String>[];
-    if (argsText.trim().isNotEmpty) {
-      assignments.add('window.args = ${_jsonForInlineScript(argsText)};');
-    }
-
     final bootstrap =
         '''
 <script>
-  ${assignments.join('\n  ')}
-  (() => {
-    const reportHeight = () => {
-      const body = document.body;
-      const html = document.documentElement;
-      const height = Math.ceil(Math.max(
-        body?.scrollHeight || 0,
-        body?.offsetHeight || 0,
-        html?.clientHeight || 0,
-        html?.scrollHeight || 0,
-        html?.offsetHeight || 0
-      ));
-      parent.postMessage({ type: 'conduit-embed-height', height }, '*');
-    };
-
-    window.addEventListener('load', reportHeight);
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(reportHeight);
-      observer.observe(document.documentElement);
-      if (document.body) observer.observe(document.body);
-    }
-    setTimeout(reportHeight, 0);
-    setTimeout(reportHeight, 250);
-    setTimeout(reportHeight, 1000);
-  })();
+${_frameBootstrapScript(argsText)}
 </script>
 ''';
 
@@ -837,6 +821,46 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     }
 
     return '$bootstrap$source';
+  }
+
+  static String _frameBootstrapScript(String argsText) {
+    final argsAssignment = argsText.trim().isEmpty
+        ? ''
+        : 'window.args = ${_jsonForInlineScript(argsText)};';
+    return '''
+  $argsAssignment
+  (() => {
+    const reportHeight = () => {
+      const body = document.body;
+      const html = document.documentElement;
+      const height = Math.ceil(Math.max(
+        body?.scrollHeight || 0,
+        body?.offsetHeight || 0,
+        html?.clientHeight || 0,
+        html?.scrollHeight || 0,
+        html?.offsetHeight || 0
+      ));
+      parent.postMessage({ type: 'conduit-embed-height', height }, '*');
+    };
+
+    window.addEventListener('load', reportHeight);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(reportHeight);
+      const observeDocument = () => {
+        if (document.documentElement) observer.observe(document.documentElement);
+        if (document.body) observer.observe(document.body);
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', observeDocument, { once: true });
+      } else {
+        observeDocument();
+      }
+    }
+    setTimeout(reportHeight, 0);
+    setTimeout(reportHeight, 250);
+    setTimeout(reportHeight, 1000);
+  })();
+''';
   }
 
   static String _jsonForInlineScript(String value) {

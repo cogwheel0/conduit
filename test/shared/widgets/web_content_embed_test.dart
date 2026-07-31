@@ -81,6 +81,21 @@ void main() {
     check(document).not((it) => it.contains('srcdoc="https://example.com'));
   });
 
+  test('injects arguments and height reporting into remote frames', () {
+    final bootstrap = WebContentEmbed.debugFrameBootstrapScript(
+      '</script><script>steal()</script>',
+    );
+
+    check(bootstrap).contains(
+      r'window.args = "\u003C/script\u003E\u003Cscript\u003Esteal()\u003C/script\u003E";',
+    );
+    check(bootstrap).contains(
+      "parent.postMessage({ type: 'conduit-embed-height', height }, '*')",
+    );
+    check(bootstrap).contains('new ResizeObserver(reportHeight)');
+    check(bootstrap).not((it) => it.contains('</script><script>steal()'));
+  });
+
   test('opens only user-activated external navigations', () {
     check(
       WebContentEmbed.debugShouldOpenNavigationExternally(
