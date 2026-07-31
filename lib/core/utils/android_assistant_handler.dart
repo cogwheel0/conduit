@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
@@ -127,22 +128,27 @@ class AndroidAssistantHandler {
   Future<void> _startVoiceCall() async {
     try {
       DebugLogger.log('Starting voice call from assistant', scope: 'assistant');
-
-      // Wait for app to be ready (authenticated and model available)
-      final navState = _ref.read(authNavigationStateProvider);
-      final model = _ref.read(selectedModelProvider);
-
-      if (navState != AuthNavigationState.authenticated || model == null) {
-        DebugLogger.log('App not ready for voice call', scope: 'assistant');
-        return;
-      }
       await _ref
           .read(voiceCallLauncherProvider)
           .launch(startNewConversation: true);
 
       DebugLogger.log('Voice call page launched', scope: 'assistant');
-    } catch (e) {
-      DebugLogger.log('Failed to start voice call: $e', scope: 'assistant');
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'voice-call-failed',
+        scope: 'assistant',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await NavigationService.navigateToChat();
+      final context = NavigationService.context;
+      if (context == null || !context.mounted) return;
+      final message = error is StateError
+          ? error.message.toString()
+          : 'Unable to start a voice call.';
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

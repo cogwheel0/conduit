@@ -8,16 +8,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/models/chat_message.dart';
-import '../../../core/providers/app_providers.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/callkit_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../services/text_to_speech_service.dart';
 import '../services/voice_input_service.dart';
+import '../voice_call/voice_call_eligibility.dart';
 import 'chat_voice_audio_session_coordinator.dart';
 import '../../tools/providers/tools_providers.dart';
 
@@ -32,6 +31,12 @@ enum ChatVoiceModePhase {
   ending,
   ended,
   error,
+}
+
+enum ChatVoiceModeStartResult { started, alreadyActive, cancelled, failed }
+
+final class _ChatVoiceModeStartCancelled implements Exception {
+  const _ChatVoiceModeStartCancelled();
 }
 
 @immutable
@@ -361,31 +366,45 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return const ChatVoiceModeSnapshot();
   }
 
-  Future<void> start({required bool startNewConversation}) {
-    return _enqueue(() async {
+  Future<ChatVoiceModeStartResult> start({
+    required bool startNewConversation,
+    bool Function()? shouldStart,
+    bool readinessResolved = false,
+  }) async {
+    var result = ChatVoiceModeStartResult.failed;
+    await _enqueue(() async {
       int? token;
 
       try {
         await _serviceLifecycleGate.runExclusive(() async {
           if (state.isActive) {
+            result = ChatVoiceModeStartResult.alreadyActive;
             return;
           }
 
-          final authState = ref.read(authNavigationStateProvider);
-          if (authState != AuthNavigationState.authenticated) {
-            _setError('Sign in to start a voice call.');
+          final eligibility = readinessResolved
+              ? ref.read(voiceCallEligibilityProvider)
+              : await resolveVoiceCallEligibility(ref);
+          if (!eligibility.canStart) {
+            _setError(eligibility.errorMessage!);
+            return;
+          }
+          if (shouldStart != null && !shouldStart()) {
+            result = ChatVoiceModeStartResult.cancelled;
             return;
           }
 
-          final model = ref.read(selectedModelProvider);
-          if (model == null) {
-            _setError('Choose a model before starting a voice call.');
-            return;
-          }
+          final model = eligibility.model!;
 
           final startToken = ++_token;
           token = startToken;
           _resetRuntime();
+
+          void cancelIfRequested() {
+            if (shouldStart != null && !shouldStart()) {
+              throw const _ChatVoiceModeStartCancelled();
+            }
+          }
 
           // Keep the inactive overlay lightweight. These services can reach
           // authenticated storage and platform channels, so capture them only
@@ -409,31 +428,47 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             isMuted: false,
           );
 
-          if (startNewConversation) {
-            startNewChat(ref);
-          }
-
           final inputReady = await input.initialize();
           if (!_isCurrent(startToken)) return;
+          cancelIfRequested();
           if (!inputReady) {
             throw StateError('Voice input initialization failed.');
           }
 
           await _requestAndroidVoiceRoutingPermission();
           if (!_isCurrent(startToken)) return;
+          cancelIfRequested();
           await _initializeTts(tts, settings);
           if (!_isCurrent(startToken)) return;
+          cancelIfRequested();
           _listenForTtsEvents(tts, startToken);
           await _startCallKit(model.name, startToken);
           if (!_isCurrent(startToken)) return;
+          cancelIfRequested();
           await _startBackgroundVoiceLease(input, startToken);
           if (!_isCurrent(startToken)) return;
+          cancelIfRequested();
           _startElapsedTimer(startToken);
           await _startListening(startToken);
+          cancelIfRequested();
+          if (startNewConversation) {
+            startNewChat(ref);
+          }
+          if (_isCurrent(startToken) && state.isActive) {
+            result = ChatVoiceModeStartResult.started;
+          }
         });
       } catch (error, stackTrace) {
         final startToken = token;
         if (_disposed || (startToken != null && !_isCurrent(startToken))) {
+          result = ChatVoiceModeStartResult.cancelled;
+          return;
+        }
+        if (error is _ChatVoiceModeStartCancelled) {
+          result = ChatVoiceModeStartResult.cancelled;
+          if (startToken != null) {
+            await _stopInternal(endCallKit: true);
+          }
           return;
         }
         DebugLogger.error(
@@ -456,6 +491,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _fail(error.toString(), startToken);
       }
     });
+    return result;
   }
 
   Future<void> _requestAndroidVoiceRoutingPermission() async {
