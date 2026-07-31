@@ -65,6 +65,22 @@ void main() {
     check(document).not((it) => it.contains('allow-same-origin'));
   });
 
+  test('keeps remote tool URLs inside the sandboxed frame', () {
+    final document = WebContentEmbed.debugWrapRemoteDocument(
+      'https://example.com/widget?city=New%20York&units=metric',
+    );
+
+    check(document).contains(
+      'src="https://example.com/widget?city=New%20York&amp;units=metric"',
+    );
+    check(
+      document,
+    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document).contains('referrerpolicy="no-referrer"');
+    check(document).not((it) => it.contains('allow-same-origin'));
+    check(document).not((it) => it.contains('srcdoc="https://example.com'));
+  });
+
   test('opens only user-activated external navigations', () {
     check(
       WebContentEmbed.debugShouldOpenNavigationExternally(

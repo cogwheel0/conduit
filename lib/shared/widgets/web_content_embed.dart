@@ -61,6 +61,15 @@ class WebContentEmbed extends StatefulWidget {
   }
 
   @visibleForTesting
+  static String debugWrapRemoteDocument(
+    String source, {
+    bool fillAvailableHeight = false,
+  }) => _WebContentEmbedState._wrapRemoteDocument(
+    Uri.parse(source),
+    fillAvailableHeight: fillAvailableHeight,
+  );
+
+  @visibleForTesting
   static Future<bool> debugOpenExternalLink(
     String rawUrl, {
     required Future<bool> Function(String url) launcher,
@@ -346,24 +355,26 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     }
 
     try {
-      if (_isRemoteUrl) {
-        final uri = _resolvedRemoteUri;
-        if (uri == null) {
-          throw StateError('Invalid embed URL');
-        }
-        await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(uri)));
-      } else {
-        final baseUrl = WebUri('https://embed.conduit.local/');
-        await controller.loadData(
-          data: _wrapHtmlDocument(
-            widget.source,
-            argsText: widget.argsText,
-            fillAvailableHeight: widget.fillAvailableHeight,
-          ),
-          baseUrl: baseUrl,
-          historyUrl: baseUrl,
-        );
+      final remoteUri = _resolvedRemoteUri;
+      if (_isRemoteUrl && remoteUri == null) {
+        throw StateError('Invalid embed URL');
       }
+      final document = remoteUri != null
+          ? _wrapRemoteDocument(
+              remoteUri,
+              fillAvailableHeight: widget.fillAvailableHeight,
+            )
+          : _wrapHtmlDocument(
+              widget.source,
+              argsText: widget.argsText,
+              fillAvailableHeight: widget.fillAvailableHeight,
+            );
+      final baseUrl = WebUri('https://embed.conduit.local/');
+      await controller.loadData(
+        data: document,
+        baseUrl: baseUrl,
+        historyUrl: baseUrl,
+      );
     } catch (_) {
       if (!mounted || requestId != _loadRequestId) {
         return;
@@ -375,19 +386,6 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         _loadError = 'Unable to load embedded content.';
       });
     }
-  }
-
-  Future<void> _injectArguments(InAppWebViewController controller) async {
-    final argsText = widget.argsText.trim();
-    if (argsText.isEmpty) {
-      return;
-    }
-
-    try {
-      await controller.evaluateJavascript(
-        source: 'window.args = ${jsonEncode(argsText)};',
-      );
-    } catch (_) {}
   }
 
   Future<NavigationActionPolicy> _handleNavigationAction(
@@ -440,6 +438,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     CreateWindowAction createWindowAction,
     int requestId,
   ) async {
+    if (!mounted) {
+      return false;
+    }
     final targetUrl = createWindowAction.request.url?.toString();
     if (_shouldHandleCreateWindow(
       requestIsCurrent: requestId == _loadRequestId,
@@ -495,15 +496,16 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       windowId: createWindowAction.windowId,
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: false,
+        allowContentAccess: false,
+        allowFileAccess: false,
+        allowFileAccessFromFileURLs: false,
+        allowUniversalAccessFromFileURLs: false,
         supportMultipleWindows: false,
         useShouldOverrideUrlLoading: true,
       ),
       shouldOverrideUrlLoading: (controller, navigationAction) async {
         unawaited(resolvePopupUrl(navigationAction.request.url));
         return NavigationActionPolicy.CANCEL;
-      },
-      onLoadStart: (controller, url) {
-        unawaited(resolvePopupUrl(url));
       },
     );
     _popupWebViews.add(popupWebView);
@@ -629,9 +631,6 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
               if (requestId != _loadRequestId) {
                 return;
               }
-              if (_isRemoteUrl) {
-                await _injectArguments(controller);
-              }
               _scheduleHeightUpdates(controller, requestId);
             },
             onReceivedError: (controller, request, error) {
@@ -703,6 +702,27 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }) {
     final sandboxedSource = _injectSandboxBootstrap(source, argsText: argsText);
     final encodedSource = _escapeHtmlAttribute(sandboxedSource);
+    return _wrapSandboxedFrameDocument(
+      sourceAttribute: 'srcdoc="$encodedSource"',
+      fillAvailableHeight: fillAvailableHeight,
+    );
+  }
+
+  static String _wrapRemoteDocument(
+    Uri source, {
+    bool fillAvailableHeight = false,
+  }) {
+    final encodedSource = _escapeHtmlAttribute(source.toString());
+    return _wrapSandboxedFrameDocument(
+      sourceAttribute: 'src="$encodedSource"',
+      fillAvailableHeight: fillAvailableHeight,
+    );
+  }
+
+  static String _wrapSandboxedFrameDocument({
+    required String sourceAttribute,
+    required bool fillAvailableHeight,
+  }) {
     return '''
 <!DOCTYPE html>
 <html>
@@ -753,7 +773,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       id="embed-frame"
       sandbox="allow-scripts allow-forms allow-popups"
       referrerpolicy="no-referrer"
-      srcdoc="$encodedSource"
+      $sourceAttribute
     ></iframe>
   </body>
 </html>

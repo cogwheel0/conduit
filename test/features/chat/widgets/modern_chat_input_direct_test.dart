@@ -855,8 +855,15 @@ void main() {
       textDirection: Directionality.of(editableContext),
       textScaler: MediaQuery.textScalerOf(editableContext),
       maxLines: 2,
-    )..layout(maxWidth: tester.getSize(find.byType(EditableText)).width);
-    expect(textPainter.computeLineMetrics().length, 2);
+    );
+    try {
+      textPainter.layout(
+        maxWidth: tester.getSize(find.byType(EditableText)).width,
+      );
+      expect(textPainter.computeLineMetrics().length, 2);
+    } finally {
+      textPainter.dispose();
+    }
 
     await tester.tap(find.byType(TextField));
     await tester.enterText(find.byType(TextField), wrappedText);
