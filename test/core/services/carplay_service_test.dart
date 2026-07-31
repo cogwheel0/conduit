@@ -147,6 +147,38 @@ void main() {
       },
     );
 
+    test(
+      'overlapping starts preserve CarPlay ownership through disconnect',
+      () async {
+        final firstStart = Completer<void>();
+        final secondStart = Completer<void>();
+        final voice = _FakeVoiceCallController(
+          startCompleters: [firstStart, secondStart],
+          startResults: const [
+            ChatVoiceModeStartResult.started,
+            ChatVoiceModeStartResult.alreadyActive,
+          ],
+        );
+        final container = _buildContainer(voice: voice);
+        addTearDown(container.dispose);
+
+        final firstResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 1);
+        final secondResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 2);
+
+        firstStart.complete();
+        expect((await firstResult)['success'], isTrue);
+        secondStart.complete();
+        expect((await secondResult)['success'], isTrue);
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+
+        expect(disconnect['success'], isTrue);
+        expect(voice.stopCalls, 1);
+      },
+    );
+
     test('does not take ownership of an already-active phone call', () async {
       final voice = _FakeVoiceCallController(
         startResult: ChatVoiceModeStartResult.alreadyActive,
@@ -292,11 +324,15 @@ Future<void> _until(bool Function() condition) async {
 final class _FakeVoiceCallController extends ChatVoiceModeController {
   _FakeVoiceCallController({
     this.startCompleter,
+    this.startCompleters = const <Completer<void>>[],
     this.startResult = ChatVoiceModeStartResult.started,
+    this.startResults = const <ChatVoiceModeStartResult>[],
   });
 
   final Completer<void>? startCompleter;
+  final List<Completer<void>> startCompleters;
   final ChatVoiceModeStartResult startResult;
+  final List<ChatVoiceModeStartResult> startResults;
   final startedByStartNewConversation = <bool>[];
   final admittedModels = <Model?>[];
   int startCalls = 0;
@@ -313,23 +349,30 @@ final class _FakeVoiceCallController extends ChatVoiceModeController {
     bool Function()? shouldStart,
     Model? admittedModel,
   }) async {
+    final callIndex = startCalls;
     startCalls += 1;
     startedByStartNewConversation.add(startNewConversation);
     admittedModels.add(admittedModel);
-    await startCompleter?.future;
+    final gate = callIndex < startCompleters.length
+        ? startCompleters[callIndex]
+        : startCompleter;
+    await gate?.future;
     if (shouldStart != null && !shouldStart()) {
       return ChatVoiceModeStartResult.cancelled;
     }
-    if (startResult == ChatVoiceModeStartResult.started ||
-        startResult == ChatVoiceModeStartResult.alreadyActive) {
+    final result = callIndex < startResults.length
+        ? startResults[callIndex]
+        : startResult;
+    if (result == ChatVoiceModeStartResult.started ||
+        result == ChatVoiceModeStartResult.alreadyActive) {
       state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
-    } else if (startResult == ChatVoiceModeStartResult.failed) {
+    } else if (result == ChatVoiceModeStartResult.failed) {
       state = const ChatVoiceModeSnapshot(
         phase: ChatVoiceModePhase.error,
         errorMessage: 'Unable to start test voice call.',
       );
     }
-    return startResult;
+    return result;
   }
 
   @override

@@ -127,7 +127,9 @@ final class CarPlayCoordinator {
     }
 
     final next = _ref.read(chatVoiceModeControllerProvider);
-    _startedByCarPlay = startResult == ChatVoiceModeStartResult.started;
+    if (startResult == ChatVoiceModeStartResult.started) {
+      _startedByCarPlay = true;
+    }
     if (next.phase == ChatVoiceModePhase.error) {
       _startedByCarPlay = false;
       return _failure(
