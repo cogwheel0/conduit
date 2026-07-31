@@ -261,7 +261,7 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
 
         // Persist ownership before native execution starts. If the process is
         // terminated during startTurn, disconnect cleanup can still discover
-        // and remove the locally owned chat and its native thread binding.
+        // and remove the locally owned chat and its transport binding.
         if (hasPersistentIdentity) await _bindings.put(binding);
         subscription = _runtime.events.listen(
           handleEvent,
@@ -270,18 +270,26 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
         );
 
         final fullMessages = request.messages.map(_turnMessage).toList();
-        var turnRequest = native.TurnRequest(
+        native.TurnRequest buildTurnRequest({
+          required List<native.TurnMessage> messages,
+          Uint8List? checkpoint,
+        }) => native.TurnRequest(
           sessionId: binding.transportSessionId,
           modelId: request.remoteModelId,
           reasoningEffort: request.parameters['reasoning_effort'] as String?,
           enableWebSearch: request.enableWebSearch,
           enableImageGeneration: request.enableImageGeneration,
-          messages:
-              checkpointMessages?.map(_turnMessage).toList() ?? fullMessages,
+          messages: messages,
           checkpoint: checkpoint,
           previousInputTokens: binding.lastInputTokens == null
               ? null
               : BigInt.from(binding.lastInputTokens!),
+        );
+
+        var turnRequest = buildTurnRequest(
+          messages:
+              checkpointMessages?.map(_turnMessage).toList() ?? fullMessages,
+          checkpoint: checkpoint,
         );
         native.RunInfo started;
         try {
@@ -297,17 +305,7 @@ final class ChatGptAccountAdapter implements DirectProviderAdapter {
             updatedAt: _nextBindingTimestamp(),
           );
           if (hasPersistentIdentity) await _bindings.put(activeBinding);
-          turnRequest = native.TurnRequest(
-            sessionId: binding.transportSessionId,
-            modelId: request.remoteModelId,
-            reasoningEffort: request.parameters['reasoning_effort'] as String?,
-            enableWebSearch: request.enableWebSearch,
-            enableImageGeneration: request.enableImageGeneration,
-            messages: fullMessages,
-            previousInputTokens: binding.lastInputTokens == null
-                ? null
-                : BigInt.from(binding.lastInputTokens!),
-          );
+          turnRequest = buildTurnRequest(messages: fullMessages);
           started = await _runtime.startTurn(turnRequest);
         }
         nativeRunId = started.runId;
