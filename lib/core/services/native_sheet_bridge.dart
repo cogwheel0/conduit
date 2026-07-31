@@ -42,6 +42,7 @@ class NativeSheetRoutes {
   static const about = 'about';
   static const notificationSettings = 'notification-settings';
   static const workspace = 'workspace-entry';
+  static const releaseNotesManual = 'release-notes-manual';
 }
 
 class NativeSheetBridge implements NativeSheetFlutterApi {
@@ -88,6 +89,19 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       return false;
     } catch (error, stackTrace) {
       _logNativeSheetBridgeError('dismiss', error, stackTrace);
+      return false;
+    }
+  }
+
+  Future<bool> requestAppStoreReview() async {
+    if (!_isIOS) return false;
+    try {
+      return await _api.requestAppStoreReview();
+    } on PlatformException catch (error, stackTrace) {
+      _logNativeSheetBridgeError('requestAppStoreReview', error, stackTrace);
+      return false;
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('requestAppStoreReview', error, stackTrace);
       return false;
     }
   }

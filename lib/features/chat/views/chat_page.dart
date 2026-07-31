@@ -57,6 +57,7 @@ import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../core/services/media_upload_controller.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../../release_notes/widgets/release_notes_banner.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
@@ -3185,6 +3186,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ),
                     ),
                   ),
+                  const ReleaseNotesBanner(),
                   if (isTemporary) ...[
                     const SizedBox(height: Spacing.md),
                     temporaryChatNotice,

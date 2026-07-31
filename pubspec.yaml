@@ -54,6 +54,7 @@ dependencies:
   
   # Modern Animations
   flutter_animate: ^4.5.0
+  stupid_simple_sheet: ^0.9.1+1
   
   # Platform Features
   vad: ^0.0.8
@@ -147,6 +148,7 @@ flutter:
   assets:
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
+    - assets/release_notes/
     - assets/chartjs.min.js
     - assets/flutter_tex.js
     - assets/flutter_tex.css

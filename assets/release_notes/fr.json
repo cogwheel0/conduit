@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "4.0.1",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! C’est la plus grande mise à jour de Conduit, et je suis ravi de la partager. Vos conversations vivent d’abord sur votre appareil, et Conduit fonctionne sans serveur.",
+      "bullets": [
+        {
+          "text": "Hermes Agent : connectez le serveur, suivez ses outils, validez les étapes sensibles et planifiez vos agents.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Connexions directes : discutez via OpenAI ou Ollama, avec OpenRouter, LM Studio ou Ollama Cloud.",
+          "icon": "direct"
+        },
+        {
+          "text": "Détails soignés : des discussions fluides, une navigation sereine. Merci d’être là !",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

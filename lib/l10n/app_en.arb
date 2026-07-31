@@ -146,6 +146,41 @@
   "@buyMeACoffeeSubtitle": {
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
+  "releaseNotesTitle": "What's new",
+  "@releaseNotesTitle": {
+    "description": "Title for the baked in-app release notes sheet."
+  },
+  "releaseNotesAnnouncementTitle": "Conduit {version} is here",
+  "@releaseNotesAnnouncementTitle": {
+    "description": "Announcement title shown in the chat banner and release notes header.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "releaseNotesLearnMore": "Tap to learn more",
+  "@releaseNotesLearnMore": {
+    "description": "Prompt shown beneath the release announcement banner title."
+  },
+  "releaseNotesReviewButton": "Review Conduit",
+  "@releaseNotesReviewButton": {
+    "description": "Button opening the app store review/listing page."
+  },
+  "releaseNotesDoneButton": "Done",
+  "@releaseNotesDoneButton": {
+    "description": "Button dismissing the release notes sheet."
+  },
+  "releaseNotesManualSubtitle": "Bundled changelog for {currentVersion}",
+  "@releaseNotesManualSubtitle": {
+    "description": "Subtitle for manually opening the baked changelog from About.",
+    "placeholders": {
+      "currentVersion": {
+        "type": "String",
+        "example": "3.3.2"
+      }
+    }
+  },
   "signOut": "Sign Out",
   "@signOut": {
     "description": "Button/title for signing out of the app."
@@ -2854,6 +2889,15 @@
   "defaultImageGenerationModel": "Default image generation model",
   "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
   "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
+  "@defaultImageGenerationModel": {
+    "description": "Label for choosing the default image generation model."
+  },
+  "@defaultImageGenerationModelDescription": {
+    "description": "Instructions for entering an OpenRouter image model identifier."
+  },
+  "@openRouterDefaultImageGenerationModel": {
+    "description": "Label for using OpenRouter's default image generation model."
+  },
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
@@ -5184,5 +5228,13 @@
   "ollamaThinkingMaximum": "Maximum",
   "@ollamaThinkingMaximum": {
     "description": "Maximum Ollama thinking level."
+  },
+  "releaseNotesSupportPromptHeading": "Enjoying Conduit?",
+  "releaseNotesSupportPromptMessage": "A short review helps more people find Conduit. A small tip helps me keep building it. Either one means a lot.",
+  "@releaseNotesSupportPromptHeading": {
+    "description": "Heading above the combined review and donation actions in release notes."
+  },
+  "@releaseNotesSupportPromptMessage": {
+    "description": "Combined message explaining how a review or donation supports Conduit."
   }
 }

@@ -2,6 +2,7 @@ import CryptoKit
 import Flutter
 import ImageIO
 import PhotosUI
+import StoreKit
 import UIKit
 import UniformTypeIdentifiers
 
@@ -1173,6 +1174,27 @@ final class NativeSheetBridge: NativeSheetHostApi {
             DispatchQueue.main.sync { dismissActive() }
         }
         return true
+    }
+
+    func requestAppStoreReview() throws -> Bool {
+        let request = {
+            MainActor.assumeIsolated {
+                guard let scene = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive })
+                else {
+                    return false
+                }
+
+                AppStore.requestReview(in: scene)
+                return true
+            }
+        }
+
+        if Thread.isMainThread {
+            return request()
+        }
+        return DispatchQueue.main.sync(execute: request)
     }
 
     func presentModelSelector(
@@ -6639,6 +6661,12 @@ private func configureNavigationCell(
         content.imageProperties.tintColor = .systemRed
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
+    if item.kind == "info" && !showsDisclosure {
+        content.textProperties.numberOfLines = 0
+        content.textProperties.lineBreakMode = .byWordWrapping
+        content.secondaryTextProperties.numberOfLines = 0
+        content.secondaryTextProperties.lineBreakMode = .byWordWrapping
+    }
     cell.contentConfiguration = content
     cell.accessoryType = showsDisclosure ? .disclosureIndicator : .none
     NativeSheetSettingsStyle.applyCellStyle(cell)
