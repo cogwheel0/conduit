@@ -349,11 +349,11 @@ Future<void> _pumpReleaseNotesSheet(
                 textDirection: textDirection,
                 child: Scaffold(
                   body: ReleaseNotesSheet(
-                    currentVersion: '4.0.0',
+                    currentVersion: '4.0.1',
                     previousVersion: '3.4.3',
                     notes: [
                       ReleaseNote(
-                        version: '4.0.0',
+                        version: '4.0.1',
                         title: "What's new",
                         intro: 'A focused update, bundled with the app.',
                         bullets: [

@@ -94,11 +94,11 @@ Future<void> _pumpBanner(
       .read(releaseNotesBannerProvider.notifier)
       .show(
         ReleaseNotesBannerData(
-          currentVersion: '4.0.0',
+          currentVersion: '4.0.1',
           previousVersion: '3.4.3',
           notes: [
             ReleaseNote(
-              version: '4.0.0',
+              version: '4.0.1',
               title: 'Local models, polished details',
               intro: 'Welcome to Conduit 4.0.',
               bullets: ['Local-first chats'],

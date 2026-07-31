@@ -1,11 +1,11 @@
 import '../../core/persistence/persistence_keys.dart';
 import '../../core/persistence/preferences_store.dart';
 
-/// Last public version before automatic release notes first ship in 4.0.0.
+/// Last public version before automatic release notes first ship in 4.0.1.
 ///
 /// Existing installs have no release-note version marker yet, so this baseline
-/// lets the normal semantic-version gate select the bundled 4.0.0 note without
-/// making a fresh 4.0.0 install look like an update.
+/// lets the normal semantic-version gate select the bundled 4.0.1 note without
+/// making a fresh 4.0.1 install look like an update.
 const releaseNotesLegacyBaselineVersion = '3.4.3';
 
 /// Captures install provenance before onboarding can create the same markers.

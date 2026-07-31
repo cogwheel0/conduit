@@ -46,7 +46,7 @@ void main() {
     );
   });
 
-  testWidgets('fresh 4.0 install does not show the 4.0 update sheet', (
+  testWidgets('fresh 4.0.1 install does not show the 4.0 update sheet', (
     tester,
   ) async {
     await captureReleaseNotesInstallProvenance();
@@ -66,7 +66,7 @@ void main() {
     await tester.pumpWidget(
       _app(
         authState: AuthNavigationState.authenticated,
-        packageVersion: '4.0.0',
+        packageVersion: '4.0.1',
       ),
     );
     await tester.pump();
@@ -75,7 +75,7 @@ void main() {
     expect(find.text("What's new"), findsNothing);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
-      '4.0.0',
+      '4.0.1',
     );
   });
 
@@ -97,7 +97,7 @@ void main() {
     await tester.pumpWidget(
       _app(
         authState: AuthNavigationState.authenticated,
-        packageVersion: '4.0.0',
+        packageVersion: '4.0.1',
         showBanner: true,
       ),
     );
@@ -107,6 +107,32 @@ void main() {
     expect(find.text('Conduit 4.0 is here'), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     expect(find.text('Welcome to Conduit 4.0.'), findsNothing);
+  });
+
+  testWidgets('existing 4.0.0 install shows the bundled 4.0.1 banner', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.lastSeenReleaseVersion: '4.0.0',
+      PreferenceKeys.activeServerId: 'existing-server',
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+
+    await tester.pumpWidget(
+      _app(
+        authState: AuthNavigationState.authenticated,
+        packageVersion: '4.0.1',
+        showBanner: true,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Conduit 4.0 is here'), findsOneWidget);
+    expect(
+      PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
+      '4.0.1',
+    );
   });
 
   for (final backend in [PreferredBackend.direct, PreferredBackend.hermes]) {
@@ -296,7 +322,7 @@ class _FakeNotesBundle extends CachingAssetBundle {
         ],
       },
       {
-        'version': '4.0.0',
+        'version': '4.0.1',
         'title': 'Conduit 4.0',
         'intro': 'Welcome to Conduit 4.0.',
         'bullets': [
