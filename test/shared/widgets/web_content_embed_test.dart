@@ -81,7 +81,7 @@ void main() {
     check(document).not((it) => it.contains('srcdoc="https://example.com'));
   });
 
-  test('injects arguments and height reporting into remote frames', () {
+  test('builds a script-safe inline frame bootstrap', () {
     final bootstrap = WebContentEmbed.debugFrameBootstrapScript(
       '</script><script>steal()</script>',
     );
@@ -145,31 +145,65 @@ void main() {
     check(
       WebContentEmbed.debugShouldSurfaceLoadFailure(
         isForMainFrame: true,
-        remoteEmbedUrl: null,
+        remoteEmbedUrls: const [],
         requestUrl: 'https://embed.conduit.local/',
       ),
     ).isTrue();
     check(
       WebContentEmbed.debugShouldSurfaceLoadFailure(
         isForMainFrame: false,
-        remoteEmbedUrl: 'https://example.com/widget',
+        remoteEmbedUrls: const ['https://example.com/widget'],
         requestUrl: 'https://example.com/widget',
       ),
     ).isTrue();
     check(
       WebContentEmbed.debugShouldSurfaceLoadFailure(
         isForMainFrame: false,
-        remoteEmbedUrl: 'https://example.com/widget',
+        remoteEmbedUrls: const ['https://example.com/widget'],
         requestUrl: 'https://example.com/broken-image.png',
       ),
     ).isFalse();
     check(
       WebContentEmbed.debugShouldSurfaceLoadFailure(
         isForMainFrame: false,
-        remoteEmbedUrl: null,
+        remoteEmbedUrls: const [],
         requestUrl: 'https://example.com/script.js',
       ),
     ).isFalse();
+  });
+
+  test('normalizes and tracks remote-frame document failure URLs', () {
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: false,
+        remoteEmbedUrls: const ['https://EXAMPLE.com:443'],
+        requestUrl: 'https://example.com/',
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldSurfaceLoadFailure(
+        isForMainFrame: false,
+        remoteEmbedUrls: const [
+          'https://example.com/widget',
+          'https://cdn.example.net/redirected-widget',
+        ],
+        requestUrl: 'https://cdn.example.net/redirected-widget',
+      ),
+    ).isTrue();
+  });
+
+  test('all-frame bootstrap never exposes tool arguments', () {
+    const secret = 'tool-argument-secret';
+    check(
+      WebContentEmbed.debugAllFrameBootstrapScript(),
+    ).not((it) => it.contains(secret));
+    check(
+      WebContentEmbed.debugAllFrameBootstrapScript(),
+    ).not((it) => it.contains('window.args ='));
+    check(WebContentEmbed.debugAllFrameBootstrapScript()).contains(
+      "parent.postMessage({ type: 'conduit-embed-height', height }, '*')",
+    );
+    check(WebContentEmbed.debugFrameBootstrapScript(secret)).contains(secret);
   });
 
   test(

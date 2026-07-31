@@ -75,6 +75,10 @@ class WebContentEmbed extends StatefulWidget {
       _WebContentEmbedState._frameBootstrapScript(argsText);
 
   @visibleForTesting
+  static String debugAllFrameBootstrapScript() =>
+      _WebContentEmbedState._allFrameBootstrapScript;
+
+  @visibleForTesting
   static Future<bool> debugOpenExternalLink(
     String rawUrl, {
     required Future<bool> Function(String url) launcher,
@@ -132,11 +136,11 @@ class WebContentEmbed extends StatefulWidget {
   @visibleForTesting
   static bool debugShouldSurfaceLoadFailure({
     required bool isForMainFrame,
-    required String? remoteEmbedUrl,
+    required Iterable<String> remoteEmbedUrls,
     required String requestUrl,
   }) => _WebContentEmbedState._shouldSurfaceLoadFailure(
     isForMainFrame: isForMainFrame,
-    remoteEmbedUrl: remoteEmbedUrl,
+    remoteEmbedUrls: remoteEmbedUrls,
     requestUrl: requestUrl,
   );
 
@@ -152,6 +156,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
   InAppWebViewController? _controller;
   final Set<HeadlessInAppWebView> _popupWebViews = {};
+  final Set<String> _remoteFrameDocumentUrls = {};
   double _height = _embedDefaultHeight;
   bool _isLoading = true;
   bool _loadScheduled = false;
@@ -216,6 +221,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   @override
   void initState() {
     super.initState();
+    _resetRemoteFrameDocumentUrls();
     _isExpanded = widget.initiallyExpanded || !widget.deferUntilExpanded;
     if (widget.debugSeedControllerForTesting) {
       _debugHasSeededController = true;
@@ -243,6 +249,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
   void _resetControllerState({required bool isLoading}) {
     _disposePopupWebViews();
+    _resetRemoteFrameDocumentUrls();
     final hadController = _hasController;
     if (mounted) {
       setState(() {
@@ -265,6 +272,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     }
     if (hadController) {
       widget.debugOnControllerReset?.call();
+    }
+  }
+
+  void _resetRemoteFrameDocumentUrls() {
+    _remoteFrameDocumentUrls.clear();
+    final remoteUri = _resolvedRemoteUri;
+    if (remoteUri != null) {
+      _remoteFrameDocumentUrls.add(remoteUri.toString());
     }
   }
 
@@ -420,9 +435,11 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
     final userActivated = _isUserActivatedNavigation(navigationAction);
     if (!userActivated) {
-      return _shouldAllowAutomaticNavigation(targetUrl)
-          ? NavigationActionPolicy.ALLOW
-          : NavigationActionPolicy.CANCEL;
+      if (!_shouldAllowAutomaticNavigation(targetUrl)) {
+        return NavigationActionPolicy.CANCEL;
+      }
+      _rememberRemoteFrameDocumentUrl(navigationAction, targetUrl);
+      return NavigationActionPolicy.ALLOW;
     }
     if (_shouldAllowInlineFragmentNavigation(targetUrl)) {
       return NavigationActionPolicy.ALLOW;
@@ -443,11 +460,21 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       currentUrl: currentUrl,
       userActivated: userActivated,
     )) {
+      _rememberRemoteFrameDocumentUrl(navigationAction, targetUrl);
       return NavigationActionPolicy.ALLOW;
     }
 
     await _openAllowedExternalLink(targetUrl);
     return NavigationActionPolicy.CANCEL;
+  }
+
+  void _rememberRemoteFrameDocumentUrl(
+    NavigationAction navigationAction,
+    String targetUrl,
+  ) {
+    if (_isRemoteUrl && !navigationAction.isForMainFrame) {
+      _remoteFrameDocumentUrls.add(targetUrl);
+    }
   }
 
   Future<bool> _handleCreateWindow(
@@ -644,7 +671,10 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
             gestureRecognizers: _gestureRecognizers,
             initialUserScripts: UnmodifiableListView([
               UserScript(
-                source: _frameBootstrapScript(widget.argsText),
+                // This script reaches remote frames too, so it must not contain
+                // tool arguments. Inline srcdoc content receives its private
+                // argument bootstrap from _injectSandboxBootstrap instead.
+                source: _allFrameBootstrapScript,
                 injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
                 forMainFrameOnly: false,
                 allowedOriginRules: const {'*'},
@@ -672,7 +702,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
             onReceivedError: (controller, request, error) {
               if (!_shouldSurfaceLoadFailure(
                 isForMainFrame: request.isForMainFrame ?? false,
-                remoteEmbedUrl: _resolvedRemoteUri?.toString(),
+                remoteEmbedUrls: _remoteFrameDocumentUrls,
                 requestUrl: request.url.toString(),
               )) {
                 return;
@@ -682,7 +712,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
             onReceivedHttpError: (controller, request, errorResponse) {
               if (!_shouldSurfaceLoadFailure(
                 isForMainFrame: request.isForMainFrame ?? false,
-                remoteEmbedUrl: _resolvedRemoteUri?.toString(),
+                remoteEmbedUrls: _remoteFrameDocumentUrls,
                 requestUrl: request.url.toString(),
               )) {
                 return;
@@ -899,6 +929,8 @@ ${_frameBootstrapScript(argsText)}
 ''';
   }
 
+  static final String _allFrameBootstrapScript = _frameBootstrapScript('');
+
   static String _jsonForInlineScript(String value) {
     return jsonEncode(value)
         .replaceAll('&', r'\u0026')
@@ -954,11 +986,34 @@ ${_frameBootstrapScript(argsText)}
 
   static bool _shouldSurfaceLoadFailure({
     required bool isForMainFrame,
-    required String? remoteEmbedUrl,
+    required Iterable<String> remoteEmbedUrls,
     required String requestUrl,
-  }) =>
-      isForMainFrame ||
-      (remoteEmbedUrl != null && requestUrl == remoteEmbedUrl);
+  }) {
+    if (isForMainFrame) {
+      return true;
+    }
+    final normalizedRequest = _normalizedDocumentUrl(requestUrl);
+    if (normalizedRequest == null) {
+      return false;
+    }
+    return remoteEmbedUrls.any(
+      (url) => _normalizedDocumentUrl(url) == normalizedRequest,
+    );
+  }
+
+  static String? _normalizedDocumentUrl(String rawUrl) {
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return null;
+    }
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') {
+      return null;
+    }
+    final path = uri.path.isEmpty ? '/' : uri.path;
+    return '$scheme|${uri.userInfo}|${uri.host.toLowerCase()}|${uri.port}|'
+        '$path|${uri.query}';
+  }
 
   static bool _shouldHandleCreateWindow({
     required bool requestIsCurrent,
