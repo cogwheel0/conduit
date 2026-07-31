@@ -55,7 +55,6 @@ jobs:
         with:
           workspaces: native/chatgpt_runtime
       - run: cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml --all -- --check
-      - run: cargo fmt --manifest-path native/codex_mobile_compat/app-server/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets
       - run: bash tool/audit_chatgpt_runtime_exposure.sh

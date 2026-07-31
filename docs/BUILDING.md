@@ -55,8 +55,8 @@ new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
 
-The ChatGPT account runtime is an in-process Rust static library built through
-Cargokit and Flutter Rust Bridge 2.12.0. That exact release maps to upstream
+The ChatGPT account transport is a thin in-process Rust static library built
+through Cargokit and Flutter Rust Bridge 2.12.0. That exact release maps to upstream
 commit `62b9330ed2f900535e34d8443ff82dc54070579a`; the Dart package, Rust crate,
 and generator are all locked at 2.12.0. The committed bridge output is
 regenerated with:
@@ -67,37 +67,29 @@ flutter_rust_bridge_codegen generate
 cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml
 ```
 
-Rust honors `rust-toolchain.toml`; no external app-server process is started or
-packaged.
+Rust honors `rust-toolchain.toml`; `codex-app-server` is neither linked nor
+started. Flutter initializes the library only when ChatGPT is configured,
+selected, or has unfinished disconnect cleanup.
 
 ### ChatGPT runtime boundary
 
-The mobile runtime is stripped at its capability and API boundaries, not at
-every transitive Cargo edge. Codex 0.145.0 unconditionally retains these nine
-coding-oriented crates in its app-server/core graph for this PR:
+The runtime directly pins only `codex-api`, `codex-login`, and
+`codex-protocol` at Codex commit
+`25af12f7e61572b0bc18ddb1008be543b91519b0`. It uses the lower-level Models,
+Responses, Compact, Search, and Images HTTPS clients. Authentication is loaded
+into Codex's ephemeral credential store; Rust never creates `auth.json`.
 
-- `codex-apply-patch`
-- `codex-exec-server`
-- `codex-file-watcher`
-- `codex-git-utils`
-- `codex-mcp`
-- `codex-sandboxing`
-- `codex-shell-command`
-- `codex-shell-escalation`
-- `codex-skills`
+Conduit exposes 13 typed FRB v3 functions and exactly two model tools:
+`web.run` and `image_gen.imagegen`. There is no generic JSON-RPC bridge,
+arbitrary Dart-supplied tool, app-server/core dependency, filesystem or
+workspace API, rollout store, shell, MCP, approval, or patching surface.
+Provider events and tool JSON are handled exhaustively and fail closed; only
+sanitized chat events cross the bridge.
 
-They are accepted as compiled-but-unexposed upstream dependencies. Conduit has
-no generic JSON-RPC bridge, exposes only typed auth/model/thread/turn methods,
-allows only the audited ChatGPT app-server methods, rejects every
-server-initiated request, and disables shell, MCP, skills, workspace
-environments, approvals, patching, code mode, and multi-agent features. The
-V8/Deno implementation is still prohibited, and release-size limits still
-apply.
-
-`tool/audit_chatgpt_runtime_exposure.sh` enforces that boundary. Any new bridge
-function, app-server method, enabled coding feature, scripting runtime, or lost
-server-request rejection fails CI. Removing the nine upstream crates remains a
-future size and hardening improvement, not a merge condition for this PR.
+`tool/audit_chatgpt_runtime_exposure.sh` enforces the bridge, endpoint, tool,
+credential, and fail-closed boundaries. It rejects V8/Deno and reports the
+accepted transitive Codex crates without failing the PR. Release-size limits
+continue to apply.
 
 Use `--delete-conflicting-outputs` when generated files fall out of sync:
 
@@ -130,12 +122,14 @@ release binaries for iOS and every Android ABI, authenticate a ChatGPT account,
 complete every supported chat operation, survive relaunch, and remove all
 account-owned data on explicit disconnect without affecting unrelated data.
 
-Dependency-level removal of the nine acknowledged Codex crates above is
-explicitly not part of this PR's acceptance condition. The exposure audit must
-instead prove the fixed typed bridge and app-server method allowlists, disabled
-coding capabilities, rejection of server-initiated requests, and absence of
-V8/Deno. The PR remains draft until the real-device authentication, chat,
-lifecycle, and destructive-cleanup scenarios pass on both Android and iOS.
+Dependency-level removal of reported transitive Codex crates is explicitly not
+part of this PR's acceptance condition. The exposure audit instead proves the
+fixed FRB v3 and endpoint allowlists, the two-tool boundary, exhaustive
+fail-closed protocol handling, and absence of V8/Deno. The PR remains draft
+until the real-device authentication, chat, lifecycle, compaction, and
+destructive-cleanup scenarios pass on both Android and iOS. Schema 10 is the
+first and final development schema for the transport; installations of the
+unmerged intermediate schema-10 build must clear app data or reinstall.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
