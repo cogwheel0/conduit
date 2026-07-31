@@ -79,6 +79,10 @@ class WebContentEmbed extends StatefulWidget {
       _WebContentEmbedState._allFrameBootstrapScript;
 
   @visibleForTesting
+  static String debugInlineArgumentsScript(String argsText) =>
+      _WebContentEmbedState._inlineArgumentsScript(argsText);
+
+  @visibleForTesting
   static Future<bool> debugOpenExternalLink(
     String rawUrl, {
     required Future<bool> Function(String url) launcher,
@@ -863,10 +867,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     String source, {
     required String argsText,
   }) {
+    final argumentsScript = _inlineArgumentsScript(argsText);
+    if (argumentsScript.isEmpty) {
+      return source;
+    }
     final bootstrap =
         '''
 <script>
-${_frameBootstrapScript(argsText)}
+$argumentsScript
 </script>
 ''';
 
@@ -890,11 +898,19 @@ ${_frameBootstrapScript(argsText)}
   }
 
   static String _frameBootstrapScript(String argsText) {
-    final argsAssignment = argsText.trim().isEmpty
+    return '''
+${_inlineArgumentsScript(argsText)}
+$_allFrameBootstrapScript
+''';
+  }
+
+  static String _inlineArgumentsScript(String argsText) {
+    return argsText.trim().isEmpty
         ? ''
         : 'window.args = ${_jsonForInlineScript(argsText)};';
-    return '''
-  $argsAssignment
+  }
+
+  static const String _allFrameBootstrapScript = '''
   (() => {
     const reportHeight = () => {
       const body = document.body;
@@ -927,9 +943,6 @@ ${_frameBootstrapScript(argsText)}
     setTimeout(reportHeight, 1000);
   })();
 ''';
-  }
-
-  static final String _allFrameBootstrapScript = _frameBootstrapScript('');
 
   static String _jsonForInlineScript(String value) {
     return jsonEncode(value)

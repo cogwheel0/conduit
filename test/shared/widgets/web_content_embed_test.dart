@@ -206,6 +206,17 @@ void main() {
     check(WebContentEmbed.debugFrameBootstrapScript(secret)).contains(secret);
   });
 
+  test('inline argument bootstrap does not duplicate height observers', () {
+    final argumentsScript = WebContentEmbed.debugInlineArgumentsScript(
+      'private-tool-argument',
+    );
+
+    check(argumentsScript).contains('window.args =');
+    check(argumentsScript).contains('private-tool-argument');
+    check(argumentsScript).not((it) => it.contains('ResizeObserver'));
+    check(argumentsScript).not((it) => it.contains('postMessage'));
+  });
+
   test(
     'requires positive activation evidence when gesture data is present',
     () {
