@@ -384,6 +384,44 @@ void main() {
     ).equals(ChatVoiceModePhase.ended);
   });
 
+  test('provider disposal cancels a start during initialization', () async {
+    final input = _FakeVoiceInputService()..initializeGate = Completer<bool>();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+
+    final start = container
+        .read(chatVoiceModeControllerProvider.notifier)
+        .start(startNewConversation: false);
+    await _until(() => input.initializeCalls == 1);
+
+    container.dispose();
+    input.initializeGate!.complete(true);
+
+    check(
+      await start.timeout(const Duration(seconds: 1)),
+    ).equals(ChatVoiceModeStartResult.cancelled);
+  });
+
   test(
     'new voice conversation preserves an admitted model after selection changes',
     () async {

@@ -28,6 +28,7 @@ final class CarPlayCoordinator {
   bool _startedByCarPlay = false;
   bool _sceneConnected = false;
   int _sceneGeneration = 0;
+  Completer<void>? _sceneDisconnectSignal;
   String? _lastSentStateKey;
 
   void initialize() {
@@ -86,7 +87,20 @@ final class CarPlayCoordinator {
       return _success();
     }
 
-    final eligibility = await resolveVoiceCallEligibility(_ref);
+    final disconnectSignal = _sceneDisconnectSignal!;
+    late final VoiceCallEligibility eligibility;
+    try {
+      eligibility = await resolveVoiceCallEligibility(
+        _ref,
+        cancellationSignal: disconnectSignal.future,
+        cancellationRequested: () => !_isCurrentScene(sceneGeneration),
+      );
+    } on VoiceCallEligibilityResolutionCancelled {
+      if (!_isCurrentScene(sceneGeneration)) {
+        return _failure('CarPlay disconnected.');
+      }
+      rethrow;
+    }
     if (!_isCurrentScene(sceneGeneration)) {
       return _failure('CarPlay disconnected.');
     }
@@ -176,6 +190,7 @@ final class CarPlayCoordinator {
     if (!_sceneConnected) {
       _sceneConnected = true;
       _sceneGeneration++;
+      _sceneDisconnectSignal = Completer<void>();
     }
     return _sceneGeneration;
   }
@@ -184,6 +199,11 @@ final class CarPlayCoordinator {
     if (_sceneConnected) {
       _sceneConnected = false;
       _sceneGeneration++;
+      final disconnectSignal = _sceneDisconnectSignal;
+      _sceneDisconnectSignal = null;
+      if (disconnectSignal != null && !disconnectSignal.isCompleted) {
+        disconnectSignal.complete();
+      }
     }
   }
 

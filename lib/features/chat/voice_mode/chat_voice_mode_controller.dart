@@ -440,6 +440,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             }
           }
 
+          bool lostOwnership() {
+            if (_isCurrent(startToken)) return false;
+            result = ChatVoiceModeStartResult.cancelled;
+            return true;
+          }
+
           // Keep the inactive overlay lightweight. These services can reach
           // authenticated storage and platform channels, so capture them only
           // when a voice session actually starts. The retained references also
@@ -463,24 +469,24 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           );
 
           final inputReady = await input.initialize();
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           if (!inputReady) {
             throw StateError('Voice input initialization failed.');
           }
 
           await _requestAndroidVoiceRoutingPermission();
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           await _initializeTts(tts, settings);
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           _listenForTtsEvents(tts, startToken);
           await _startCallKit(model.name, startToken);
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           await _startBackgroundVoiceLease(input, startToken);
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           _startElapsedTimer(startToken);
           await _startListening(
@@ -492,7 +498,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                   }
                 : null,
           );
-          if (!_isCurrent(startToken)) return;
+          if (lostOwnership()) return;
           cancelIfRequested();
           if (_isCurrent(startToken) && state.isActive) {
             result = ChatVoiceModeStartResult.started;

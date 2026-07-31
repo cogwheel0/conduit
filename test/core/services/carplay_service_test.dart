@@ -120,6 +120,33 @@ void main() {
       },
     );
 
+    test(
+      'disconnect cancels eligibility readiness without waiting for timeout',
+      () async {
+        final authRead = Completer<void>();
+        final voice = _FakeVoiceCallController();
+        final container = _buildContainer(
+          voice: voice,
+          authState: AuthNavigationState.loading,
+          onAuthRead: () {
+            if (!authRead.isCompleted) authRead.complete();
+          },
+        );
+        addTearDown(container.dispose);
+
+        final startFuture = _invokeNative('startVoiceConversation');
+        await authRead.future.timeout(const Duration(seconds: 1));
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final result = await startFuture.timeout(const Duration(seconds: 1));
+
+        expect(disconnect['success'], isTrue);
+        expect(result['success'], isFalse);
+        expect(result['error'], contains('disconnected'));
+        expect(voice.startCalls, 0);
+      },
+    );
+
     test('does not take ownership of an already-active phone call', () async {
       final voice = _FakeVoiceCallController(
         startResult: ChatVoiceModeStartResult.alreadyActive,
@@ -187,11 +214,15 @@ ProviderContainer _buildContainer({
   AuthNavigationState authState = AuthNavigationState.authenticated,
   Model? selectedModel = _model,
   HermesConfig? hermesConfig,
+  VoidCallback? onAuthRead,
 }) {
   final container = ProviderContainer(
     overrides: [
       chatVoiceModeControllerProvider.overrideWith(() => voice),
-      authNavigationStateProvider.overrideWithValue(authState),
+      authNavigationStateProvider.overrideWith((ref) {
+        onAuthRead?.call();
+        return authState;
+      }),
       reviewerModeProvider.overrideWithValue(false),
       selectedModelProvider.overrideWithValue(selectedModel),
       defaultModelProvider.overrideWith((ref) => selectedModel),
