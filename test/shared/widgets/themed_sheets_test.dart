@@ -10,8 +10,119 @@ import 'package:checks/checks.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 void main() {
+  testWidgets('adaptive sheets use the iOS 26 glass route on iOS', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(
+          TweakcnThemes.t3Chat,
+        ).copyWith(platform: TargetPlatform.iOS),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => ThemedSheets.showAdaptive<void>(
+                context: context,
+                builder: (_) => const ConduitAdaptiveSheetSurface(
+                  child: Text('Adaptive content'),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    final route = ModalRoute.of(tester.element(find.text('Adaptive content')));
+    expect(route, isA<StupidSimpleGlassSheetRoute<void>>());
+    final glassRoute = route! as StupidSimpleGlassSheetRoute<void>;
+    final shape = glassRoute.shape as RoundedSuperellipseBorder;
+    final context = tester.element(find.text('Adaptive content'));
+    expect(shape.side.color, context.conduitTheme.dividerColor);
+    expect(shape.side.width, BorderWidth.regular);
+  });
+
+  testWidgets('adaptive sheets use the plain package route off iOS', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(
+          TweakcnThemes.t3Chat,
+        ).copyWith(platform: TargetPlatform.android),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => ThemedSheets.showAdaptive<void>(
+                context: context,
+                builder: (_) => const ConduitAdaptiveSheetSurface(
+                  child: Text('Adaptive content'),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    final route = ModalRoute.of(tester.element(find.text('Adaptive content')));
+    expect(route, isA<StupidSimpleSheetRoute<void>>());
+    expect(find.byType(SheetBackground), findsOneWidget);
+  });
+
+  testWidgets('adaptive surfaces can defer the bottom safe area to the route', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        home: const Scaffold(
+          body: ConduitAdaptiveSheetSurface(
+            bottomSafeArea: false,
+            padding: EdgeInsets.zero,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                key: ValueKey<String>('bottom-aligned-action'),
+                width: 120,
+                height: TouchTarget.comfortable,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .getBottomLeft(
+            find.byKey(const ValueKey<String>('bottom-aligned-action')),
+          )
+          .dy,
+      874,
+    );
+  });
+
   testWidgets('all themed sheets use the shared edge-to-edge rounded route', (
     tester,
   ) async {

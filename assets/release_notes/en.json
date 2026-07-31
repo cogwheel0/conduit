@@ -6,19 +6,15 @@
       "intro": "Hi! This is the biggest update since Conduit began, and I'm really excited to share it. Your chats now live on your phone first, and you can use Conduit entirely without a server.",
       "bullets": [
         {
-          "text": "Local persistence: chats, notes, and drafts are kept safely on your device. Notes and drafts remain available without a connection; continuing a chat still requires one.",
-          "icon": "local"
-        },
-        {
-          "text": "Hermes Agent: connect your own Hermes server and chat with an agent that gets things done. Watch its tools work live, approve sensitive steps before they run, and let scheduled agents work while you sleep.",
+          "text": "Hermes Agent: connect your server, watch its tools work, approve sensitive steps, and schedule agents for later.",
           "icon": "hermes"
         },
         {
-          "text": "Direct connections: talk to OpenAI-compatible providers or Ollama models running on your own machine, straight from the app. Just add an API key, or skip the key entirely.",
+          "text": "Direct connections: chat with OpenAI-compatible services or Ollama, including OpenRouter, LM Studio, and Ollama Cloud.",
           "icon": "direct"
         },
         {
-          "text": "And lots of care in the details: smoother streaming and scrolling, nicer sheets and navigation, and dozens of fixes for attachments, speech, and themes. Thank you for being here!",
+          "text": "Thoughtful details: smoother chats and calmer navigation. Thank you for being here!",
           "icon": "polish"
         }
       ]

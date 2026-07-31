@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -27,6 +28,10 @@ void main() {
           because: file.path,
           note.bulletIconAssets.length,
         ).equals(note.bullets.length);
+        check(
+          because: '${file.path} should not include the local persistence card',
+          note.bulletIcons.contains(Icons.storage_rounded),
+        ).isFalse();
       }
     }
   });

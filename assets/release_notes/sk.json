@@ -3,22 +3,18 @@
     {
       "version": "4.0.0",
       "title": "Novinky",
-      "intro": "Ahoj! Toto je najväčšia aktualizácia od vzniku Conduitu a mám obrovskú radosť, že sa o ňu môžem podeliť. Vaše chaty teraz žijú najprv vo vašom zariadení a Conduit môžete používať úplne bez servera.",
+      "intro": "Ahoj! Toto je najväčšia aktualizácia Conduitu a teším sa, že sa o ňu môžem podeliť. Vaše chaty žijú najprv v zariadení a Conduit funguje bez servera.",
       "bullets": [
         {
-          "text": "Miestne ukladanie: chaty, poznámky a koncepty sú bezpečne uložené vo vašom zariadení. Poznámky a koncepty zostávajú dostupné bez pripojenia; na pokračovanie v chate je pripojenie stále potrebné.",
-          "icon": "local"
-        },
-        {
-          "text": "Hermes Agent: pripojte vlastný server Hermes a píšte si s agentom, ktorý veci naozaj dotiahne. Sledujte jeho nástroje naživo, schvaľujte citlivé kroky vopred a nechajte plánovaných agentov pracovať, kým spíte.",
+          "text": "Hermes Agent: pripojte server, sledujte nástroje, schvaľujte citlivé kroky, plánujte agentov.",
           "icon": "hermes"
         },
         {
-          "text": "Priame pripojenia: hovorte s poskytovateľmi kompatibilnými s OpenAI alebo s modelmi Ollama na vlastnom počítači, priamo z aplikácie. Stačí pridať API kľúč, alebo sa zaobísť úplne bez neho.",
+          "text": "Priame pripojenia: chatujte cez OpenAI služby či Ollamu, napríklad OpenRouter, LM Studio a Ollama Cloud.",
           "icon": "direct"
         },
         {
-          "text": "A kopa starostlivosti o detaily: plynulejšie streamovanie a posúvanie, príjemnejšie panely a navigácia a desiatky opráv príloh, reči a tém. Ďakujem, že ste tu!",
+          "text": "Premyslené detaily: plynulejšie chaty, pokojnejšia navigácia. Ďakujem, že ste tu!",
           "icon": "polish"
         }
       ]

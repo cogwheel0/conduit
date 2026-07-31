@@ -1,9 +1,14 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +52,12 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text("What's new"), findsOneWidget);
+      expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.text('Conduit 3.3 is here')).style?.fontSize,
+        AppTypography.headlineMedium,
+      );
+      expect(find.text("What's new"), findsNothing);
       expect(find.text('Enjoying Conduit?'), findsOneWidget);
       expect(
         find.text(
@@ -57,52 +67,152 @@ void main() {
       );
       expect(find.text('Review Conduit'), findsOneWidget);
       expect(find.text('Buy Me a Coffee'), findsOneWidget);
-      expect(find.byType(PageView), findsOneWidget);
-      expect(find.byIcon(Icons.chevron_left_rounded), findsNothing);
-      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
-      final pageView = tester.widget<PageView>(find.byType(PageView));
-      expect(pageView.controller?.viewportFraction, 1);
+      expect(
+        tester
+            .widget<Text>(
+              find.text(
+                'A short review helps more people find Conduit. A small tip helps me keep building it. Either one means a lot.',
+              ),
+            )
+            .style
+            ?.fontSize,
+        AppTypography.bodyMedium,
+      );
+      expect(
+        tester.widget<Text>(find.text('Review Conduit')).style?.fontSize,
+        AppTypography.bodyMedium,
+      );
+      expect(find.text('Since 3.3.1, now on 3.3.2'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName == 'assets/icons/icon.png',
+        ),
+        findsNothing,
+      );
+      expect(find.byType(PageView), findsNothing);
+      expect(find.byType(ConduitButton), findsOneWidget);
+      final bottomFade = tester.widget<ConduitChromeGradientFade>(
+        find.byType(ConduitChromeGradientFade),
+      );
+      expect(bottomFade.edge, ConduitChromeFadeEdge.bottom);
+      expect(bottomFade.contentHeight, TouchTarget.comfortable);
+      expect(
+        tester.getBottomLeft(find.byType(ConduitButton)).dy,
+        tester.getBottomLeft(find.byType(ReleaseNotesSheet)).dy,
+      );
+      expect(find.text('Baked changelog'), findsOneWidget);
+      expect(find.text('Localized copy'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
-
+      expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
+      expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
       await tester.tap(find.text('Review Conduit'));
       await tester.pump();
       expect(reviewCalls, 1);
       expect(supportCalls, 0);
       expect(closeCalls, 0);
-      expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
 
       await tester.tap(find.text('Buy Me a Coffee'));
       await tester.pump();
       expect(reviewCalls, 1);
       expect(supportCalls, 1);
       expect(closeCalls, 0);
-      expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
       expect(find.text('Done'), findsOneWidget);
     },
   );
 
-  testWidgets('expressive surface provides a clipped Material card', (
+  testWidgets('adaptive surface applies modal-safe content padding', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
         home: const Scaffold(
-          body: ConduitExpressiveSheetSurface(child: Text('Release notes')),
+          body: ConduitAdaptiveSheetSurface(child: Text('Release notes')),
         ),
       ),
     );
 
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Material && widget.clipBehavior == Clip.antiAlias,
-      ),
-      findsOneWidget,
+    expect(find.byType(SafeArea), findsOneWidget);
+    expect(find.text('Release notes'), findsOneWidget);
+  });
+
+  testWidgets('dark support card uses the standard modal card treatment', (
+    tester,
+  ) async {
+    await _pumpReleaseNotesSheet(
+      tester,
+      darkMode: true,
+      disableAnimations: true,
     );
+
+    final card = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('release-notes-support-card')),
+    );
+    final decoration = card.decoration as BoxDecoration;
+    final context = tester.element(
+      find.byKey(const ValueKey<String>('release-notes-support-card')),
+    );
+
+    expect(decoration.color, context.conduitTheme.cardBackground);
+    expect(decoration.border?.top.color, context.conduitTheme.cardBorder);
+    expect(decoration.border?.top.width, BorderWidth.standard);
+  });
+
+  testWidgets('keeps release notes controls in Flutter composition', (
+    tester,
+  ) async {
+    await _pumpReleaseNotesSheet(tester, disableAnimations: true);
+    await tester.pump();
+
+    final adaptiveButtons = tester.widgetList<AdaptiveButton>(
+      find.byType(AdaptiveButton),
+    );
+    expect(adaptiveButtons, isNotEmpty);
+    expect(
+      adaptiveButtons.every((button) => !button.useNative),
+      isTrue,
+      reason:
+          'Native UIKit platform views can hide Flutter-painted prompt text '
+          'inside the blurred release notes surface on iOS 26.',
+    );
+  });
+
+  testWidgets(
+    'keeps support actions visible without scrolling a normal sheet',
+    (tester) async {
+      await _pumpReleaseNotesSheet(tester, disableAnimations: true);
+      await tester.pump();
+
+      expect(find.byType(SingleChildScrollView), findsNothing);
+      expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
+      expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
+      expect(find.text('Done').hitTestable(), findsOneWidget);
+    },
+  );
+
+  testWidgets('matches the iOS compact composer bottom inset', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.resetViewPadding);
+    try {
+      await _pumpReleaseNotesSheet(
+        tester,
+        size: const Size(402, 874),
+        disableAnimations: true,
+      );
+      await tester.pump();
+
+      expect(tester.getSize(find.byType(ReleaseNotesSheet)).height, 754);
+      expect(
+        tester.getBottomLeft(find.byType(ConduitButton)).dy,
+        tester.getBottomLeft(find.byType(ReleaseNotesSheet)).dy,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('fits a compact screen without overflow', (tester) async {
@@ -115,6 +225,12 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Done'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('release-notes-summary-scroll')),
+      findsOneWidget,
+    );
+    expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
+    expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
     expect(
       tester.getSize(find.byType(ReleaseNotesSheet)).height,
       lessThanOrEqualTo(568 * 0.84),
@@ -134,11 +250,11 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Done'), findsOneWidget);
     expect(find.text('Enjoying Conduit?'), findsOneWidget);
+    expect(find.text('Review Conduit').hitTestable(), findsOneWidget);
+    expect(find.text('Buy Me a Coffee').hitTestable(), findsOneWidget);
   });
 
-  testWidgets('uses the RTL page direction and keeps navigation working', (
-    tester,
-  ) async {
+  testWidgets('keeps the release hierarchy intact in RTL', (tester) async {
     await _pumpReleaseNotesSheet(
       tester,
       textDirection: TextDirection.rtl,
@@ -146,39 +262,23 @@ void main() {
     );
     await tester.pump();
 
-    final scrollables = tester.widgetList<Scrollable>(
-      find.descendant(
-        of: find.byType(PageView),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    expect(
-      scrollables.any(
-        (scrollable) => scrollable.axisDirection == AxisDirection.left,
-      ),
-      isTrue,
-    );
-
-    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    expect(find.text('Conduit 4.0 is here'), findsOneWidget);
+    expect(find.text('Local models'), findsOneWidget);
+    expect(find.text('Polished details'), findsOneWidget);
+    await tester.ensureVisible(find.text('Review Conduit'));
+    await tester.tap(find.text('Review Conduit'));
     await tester.pump();
-    final pageView = tester.widget<PageView>(find.byType(PageView));
-    expect(pageView.controller?.page, 1);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('removes staged and paging motion when animations are disabled', (
+  testWidgets('removes staged motion when animations are disabled', (
     tester,
   ) async {
     await _pumpReleaseNotesSheet(tester, disableAnimations: true);
     await tester.pump();
 
     expect(find.byType(TweenAnimationBuilder<double>), findsNothing);
-    final pageView = tester.widget<PageView>(find.byType(PageView));
-    expect(pageView.controller?.page, 0);
-
-    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
-    await tester.pump();
-    expect(pageView.controller?.page, 1);
+    expect(find.byType(PageView), findsNothing);
   });
 
   testWidgets('Chinese support prompts use full-width punctuation', (
@@ -220,6 +320,7 @@ Future<void> _pumpReleaseNotesSheet(
   TextScaler textScaler = TextScaler.noScaling,
   TextDirection textDirection = TextDirection.ltr,
   bool disableAnimations = false,
+  bool darkMode = false,
   Locale locale = const Locale('en'),
 }) async {
   tester.view.physicalSize = size;
@@ -230,7 +331,9 @@ Future<void> _pumpReleaseNotesSheet(
   await tester.pumpWidget(
     ProviderScope(
       child: MaterialApp(
-        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        theme: darkMode
+            ? AppTheme.dark(TweakcnThemes.t3Chat)
+            : AppTheme.light(TweakcnThemes.t3Chat),
         locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

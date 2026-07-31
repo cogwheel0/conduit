@@ -6,19 +6,15 @@
       "intro": "¡Hola! Esta es la mayor actualización desde que Conduit existe, y me hace muchísima ilusión compartirla. Tus chats ahora viven primero en tu dispositivo, y puedes usar Conduit completamente sin servidor.",
       "bullets": [
         {
-          "text": "Almacenamiento local: los chats, las notas y los borradores se guardan de forma segura en tu dispositivo. Las notas y los borradores siguen disponibles sin conexión; para continuar un chat todavía necesitas conectividad.",
-          "icon": "local"
-        },
-        {
-          "text": "Hermes Agent: conecta tu propio servidor Hermes y chatea con un agente que de verdad hace cosas. Mira sus herramientas trabajar en directo, aprueba los pasos delicados antes de que se ejecuten y deja que los agentes programados trabajen mientras duermes.",
+          "text": "Hermes Agent: conecta tu servidor, sigue sus herramientas, aprueba pasos delicados y programa agentes.",
           "icon": "hermes"
         },
         {
-          "text": "Conexiones directas: habla con proveedores compatibles con OpenAI o con modelos Ollama en tu propia máquina, directamente desde la app. Añade una clave de API, o prescinde de ella por completo.",
+          "text": "Conexiones directas: chatea con OpenAI u Ollama, como OpenRouter, LM Studio y Ollama Cloud.",
           "icon": "direct"
         },
         {
-          "text": "Y mucho mimo en los detalles: streaming y desplazamiento más fluidos, hojas y navegación más agradables y decenas de correcciones en adjuntos, voz y temas. ¡Gracias por estar aquí!",
+          "text": "Detalles cuidados: chats más fluidos, navegación más tranquila. ¡Gracias por estar aquí!",
           "icon": "polish"
         }
       ]

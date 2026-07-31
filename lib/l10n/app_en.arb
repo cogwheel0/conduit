@@ -150,6 +150,19 @@
   "@releaseNotesTitle": {
     "description": "Title for the baked in-app release notes sheet."
   },
+  "releaseNotesAnnouncementTitle": "Conduit {version} is here",
+  "@releaseNotesAnnouncementTitle": {
+    "description": "Announcement title shown in the chat banner and release notes header.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "releaseNotesLearnMore": "Tap to learn more",
+  "@releaseNotesLearnMore": {
+    "description": "Prompt shown beneath the release announcement banner title."
+  },
   "releaseNotesSubtitle": "Since {previousVersion}, now on {currentVersion}",
   "@releaseNotesSubtitle": {
     "description": "Subtitle for release notes shown after an app update.",
@@ -2906,6 +2919,15 @@
   "defaultImageGenerationModel": "Default image generation model",
   "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
   "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
+  "@defaultImageGenerationModel": {
+    "description": "Label for choosing the default image generation model."
+  },
+  "@defaultImageGenerationModelDescription": {
+    "description": "Instructions for entering an OpenRouter image model identifier."
+  },
+  "@openRouterDefaultImageGenerationModel": {
+    "description": "Label for using OpenRouter's default image generation model."
+  },
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },

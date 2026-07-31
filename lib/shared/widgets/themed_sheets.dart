@@ -1,12 +1,10 @@
-import 'dart:ui';
-
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
-import 'package:expressive_sheet/expressive_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 import '../theme/theme_extensions.dart';
 import 'modal_safe_area.dart';
@@ -99,25 +97,83 @@ class ThemedSheets {
     );
   }
 
-  /// Presents a velocity-aware floating sheet, with a static fallback for
-  /// people who request reduced motion at the system level.
-  static Future<T?> showExpressive<T>({
+  /// Presents the iOS 26 glass sheet on iOS and the package's plain sheet
+  /// route elsewhere, with a static fallback for reduced motion.
+  static Future<T?> showAdaptive<T>({
     required BuildContext context,
     required WidgetBuilder builder,
   }) {
+    final theme = context.conduitTheme;
+    final backgroundColor = theme.surfaceBackground;
+    final platform = Theme.of(context).platform;
+    final barrierLabel = MaterialLocalizations.of(
+      context,
+    ).modalBarrierDismissLabel;
+    final outline = BorderSide(
+      color: theme.dividerColor,
+      width: BorderWidth.regular,
+    );
+    final glassShape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(36)),
+      side: outline,
+    );
+    final plainShape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      side: outline,
+    );
+
     if (MediaQuery.disableAnimationsOf(context)) {
-      return showModalBottomSheet<T>(
+      return _showTracked<T>(
         context: context,
-        useRootNavigator: true,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        barrierColor: Colors.black54,
-        sheetAnimationStyle: AnimationStyle.noAnimation,
-        builder: builder,
+        present: (coverage) => showModalBottomSheet<T>(
+          context: context,
+          useRootNavigator: true,
+          isScrollControlled: true,
+          backgroundColor: backgroundColor,
+          barrierColor: Colors.black54,
+          shape: glassShape,
+          clipBehavior: Clip.antiAlias,
+          sheetAnimationStyle: AnimationStyle.noAnimation,
+          builder: (sheetContext) => _SheetCoverageBoundary(
+            coverage: coverage,
+            child: Builder(builder: builder),
+          ),
+        ),
       );
     }
 
-    return showExpressiveSheet<T>(context: context, builder: builder);
+    return _showTracked<T>(
+      context: context,
+      present: (coverage) {
+        Widget child = _SheetCoverageBoundary(
+          coverage: coverage,
+          child: Builder(builder: builder),
+        );
+
+        final Route<T> route;
+        if (platform == TargetPlatform.iOS) {
+          route = StupidSimpleGlassSheetRoute<T>(
+            child: child,
+            backgroundColor: backgroundColor,
+            blurBehindBarrier: false,
+            shape: glassShape,
+          );
+        } else {
+          child = SheetBackground(
+            backgroundColor: backgroundColor,
+            shape: plainShape,
+            child: child,
+          );
+          route = StupidSimpleSheetRoute<T>(
+            child: child,
+            barrierColor: Colors.black54,
+            barrierLabel: barrierLabel,
+          );
+        }
+
+        return Navigator.of(context, rootNavigator: true).push<T>(route);
+      },
+    );
   }
 
   static Future<T?> showCustom<T>({
@@ -452,75 +508,28 @@ class ConduitModalSheetSurface extends StatelessWidget {
   }
 }
 
-/// Floating modal surface used with `expressive_sheet` routes.
+/// Safe content padding for adaptive sheet routes.
 ///
-/// Unlike the standard edge-attached sheet, this card stays inset from every
-/// screen edge and rounds all four corners so the spring overshoot remains
-/// visible against the scrim.
-class ConduitExpressiveSheetSurface extends StatelessWidget {
-  const ConduitExpressiveSheetSurface({super.key, required this.child});
+/// The route supplies the iOS 26 glass surface on iOS. On other platforms,
+/// [ThemedSheets.showAdaptive] wraps this content in [SheetBackground].
+class ConduitAdaptiveSheetSurface extends StatelessWidget {
+  const ConduitAdaptiveSheetSurface({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(Spacing.modalPadding),
+    this.bottomSafeArea = true,
+  });
 
   final Widget child;
+  final EdgeInsets padding;
+  final bool bottomSafeArea;
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final radius = BorderRadius.circular(AppBorderRadius.floatingButton);
-    final materialColor = theme.surfaceBackground.withValues(
-      alpha: isDark ? 0.9 : 0.94,
-    );
-    final edgeColor = Color.alphaBlend(
-      Colors.white.withValues(alpha: isDark ? 0.08 : 0.28),
-      theme.dividerColor,
-    );
-
-    return SafeArea(
-      top: false,
-      child: Padding(
-        // The expressive route is deliberately edge-agnostic. Reserve a
-        // visible gap ourselves so its spring overshoot reads as a floating
-        // card rather than an edge-attached bottom sheet.
-        padding: const EdgeInsets.fromLTRB(
-          Spacing.md,
-          0,
-          Spacing.md,
-          Spacing.md,
-        ),
-        // Keep the shadow outside the clipped Material. Clipping it with the
-        // glass made the floating silhouette nearly disappear on Android.
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: radius,
-            boxShadow: ConduitShadows.modal(context),
-          ),
-          child: Material(
-            // `expressive_sheet` is a bare PopupRoute, unlike
-            // showModalBottomSheet. Material supplies the Android ink/text
-            // surface and clips the glass to all four rounded corners.
-            type: MaterialType.transparency,
-            borderRadius: radius,
-            clipBehavior: Clip.antiAlias,
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: materialColor,
-                  borderRadius: radius,
-                  border: Border.all(
-                    color: edgeColor,
-                    width: BorderWidth.regular,
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(Spacing.modalPadding),
-                  child: child,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return ModalSheetSafeArea(
+      padding: padding,
+      bottom: bottomSafeArea,
+      child: child,
     );
   }
 }

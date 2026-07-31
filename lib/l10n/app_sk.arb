@@ -68,6 +68,9 @@
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
   "releaseNotesTitle": "Novinky",
+  "releaseNotesAnnouncementTitle": "Conduit {version} je tu",
+  "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
+  "releaseNotesLearnMore": "Zistiť viac",
   "releaseNotesSubtitle": "Od verzie {previousVersion}, teraz {currentVersion}",
   "releaseNotesReviewButton": "Ohodnotiť Conduit",
   "releaseNotesReviewHeading": "Pridajte krátku recenziu",

@@ -15,7 +15,6 @@ import 'data/release_notes_repository.dart';
 import 'models/release_note.dart';
 import 'release_notes_bootstrap.dart';
 import 'release_notes_banner_controller.dart';
-import 'release_notes_presenter.dart';
 import 'services/release_notes_service.dart';
 
 class ReleaseNotesCoordinator extends ConsumerStatefulWidget {
@@ -117,8 +116,6 @@ class _ReleaseNotesCoordinatorState
           return;
         case ReleaseNotesDecisionType.show:
           await _prepareBanner(decision);
-          if (!mounted || !l10nContext.mounted) return;
-          await _showSheet(l10nContext, decision);
           await _markVersionSeen(decision.currentVersion);
           completed = true;
           return;
@@ -155,18 +152,6 @@ class _ReleaseNotesCoordinatorState
         PreferencesStore.getBool(PreferenceKeys.hermesEnabled) == true,
       PreferredBackend.unset || PreferredBackend.owui => false,
     };
-  }
-
-  Future<void> _showSheet(
-    BuildContext context,
-    ReleaseNotesDecision decision,
-  ) async {
-    await showReleaseNotesSheet(
-      context: context,
-      currentVersion: decision.currentVersion,
-      previousVersion: decision.previousVersion,
-      notes: decision.notes,
-    );
   }
 
   Future<void> _markVersionSeen(String version) {

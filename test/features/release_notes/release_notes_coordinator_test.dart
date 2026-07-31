@@ -79,7 +79,7 @@ void main() {
     );
   });
 
-  testWidgets('existing install with no marker shows the first 4.0 sheet', (
+  testWidgets('existing install with no marker shows the first 4.0 banner', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -98,13 +98,15 @@ void main() {
       _app(
         authState: AuthNavigationState.authenticated,
         packageVersion: '4.0.0',
+        showBanner: true,
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsOneWidget);
-    expect(find.text('Welcome to Conduit 4.0.'), findsOneWidget);
+    expect(find.text('Conduit 4.0 is here'), findsOneWidget);
+    expect(find.text("What's new"), findsNothing);
+    expect(find.text('Welcome to Conduit 4.0.'), findsNothing);
   });
 
   for (final backend in [PreferredBackend.direct, PreferredBackend.hermes]) {
@@ -121,11 +123,14 @@ void main() {
       });
       PreferencesStore.debugOverride(await SharedPreferences.getInstance());
 
-      await tester.pumpWidget(_app(authState: AuthNavigationState.needsLogin));
+      await tester.pumpWidget(
+        _app(authState: AuthNavigationState.needsLogin, showBanner: true),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text("What's new"), findsOneWidget);
+      expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+      expect(find.text("What's new"), findsNothing);
     });
   }
 
@@ -146,27 +151,24 @@ void main() {
     );
   });
 
-  testWidgets('authenticated update shows release notes once', (tester) async {
+  testWidgets('authenticated update shows banner without opening sheet', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
     PreferencesStore.debugOverride(await SharedPreferences.getInstance());
 
-    await tester.pumpWidget(_app(authState: AuthNavigationState.authenticated));
+    await tester.pumpWidget(
+      _app(authState: AuthNavigationState.authenticated, showBanner: true),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsOneWidget);
-    expect(
-      find.text('Hi, this update is bundled with the app.'),
-      findsOneWidget,
-    );
-    expect(find.text('Buy Me a Coffee'), findsOneWidget);
-    expect(find.text('GitHub Sponsors'), findsNothing);
-
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
+    expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+    expect(find.text("What's new"), findsNothing);
+    expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
+    expect(find.text('Done'), findsNothing);
 
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
@@ -174,7 +176,7 @@ void main() {
     );
   });
 
-  testWidgets('Done keeps a chat banner that reopens until explicitly closed', (
+  testWidgets('banner opens the sheet and remains until explicitly closed', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -189,9 +191,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
+    expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+    expect(find.text("What's new"), findsNothing);
+    expect(find.text('Done'), findsNothing);
     expect(
       PreferencesStore.getString(
         PreferenceKeys.releaseNotesBannerPreviousVersion,
@@ -236,10 +239,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
+    expect(find.text('Conduit 3.3 is here'), findsOneWidget);
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
   });
 
-  testWidgets('authenticated iOS update offers the donation link', (
+  testWidgets('authenticated iOS banner opens the donation link sheet', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -251,12 +255,20 @@ void main() {
       _app(
         authState: AuthNavigationState.authenticated,
         platform: TargetPlatform.iOS,
+        showBanner: true,
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsOneWidget);
+    expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+    expect(find.text("What's new"), findsNothing);
+    expect(find.text('Buy Me a Coffee'), findsNothing);
+
+    await tester.tap(find.byKey(releaseNotesBannerKey));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Conduit 3.3 is here'), findsNWidgets(2));
     expect(find.text('Buy Me a Coffee'), findsOneWidget);
     expect(find.text('GitHub Sponsors'), findsNothing);
 

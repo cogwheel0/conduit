@@ -1,12 +1,21 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../models/release_note.dart';
 
-class ReleaseNotesSheet extends StatefulWidget {
+const double _releaseFooterHeight = Spacing.xl + TouchTarget.comfortable;
+
+/// Editorial release notes built for quick scanning.
+///
+/// The feature list deliberately stays vertical. Every highlight is visible in
+/// the document flow, so people do not need to discover a hidden carousel or
+/// remember which page they have already read.
+class ReleaseNotesSheet extends StatelessWidget {
   const ReleaseNotesSheet({
     super.key,
     required this.currentVersion,
@@ -33,26 +42,21 @@ class ReleaseNotesSheet extends StatefulWidget {
   final VoidCallback onClose;
 
   @override
-  State<ReleaseNotesSheet> createState() => _ReleaseNotesSheetState();
-}
-
-class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
-  final _pageController = PageController();
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.84;
-    final highlightHeight = (maxHeight * 0.34).clamp(176.0, 240.0);
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final view = View.of(context);
+    final composerBottomInset = defaultTargetPlatform == TargetPlatform.iOS
+        ? view.viewPadding.bottom / view.devicePixelRatio
+        : 0.0;
+    final sheetHeight =
+        (viewportHeight * 0.84).clamp(0.0, 720.0) + composerBottomInset;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final useScrollableSummary = viewportHeight < 700 || textScale > 1.3;
+    final useCompactSupport = viewportHeight < 600 || textScale > 1.3;
     final highlights = <_ReleaseHighlight>[
-      for (final note in widget.notes)
+      for (final note in notes)
         for (var i = 0; i < note.bullets.length; i++)
           _ReleaseHighlight(
             text: note.bullets[i],
@@ -60,134 +64,152 @@ class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
             iconAsset: note.iconAssetForBullet(i),
           ),
     ];
-    final intro = widget.notes.isEmpty ? null : widget.notes.last.intro;
+    final intro = notes.isEmpty ? null : notes.last.intro;
     var revealIndex = 0;
-
-    void selectPage(int index) {
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _pageController.jumpToPage(index);
-      } else {
-        _pageController.animateToPage(
-          index,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-        );
-      }
-    }
-
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    final summary = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StaggeredReveal(
+          index: revealIndex++,
+          child: _ReleaseHeader(
+            title: l10n.releaseNotesAnnouncementTitle(
+              currentVersion.split('.').take(2).join('.'),
+            ),
+            version: currentVersion,
+            intro: intro,
+          ),
+        ),
+        if (highlights.isNotEmpty) ...[
+          const SizedBox(height: Spacing.md),
+          for (var i = 0; i < highlights.length; i++) ...[
             _StaggeredReveal(
               index: revealIndex++,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: _ReleaseFeatureRow(
+                highlight: highlights[i],
+                ordinal: i + 1,
+              ),
+            ),
+            if (i != highlights.length - 1) const SizedBox(height: Spacing.md),
+          ],
+        ],
+      ],
+    );
+
+    return ColoredBox(
+      color: theme.surfaceBackground,
+      child: SizedBox(
+        height: sheetHeight,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              bottom: _releaseFooterHeight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.releaseNotesTitle,
-                          style: theme.headingSmall?.copyWith(
-                            color: theme.textPrimary,
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                        if (widget.showSubtitle) ...[
-                          const SizedBox(height: Spacing.xs),
-                          Text(
-                            widget.subtitle ??
-                                l10n.releaseNotesSubtitle(
-                                  widget.previousVersion ??
-                                      widget.currentVersion,
-                                  widget.currentVersion,
-                                ),
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                    child: useScrollableSummary
+                        ? SingleChildScrollView(
+                            key: const ValueKey('release-notes-summary-scroll'),
+                            physics: const BouncingScrollPhysics(),
+                            child: summary,
+                          )
+                        : summary,
                   ),
-                  const SizedBox(width: Spacing.sm),
-                  _VersionBadge(version: widget.currentVersion),
-                ],
-              ),
-            ),
-            const SizedBox(height: Spacing.md),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (intro != null) ...[
+                  SizedBox(height: useCompactSupport ? Spacing.sm : Spacing.md),
                   _StaggeredReveal(
                     index: revealIndex++,
-                    child: Text(
-                      intro,
-                      style: theme.bodyMedium?.copyWith(
-                        color: theme.textSecondary,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.md),
-                ],
-                if (highlights.isNotEmpty) ...[
-                  SizedBox(
-                    height: highlightHeight,
-                    child: _StaggeredReveal(
-                      index: revealIndex++,
-                      child: PageView.builder(
-                        controller: _pageController,
-                        physics: const BouncingScrollPhysics(),
-                        allowImplicitScrolling: true,
-                        itemCount: highlights.length,
-                        itemBuilder: (context, index) {
-                          return _ReleaseHighlightCard(
-                            highlight: highlights[index],
-                            pageIndex: index,
-                            pageCount: highlights.length,
-                            onPageSelected: selectPage,
-                          );
-                        },
-                      ),
+                    child: _ReleaseSupportSection(
+                      heading: l10n.releaseNotesSupportPromptHeading,
+                      message: l10n.releaseNotesSupportPromptMessage,
+                      reviewLabel: l10n.releaseNotesReviewButton,
+                      supportLabel: supportLabel,
+                      supportIcon: supportIcon,
+                      onReview: onReview,
+                      onSupport: onOpenSupport,
+                      compact: useCompactSupport,
                     ),
                   ),
                 ],
-              ],
-            ),
-            const SizedBox(height: Spacing.md),
-            _StaggeredReveal(
-              index: revealIndex++,
-              child: _ReleaseSupportCard(
-                heading: l10n.releaseNotesSupportPromptHeading,
-                message: l10n.releaseNotesSupportPromptMessage,
-                reviewLabel: l10n.releaseNotesReviewButton,
-                supportLabel: widget.supportLabel,
-                supportIcon: widget.supportIcon,
-                reviewColor: theme.buttonPrimary,
-                supportColor: theme.warning,
-                onReview: widget.onReview,
-                onSupport: widget.onOpenSupport,
               ),
             ),
-            const SizedBox(height: Spacing.md),
-            _StaggeredReveal(
-              index: revealIndex,
-              child: ConduitButton(
-                text: l10n.releaseNotesDoneButton,
-                isFullWidth: true,
-                onPressed: widget.onClose,
+            const PositionedDirectional(
+              start: 0,
+              end: 0,
+              bottom: 0,
+              child: ConduitChromeGradientFade.bottom(
+                contentHeight: TouchTarget.comfortable,
+                fadeHeight: Spacing.md,
+              ),
+            ),
+            PositionedDirectional(
+              start: 0,
+              end: 0,
+              bottom: 0,
+              child: _StaggeredReveal(
+                index: revealIndex,
+                child: _ReleaseFooter(
+                  doneLabel: l10n.releaseNotesDoneButton,
+                  onClose: onClose,
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ReleaseHeader extends StatelessWidget {
+  const _ReleaseHeader({
+    required this.title,
+    required this.version,
+    required this.intro,
+  });
+
+  final String title;
+  final String version;
+  final String? intro;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: AppTypography.headlineMediumStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                    height: 1.08,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: Spacing.md),
+            _VersionBadge(version: version),
+          ],
+        ),
+        if (intro != null && intro!.isNotEmpty) ...[
+          const SizedBox(height: Spacing.md),
+          Text(
+            intro!,
+            style: theme.bodyLarge?.copyWith(
+              color: theme.textPrimary,
+              height: 1.48,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -210,278 +232,54 @@ class _ReleaseHighlight {
   }
 }
 
-class _ReleaseHighlightCard extends StatelessWidget {
-  const _ReleaseHighlightCard({
-    required this.highlight,
-    required this.pageIndex,
-    required this.pageCount,
-    required this.onPageSelected,
-  });
+class _ReleaseFeatureRow extends StatelessWidget {
+  const _ReleaseFeatureRow({required this.highlight, required this.ordinal});
 
   final _ReleaseHighlight highlight;
-  final int pageIndex;
-  final int pageCount;
-  final ValueChanged<int> onPageSelected;
+  final int ordinal;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
 
-    final localizations = MaterialLocalizations.of(context);
-
-    return Column(
-      children: [
-        Expanded(
-          child: CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _ReleaseHighlightIcon(
-                        icon: highlight.icon,
-                        iconAsset: highlight.iconAsset,
-                      ),
-                      const SizedBox(height: Spacing.md),
-                      Text(
-                        highlight.title,
-                        textAlign: TextAlign.center,
-                        style: theme.bodyLarge?.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      if (highlight.body.isNotEmpty) ...[
-                        const SizedBox(height: Spacing.sm),
-                        Text(
-                          highlight.body,
-                          textAlign: TextAlign.center,
-                          style: theme.bodyMedium?.copyWith(
-                            color: theme.textPrimary,
-                            height: 1.42,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: TouchTarget.minimum,
-          child: Row(
-            children: [
-              SizedBox(
-                width: TouchTarget.minimum,
-                child: pageIndex > 0
-                    ? _CardChevron(
-                        icon: Icons.chevron_left_rounded,
-                        tooltip: localizations.previousPageTooltip,
-                        onPressed: () => onPageSelected(pageIndex - 1),
-                      )
-                    : null,
-              ),
-              Expanded(
-                child: _PageIndicator(
-                  count: pageCount,
-                  selectedIndex: pageIndex,
-                  onSelected: onPageSelected,
-                ),
-              ),
-              SizedBox(
-                width: TouchTarget.minimum,
-                child: pageIndex < pageCount - 1
-                    ? _CardChevron(
-                        icon: Icons.chevron_right_rounded,
-                        tooltip: localizations.nextPageTooltip,
-                        onPressed: () => onPageSelected(pageIndex + 1),
-                      )
-                    : null,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ReleaseHighlightIcon extends StatelessWidget {
-  const _ReleaseHighlightIcon({this.icon, this.iconAsset});
-
-  final IconData? icon;
-  final String? iconAsset;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final graphic = iconAsset != null
-        ? ImageIcon(
-            AssetImage(iconAsset!),
-            size: IconSize.xl,
-            color: theme.buttonPrimary,
-          )
-        : Icon(icon, size: IconSize.xl, color: theme.buttonPrimary);
-
-    return SizedBox(width: 48, height: 48, child: Center(child: graphic));
-  }
-}
-
-class _CardChevron extends StatelessWidget {
-  const _CardChevron({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(
-        label: tooltip,
-        button: true,
-        child: AdaptiveButton.child(
-          onPressed: onPressed,
-          color: theme.textSecondary.withValues(alpha: 0.68),
-          style: AdaptiveButtonStyle.plain,
-          size: AdaptiveButtonSize.small,
-          padding: EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-          minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-          useSmoothRectangleBorder: false,
-          child: Icon(
-            icon,
-            size: IconSize.lg,
-            color: theme.textSecondary.withValues(alpha: 0.68),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PageIndicator extends StatelessWidget {
-  const _PageIndicator({
-    required this.count,
-    required this.selectedIndex,
-    required this.onSelected,
-  });
-
-  final int count;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < count; i++)
-          Semantics(
-            label: '${i + 1}/$count',
-            selected: i == selectedIndex,
-            button: true,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onSelected(i),
-              child: Padding(
-                padding: const EdgeInsets.all(Spacing.xs),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  width: i == selectedIndex ? 18 : 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: i == selectedIndex
-                        ? theme.buttonPrimary
-                        : theme.textSecondary.withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ReleaseSupportCard extends StatelessWidget {
-  const _ReleaseSupportCard({
-    required this.heading,
-    required this.message,
-    required this.reviewLabel,
-    required this.supportLabel,
-    required this.supportIcon,
-    required this.reviewColor,
-    required this.supportColor,
-    required this.onReview,
-    required this.onSupport,
-  });
-
-  final String heading;
-  final String message;
-  final String reviewLabel;
-  final String supportLabel;
-  final IconData supportIcon;
-  final Color reviewColor;
-  final Color supportColor;
-  final VoidCallback onReview;
-  final VoidCallback onSupport;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-      child: Column(
+    return Semantics(
+      label: '${highlight.title}. ${highlight.body}',
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            heading,
-            style: theme.bodyMedium?.copyWith(
-              color: theme.textPrimary,
-              fontWeight: FontWeight.w700,
+          _ReleaseFeatureIcon(
+            icon: highlight.icon,
+            iconAsset: highlight.iconAsset,
+            ordinal: ordinal,
+          ),
+          const SizedBox(width: Spacing.md),
+          Expanded(
+            child: ExcludeSemantics(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    highlight.title,
+                    style: theme.bodyLarge?.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      height: 1.2,
+                    ),
+                  ),
+                  if (highlight.body.isNotEmpty) ...[
+                    const SizedBox(height: Spacing.xs),
+                    Text(
+                      highlight.body,
+                      style: theme.bodyMedium?.copyWith(
+                        color: theme.textSecondary,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: Spacing.xxs),
-          Text(
-            message,
-            style: theme.bodySmall?.copyWith(
-              color: theme.textSecondary,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: Spacing.sm),
-          _ReleaseActionButton(
-            label: reviewLabel,
-            icon: Icons.rate_review_rounded,
-            accentColor: reviewColor,
-            onPressed: onReview,
-          ),
-          const SizedBox(height: Spacing.xs),
-          _ReleaseActionButton(
-            label: supportLabel,
-            icon: supportIcon,
-            accentColor: supportColor,
-            onPressed: onSupport,
           ),
         ],
       ),
@@ -489,17 +287,153 @@ class _ReleaseSupportCard extends StatelessWidget {
   }
 }
 
-class _ReleaseActionButton extends StatelessWidget {
-  const _ReleaseActionButton({
+class _ReleaseFeatureIcon extends StatelessWidget {
+  const _ReleaseFeatureIcon({
+    required this.icon,
+    required this.iconAsset,
+    required this.ordinal,
+  });
+
+  final IconData? icon;
+  final String? iconAsset;
+  final int ordinal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final foreground = theme.buttonPrimary;
+    final graphic = iconAsset != null
+        ? ImageIcon(
+            AssetImage(iconAsset!),
+            size: IconSize.md,
+            color: foreground,
+          )
+        : icon != null
+        ? Icon(icon, size: IconSize.md, color: foreground)
+        : Text(
+            '$ordinal',
+            style: theme.caption?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: foreground.withValues(alpha: theme.isDark ? 0.18 : 0.1),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: SizedBox(
+        width: TouchTarget.minimum,
+        height: TouchTarget.minimum,
+        child: Center(child: graphic),
+      ),
+    );
+  }
+}
+
+class _ReleaseSupportSection extends StatelessWidget {
+  const _ReleaseSupportSection({
+    required this.heading,
+    required this.message,
+    required this.reviewLabel,
+    required this.supportLabel,
+    required this.supportIcon,
+    required this.onReview,
+    required this.onSupport,
+    required this.compact,
+  });
+
+  final String heading;
+  final String message;
+  final String reviewLabel;
+  final String supportLabel;
+  final IconData supportIcon;
+  final VoidCallback onReview;
+  final VoidCallback onSupport;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+
+    return DecoratedBox(
+      key: const ValueKey<String>('release-notes-support-card'),
+      decoration: BoxDecoration(
+        color: theme.isDark ? theme.cardBackground : theme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppBorderRadius.lg),
+        border: theme.isDark
+            ? Border.all(color: theme.cardBorder, width: BorderWidth.standard)
+            : null,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Spacing.md,
+          Spacing.md,
+          Spacing.md,
+          Spacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              heading,
+              style: theme.bodyLarge?.copyWith(
+                color: theme.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (!compact) ...[
+              const SizedBox(height: Spacing.xs),
+              Text(
+                message,
+                style: theme.bodyMedium?.copyWith(
+                  color: theme.textSecondary,
+                  height: 1.4,
+                ),
+              ),
+            ],
+            const SizedBox(height: Spacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _ReleaseActionRow(
+                    label: reviewLabel,
+                    icon: Icons.rate_review_rounded,
+                    color: theme.buttonPrimary,
+                    onPressed: onReview,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: _ReleaseActionRow(
+                    label: supportLabel,
+                    icon: supportIcon,
+                    color: theme.warning,
+                    onPressed: onSupport,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReleaseActionRow extends StatelessWidget {
+  const _ReleaseActionRow({
     required this.label,
     required this.icon,
-    required this.accentColor,
+    required this.color,
     required this.onPressed,
   });
 
   final String label;
   final IconData icon;
-  final Color accentColor;
+  final Color color;
   final VoidCallback onPressed;
 
   @override
@@ -511,34 +445,59 @@ class _ReleaseActionButton extends StatelessWidget {
       button: true,
       child: SizedBox(
         width: double.infinity,
-        height: TouchTarget.minimum,
-        child: AdaptiveButton.child(
-          onPressed: onPressed,
-          color: accentColor,
-          style: AdaptiveButtonStyle.plain,
-          size: AdaptiveButtonSize.small,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm + Spacing.xs,
-          ),
-          borderRadius: BorderRadius.circular(AppBorderRadius.button),
-          minSize: const Size(0, TouchTarget.minimum),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: IconSize.sm, color: accentColor),
-              const SizedBox(width: Spacing.sm),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w700,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.comfortable),
+          child: AdaptiveButton.child(
+            onPressed: onPressed,
+            color: color,
+            style: AdaptiveButtonStyle.plain,
+            size: AdaptiveButtonSize.medium,
+            padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            minSize: const Size(0, TouchTarget.comfortable),
+            useNative: false,
+            child: Row(
+              children: [
+                Icon(icon, size: IconSize.sm, color: color),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.fade,
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReleaseFooter extends StatelessWidget {
+  const _ReleaseFooter({required this.doneLabel, required this.onClose});
+
+  final String doneLabel;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Spacing.md, Spacing.xl, Spacing.md, 0),
+      child: Align(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: ConduitButton(
+            text: doneLabel,
+            isFullWidth: true,
+            useNative: false,
+            onPressed: onClose,
           ),
         ),
       ),
@@ -548,8 +507,7 @@ class _ReleaseActionButton extends StatelessWidget {
 
 /// Fades and rises content in a soft cascade when the sheet appears.
 ///
-/// Collapses to a plain passthrough when the platform requests reduced
-/// motion, so the sheet stays a static cross-fade for those users.
+/// Reduced-motion users get the complete static hierarchy immediately.
 class _StaggeredReveal extends StatelessWidget {
   const _StaggeredReveal({required this.index, required this.child});
 
@@ -564,14 +522,14 @@ class _StaggeredReveal extends StatelessWidget {
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 260 + index * 40),
+      duration: Duration(milliseconds: 240 + index * 36),
       curve: Curves.easeOutCubic,
       child: child,
       builder: (context, value, child) {
         return Opacity(
           opacity: value,
           child: Transform.translate(
-            offset: Offset(0, (1 - value) * 10),
+            offset: Offset(0, (1 - value) * 8),
             child: child,
           ),
         );
@@ -591,19 +549,19 @@ class _VersionBadge extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.badge),
+        color: theme.buttonPrimary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm + Spacing.xxs,
-          vertical: Spacing.xs + Spacing.xxs,
+          horizontal: Spacing.sm + Spacing.xs,
+          vertical: Spacing.sm,
         ),
         child: Text(
           version,
           style: theme.caption?.copyWith(
             color: theme.buttonPrimary,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),

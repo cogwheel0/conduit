@@ -3,22 +3,18 @@
     {
       "version": "4.0.0",
       "title": "Nieuw",
-      "intro": "Hoi! Dit is de grootste update sinds het begin van Conduit, en ik ben ontzettend blij om hem te delen. Je chats leven nu eerst op je apparaat, en je kunt Conduit volledig zonder server gebruiken.",
+      "intro": "Hoi! Dit is Conduits grootste update, en ik ben ontzettend blij om hem te delen. Je chats leven nu eerst op je apparaat, en Conduit werkt helemaal zonder server.",
       "bullets": [
         {
-          "text": "Lokale opslag: chats, notities en concepten worden veilig op je apparaat bewaard. Notities en concepten blijven zonder verbinding beschikbaar; om een chat voort te zetten heb je nog steeds een verbinding nodig.",
-          "icon": "local"
-        },
-        {
-          "text": "Hermes Agent: koppel je eigen Hermes-server en chat met een agent die echt dingen gedaan krijgt. Zie zijn tools live werken, keur gevoelige stappen vooraf goed en laat geplande agents werken terwijl jij slaapt.",
+          "text": "Hermes Agent: koppel je server, volg tools, keur gevoelige stappen goed en plan agents.",
           "icon": "hermes"
         },
         {
-          "text": "Directe verbindingen: praat met OpenAI-compatibele providers of Ollama-modellen op je eigen computer, rechtstreeks vanuit de app. Voeg een API-sleutel toe, of sla die gewoon over.",
+          "text": "Directe verbindingen: chat via OpenAI of Ollama, met OpenRouter, LM Studio en Ollama Cloud.",
           "icon": "direct"
         },
         {
-          "text": "En veel liefde voor de details: soepeler streamen en scrollen, mooiere sheets en navigatie, en tientallen fixes voor bijlagen, spraak en thema's. Fijn dat je er bent!",
+          "text": "Zorgvuldige details: soepelere chats, rustigere navigatie. Fijn dat je er bent!",
           "icon": "polish"
         }
       ]

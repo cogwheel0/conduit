@@ -21,6 +21,8 @@ class ReleaseNotesBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(releaseNotesBannerProvider);
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final motionDuration = context.motionDuration(
       const Duration(milliseconds: 220),
     );
@@ -31,83 +33,106 @@ class ReleaseNotesBanner extends ConsumerWidget {
       switchOutCurve: Curves.easeInCubic,
       child: data == null
           ? const SizedBox.shrink()
-          : Padding(
-              padding: const EdgeInsets.only(top: Spacing.md),
-              child: ConstrainedBox(
-                key: releaseNotesBannerKey,
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Semantics(
-                  button: true,
-                  label: AppLocalizations.of(context)!.releaseNotesTitle,
-                  child: ConduitCard(
-                    isCompact: true,
-                    backgroundColor: context.conduitTheme.buttonPrimary
-                        .withValues(alpha: Alpha.subtle),
-                    borderColor: context.conduitTheme.buttonPrimary.withValues(
-                      alpha: Alpha.standard,
-                    ),
-                    onTap: () => showReleaseNotesSheet(
-                      context: context,
-                      currentVersion: data.currentVersion,
-                      previousVersion: data.previousVersion,
-                      notes: data.notes,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.auto_awesome_rounded,
-                          size: IconSize.md,
-                          color: context.conduitTheme.buttonPrimary,
+          : Builder(
+              builder: (context) {
+                final title = l10n.releaseNotesAnnouncementTitle(
+                  data.releaseSeries,
+                );
+                final learnMore = l10n.releaseNotesLearnMore;
+                return Padding(
+                  padding: const EdgeInsets.only(top: Spacing.xl),
+                  child: ConstrainedBox(
+                    key: releaseNotesBannerKey,
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Semantics(
+                      button: true,
+                      label: '$title. $learnMore',
+                      child: ConduitCard(
+                        isCompact: true,
+                        isElevated: true,
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          Spacing.lg,
+                          Spacing.sm,
+                          Spacing.sm,
+                          Spacing.sm,
                         ),
-                        const SizedBox(width: Spacing.sm),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                AppLocalizations.of(context)!.releaseNotesTitle,
-                                style: context.conduitTheme.bodyMedium
-                                    ?.copyWith(
-                                      color: context.conduitTheme.textPrimary,
+                        backgroundColor: theme.cardBackground,
+                        borderColor: theme.cardBorder,
+                        onTap: () => showReleaseNotesSheet(
+                          context: context,
+                          currentVersion: data.currentVersion,
+                          previousVersion: data.previousVersion,
+                          notes: data.notes,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.clip,
+                                    style: theme.bodyMedium?.copyWith(
+                                      color: theme.textPrimary,
                                       fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.2,
                                     ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        learnMore,
+                                        style: theme.bodySmall?.copyWith(
+                                          color: theme.textSecondary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: Spacing.xs),
+                                      Icon(
+                                        Icons.arrow_forward_rounded,
+                                        size: IconSize.xs,
+                                        color: theme.textSecondary,
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                data.notes.last.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.conduitTheme.bodySmall?.copyWith(
-                                  color: context.conduitTheme.textSecondary,
-                                ),
+                            ),
+                            IconButton(
+                              key: releaseNotesBannerCloseKey,
+                              tooltip: MaterialLocalizations.of(
+                                context,
+                              ).closeButtonTooltip,
+                              onPressed: () => ref
+                                  .read(releaseNotesBannerProvider.notifier)
+                                  .dismiss(),
+                              icon: Icon(
+                                Platform.isIOS
+                                    ? CupertinoIcons.xmark
+                                    : Icons.close_rounded,
+                                size: IconSize.sm,
+                                color: theme.textSecondary,
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: Spacing.xs),
-                        IconButton(
-                          key: releaseNotesBannerCloseKey,
-                          tooltip: MaterialLocalizations.of(
-                            context,
-                          ).closeButtonTooltip,
-                          onPressed: () => ref
-                              .read(releaseNotesBannerProvider.notifier)
-                              .dismiss(),
-                          icon: Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.xmark
-                                : Icons.close_rounded,
-                            size: IconSize.sm,
-                            color: context.conduitTheme.textSecondary,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
     );
+  }
+}
+
+extension on ReleaseNotesBannerData {
+  String get releaseSeries {
+    final segments = currentVersion.split('.');
+    return segments.take(2).join('.');
   }
 }

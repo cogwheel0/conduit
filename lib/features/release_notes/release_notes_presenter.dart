@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/services/native_sheet_bridge.dart';
 import '../../core/utils/debug_logger.dart';
 import '../../l10n/app_localizations.dart';
+import '../../shared/theme/theme_extensions.dart';
 import '../../shared/utils/external_link_launcher.dart';
 import '../../shared/widgets/themed_sheets.dart';
 import '../support/data/support_links.dart';
@@ -54,7 +55,7 @@ Future<void> showReleaseNotesSheet({
   String? subtitle,
   bool showSubtitle = true,
 }) async {
-  await ThemedSheets.showExpressive<void>(
+  await ThemedSheets.showAdaptive<void>(
     context: context,
     builder: (sheetContext) {
       void closeSheet() {
@@ -76,7 +77,14 @@ Future<void> showReleaseNotesSheet({
         );
       }
 
-      return ConduitExpressiveSheetSurface(
+      return ConduitAdaptiveSheetSurface(
+        bottomSafeArea: defaultTargetPlatform != TargetPlatform.iOS,
+        padding: const EdgeInsets.fromLTRB(
+          Spacing.modalPadding,
+          Spacing.modalPadding,
+          Spacing.modalPadding,
+          0,
+        ),
         child: ReleaseNotesSheet(
           currentVersion: currentVersion,
           previousVersion: previousVersion,
