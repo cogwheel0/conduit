@@ -89,6 +89,27 @@ void main() {
     ).isFalse();
   });
 
+  test('keeps inline document fragments inside the embed', () {
+    check(
+      WebContentEmbed.debugShouldAllowInlineFragmentNavigation(
+        'about:srcdoc#forecast',
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldAllowInlineFragmentNavigation(
+        'about:blank#forecast',
+      ),
+    ).isTrue();
+    check(
+      WebContentEmbed.debugShouldAllowInlineFragmentNavigation('about:srcdoc'),
+    ).isFalse();
+    check(
+      WebContentEmbed.debugShouldAllowInlineFragmentNavigation(
+        'javascript:#forecast',
+      ),
+    ).isFalse();
+  });
+
   test(
     'requires positive activation evidence when gesture data is present',
     () {

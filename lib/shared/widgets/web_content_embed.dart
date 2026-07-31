@@ -102,6 +102,10 @@ class WebContentEmbed extends StatefulWidget {
     linkActivated: linkActivated,
   );
 
+  @visibleForTesting
+  static bool debugShouldAllowInlineFragmentNavigation(String targetUrl) =>
+      _WebContentEmbedState._shouldAllowInlineFragmentNavigation(targetUrl);
+
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
@@ -380,6 +384,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       return _shouldAllowAutomaticNavigation(targetUrl)
           ? NavigationActionPolicy.ALLOW
           : NavigationActionPolicy.CANCEL;
+    }
+    if (_shouldAllowInlineFragmentNavigation(targetUrl)) {
+      return NavigationActionPolicy.ALLOW;
     }
     if (parseAllowedExternalLink(targetUrl) == null) {
       return NavigationActionPolicy.CANCEL;
@@ -762,6 +769,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         scheme == 'https' ||
         (scheme == 'about' &&
             const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase()));
+  }
+
+  static bool _shouldAllowInlineFragmentNavigation(String targetUrl) {
+    final uri = Uri.tryParse(targetUrl.trim());
+    return uri != null &&
+        uri.hasFragment &&
+        uri.scheme.toLowerCase() == 'about' &&
+        const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase());
   }
 
   static bool _shouldHandleCreateWindow({

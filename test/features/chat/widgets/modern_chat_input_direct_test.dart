@@ -18,6 +18,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('composer measurement style matches recording typography', () {
+    final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
+      isRecording: true,
+    );
+    final idleStyle = ModernChatInput.debugComposerInputTextStyle(
+      isRecording: false,
+    );
+
+    expect(recordingStyle.fontWeight, FontWeight.w500);
+    expect(recordingStyle.fontStyle, FontStyle.italic);
+    expect(idleStyle.fontWeight, FontWeight.w400);
+    expect(idleStyle.fontStyle, FontStyle.normal);
+  });
+
   test('OpenWebUI explicit attachment capability denials fail closed', () {
     final model = Model.fromJson({
       'id': 'text-only',

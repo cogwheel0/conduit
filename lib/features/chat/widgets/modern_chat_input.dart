@@ -1,6 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
@@ -259,11 +259,21 @@ class ModernChatInput extends ConsumerStatefulWidget {
     this.composerTextInsertionTargetId,
   });
 
+  @visibleForTesting
+  static TextStyle debugComposerInputTextStyle({required bool isRecording}) =>
+      _composerInputTextStyle(isRecording);
+
   @override
   ConsumerState<ModernChatInput> createState() => _ModernChatInputState();
 }
 
 // (Removed legacy _MicButton; inline mic logic now lives in primary button)
+
+TextStyle _composerInputTextStyle(bool isRecording) =>
+    AppTypography.chatMessageStyle.copyWith(
+      fontWeight: isRecording ? FontWeight.w500 : FontWeight.w400,
+      fontStyle: isRecording ? FontStyle.italic : FontStyle.normal,
+    );
 
 typedef _ComposerTypography = ({
   ui.TextDirection direction,
@@ -287,6 +297,8 @@ typedef _ComposerLineMeasurement = ({
   _ComposerLayoutMetrics layout,
   bool isMultiline,
 });
+
+typedef _CompactComposerControls = ({bool showLeading, bool showMic});
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
@@ -892,9 +904,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final direction = Directionality.of(context);
     final textScaler = MediaQuery.textScalerOf(context);
     final locale = Localizations.maybeLocaleOf(context);
-    final style = AppTypography.chatMessageStyle.copyWith(
-      fontWeight: _isRecording ? FontWeight.w500 : FontWeight.w400,
-    );
+    final style = _composerInputTextStyle(_isRecording);
     return (
       direction: direction,
       textScaler: textScaler,
@@ -907,6 +917,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   bool _shouldShowComposerExpandButton(String text, bool isMultiline) =>
       isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+
+  _CompactComposerControls _compactComposerControls({
+    required bool showOverflowButton,
+    required bool voiceAvailable,
+    required bool isGenerating,
+  }) => (
+    showLeading: _isRecording || showOverflowButton,
+    showMic: !_isRecording && !_hasText && voiceAvailable && !isGenerating,
+  );
 
   void _scheduleComposerLineMeasurement(
     BuildContext context,
@@ -2665,6 +2684,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           attachmentAvailability.photo ||
           attachmentAvailability.camera,
     );
+    final compactControls = _compactComposerControls(
+      showOverflowButton: showOverflowButton,
+      voiceAvailable: voiceAvailable,
+      isGenerating: isGenerating,
+    );
     if (_isFallbackAttachmentPanelVisible && !showOverflowButton) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_isDeactivated) {
@@ -2989,7 +3013,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 if (_isRecording) ...[
                   _buildDictationStopButton(size: _composerControlSize),
                   const SizedBox(width: Spacing.xs),
-                ] else if (showOverflowButton) ...[
+                ] else if (compactControls.showLeading) ...[
                   _buildOverflowButton(
                     tooltip: l10n.more,
                     dense: true,
@@ -3012,10 +3036,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     isActive: isActive,
                   ),
                 ),
-                if (!_isRecording &&
-                    !_hasText &&
-                    voiceAvailable &&
-                    !isGenerating) ...[
+                if (compactControls.showMic) ...[
                   const SizedBox(width: Spacing.xs),
                   Platform.isAndroid
                       ? Transform.translate(
@@ -3095,9 +3116,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       );
       return _wrapWithComposerLineMeasurement(
-        showOverflowButton: showOverflowButton,
-        voiceAvailable: voiceAvailable,
-        isGenerating: isGenerating,
+        compactControls: compactControls,
         child: _wrapWithFallbackAttachmentPanel(
           composer: composer,
           localAttachmentsOnly: isHermesComposer,
@@ -3147,9 +3166,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: shell,
     );
     return _wrapWithComposerLineMeasurement(
-      showOverflowButton: showOverflowButton,
-      voiceAvailable: voiceAvailable,
-      isGenerating: isGenerating,
+      compactControls: compactControls,
       child: _wrapWithFallbackAttachmentPanel(
         composer: composer,
         localAttachmentsOnly: isHermesComposer,
@@ -3160,9 +3177,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   Widget _wrapWithComposerLineMeasurement({
     required Widget child,
-    required bool showOverflowButton,
-    required bool voiceAvailable,
-    required bool isGenerating,
+    required _CompactComposerControls compactControls,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3171,10 +3186,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           baseExtent: _composerControlSize,
         );
         var reservedWidth = controlSize + Spacing.xs;
-        if (_isRecording || showOverflowButton) {
+        if (compactControls.showLeading) {
           reservedWidth += controlSize + Spacing.xs;
         }
-        if (!_isRecording && !_hasText && voiceAvailable && !isGenerating) {
+        if (compactControls.showMic) {
           reservedWidth += controlSize + Spacing.xs;
         }
         final compactTextFieldWidth =
@@ -3391,10 +3406,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 factor,
               )!;
 
-              final FontWeight recordingWeight = _isRecording
-                  ? FontWeight.w500
-                  : FontWeight.w400;
-              final TextStyle baseChatStyle = AppTypography.chatMessageStyle;
+              final TextStyle baseChatStyle = _composerInputTextStyle(
+                _isRecording,
+              );
               final inputPlaceholder = _isRecording
                   ? AppLocalizations.of(context)!.recordingAudio
                   : widget.placeholder ??
@@ -3413,10 +3427,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   placeholder: inputPlaceholder,
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
-                    fontWeight: recordingWeight,
-                    fontStyle: _isRecording
-                        ? FontStyle.italic
-                        : FontStyle.normal,
                   ),
                   enabled: widget.enabled,
                   autofocus: false,
@@ -3431,13 +3441,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
-                  style: baseChatStyle.copyWith(
-                    color: animatedTextColor,
-                    fontStyle: _isRecording
-                        ? FontStyle.italic
-                        : FontStyle.normal,
-                    fontWeight: recordingWeight,
-                  ),
+                  style: baseChatStyle.copyWith(color: animatedTextColor),
                   contentInsertionConfiguration: _selectedModelAcceptsImageInput
                       ? ContentInsertionConfiguration(
                           allowedMimeTypes: ClipboardAttachmentService
@@ -3478,20 +3482,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 showCursor: true,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
-                style: baseChatStyle.copyWith(
-                  color: animatedTextColor,
-                  fontStyle: _isRecording ? FontStyle.italic : FontStyle.normal,
-                  fontWeight: recordingWeight,
-                ),
+                style: baseChatStyle.copyWith(color: animatedTextColor),
                 decoration: context.conduitInputStyles
                     .borderless(hint: inputPlaceholder)
                     .copyWith(
                       hintStyle: baseChatStyle.copyWith(
                         color: animatedPlaceholder,
-                        fontWeight: recordingWeight,
-                        fontStyle: _isRecording
-                            ? FontStyle.italic
-                            : FontStyle.normal,
                       ),
                       contentPadding: contentPadding,
                       isDense: true,
