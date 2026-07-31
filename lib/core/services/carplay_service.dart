@@ -118,11 +118,14 @@ final class CarPlayCoordinator {
         );
     if (!_isCurrentScene(sceneGeneration)) {
       final snapshot = _ref.read(chatVoiceModeControllerProvider);
-      if (startResult == ChatVoiceModeStartResult.started &&
+      final claimedOwnership = startResult == ChatVoiceModeStartResult.started;
+      if (claimedOwnership &&
           (snapshot.isActive || snapshot.phase == ChatVoiceModePhase.error)) {
         await _ref.read(chatVoiceModeControllerProvider.notifier).stop();
       }
-      _startedByCarPlay = false;
+      if (claimedOwnership) {
+        _startedByCarPlay = false;
+      }
       return _failure('CarPlay disconnected.');
     }
 

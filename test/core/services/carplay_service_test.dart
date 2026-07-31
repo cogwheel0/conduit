@@ -179,6 +179,41 @@ void main() {
       },
     );
 
+    test(
+      'disconnect stops an owned call while an overlapping start is pending',
+      () async {
+        final firstStart = Completer<void>();
+        final secondStart = Completer<void>();
+        final voice = _FakeVoiceCallController(
+          startCompleters: [firstStart, secondStart],
+          startResults: const [
+            ChatVoiceModeStartResult.started,
+            ChatVoiceModeStartResult.alreadyActive,
+          ],
+        );
+        final container = _buildContainer(voice: voice);
+        addTearDown(container.dispose);
+
+        final firstResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 1);
+        final secondResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 2);
+
+        firstStart.complete();
+        expect((await firstResult)['success'], isTrue);
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        expect(disconnect['success'], isTrue);
+        expect(voice.stopCalls, 1);
+
+        secondStart.complete();
+        final cancelledOverlap = await secondResult;
+        expect(cancelledOverlap['success'], isFalse);
+        expect(cancelledOverlap['error'], contains('disconnected'));
+        expect(voice.stopCalls, 1);
+      },
+    );
+
     test('does not take ownership of an already-active phone call', () async {
       final voice = _FakeVoiceCallController(
         startResult: ChatVoiceModeStartResult.alreadyActive,
