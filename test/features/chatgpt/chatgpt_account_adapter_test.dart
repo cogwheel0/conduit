@@ -8,6 +8,7 @@ import 'package:conduit/features/chatgpt/chatgpt_runtime_client.dart';
 import 'package:conduit/features/chatgpt/native_generated/api/contract.dart'
     as native;
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:checks/checks.dart';
@@ -73,7 +74,7 @@ void main() {
     );
     await run.done;
     check(
-      runtime.lastRequest!.inputs.map((input) => input.kind),
+      runtime.lastRequest!.messages.single.parts.map((input) => input.kind),
     ).deepEquals(<String>['text', 'audio', 'document']);
     check(runtime.lastRequest?.enableWebSearch).equals(true);
     check(
@@ -178,113 +179,224 @@ void main() {
     await run.done.timeout(const Duration(seconds: 2));
   });
 
-  test('resumes the latest head and forks an older local branch', () async {
-    final runtime = _FakeRuntime();
-    final adapter = ChatGptAccountAdapter(runtime: runtime);
-    final profile = chatGptAccountProfile();
+  test(
+    'reuses the latest session and isolates an older local branch',
+    () async {
+      final runtime = _FakeRuntime();
+      final adapter = ChatGptAccountAdapter(runtime: runtime);
+      final profile = chatGptAccountProfile();
 
-    Future<void> complete({
-      required String assistantId,
-      String? branchHead,
-    }) async {
-      final run = adapter.startCompletion(
+      Future<void> complete({
+        required String assistantId,
+        String? branchHead,
+      }) async {
+        final run = adapter.startCompletion(
+          profile,
+          DirectCompletionRequest(
+            remoteModelId: 'gpt-test',
+            localChatId: 'branch-chat',
+            headMessageId: branchHead,
+            localAssistantMessageId: assistantId,
+            messages: <DirectChatMessage>[
+              DirectChatMessage(
+                role: 'user',
+                localMessageId: 'user-$assistantId',
+                parentMessageId: branchHead,
+                parts: const <DirectContentPart>[DirectTextPart('next')],
+              ),
+            ],
+          ),
+        );
+        await run.events.toList().timeout(const Duration(seconds: 2));
+        await run.done;
+      }
+
+      await complete(assistantId: 'assistant-1');
+      await complete(assistantId: 'assistant-2', branchHead: 'assistant-1');
+      await complete(
+        assistantId: 'assistant-branch',
+        branchHead: 'assistant-1',
+      );
+
+      check(runtime.startedSessionIds).length.equals(3);
+      check(runtime.startedSessionIds[1]).equals(runtime.startedSessionIds[0]);
+      check(
+        runtime.startedSessionIds[2],
+      ).not((it) => it.equals(runtime.startedSessionIds[0]));
+    },
+  );
+
+  test(
+    'starts a replacement session and fully replays on policy change',
+    () async {
+      final runtime = _FakeRuntime();
+      final adapter = ChatGptAccountAdapter(runtime: runtime);
+      final profile = chatGptAccountProfile();
+
+      final first = adapter.startCompletion(
         profile,
         DirectCompletionRequest(
           remoteModelId: 'gpt-test',
-          localChatId: 'branch-chat',
-          headMessageId: branchHead,
-          localAssistantMessageId: assistantId,
+          localChatId: 'policy-chat',
+          localAssistantMessageId: 'assistant-1',
           messages: <DirectChatMessage>[
-            DirectChatMessage(
-              role: 'user',
-              localMessageId: 'user-$assistantId',
-              parentMessageId: branchHead,
-              parts: const <DirectContentPart>[DirectTextPart('next')],
-            ),
+            DirectChatMessage.text(role: 'user', text: 'first'),
           ],
         ),
       );
-      await run.events.toList().timeout(const Duration(seconds: 2));
-      await run.done;
-    }
+      await first.events.toList();
 
-    await complete(assistantId: 'assistant-1');
-    await complete(assistantId: 'assistant-2', branchHead: 'assistant-1');
-    await complete(assistantId: 'assistant-branch', branchHead: 'assistant-1');
+      final second = adapter.startCompletion(
+        profile,
+        DirectCompletionRequest(
+          remoteModelId: 'gpt-test',
+          localChatId: 'policy-chat',
+          headMessageId: 'assistant-1',
+          localAssistantMessageId: 'assistant-2',
+          enableWebSearch: true,
+          messages: <DirectChatMessage>[
+            DirectChatMessage.text(role: 'user', text: 'first'),
+            DirectChatMessage.text(role: 'user', text: 'search now'),
+            DirectChatMessage.text(role: 'assistant', text: 'trailing answer'),
+          ],
+        ),
+      );
+      await second.events.toList();
 
-    check(runtime.startedThreadCount).equals(1);
-    check(runtime.resumedThreadIds).deepEquals(<String>['thread-1']);
-    check(runtime.forkedTurns).deepEquals(<String?>['turn-1']);
-  });
+      check(runtime.startedSessionIds).length.equals(2);
+      check(
+        runtime.startedSessionIds[1],
+      ).not((it) => it.equals(runtime.startedSessionIds[0]));
+      check(runtime.lastRequest!.enableWebSearch).isTrue();
+      check(
+        runtime.lastRequest!.messages
+            .expand((message) => message.parts)
+            .map((part) => part.text),
+      ).deepEquals(<String?>['first', 'search now', 'trailing answer']);
+    },
+  );
 
-  test('starts a replacement thread when the tool policy changes', () async {
+  test('reuses a checkpoint and persists its input-token count', () async {
     final runtime = _FakeRuntime();
     final adapter = ChatGptAccountAdapter(runtime: runtime);
     final profile = chatGptAccountProfile();
 
-    final first = adapter.startCompletion(
-      profile,
-      DirectCompletionRequest(
-        remoteModelId: 'gpt-test',
-        localChatId: 'policy-chat',
-        localAssistantMessageId: 'assistant-1',
-        messages: <DirectChatMessage>[
-          DirectChatMessage.text(role: 'user', text: 'first'),
-        ],
-      ),
+    await _completePersistentTurn(
+      adapter: adapter,
+      profile: profile,
+      chatId: 'checkpoint-chat',
     );
-    await first.events.toList();
 
     final second = adapter.startCompletion(
       profile,
       DirectCompletionRequest(
         remoteModelId: 'gpt-test',
-        localChatId: 'policy-chat',
+        localChatId: 'checkpoint-chat',
         headMessageId: 'assistant-1',
         localAssistantMessageId: 'assistant-2',
-        enableWebSearch: true,
-        messages: <DirectChatMessage>[
-          DirectChatMessage.text(role: 'user', text: 'first'),
-          DirectChatMessage.text(role: 'user', text: 'search now'),
-          DirectChatMessage.text(role: 'assistant', text: 'trailing answer'),
-        ],
+        messages: _followUpMessages,
       ),
     );
     await second.events.toList();
 
-    check(runtime.startedThreadCount).equals(2);
-    check(runtime.resumedThreadIds).isEmpty();
+    check(runtime.lastRequest!.checkpoint!.toList()).deepEquals(<int>[7, 8, 9]);
+    check(runtime.lastRequest!.previousInputTokens).equals(BigInt.from(900));
     check(
-      runtime.startedPolicies,
-    ).deepEquals(<(bool, bool)>[(false, false), (true, false)]);
-    check(
-      runtime.lastRequest!.inputs.first.text!.contains('transcript'),
-    ).isTrue();
-    check(
-      runtime.lastRequest!.inputs.first.text!.contains('trailing answer'),
-    ).isTrue();
-    check(
-      runtime.lastRequest!.inputs.first.text!.contains('search now'),
-    ).isFalse();
-    check(runtime.lastRequest!.inputs.last.text).equals('search now');
+      runtime.lastRequest!.messages
+          .expand((message) => message.parts)
+          .map((part) => part.text),
+    ).deepEquals(<String?>['answer', 'follow up']);
+  });
+
+  test('invalid checkpoint retries once with the full local branch', () async {
+    final runtime = _FakeRuntime(rejectCheckpointOnce: true);
+    final adapter = ChatGptAccountAdapter(runtime: runtime);
+    final profile = chatGptAccountProfile();
+
+    await _completePersistentTurn(
+      adapter: adapter,
+      profile: profile,
+      chatId: 'retry-chat',
+    );
+
+    final second = adapter.startCompletion(
+      profile,
+      DirectCompletionRequest(
+        remoteModelId: 'gpt-test',
+        localChatId: 'retry-chat',
+        headMessageId: 'assistant-1',
+        localAssistantMessageId: 'assistant-2',
+        messages: _followUpMessages,
+      ),
+    );
+    await second.events.toList();
+
+    check(runtime.checkpointRejections).equals(1);
+    check(runtime.lastRequest!.checkpoint).isNull();
+    check(runtime.lastRequest!.messages).length.equals(3);
   });
 }
 
+Future<void> _completePersistentTurn({
+  required ChatGptAccountAdapter adapter,
+  required DirectConnectionProfile profile,
+  required String chatId,
+}) async {
+  final run = adapter.startCompletion(
+    profile,
+    DirectCompletionRequest(
+      remoteModelId: 'gpt-test',
+      localChatId: chatId,
+      localAssistantMessageId: 'assistant-1',
+      messages: <DirectChatMessage>[
+        DirectChatMessage(
+          role: 'user',
+          localMessageId: 'user-1',
+          parts: const <DirectContentPart>[DirectTextPart('first')],
+        ),
+      ],
+    ),
+  );
+  await run.events.toList();
+}
+
+final _followUpMessages = <DirectChatMessage>[
+  DirectChatMessage(
+    role: 'user',
+    localMessageId: 'user-1',
+    parts: const <DirectContentPart>[DirectTextPart('first')],
+  ),
+  DirectChatMessage(
+    role: 'assistant',
+    localMessageId: 'assistant-1',
+    parts: const <DirectContentPart>[DirectTextPart('answer')],
+  ),
+  DirectChatMessage(
+    role: 'user',
+    localMessageId: 'user-2',
+    parentMessageId: 'assistant-1',
+    parts: const <DirectContentPart>[DirectTextPart('follow up')],
+  ),
+];
+
 final class _FakeRuntime implements ChatGptRuntimeClient {
-  _FakeRuntime({this.autoComplete = true, this.emitCancellationEvent = true});
+  _FakeRuntime({
+    this.autoComplete = true,
+    this.emitCancellationEvent = true,
+    this.rejectCheckpointOnce = false,
+  });
 
   final bool autoComplete;
   final bool emitCancellationEvent;
+  bool rejectCheckpointOnce;
   final StreamController<native.RuntimeEvent> _events =
       StreamController<native.RuntimeEvent>.broadcast();
   native.TurnRequest? lastRequest;
   String? interruptedRunId;
-  int startedThreadCount = 0;
   int _runCount = 0;
+  int checkpointRejections = 0;
   final Completer<void> turnStarted = Completer<void>();
-  final List<String> resumedThreadIds = <String>[];
-  final List<String?> forkedTurns = <String?>[];
-  final List<(bool, bool)> startedPolicies = <(bool, bool)>[];
+  final List<String> startedSessionIds = <String>[];
 
   @override
   Stream<native.RuntimeEvent> get events => _events.stream;
@@ -311,90 +423,52 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
   ];
 
   @override
-  Future<native.ThreadInfo> startThread(
-    String modelId, {
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  }) async {
-    startedPolicies.add((enableWebSearch, enableImageGeneration));
-    startedThreadCount += 1;
-    return native.ThreadInfo(
-      threadId: 'thread-$startedThreadCount',
-      modelId: modelId,
-    );
-  }
-
-  @override
-  Future<native.ThreadInfo> resumeThread(String threadId) async {
-    resumedThreadIds.add(threadId);
-    return native.ThreadInfo(threadId: threadId, modelId: 'gpt-test');
-  }
-
-  @override
-  Future<native.ThreadInfo> forkThread(
-    String threadId, {
-    String? turnId,
-  }) async {
-    forkedTurns.add(turnId);
-    return native.ThreadInfo(
-      threadId: 'thread-fork-${forkedTurns.length}',
-      modelId: 'gpt-test',
-    );
-  }
-
-  @override
   Future<native.RunInfo> startTurn(native.TurnRequest request) async {
     lastRequest = request;
+    if (request.checkpoint != null && rejectCheckpointOnce) {
+      rejectCheckpointOnce = false;
+      checkpointRejections += 1;
+      throw const native.BridgeError(
+        kind: native.BridgeErrorKind.protocolMismatch,
+        message: 'invalid checkpoint',
+      );
+    }
+    startedSessionIds.add(request.sessionId);
     if (!turnStarted.isCompleted) turnStarted.complete();
     _runCount += 1;
     final runId = 'run-$_runCount';
-    final turnId = 'turn-$_runCount';
     if (autoComplete) {
       Timer.run(
-        () => _emitCompletion(
-          runId: runId,
-          threadId: request.threadId,
-          turnId: turnId,
-        ),
+        () => _emitCompletion(runId: runId, sessionId: request.sessionId),
       );
     }
-    return native.RunInfo(
-      runId: runId,
-      threadId: request.threadId,
-      turnId: turnId,
-    );
+    return native.RunInfo(runId: runId, sessionId: request.sessionId);
   }
 
-  void _emitCompletion({
-    required String runId,
-    required String threadId,
-    required String turnId,
-  }) {
+  void _emitCompletion({required String runId, required String sessionId}) {
     _events
       ..add(
         _event(
-          native.RuntimeEventKind.toolStarted,
+          native.RuntimeEventKind.checkpointUpdated,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
-          text: 'webSearch',
+          sessionId: sessionId,
+          jsonData: '{"throughMessageId":"user-1"}',
+          binaryData: Uint8List.fromList(<int>[7, 8, 9]),
         ),
       )
       ..add(
         _event(
-          native.RuntimeEventKind.toolCompleted,
+          native.RuntimeEventKind.usage,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
-          text: 'webSearch',
+          sessionId: sessionId,
+          jsonData: '{"input_tokens":900}',
         ),
       )
       ..add(
         _event(
           native.RuntimeEventKind.reasoningDelta,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
+          sessionId: sessionId,
           text: 'I should look this up.',
         ),
       )
@@ -402,8 +476,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
         _event(
           native.RuntimeEventKind.textDelta,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
+          sessionId: sessionId,
           text: 'answer',
         ),
       )
@@ -411,8 +484,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
         _event(
           native.RuntimeEventKind.source,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
+          sessionId: sessionId,
           jsonData: '{"url":"https://example.com","title":"Example"}',
         ),
       )
@@ -420,8 +492,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
         _event(
           native.RuntimeEventKind.generatedImage,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
+          sessionId: sessionId,
           jsonData: '{"mediaType":"image/webp"}',
           binaryData: Uint8List.fromList(<int>[1, 2, 3]),
         ),
@@ -430,8 +501,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
         _event(
           native.RuntimeEventKind.completed,
           runId: runId,
-          threadId: threadId,
-          turnId: turnId,
+          sessionId: sessionId,
         ),
       );
   }
@@ -439,8 +509,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
   native.RuntimeEvent _event(
     native.RuntimeEventKind kind, {
     required String runId,
-    required String threadId,
-    required String turnId,
+    required String sessionId,
     String? text,
     String? jsonData,
     Uint8List? binaryData,
@@ -449,8 +518,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
     sequence: BigInt.one,
     kind: kind,
     runId: runId,
-    threadId: threadId,
-    turnId: turnId,
+    sessionId: sessionId,
     text: text,
     jsonData: jsonData,
     binaryData: binaryData,
@@ -465,8 +533,7 @@ final class _FakeRuntime implements ChatGptRuntimeClient {
       _event(
         native.RuntimeEventKind.cancelled,
         runId: runId,
-        threadId: request.threadId,
-        turnId: 'turn-$_runCount',
+        sessionId: request.sessionId,
       ),
     );
   }

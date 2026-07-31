@@ -170,21 +170,6 @@ final class _PendingChatGptRuntime implements ChatGptRuntimeClient {
       throw UnsupportedError('unused');
 
   @override
-  Future<native.ThreadInfo> startThread(
-    String modelId, {
-    required bool enableWebSearch,
-    required bool enableImageGeneration,
-  }) => throw UnsupportedError('unused');
-
-  @override
-  Future<native.ThreadInfo> resumeThread(String threadId) =>
-      throw UnsupportedError('unused');
-
-  @override
-  Future<native.ThreadInfo> forkThread(String threadId, {String? turnId}) =>
-      throw UnsupportedError('unused');
-
-  @override
   Future<native.RunInfo> startTurn(native.TurnRequest request) =>
       throw UnsupportedError('unused');
 
