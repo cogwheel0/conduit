@@ -211,10 +211,19 @@ void main() {
       find.descendant(of: header, matching: find.byType(Divider)),
       findsOneWidget,
     );
-    expect(
-      find.descendant(of: header, matching: find.byType(AdaptiveButton)),
-      findsOneWidget,
-    );
+    if (conduitSupportsNativeGlass()) {
+      expect(
+        find.descendant(of: header, matching: find.byType(AdaptiveButton)),
+        findsOneWidget,
+      );
+    } else {
+      final closeButton = find.descendant(
+        of: header,
+        matching: find.byType(IconButton),
+      );
+      expect(closeButton, findsOneWidget);
+      expect(tester.getSize(closeButton), const Size.square(36));
+    }
   });
 
   testWidgets('root sheets remove native toolbar chrome beneath their edges', (

@@ -5,10 +5,12 @@ import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
@@ -717,7 +719,7 @@ void main() {
     expect(ThemedSheets.hasActiveSheet, isFalse);
   });
 
-  testWidgets('focus uses two-tier composer without unselected quick pills', (
+  testWidgets('focus stays compact until the composer becomes multiline', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -747,6 +749,13 @@ void main() {
 
     final composerField = tester.widget<TextField>(find.byType(TextField));
     expect(composerField.focusNode?.hasFocus, isTrue);
+    expect(find.byKey(compactShellKey), findsOneWidget);
+    expect(find.byKey(expandedShellKey), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'first line\nsecond line');
+    await tester.pump();
+    await tester.pump();
+
     expect(find.byKey(compactShellKey), findsNothing);
     expect(find.byKey(expandedShellKey), findsOneWidget);
     expect(find.byKey(expandedInputKey), findsOneWidget);
@@ -766,12 +775,61 @@ void main() {
     expect(actionInsets.left, 8);
     expect(actionInsets.right, 8);
 
-    composerField.focusNode?.unfocus();
+    await tester.enterText(find.byType(TextField), 'single line');
     await tester.pump();
     await tester.pump();
 
     expect(find.byKey(compactShellKey), findsOneWidget);
     expect(find.byKey(expandedShellKey), findsNothing);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+      isTrue,
+    );
+  });
+
+  testWidgets('a visually wrapped second line expands the composer', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    const wrappedText = 'A focused message wraps onto line two';
+    expect(wrappedText.length, lessThan(51));
+
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    final editableContext = tester.element(find.byType(EditableText));
+    final textPainter = TextPainter(
+      text: TextSpan(text: wrappedText, style: editable.style),
+      textDirection: Directionality.of(editableContext),
+      textScaler: MediaQuery.textScalerOf(editableContext),
+      maxLines: 2,
+    )..layout(maxWidth: tester.getSize(find.byType(EditableText)).width);
+    expect(textPainter.computeLineMetrics().length, 2);
+
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), wrappedText);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('compact-composer-shell')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('compact composer uses symmetric horizontal insets', (
@@ -827,6 +885,17 @@ void main() {
       overflowCenter.dx - shellRect.left,
       closeTo(shellRect.right - primaryCenter.dx, 0.01),
     );
+
+    await tester.enterText(find.byType(TextField), 'Hi');
+    await tester.pump();
+
+    final fieldRect = tester.getRect(find.byType(TextField));
+    final overflowRect = tester.getRect(overflowButton);
+    final activePrimaryRect = tester.getRect(
+      find.byKey(const ValueKey('primary-btn-send')),
+    );
+    expect(fieldRect.left - overflowRect.right, Spacing.xs);
+    expect(activePrimaryRect.left - fieldRect.right, Spacing.xs);
   });
 
   testWidgets('secondary composer actions use plain icon buttons', (
@@ -866,7 +935,7 @@ void main() {
     );
 
     await tester.tap(find.byType(TextField));
-    await tester.enterText(find.byType(TextField), 'Draft note');
+    await tester.enterText(find.byType(TextField), 'Draft\nnote');
     await tester.pump();
     await tester.pump();
 
@@ -877,6 +946,92 @@ void main() {
           )
           .style,
       AdaptiveButtonStyle.plain,
+    );
+  });
+
+  testWidgets('Android add icon is optically balanced with the mic', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          voiceInputAvailableProvider.overrideWith((_) async => true),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
+    final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
+    expect(addIcon.size, 28);
+    expect(micIcon.size, IconSize.large);
+
+    final addButton = find.byKey(
+      const ValueKey<String>('composer-overflow-button'),
+    );
+    final micButton = find.byKey(
+      const ValueKey<String>('composer-dictation-start'),
+    );
+    expect(tester.getSize(addButton), tester.getSize(micButton));
+  });
+
+  testWidgets('overflow close control keeps its compact size when expanded', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final overflowButton = find.byKey(
+      const ValueKey<String>('composer-overflow-button'),
+    );
+    final addControlSize = tester.getSize(overflowButton);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    final compactCloseControlSize = tester.getSize(overflowButton);
+    final compactCloseGlyphSize = tester
+        .widget<Icon>(find.byIcon(Icons.close))
+        .size;
+    expect(compactCloseControlSize, addControlSize);
+
+    await tester.enterText(find.byType(TextField), 'first line\nsecond line');
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.getSize(overflowButton), compactCloseControlSize);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.close)).size,
+      compactCloseGlyphSize,
     );
   });
 

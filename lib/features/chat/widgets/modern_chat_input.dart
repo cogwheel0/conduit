@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
@@ -272,6 +273,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const double _composerRadius = AppBorderRadius.card;
   static const double _composerHorizontalInset = Spacing.sm;
   static const double _composerControlSize = 36;
+  static const double _androidOverflowAddIconSize = 28;
   static int _nextGeneratedInsertionTargetId = 0;
 
   final MentionTextEditingController _controller =
@@ -286,6 +288,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// Without this, different parent ValueKeys cause Flutter to unmount and
   /// remount the TextField, losing focus and keyboard state.
   final GlobalKey _textFieldKey = GlobalKey();
+  final GlobalKey _compactTextFieldMeasureKey = GlobalKey();
+  double _compactTextFieldWidth = 0;
+  ({
+    String text,
+    double width,
+    double scaledFontSize,
+    bool isRtl,
+    Locale? locale,
+    bool isRecording,
+    bool isMultiline,
+  })?
+  _composerLineMeasurement;
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -858,6 +872,62 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
+  void _captureCompactTextFieldWidth() {
+    final renderObject = _compactTextFieldMeasureKey.currentContext
+        ?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+
+    final width = renderObject.size.width;
+    if (width.isFinite && width > 0) {
+      _compactTextFieldWidth = width;
+    }
+  }
+
+  bool _composerTextUsesMultipleLines(String text) {
+    if (text.contains('\n')) return true;
+    if (text.isEmpty || _compactTextFieldWidth <= 0) return false;
+
+    final direction = Directionality.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final isRtl = direction == ui.TextDirection.rtl;
+    final style = AppTypography.chatMessageStyle.copyWith(
+      fontWeight: _isRecording ? FontWeight.w500 : FontWeight.w400,
+    );
+    final scaledFontSize = textScaler.scale(style.fontSize ?? 14);
+    final cached = _composerLineMeasurement;
+    if (cached != null &&
+        cached.text == text &&
+        cached.width == _compactTextFieldWidth &&
+        cached.scaledFontSize == scaledFontSize &&
+        cached.isRtl == isRtl &&
+        cached.locale == locale &&
+        cached.isRecording == _isRecording) {
+      return cached.isMultiline;
+    }
+
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textScaler: textScaler,
+      locale: locale,
+      maxLines: 2,
+    )..layout(maxWidth: _compactTextFieldWidth);
+
+    final isMultiline =
+        painter.didExceedMaxLines || painter.computeLineMetrics().length > 1;
+    _composerLineMeasurement = (
+      text: text,
+      width: _compactTextFieldWidth,
+      scaledFontSize: scaledFontSize,
+      isRtl: isRtl,
+      locale: locale,
+      isRecording: _isRecording,
+      isMultiline: isMultiline,
+    );
+    return isMultiline;
+  }
+
   void _handleComposerChanged() {
     if (!mounted || _isDeactivated) return;
     _lastEditTime = DateTime.now();
@@ -865,8 +935,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
     final bool hasText = text.trim().isNotEmpty;
-    // Consider multiline if text contains newlines or exceeds ~50 chars
-    final bool isMultiline = text.contains('\n') || text.length > 50;
+    _captureCompactTextFieldWidth();
+    final bool isMultiline = _composerTextUsesMultipleLines(text);
     // Show the expand button when content is tall enough
     // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
     final bool showExpand =
@@ -2691,10 +2761,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
-    // Focus adopts the existing two-tier quick-pill layout even when there
-    // are no selected pills. The resting empty state remains the compact row.
-    final bool showCompactComposer = quickPills.isEmpty && !hasComposerFocus;
-    final bool isCompactComposerExpanded = showCompactComposer && _isMultiline;
+    // Keep focused single-line input compact. Move to the two-tier shell only
+    // when the text becomes multiline or selected quick pills need a row.
+    final bool showCompactComposer = quickPills.isEmpty && !_isMultiline;
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
         notesEnabled &&
@@ -2702,11 +2771,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !isGenerating &&
         !_isRecording;
 
-    // Keep the resting single-line composer as a capsule, then soften its
-    // corners when multiline content expands it.
-    final double compactRadius = isCompactComposerExpanded
-        ? AppBorderRadius.xl
-        : AppBorderRadius.round;
+    const double compactRadius = AppBorderRadius.round;
     const double expandedRadius = _composerRadius;
     final BorderRadius shellRadius = BorderRadius.circular(
       showCompactComposer ? compactRadius : expandedRadius,
@@ -2846,11 +2911,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (showCompactComposer) {
       final textFieldContent = Container(
         key: const ValueKey('compact-composer-content'),
-        padding: EdgeInsets.fromLTRB(
+        padding: const EdgeInsets.fromLTRB(
           _composerHorizontalInset,
           0,
           _composerHorizontalInset,
-          Platform.isIOS && isCompactComposerExpanded ? Spacing.sm : 0,
+          0,
         ),
         constraints: const BoxConstraints(minHeight: TouchTarget.input),
         alignment: Alignment.center,
@@ -2858,9 +2923,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           clipBehavior: Clip.none,
           children: [
             Row(
-              crossAxisAlignment: isCompactComposerExpanded
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 if (_isRecording) ...[
                   _buildDictationStopButton(size: _composerControlSize),
@@ -2874,12 +2937,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   const SizedBox(width: Spacing.xs),
                 ],
                 Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      bottom: Platform.isAndroid && isCompactComposerExpanded
-                          ? Spacing.sm
-                          : 0,
-                    ),
+                  child: KeyedSubtree(
+                    key: _compactTextFieldMeasureKey,
                     child: _buildComposerTextField(
                       brightness: brightness,
                       sendOnEnter: sendOnEnter,
@@ -2918,7 +2977,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                           ),
                         ),
                 ],
-                SizedBox(width: Platform.isAndroid ? 0 : Spacing.xs),
+                const SizedBox(width: Spacing.xs),
                 _buildPrimaryButton(
                   _hasText,
                   isGenerating,
@@ -2951,7 +3010,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       final Widget textFieldShell = _buildComposerShell(
         key: const ValueKey('compact-composer-shell'),
         borderRadius: shellRadius,
-        useSmoothRectangleBorder: isCompactComposerExpanded,
+        useSmoothRectangleBorder: false,
         isRecording: _isRecording,
         child: textFieldContent,
       );
@@ -2984,7 +3043,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // Focused and quick-pill states use the full two-tier shell.
+    // Multiline and quick-pill states use the full two-tier shell.
     final shellContent = ConstrainedBox(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.4,
@@ -3379,8 +3438,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       baseExtent: dense ? _composerControlSize : TouchTarget.minimum,
     );
-    final iconSize = conduitScaledIconExtent(context, IconSize.large);
-
     // Let the parent supply a completely custom overflow button.
     if (widget.overflowButtonBuilder != null) {
       return widget.overflowButtonBuilder!(buttonSize);
@@ -3405,6 +3462,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     } else {
       overflowIcon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
     }
+    // Material's add glyph occupies less of its nominal square than the mic
+    // glyph. Compensate optically without changing the shared touch target.
+    final iconSize = conduitScaledIconExtent(
+      context,
+      !Platform.isIOS && !attachmentPanelVisible
+          ? _androidOverflowAddIconSize
+          : IconSize.large,
+    );
 
     return Focus(
       key: const ValueKey('composer-overflow-button'),
@@ -3856,20 +3921,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ? AdaptiveButtonStyle.prominentGlass
               : AdaptiveButtonStyle.glass);
 
-    return AdaptiveButton.child(
-      key: key,
-      onPressed: onPressed,
-      enabled: onPressed != null,
-      style: buttonStyle,
-      color: usesOpaqueFallback && androidShowBackground && !isProminent
-          ? androidBackgroundColor
-          : effectiveColor,
-      size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
-      minSize: Size(size, size),
-      padding: EdgeInsets.zero,
-      borderRadius: BorderRadius.circular(size),
-      useSmoothRectangleBorder: false,
-      child: child,
+    return SizedBox.square(
+      dimension: size,
+      child: AdaptiveButton.child(
+        key: key,
+        onPressed: onPressed,
+        enabled: onPressed != null,
+        style: buttonStyle,
+        color: usesOpaqueFallback && androidShowBackground && !isProminent
+            ? androidBackgroundColor
+            : effectiveColor,
+        size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
+        minSize: Size.square(size),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(size),
+        useSmoothRectangleBorder: false,
+        child: child,
+      ),
     );
   }
 
