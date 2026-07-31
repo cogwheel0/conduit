@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 import '../theme/theme_extensions.dart';
+import '../utils/adaptive_glass.dart';
 import 'modal_safe_area.dart';
 import 'sheet_handle.dart';
 
@@ -379,14 +380,38 @@ class SheetCloseButton extends StatelessWidget {
       color: iconColor,
     );
 
+    if (!conduitSupportsNativeGlass()) {
+      return SizedBox.square(
+        dimension: buttonSize,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: icon,
+          padding: EdgeInsets.zero,
+          constraints: BoxConstraints.tightFor(
+            width: buttonSize,
+            height: buttonSize,
+          ),
+          style: IconButton.styleFrom(
+            minimumSize: Size.zero,
+            maximumSize: Size.square(buttonSize),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          color: iconColor,
+        ),
+      );
+    }
+
     final button = AdaptiveButton.child(
       onPressed: onPressed,
+      enabled: onPressed != null,
       style: AdaptiveButtonStyle.glass,
       size: buttonSize > 36
           ? AdaptiveButtonSize.large
           : AdaptiveButtonSize.medium,
       padding: EdgeInsets.zero,
       minSize: Size.square(buttonSize),
+      borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
       child: icon,
     );

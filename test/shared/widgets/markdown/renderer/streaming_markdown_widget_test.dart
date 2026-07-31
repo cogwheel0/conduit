@@ -2172,6 +2172,33 @@ After
     expect(find.text('View Result from browser'), findsOneWidget);
   });
 
+  testWidgets(
+    'keeps grouped tool call embeds visible while details are closed',
+    (tester) async {
+      const content = '''
+<details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+      await tester.pumpWidget(buildHarness(content));
+
+      expect(find.text('Explored search, browser'), findsOneWidget);
+      expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
+      expect(find.text('View Result from search'), findsNothing);
+      expect(find.text('View Result from browser'), findsNothing);
+
+      await tester.tap(find.text('Explored search, browser'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
+      expect(find.text('View Result from search'), findsOneWidget);
+    },
+  );
+
   testWidgets('localizes grouped tool call titles', (tester) async {
     const content = '''
 <details type="tool_calls" done="true" name="search" result="&quot;one&quot;">
@@ -4089,7 +4116,7 @@ Tail keeps growing
     );
   });
 
-  testWidgets('defers tool call embeds until the details view opens', (
+  testWidgets('shows completed tool call embeds without opening details', (
     tester,
   ) async {
     const content = '''
@@ -4100,13 +4127,39 @@ Tail keeps growing
 
     await tester.pumpWidget(buildHarness(content));
 
-    expect(find.text('View Result from browser'), findsOneWidget);
-    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+    expect(find.text('browser'), findsOneWidget);
+    expect(find.text('View Result from browser'), findsNothing);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
     expect(find.text('Input'), findsNothing);
     expect(find.text('Output'), findsNothing);
+  });
 
-    await tester.tap(find.text('View Result from browser'));
-    await tester.pumpAndSettle();
+  testWidgets('hides pending tool call embeds until completion', (
+    tester,
+  ) async {
+    const pendingContent = '''
+<details type="tool_calls" done="false" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executing</summary>
+</details>
+<details type="tool_calls" done="true" name="search" result="&quot;done&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+    const completedContent = '''
+<details type="tool_calls" done="true" name="browser" embeds="[&quot;https://example.com/embed&quot;]">
+<summary>Tool Executed</summary>
+</details>
+<details type="tool_calls" done="true" name="search" result="&quot;done&quot;">
+<summary>Tool Executed</summary>
+</details>
+''';
+
+    await tester.pumpWidget(buildHarness(pendingContent));
+
+    expect(find.text('Exploring browser, search'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
+
+    await tester.pumpWidget(buildHarness(completedContent));
 
     expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
   });
@@ -4122,13 +4175,10 @@ Tail keeps growing
 
     await tester.pumpWidget(buildHarness(content));
 
-    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
-    await tester.tap(find.text('View Result from browser'));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
     expect(find.textContaining('<div>hello</div>'), findsNothing);
     expect(find.text('Input'), findsNothing);
     expect(find.text('Output'), findsNothing);
-    expect(find.byKey(const ValueKey('tool-call-embed-0')), findsOneWidget);
   });
 
   testWidgets(
@@ -4142,16 +4192,8 @@ Tail keeps growing
 
       await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
-      expect(find.text('View Result from browser'), findsOneWidget);
-      expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
-
-      await tester.tap(find.text('View Result from browser'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Preview will be available after streaming completes.'),
-        findsOneWidget,
-      );
+      expect(find.text('browser'), findsOneWidget);
+      expect(find.text('View Result from browser'), findsNothing);
       expect(find.byKey(const ValueKey('tool-call-embed-0')), findsNothing);
     },
   );
