@@ -288,8 +288,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// Without this, different parent ValueKeys cause Flutter to unmount and
   /// remount the TextField, losing focus and keyboard state.
   final GlobalKey _textFieldKey = GlobalKey();
-  final GlobalKey _compactTextFieldMeasureKey = GlobalKey();
   double _compactTextFieldWidth = 0;
+  ({
+    double width,
+    double scaledFontSize,
+    bool isRtl,
+    Locale? locale,
+    bool isRecording,
+  })?
+  _composerLayoutMetrics;
+  ({
+    double width,
+    double scaledFontSize,
+    bool isRtl,
+    Locale? locale,
+    bool isRecording,
+  })?
+  _pendingComposerLayoutMetrics;
+  bool _composerLayoutMeasurementScheduled = false;
   ({
     String text,
     double width,
@@ -872,15 +888,58 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
-  void _captureCompactTextFieldWidth() {
-    final renderObject = _compactTextFieldMeasureKey.currentContext
-        ?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+  void _scheduleComposerLineMeasurement(
+    BuildContext context,
+    double compactTextFieldWidth,
+  ) {
+    if (!compactTextFieldWidth.isFinite || compactTextFieldWidth <= 0) return;
 
-    final width = renderObject.size.width;
-    if (width.isFinite && width > 0) {
-      _compactTextFieldWidth = width;
+    final direction = Directionality.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final style = AppTypography.chatMessageStyle.copyWith(
+      fontWeight: _isRecording ? FontWeight.w500 : FontWeight.w400,
+    );
+    final metrics = (
+      width: compactTextFieldWidth,
+      scaledFontSize: textScaler.scale(style.fontSize ?? 14),
+      isRtl: direction == ui.TextDirection.rtl,
+      locale: locale,
+      isRecording: _isRecording,
+    );
+    if (metrics == _composerLayoutMetrics &&
+        _pendingComposerLayoutMetrics == null) {
+      return;
     }
+
+    _pendingComposerLayoutMetrics = metrics;
+    if (_composerLayoutMeasurementScheduled) return;
+    _composerLayoutMeasurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _composerLayoutMeasurementScheduled = false;
+      final pendingMetrics = _pendingComposerLayoutMetrics;
+      _pendingComposerLayoutMetrics = null;
+      if (!mounted || _isDeactivated || pendingMetrics == null) return;
+
+      _composerLayoutMetrics = pendingMetrics;
+      _compactTextFieldWidth = pendingMetrics.width;
+      _recomputeComposerLineState();
+    });
+  }
+
+  void _recomputeComposerLineState() {
+    final text = _controller.text;
+    final isMultiline = _composerTextUsesMultipleLines(text);
+    final showExpand =
+        isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+    if (isMultiline == _isMultiline && showExpand == _showExpandButton) {
+      return;
+    }
+
+    setState(() {
+      _isMultiline = isMultiline;
+      _showExpandButton = showExpand;
+    });
   }
 
   bool _composerTextUsesMultipleLines(String text) {
@@ -935,7 +994,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
     final bool hasText = text.trim().isNotEmpty;
-    _captureCompactTextFieldWidth();
     final bool isMultiline = _composerTextUsesMultipleLines(text);
     // Show the expand button when content is tall enough
     // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
@@ -2937,21 +2995,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   const SizedBox(width: Spacing.xs),
                 ],
                 Expanded(
-                  child: KeyedSubtree(
-                    key: _compactTextFieldMeasureKey,
-                    child: _buildComposerTextField(
-                      brightness: brightness,
-                      sendOnEnter: sendOnEnter,
-                      voiceAvailable: voiceAvailable,
-                      isGenerating: isGenerating,
-                      allUploadsComplete: allUploadsComplete,
-                      placeholderBase: placeholderBase,
-                      placeholderFocused: placeholderFocused,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: Spacing.xs,
-                      ),
-                      isActive: isActive,
+                  child: _buildComposerTextField(
+                    brightness: brightness,
+                    sendOnEnter: sendOnEnter,
+                    voiceAvailable: voiceAvailable,
+                    isGenerating: isGenerating,
+                    allUploadsComplete: allUploadsComplete,
+                    placeholderBase: placeholderBase,
+                    placeholderFocused: placeholderFocused,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: Spacing.xs,
                     ),
+                    isActive: isActive,
                   ),
                 ),
                 if (!_isRecording &&
@@ -3036,10 +3091,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ],
         ),
       );
-      return _wrapWithFallbackAttachmentPanel(
-        composer: composer,
-        localAttachmentsOnly: isHermesComposer,
-        attachmentAvailability: attachmentAvailability,
+      return _wrapWithComposerLineMeasurement(
+        showOverflowButton: showOverflowButton,
+        voiceAvailable: voiceAvailable,
+        isGenerating: isGenerating,
+        child: _wrapWithFallbackAttachmentPanel(
+          composer: composer,
+          localAttachmentsOnly: isHermesComposer,
+          attachmentAvailability: attachmentAvailability,
+        ),
       );
     }
 
@@ -3083,10 +3143,45 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: shell,
     );
-    return _wrapWithFallbackAttachmentPanel(
-      composer: composer,
-      localAttachmentsOnly: isHermesComposer,
-      attachmentAvailability: attachmentAvailability,
+    return _wrapWithComposerLineMeasurement(
+      showOverflowButton: showOverflowButton,
+      voiceAvailable: voiceAvailable,
+      isGenerating: isGenerating,
+      child: _wrapWithFallbackAttachmentPanel(
+        composer: composer,
+        localAttachmentsOnly: isHermesComposer,
+        attachmentAvailability: attachmentAvailability,
+      ),
+    );
+  }
+
+  Widget _wrapWithComposerLineMeasurement({
+    required Widget child,
+    required bool showOverflowButton,
+    required bool voiceAvailable,
+    required bool isGenerating,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final controlSize = conduitScaledControlExtent(
+          context,
+          baseExtent: _composerControlSize,
+        );
+        var reservedWidth = controlSize + Spacing.xs;
+        if (_isRecording || showOverflowButton) {
+          reservedWidth += controlSize + Spacing.xs;
+        }
+        if (!_isRecording && !_hasText && voiceAvailable && !isGenerating) {
+          reservedWidth += controlSize + Spacing.xs;
+        }
+        final compactTextFieldWidth =
+            constraints.maxWidth -
+            (Spacing.screenPadding * 2) -
+            (_composerHorizontalInset * 2) -
+            reservedWidth;
+        _scheduleComposerLineMeasurement(context, compactTextFieldWidth);
+        return child;
+      },
     );
   }
 

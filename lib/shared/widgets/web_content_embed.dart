@@ -84,6 +84,15 @@ class WebContentEmbed extends StatefulWidget {
   static bool debugShouldAllowAutomaticNavigation(String targetUrl) =>
       _WebContentEmbedState._shouldAllowAutomaticNavigation(targetUrl);
 
+  @visibleForTesting
+  static bool debugShouldHandleCreateWindow({
+    required bool requestIsCurrent,
+    required String? targetUrl,
+  }) => _WebContentEmbedState._shouldHandleCreateWindow(
+    requestIsCurrent: requestIsCurrent,
+    targetUrl: targetUrl,
+  );
+
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
@@ -390,16 +399,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     CreateWindowAction createWindowAction,
     int requestId,
   ) async {
-    if (requestId != _loadRequestId ||
-        !_isUserActivatedNavigation(createWindowAction)) {
-      return false;
-    }
-
     final targetUrl = createWindowAction.request.url?.toString();
-    if (targetUrl == null || targetUrl.isEmpty) {
+    if (!_shouldHandleCreateWindow(
+      requestIsCurrent: requestId == _loadRequestId,
+      targetUrl: targetUrl,
+    )) {
       return false;
     }
-    await _openAllowedExternalLink(targetUrl);
+    await _openAllowedExternalLink(targetUrl!);
     return false;
   }
 
@@ -498,6 +505,10 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
             gestureRecognizers: _gestureRecognizers,
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
+              // Keep script-created popups disabled. onCreateWindow therefore
+              // represents a platform-approved user popup request even when
+              // Android omits its gesture/navigation metadata.
+              javaScriptCanOpenWindowsAutomatically: false,
               supportMultipleWindows: true,
               transparentBackground: true,
               useShouldOverrideUrlLoading: true,
@@ -731,6 +742,15 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         (scheme == 'about' &&
             const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase()));
   }
+
+  static bool _shouldHandleCreateWindow({
+    required bool requestIsCurrent,
+    required String? targetUrl,
+  }) =>
+      requestIsCurrent &&
+      targetUrl != null &&
+      targetUrl.isNotEmpty &&
+      parseAllowedExternalLink(targetUrl) != null;
 
   static bool _shouldOpenNavigationExternally({
     required String targetUrl,

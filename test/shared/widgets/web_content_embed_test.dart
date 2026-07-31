@@ -115,6 +115,30 @@ void main() {
     );
   });
 
+  test('popup handling does not depend on platform gesture metadata', () {
+    expect(
+      WebContentEmbed.debugShouldHandleCreateWindow(
+        requestIsCurrent: true,
+        targetUrl: 'https://example.com/story',
+      ),
+      isTrue,
+    );
+    expect(
+      WebContentEmbed.debugShouldHandleCreateWindow(
+        requestIsCurrent: false,
+        targetUrl: 'https://example.com/story',
+      ),
+      isFalse,
+    );
+    expect(
+      WebContentEmbed.debugShouldHandleCreateWindow(
+        requestIsCurrent: true,
+        targetUrl: 'javascript:alert(1)',
+      ),
+      isFalse,
+    );
+  });
+
   test('rejects disallowed embed links before invoking the launcher', () async {
     var launches = 0;
     Future<bool> launcher(String url) async {

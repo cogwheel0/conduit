@@ -832,6 +832,49 @@ void main() {
     );
   });
 
+  testWidgets('unchanged draft reflows when the composer width changes', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1000, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    const compactShellKey = ValueKey('compact-composer-shell');
+    const expandedShellKey = ValueKey('expanded-composer-shell');
+    const wrappedText = 'A focused message wraps onto line two';
+
+    await tester.enterText(find.byType(TextField), wrappedText);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(compactShellKey), findsOneWidget);
+    expect(find.byKey(expandedShellKey), findsNothing);
+
+    tester.view.physicalSize = const Size(320, 800);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(compactShellKey), findsNothing);
+    expect(find.byKey(expandedShellKey), findsOneWidget);
+
+    tester.view.physicalSize = const Size(1000, 800);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(compactShellKey), findsOneWidget);
+    expect(find.byKey(expandedShellKey), findsNothing);
+  });
+
   testWidgets('compact composer uses symmetric horizontal insets', (
     tester,
   ) async {
