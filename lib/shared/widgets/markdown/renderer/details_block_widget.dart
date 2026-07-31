@@ -9,6 +9,7 @@ import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_config.dart';
+import 'details_group_widget.dart';
 import 'markdown_style.dart';
 
 /// Builds markdown body content from the current [CompiledMarkdownDetailsData].
@@ -63,7 +64,14 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   bool get _usesInlineExpansion => _supportsInlineExpansion && _isPending;
 
-  bool get _canExpand => _detailsData.canExpand;
+  bool get _canExpand {
+    if (!_isToolCall) {
+      return _detailsData.canExpand;
+    }
+
+    final data = _toolCallData;
+    return data.hasExpandableContent || data.hasImages || _detailsData.hasBody;
+  }
 
   bool get _deferHeavyContent => widget.deferHeavyContent;
 
@@ -115,6 +123,20 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
   @override
   Widget build(BuildContext context) {
+    final groupRenderMode = MarkdownDetailsGroupRenderScope.maybeOf(context);
+    if (groupRenderMode == MarkdownDetailsGroupRenderMode.previewsOnly) {
+      if (_deferHeavyContent) {
+        return const SizedBox.shrink();
+      }
+      final embeds = _buildToolCallEmbeds(context);
+      return embeds.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: embeds,
+            );
+    }
+
     final title = _headerTitle(context);
     final showInlineChevron = _usesInlineExpansion && _canExpand;
     final inlineBody = showInlineChevron && _isInlineExpanded
@@ -138,6 +160,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
             ),
           ),
           if (inlineBody != null) _buildInlineBody(context, inlineBody),
+          if (groupRenderMode == null && !_deferHeavyContent)
+            ..._buildToolCallEmbeds(context),
         ],
       ),
     );
@@ -379,6 +403,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
     if (_isToolCall) {
       final name = _detailsData.name.trim();
       final safeName = name.isEmpty ? 'tool' : name;
+      if (_toolCallData.hasEmbeds) {
+        return safeName;
+      }
       return _isPending ? 'Executing $safeName…' : 'View Result from $safeName';
     }
 
@@ -442,10 +469,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
   ) {
     final builder = widget.bodyBuilder;
     final hasExtraBody = builder != null && _detailsData.hasBody;
-    final isHeavyPreviewDeferred =
-        _deferHeavyContent && data.hasDeferredPreviewContent;
-    final hasDeferredPreviewContent =
-        !_deferHeavyContent && data.hasDeferredPreviewContent;
+    final isHeavyPreviewDeferred = _deferHeavyContent && data.hasImages;
+    final hasDeferredPreviewContent = !_deferHeavyContent && data.hasImages;
     if (!data.hasExpandableContent &&
         !hasExtraBody &&
         !hasDeferredPreviewContent &&
@@ -575,14 +600,6 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
         }
 
         if (!_deferHeavyContent) {
-          final embedWidgets = _buildToolCallEmbeds(context);
-          if (embedWidgets.isNotEmpty) {
-            if (children.isNotEmpty) {
-              children.add(const SizedBox(height: Spacing.sm));
-            }
-            children.addAll(embedWidgets);
-          }
-
           final imageWidgets = _buildToolCallImages(context);
           if (imageWidgets.isNotEmpty) {
             if (children.isNotEmpty) {

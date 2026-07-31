@@ -4,6 +4,7 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html_unescape/html_unescape.dart';
 
 Widget _buildHarness({
   required String source,
@@ -34,11 +35,108 @@ void main() {
       '<div>chart</div><script>renderChart()</script>',
     );
 
-    expect(document, contains('sandbox="allow-scripts allow-forms"'));
+    expect(
+      document,
+      contains('sandbox="allow-scripts allow-forms allow-popups"'),
+    );
     expect(document, contains('referrerpolicy="no-referrer"'));
     expect(document, contains('srcdoc="'));
     expect(document, contains('&lt;script&gt;renderChart()&lt;/script&gt;'));
     expect(document, isNot(contains('<script>renderChart()</script>')));
+  });
+
+  test('allows popup links without granting same-origin access', () {
+    final document = WebContentEmbed.debugWrapHtmlDocument(
+      '<a href="https://example.com/story" target="_blank">Read more</a>',
+    );
+    final decodedDocument = HtmlUnescape().convert(document);
+
+    expect(decodedDocument, contains('target="_blank"'));
+    expect(
+      document,
+      contains('sandbox="allow-scripts allow-forms allow-popups"'),
+    );
+    expect(document, isNot(contains('allow-same-origin')));
+  });
+
+  test('opens only user-activated external navigations', () {
+    expect(
+      WebContentEmbed.debugShouldOpenNavigationExternally(
+        targetUrl: 'https://example.com/story',
+        currentUrl: 'https://embed.example.com/widget',
+        userActivated: true,
+      ),
+      isTrue,
+    );
+    expect(
+      WebContentEmbed.debugShouldOpenNavigationExternally(
+        targetUrl: 'https://example.com/story',
+        currentUrl: 'https://embed.example.com/widget',
+        userActivated: false,
+      ),
+      isFalse,
+    );
+    expect(
+      WebContentEmbed.debugShouldOpenNavigationExternally(
+        targetUrl: 'https://embed.example.com/widget#forecast',
+        currentUrl: 'https://embed.example.com/widget',
+        userActivated: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('automatic embed navigation is limited to web redirects', () {
+    expect(
+      WebContentEmbed.debugShouldAllowAutomaticNavigation(
+        'https://example.com/redirect',
+      ),
+      isTrue,
+    );
+    expect(
+      WebContentEmbed.debugShouldAllowAutomaticNavigation('about:blank'),
+      isTrue,
+    );
+    expect(
+      WebContentEmbed.debugShouldAllowAutomaticNavigation('about:srcdoc'),
+      isTrue,
+    );
+    expect(
+      WebContentEmbed.debugShouldAllowAutomaticNavigation(
+        'mailto:reader@example.com',
+      ),
+      isFalse,
+    );
+    expect(
+      WebContentEmbed.debugShouldAllowAutomaticNavigation(
+        'javascript:alert(1)',
+      ),
+      isFalse,
+    );
+  });
+
+  test('rejects disallowed embed links before invoking the launcher', () async {
+    var launches = 0;
+    Future<bool> launcher(String url) async {
+      launches += 1;
+      return true;
+    }
+
+    expect(
+      await WebContentEmbed.debugOpenExternalLink(
+        'javascript:alert(1)',
+        launcher: launcher,
+      ),
+      isFalse,
+    );
+    expect(
+      await WebContentEmbed.debugOpenExternalLink(
+        'https://example.com/story',
+        launcher: launcher,
+      ),
+      isTrue,
+    );
+    expect(launches, 1);
   });
 
   test('escapes injected arguments before adding them to sandbox HTML', () {

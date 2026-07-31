@@ -8,6 +8,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../theme/theme_extensions.dart';
+import '../utils/external_link_launcher.dart';
 import 'webview_content_height.dart';
 
 const _embedDefaultHeight = 360.0;
@@ -58,6 +59,30 @@ class WebContentEmbed extends StatefulWidget {
       fillAvailableHeight: fillAvailableHeight,
     );
   }
+
+  @visibleForTesting
+  static Future<bool> debugOpenExternalLink(
+    String rawUrl, {
+    required Future<bool> Function(String url) launcher,
+  }) => _WebContentEmbedState._openAllowedExternalLink(
+    rawUrl,
+    launcher: launcher,
+  );
+
+  @visibleForTesting
+  static bool debugShouldOpenNavigationExternally({
+    required String targetUrl,
+    String? currentUrl,
+    required bool userActivated,
+  }) => _WebContentEmbedState._shouldOpenNavigationExternally(
+    targetUrl: targetUrl,
+    currentUrl: currentUrl,
+    userActivated: userActivated,
+  );
+
+  @visibleForTesting
+  static bool debugShouldAllowAutomaticNavigation(String targetUrl) =>
+      _WebContentEmbedState._shouldAllowAutomaticNavigation(targetUrl);
 
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
@@ -318,6 +343,66 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     } catch (_) {}
   }
 
+  Future<NavigationActionPolicy> _handleNavigationAction(
+    InAppWebViewController controller,
+    NavigationAction navigationAction,
+    int requestId,
+  ) async {
+    if (requestId != _loadRequestId) {
+      return NavigationActionPolicy.CANCEL;
+    }
+
+    final targetUrl = navigationAction.request.url?.toString();
+    if (targetUrl == null || targetUrl.isEmpty) {
+      return NavigationActionPolicy.CANCEL;
+    }
+
+    final userActivated = _isUserActivatedNavigation(navigationAction);
+    if (!userActivated) {
+      return _shouldAllowAutomaticNavigation(targetUrl)
+          ? NavigationActionPolicy.ALLOW
+          : NavigationActionPolicy.CANCEL;
+    }
+    if (parseAllowedExternalLink(targetUrl) == null) {
+      return NavigationActionPolicy.CANCEL;
+    }
+
+    String? currentUrl;
+    try {
+      currentUrl = (await controller.getUrl())?.toString();
+    } catch (_) {}
+    if (!mounted || requestId != _loadRequestId) {
+      return NavigationActionPolicy.CANCEL;
+    }
+    if (!_shouldOpenNavigationExternally(
+      targetUrl: targetUrl,
+      currentUrl: currentUrl,
+      userActivated: userActivated,
+    )) {
+      return NavigationActionPolicy.ALLOW;
+    }
+
+    await _openAllowedExternalLink(targetUrl);
+    return NavigationActionPolicy.CANCEL;
+  }
+
+  Future<bool> _handleCreateWindow(
+    CreateWindowAction createWindowAction,
+    int requestId,
+  ) async {
+    if (requestId != _loadRequestId ||
+        !_isUserActivatedNavigation(createWindowAction)) {
+      return false;
+    }
+
+    final targetUrl = createWindowAction.request.url?.toString();
+    if (targetUrl == null || targetUrl.isEmpty) {
+      return false;
+    }
+    await _openAllowedExternalLink(targetUrl);
+    return false;
+  }
+
   void _scheduleHeightUpdates(
     InAppWebViewController controller,
     int requestId,
@@ -413,7 +498,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
             gestureRecognizers: _gestureRecognizers,
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
+              supportMultipleWindows: true,
               transparentBackground: true,
+              useShouldOverrideUrlLoading: true,
             ),
             onWebViewCreated: (controller) {
               unawaited(_handleWebViewCreated(controller, requestId));
@@ -440,6 +527,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
                 _loadError = error.description;
               });
             },
+            shouldOverrideUrlLoading: (controller, navigationAction) =>
+                _handleNavigationAction(
+                  controller,
+                  navigationAction,
+                  requestId,
+                ),
+            onCreateWindow: (controller, createWindowAction) =>
+                _handleCreateWindow(createWindowAction, requestId),
           ),
         ),
         if (_isLoading)
@@ -517,13 +612,14 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         const fillAvailableHeight = $fillAvailableHeight;
         window.addEventListener('message', (event) => {
           const data = event.data || {};
+          const frame = document.getElementById('embed-frame');
+          if (!frame || event.source !== frame.contentWindow) return;
+
           if (data.type !== 'conduit-embed-height') return;
 
           const height = Number(data.height);
           if (!Number.isFinite(height) || height <= 0) return;
 
-          const frame = document.getElementById('embed-frame');
-          if (!frame) return;
           if (fillAvailableHeight) return;
 
           const clamped = Math.min(Math.max(height, minHeight), maxHeight);
@@ -535,7 +631,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   <body>
     <iframe
       id="embed-frame"
-      sandbox="allow-scripts allow-forms"
+      sandbox="allow-scripts allow-forms allow-popups"
       referrerpolicy="no-referrer"
       srcdoc="$encodedSource"
     ></iframe>
@@ -617,6 +713,58 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+  }
+
+  static bool _isUserActivatedNavigation(NavigationAction action) =>
+      action.hasGesture == true ||
+      action.navigationType == NavigationType.LINK_ACTIVATED;
+
+  static bool _shouldAllowAutomaticNavigation(String targetUrl) {
+    final uri = Uri.tryParse(targetUrl.trim());
+    if (uri == null) {
+      return false;
+    }
+
+    final scheme = uri.scheme.toLowerCase();
+    return scheme == 'http' ||
+        scheme == 'https' ||
+        (scheme == 'about' &&
+            const {'blank', 'srcdoc'}.contains(uri.path.toLowerCase()));
+  }
+
+  static bool _shouldOpenNavigationExternally({
+    required String targetUrl,
+    required String? currentUrl,
+    required bool userActivated,
+  }) {
+    if (!userActivated || parseAllowedExternalLink(targetUrl) == null) {
+      return false;
+    }
+
+    final target = Uri.tryParse(targetUrl);
+    final current = currentUrl == null ? null : Uri.tryParse(currentUrl);
+    if (target == null || current == null) {
+      return true;
+    }
+
+    final targetWithoutFragment = target.replace(fragment: '');
+    final currentWithoutFragment = current.replace(fragment: '');
+    return targetWithoutFragment != currentWithoutFragment;
+  }
+
+  static Future<bool> _openAllowedExternalLink(
+    String rawUrl, {
+    Future<bool> Function(String url)? launcher,
+  }) async {
+    final uri = parseAllowedExternalLink(rawUrl);
+    if (uri == null) {
+      return false;
+    }
+    final normalizedUrl = uri.toString();
+    if (launcher != null) {
+      return launcher(normalizedUrl);
+    }
+    return launchExternalLink(normalizedUrl, scope: 'embeds/navigation');
   }
 }
 
