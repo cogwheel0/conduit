@@ -253,8 +253,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> _serial = Future<void>.value();
   int _token = 0;
+  int _stopRequestGeneration = 0;
   int _emptyTranscriptRestarts = 0;
   bool _disposed = false;
+  Completer<void>? _pendingStartReadinessCancellation;
 
   StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
   StreamSubscription<int>? _intensitySub;
@@ -319,6 +321,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       // down its subscriptions. Async work must use only dependencies captured
       // while the provider was alive; reading Ref from this point is invalid.
       _disposed = true;
+      ++_stopRequestGeneration;
+      _cancelPendingStartReadiness();
       ++_token;
       _elapsedTimer?.cancel();
       _backgroundKeepAliveTimer?.cancel();
@@ -371,20 +375,47 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     bool Function()? shouldStart,
     bool readinessResolved = false,
   }) async {
+    final stopGenerationAtRequest = _stopRequestGeneration;
     var result = ChatVoiceModeStartResult.failed;
     await _enqueue(() async {
+      if (stopGenerationAtRequest != _stopRequestGeneration) {
+        result = ChatVoiceModeStartResult.cancelled;
+        return;
+      }
+
       int? token;
+      final readinessCancellation = readinessResolved
+          ? null
+          : Completer<void>();
+      if (readinessCancellation != null) {
+        _pendingStartReadinessCancellation = readinessCancellation;
+      }
 
       try {
         await _serviceLifecycleGate.runExclusive(() async {
+          if (stopGenerationAtRequest != _stopRequestGeneration) {
+            result = ChatVoiceModeStartResult.cancelled;
+            return;
+          }
           if (state.isActive) {
             result = ChatVoiceModeStartResult.alreadyActive;
             return;
           }
 
-          final eligibility = readinessResolved
-              ? ref.read(voiceCallEligibilityProvider)
-              : await resolveVoiceCallEligibility(ref);
+          final VoiceCallEligibility? eligibility;
+          if (readinessCancellation == null) {
+            eligibility = ref.read(voiceCallEligibilityProvider);
+          } else {
+            eligibility = await Future.any<VoiceCallEligibility?>([
+              resolveVoiceCallEligibility(ref),
+              readinessCancellation.future.then((_) => null),
+            ]);
+          }
+          if (eligibility == null ||
+              stopGenerationAtRequest != _stopRequestGeneration) {
+            result = ChatVoiceModeStartResult.cancelled;
+            return;
+          }
           if (!eligibility.canStart) {
             _setError(eligibility.errorMessage!);
             return;
@@ -453,7 +484,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (!_isCurrent(startToken)) return;
           cancelIfRequested();
           if (startNewConversation) {
-            startNewChat(ref);
+            startNewChat(ref, modelForNewConversation: model);
           }
           if (_isCurrent(startToken) && state.isActive) {
             result = ChatVoiceModeStartResult.started;
@@ -490,6 +521,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         }
         if (startToken == null) return;
         await _fail(error.toString(), startToken);
+      } finally {
+        if (identical(
+          _pendingStartReadinessCancellation,
+          readinessCancellation,
+        )) {
+          _pendingStartReadinessCancellation = null;
+        }
       }
     });
     return result;
@@ -525,6 +563,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> stop() {
+    ++_stopRequestGeneration;
+    _cancelPendingStartReadiness();
     return _enqueue(() => _stopInternal(endCallKit: true));
   }
 
@@ -1633,6 +1673,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     });
     _serial = next.catchError((_) {});
     return next;
+  }
+
+  void _cancelPendingStartReadiness() {
+    final cancellation = _pendingStartReadinessCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
   }
 
   bool _isCurrent(int token) => !_disposed && token == _token;

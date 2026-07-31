@@ -7,6 +7,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/callkit_service.dart';
+import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
@@ -31,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/openwebui_storage_test_overrides.dart';
 
 const _model = Model(id: 'test-model', name: 'Test Model');
+const _fallbackModel = Model(id: 'fallback-model', name: 'Fallback Model');
 
 final _voiceReadinessTestProvider = FutureProvider<VoiceCallEligibility>(
   resolveVoiceCallEligibility,
@@ -193,6 +195,92 @@ void main() {
     check(
       container.read(activeConversationProvider)?.id,
     ).equals(conversation.id);
+  });
+
+  test('stop cancels a start waiting for voice readiness', () async {
+    final input = _FakeVoiceInputService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.loading,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        preferredBackendProvider.overrideWith(_OwuiPreferredBackend.new),
+        selectedModelProvider.overrideWith(_NullSelectedModel.new),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    final start = controller.start(startNewConversation: false);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    await controller.stop().timeout(const Duration(seconds: 1));
+
+    check(
+      await start.timeout(const Duration(seconds: 1)),
+    ).equals(ChatVoiceModeStartResult.cancelled);
+    check(input.initializeCalls).equals(0);
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.idle);
+  });
+
+  test('new voice conversation preserves the admitted model', () async {
+    final input = _FakeVoiceInputService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(_model)),
+        isManualModelSelectionProvider.overrideWith(_ManualModelSelection.new),
+        modelsProvider.overrideWith(() => _FixedModels(const [_fallbackModel])),
+        optimizedStorageServiceProvider.overrideWithValue(
+          _FakeOptimizedStorageService(),
+        ),
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(defaultModel: 'fallback-model'),
+        ),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(chatVoiceModeControllerProvider.notifier)
+        .start(startNewConversation: true);
+    final resolvedDefault = await container.read(defaultModelProvider.future);
+
+    check(result).equals(ChatVoiceModeStartResult.started);
+    check(resolvedDefault).identicalTo(_model);
+    check(container.read(selectedModelProvider)).identicalTo(_model);
+    check(container.read(isManualModelSelectionProvider)).isTrue();
   });
 
   test('voice eligibility allows trusted device Direct while signed out', () {
@@ -1350,10 +1438,31 @@ class _NullSelectedModel extends SelectedModel {
   Model? build() => null;
 }
 
+class _SeededSelectedModel extends SelectedModel {
+  _SeededSelectedModel(this._model);
+
+  final Model _model;
+
+  @override
+  Model build() => _model;
+}
+
 class _IgnoringSelectedModel extends _NullSelectedModel {
   @override
   void set(Model? model, {bool allowHidden = false}) {}
 }
+
+class _FixedModels extends Models {
+  _FixedModels(this._models);
+
+  final List<Model> _models;
+
+  @override
+  Future<List<Model>> build() async => _models;
+}
+
+class _FakeOptimizedStorageService extends Fake
+    implements OptimizedStorageService {}
 
 class _ManualModelSelection extends IsManualModelSelection {
   @override
@@ -1386,6 +1495,11 @@ class _HermesPreferredBackend extends PreferredBackendController {
 class _DirectPreferredBackend extends PreferredBackendController {
   @override
   PreferredBackend build() => PreferredBackend.direct;
+}
+
+class _OwuiPreferredBackend extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.owui;
 }
 
 class _HydratingHermesConfig extends HermesConfigController {
