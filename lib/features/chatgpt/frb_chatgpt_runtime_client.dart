@@ -9,6 +9,36 @@ import 'native_generated/api/contract.dart';
 import 'native_generated/api/runtime.dart' as native;
 import 'native_generated/frb_generated.dart';
 
+Map<String, Object> debugSanitizedChatGptDiagnosticData(String? source) {
+  if (source == null || source.isEmpty) return const {};
+  try {
+    final decoded = jsonDecode(source);
+    if (decoded is! Map<String, dynamic>) return const {};
+    const allowed = {
+      'reason',
+      'operation',
+      'class',
+      'status',
+      'code',
+      'type',
+      'param',
+      'detail',
+    };
+    final result = <String, Object>{};
+    for (final key in allowed) {
+      final value = decoded[key];
+      if (value is num || value is bool) {
+        result[key] = value as Object;
+      } else if (value is String && value.length <= 128) {
+        result[key] = value;
+      }
+    }
+    return result;
+  } catch (_) {
+    return const {};
+  }
+}
+
 final class SecureChatGptAuthSnapshotStore implements ChatGptAuthSnapshotStore {
   SecureChatGptAuthSnapshotStore(this._storage);
 
@@ -154,7 +184,7 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
       DebugLogger.info(
         'runtime-diagnostic',
         scope: 'native/chatgpt',
-        data: {'hasDetails': event.text?.isNotEmpty == true},
+        data: debugSanitizedChatGptDiagnosticData(event.jsonData),
       );
     }
     _events.add(event);

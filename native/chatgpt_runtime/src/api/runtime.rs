@@ -8,11 +8,12 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use codex_api::{
-    ApiError, AuthProvider, CompactClient, CompactionInput, ImageEditRequest,
-    ImageGenerationRequest, ImageQuality, ImageResponse, ImageUrl, ImagesClient, ModelsClient,
-    Provider, Reasoning, ReqwestTransport, ResponseEvent, ResponsesApiRequest, ResponsesClient,
-    ResponsesOptions, RetryConfig, SearchClient, SearchCommands, SearchInput, SearchRequest,
-    SearchSettings, SharedAuthProvider,
+    AllowedCaller, ApiError, AuthProvider, CompactClient, CompactionInput, ExternalWebAccess,
+    ImageBackground, ImageEditRequest, ImageGenerationRequest, ImageQuality, ImageResponse,
+    ImageUrl, ImagesClient, ModelsClient, Provider, Reasoning, ReasoningContext, ReqwestTransport,
+    ResponseEvent, ResponsesApiRequest, ResponsesClient, ResponsesOptions, RetryConfig,
+    SearchClient, SearchCommands, SearchInput, SearchRequest, SearchSettings, SharedAuthProvider,
+    TransportError,
 };
 use codex_login::{
     AuthCredentialsStoreMode, AuthDotJson, AuthKeyringBackendKind, AuthManager, CLIENT_ID,
@@ -53,6 +54,7 @@ const MAX_ACTIVE_RUNS: usize = 2;
 const MAX_CHECKPOINT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CHECKPOINT_ITEMS: usize = 512;
 const MAX_TOOL_CALLS: usize = 8;
+const MAX_SEARCH_OUTPUT_TOKENS: u64 = 12_000;
 const MAX_IMAGE_CALLS: usize = 2;
 const MAX_RECENT_IMAGES: usize = 5;
 const MAX_IMAGE_DIMENSION: u32 = 16_384;
@@ -60,6 +62,8 @@ const MAX_DECODED_IMAGE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_SOURCES: usize = 20;
 const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const CODEX_CLIENT_VERSION: &str = "0.145.0";
+const IMAGE_MODEL: &str = "gpt-image-2";
+const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const CONTEXT_WINDOW_MESSAGE: &str = "the conversation is too long";
 const GENERAL_CHAT_INSTRUCTIONS: &str = "You are ChatGPT inside Conduit, a general-purpose chat client. Answer the user's request directly. You have no shell, filesystem, workspace, patching, approval, MCP, or coding-agent capabilities. Use web search and image generation only when those tools are present. Never claim to have used a tool that was not provided.";
 
@@ -172,6 +176,13 @@ struct QueuedRun {
 enum TurnExecutionError {
     ContextWindowExceeded,
     Bridge(BridgeError),
+}
+
+#[derive(Clone, Copy)]
+struct ResponseWireConfig {
+    use_responses_lite: bool,
+    supports_reasoning_summary: bool,
+    supports_parallel_tool_calls: bool,
 }
 
 impl From<BridgeError> for TurnExecutionError {
@@ -819,6 +830,7 @@ async fn execute_turn(
     cancellation: &CancellationToken,
 ) -> Result<(), BridgeError> {
     let fingerprint = prepare_auth(runtime).await?;
+    let wire_config = response_wire_config(runtime, &request.model_id).await?;
     let policy_hash = tool_policy_hash(request.enable_web_search, request.enable_image_generation);
     let mut conversation = restored_items.unwrap_or_default();
     conversation.extend(encode_messages(&request.messages)?);
@@ -859,6 +871,7 @@ async fn execute_turn(
         cancellation,
         Arc::clone(&visible_output),
         Arc::clone(&turn_state),
+        wire_config,
     )
     .await;
     if matches!(first, Err(TurnExecutionError::ContextWindowExceeded))
@@ -891,6 +904,7 @@ async fn execute_turn(
             cancellation,
             visible_output,
             turn_state,
+            wire_config,
         )
         .await
         .map_err(TurnExecutionError::into_bridge);
@@ -907,10 +921,16 @@ async fn execute_response_loop(
     cancellation: &CancellationToken,
     visible_output: Arc<AtomicBool>,
     turn_state: Arc<OnceLock<String>>,
+    wire_config: ResponseWireConfig,
 ) -> Result<(), TurnExecutionError> {
     let mut total_tools = 0usize;
     let mut image_tools = 0usize;
     let mut tools_enabled = request.enable_web_search || request.enable_image_generation;
+    let response_operation = if wire_config.use_responses_lite {
+        "responsesLite"
+    } else {
+        "responses"
+    };
 
     loop {
         prepare_auth(runtime).await?;
@@ -922,8 +942,8 @@ async fn execute_response_loop(
         let mut stream = match cancellable_api(
             cancellation,
             client.stream_request(
-                response_api_request(request, conversation, tools_enabled)?,
-                response_options(request, &turn_state),
+                response_api_request(request, conversation, tools_enabled, wire_config)?,
+                response_options(request, &turn_state, wire_config),
             ),
         )
         .await?
@@ -931,17 +951,40 @@ async fn execute_response_loop(
             Ok(stream) => stream,
             Err(error) if is_unauthorized(&error) => {
                 cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
-                cancellable_api(
+                match cancellable_api(
                     cancellation,
                     client.stream_request(
-                        response_api_request(request, conversation, tools_enabled)?,
-                        response_options(request, &turn_state),
+                        response_api_request(request, conversation, tools_enabled, wire_config)?,
+                        response_options(request, &turn_state, wire_config),
                     ),
                 )
                 .await?
-                .map_err(map_turn_api_error)?
+                {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        report_api_failure(
+                            runtime,
+                            run_id,
+                            &request.session_id,
+                            response_operation,
+                            &error,
+                        )
+                        .await;
+                        return Err(map_turn_api_error(error));
+                    }
+                }
             }
-            Err(error) => return Err(map_turn_api_error(error)),
+            Err(error) => {
+                report_api_failure(
+                    runtime,
+                    run_id,
+                    &request.session_id,
+                    response_operation,
+                    &error,
+                )
+                .await;
+                return Err(map_turn_api_error(error));
+            }
         };
 
         let mut output_items = Vec::new();
@@ -1020,7 +1063,16 @@ async fn execute_response_loop(
                         | Ok(ResponseEvent::ReasoningSummaryPartAdded { .. })
                         | Ok(ResponseEvent::RateLimits(_))
                         | Ok(ResponseEvent::ModelsEtag(_)) => {}
-                        Err(error) => return Err(map_turn_api_error(error)),
+                        Err(error) => {
+                            report_api_failure(
+                                runtime,
+                                run_id,
+                                &request.session_id,
+                                response_operation,
+                                &error,
+                            ).await;
+                            return Err(map_turn_api_error(error));
+                        },
                     }
                 }
             }
@@ -1125,6 +1177,7 @@ fn response_api_request(
     request: &TurnRequest,
     conversation: &[ResponseItem],
     tools_enabled: bool,
+    wire_config: ResponseWireConfig,
 ) -> Result<ResponsesApiRequest, BridgeError> {
     let effort = request
         .reasoning_effort
@@ -1132,17 +1185,54 @@ fn response_api_request(
         .map(ReasoningEffort::from_str)
         .transpose()
         .map_err(|_| BridgeError::new(BridgeErrorKind::InvalidInput, "invalid reasoning effort"))?;
+    let tools = if tools_enabled {
+        tool_specs(request)
+    } else {
+        Vec::new()
+    };
+    let mut input = conversation.to_vec();
+    let (instructions, tools) = if wire_config.use_responses_lite {
+        let mut prefix = vec![ResponseItem::AdditionalTools {
+            id: None,
+            role: "developer".to_string(),
+            tools,
+        }];
+        if !GENERAL_CHAT_INSTRUCTIONS.is_empty() {
+            prefix.push(ResponseItem::Message {
+                id: None,
+                role: "developer".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: GENERAL_CHAT_INSTRUCTIONS.to_string(),
+                }],
+                phase: None,
+                internal_chat_message_metadata_passthrough: None,
+            });
+        }
+        input.splice(0..0, prefix);
+        (String::new(), None)
+    } else {
+        (
+            GENERAL_CHAT_INSTRUCTIONS.to_string(),
+            tools_enabled.then_some(tools),
+        )
+    };
     Ok(ResponsesApiRequest {
         model: request.model_id.clone(),
-        instructions: GENERAL_CHAT_INSTRUCTIONS.to_string(),
-        input: conversation.to_vec(),
-        tools: tools_enabled.then(|| tool_specs(request)),
+        instructions,
+        input,
+        tools,
         tool_choice: "auto".to_string(),
-        parallel_tool_calls: request.enable_web_search,
+        parallel_tool_calls: request.enable_web_search
+            && wire_config.supports_parallel_tool_calls
+            && !wire_config.use_responses_lite,
         reasoning: Some(Reasoning {
             effort,
-            summary: Some(ReasoningSummary::Auto),
-            context: None,
+            summary: wire_config
+                .supports_reasoning_summary
+                .then_some(ReasoningSummary::Auto),
+            context: wire_config
+                .use_responses_lite
+                .then_some(ReasoningContext::AllTurns),
         }),
         store: false,
         stream: true,
@@ -1155,11 +1245,20 @@ fn response_api_request(
     })
 }
 
-fn response_options(request: &TurnRequest, turn_state: &Arc<OnceLock<String>>) -> ResponsesOptions {
+fn response_options(
+    request: &TurnRequest,
+    turn_state: &Arc<OnceLock<String>>,
+    wire_config: ResponseWireConfig,
+) -> ResponsesOptions {
+    let mut extra_headers = HeaderMap::new();
+    if wire_config.use_responses_lite {
+        extra_headers.insert(RESPONSES_LITE_HEADER, HeaderValue::from_static("true"));
+    }
     ResponsesOptions {
         session_id: Some(request.session_id.clone()),
         thread_id: Some(request.session_id.clone()),
         turn_state: Some(Arc::clone(turn_state)),
+        extra_headers,
         ..Default::default()
     }
 }
@@ -1189,16 +1288,7 @@ async fn execute_web_tool(
         runtime.provider.clone(),
         Arc::clone(&runtime.auth_provider),
     );
-    let recent = conversation[conversation.len().saturating_sub(32)..].to_vec();
-    let search_request = SearchRequest {
-        id: request.session_id.clone(),
-        model: request.model_id.clone(),
-        reasoning: None,
-        input: Some(SearchInput::Items(recent)),
-        commands: Some(commands),
-        settings: Some(SearchSettings::default()),
-        max_output_tokens: Some(12_000),
-    };
+    let search_request = standalone_search_request(request, conversation, commands);
     let response = match cancellable_api(
         cancellation,
         client.search(&search_request, HeaderMap::new()),
@@ -1208,14 +1298,24 @@ async fn execute_web_tool(
         Ok(response) => response,
         Err(error) if is_unauthorized(&error) => {
             cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
-            cancellable_api(
+            match cancellable_api(
                 cancellation,
                 client.search(&search_request, HeaderMap::new()),
             )
             .await?
-            .map_err(map_api_error)?
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    report_api_failure(runtime, run_id, &request.session_id, "webSearch", &error)
+                        .await;
+                    return Err(map_api_error(error));
+                }
+            }
         }
-        Err(error) => return Err(map_api_error(error)),
+        Err(error) => {
+            report_api_failure(runtime, run_id, &request.session_id, "webSearch", &error).await;
+            return Err(map_api_error(error));
+        }
     };
     emit_sources(
         runtime,
@@ -1231,6 +1331,119 @@ async fn execute_web_tool(
     ))
 }
 
+fn standalone_search_request(
+    request: &TurnRequest,
+    conversation: &[ResponseItem],
+    commands: SearchCommands,
+) -> SearchRequest {
+    SearchRequest {
+        id: request.session_id.clone(),
+        model: request.model_id.clone(),
+        reasoning: None,
+        input: standalone_search_input(conversation),
+        commands: Some(commands),
+        settings: Some(SearchSettings {
+            allowed_callers: Some(vec![AllowedCaller::Direct]),
+            external_web_access: Some(ExternalWebAccess::Boolean(true)),
+            ..Default::default()
+        }),
+        max_output_tokens: Some(MAX_SEARCH_OUTPUT_TOKENS),
+    }
+}
+
+fn standalone_search_input(conversation: &[ResponseItem]) -> Option<SearchInput> {
+    let mut visible = conversation
+        .iter()
+        .filter_map(|item| match item {
+            ResponseItem::Message {
+                role,
+                content,
+                phase,
+                internal_chat_message_metadata_passthrough,
+                ..
+            } if role == "user" => {
+                let content = content
+                    .iter()
+                    .filter(|item| matches!(item, ContentItem::InputText { .. }))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (!content.is_empty()).then(|| ResponseItem::Message {
+                    id: None,
+                    role: role.clone(),
+                    content,
+                    phase: phase.clone(),
+                    internal_chat_message_metadata_passthrough:
+                        internal_chat_message_metadata_passthrough.clone(),
+                })
+            }
+            ResponseItem::Message {
+                role,
+                content,
+                phase,
+                internal_chat_message_metadata_passthrough,
+                ..
+            } if role == "assistant" => {
+                let content = content
+                    .iter()
+                    .filter(|item| matches!(item, ContentItem::OutputText { .. }))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (!content.is_empty()).then(|| ResponseItem::Message {
+                    id: None,
+                    role: role.clone(),
+                    content,
+                    phase: phase.clone(),
+                    internal_chat_message_metadata_passthrough:
+                        internal_chat_message_metadata_passthrough.clone(),
+                })
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let latest_user = visible.iter().rposition(ResponseItem::is_user_message)?;
+    visible.truncate(latest_user + 1);
+    let first_retained = visible
+        .iter()
+        .enumerate()
+        .rev()
+        .filter(|(_, item)| item.is_user_message())
+        .take(2)
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(latest_user);
+    visible.drain(..first_retained);
+
+    // The pinned Codex extension gives assistant context a shared 1k-token
+    // budget. Codex's approximation is four UTF-8 bytes per token.
+    let mut assistant_bytes = 4_000usize;
+    visible.retain_mut(|item| {
+        let ResponseItem::Message { role, content, .. } = item else {
+            return true;
+        };
+        if role != "assistant" {
+            return true;
+        }
+        content.retain_mut(|part| {
+            let ContentItem::OutputText { text } = part else {
+                return true;
+            };
+            if assistant_bytes == 0 {
+                return false;
+            }
+            if text.len() > assistant_bytes {
+                *text = bounded(text, assistant_bytes);
+                assistant_bytes = 0;
+            } else {
+                assistant_bytes -= text.len();
+            }
+            true
+        });
+        !content.is_empty()
+    });
+
+    (!visible.is_empty()).then_some(SearchInput::Items(visible))
+}
+
 async fn execute_image_tool(
     runtime: &Arc<RuntimeHandle>,
     run_id: &str,
@@ -1240,26 +1453,14 @@ async fn execute_image_tool(
     arguments: &str,
     cancellation: &CancellationToken,
 ) -> Result<ResponseItem, BridgeError> {
-    let args: ImageToolArgs = serde_json::from_str(arguments).map_err(|_| {
-        BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "image generation arguments were invalid",
-        )
-    })?;
+    let args = match validated_image_tool_args(arguments) {
+        Ok(args) => args,
+        Err(message) => {
+            return Ok(tool_text_output(call_id.to_string(), message, false));
+        }
+    };
     let prompt = args.prompt.trim();
-    if prompt.is_empty() || prompt.len() > 32_000 {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "the image prompt is invalid",
-        ));
-    }
     let requested_images = args.num_last_images_to_include.unwrap_or(0);
-    if requested_images > MAX_RECENT_IMAGES {
-        return Err(BridgeError::new(
-            BridgeErrorKind::InvalidInput,
-            "too many image references were requested",
-        ));
-    }
     let recent_images = recent_image_urls(conversation, requested_images);
     if requested_images > 0 && recent_images.len() < requested_images {
         return Ok(tool_text_output(
@@ -1274,26 +1475,11 @@ async fn execute_image_tool(
         runtime.provider.clone(),
         Arc::clone(&runtime.auth_provider),
     );
-    let generation_request = recent_images.is_empty().then(|| ImageGenerationRequest {
-        prompt: prompt.to_string(),
-        background: None,
-        model: "gpt-image-2".to_string(),
-        n: Some(1),
-        quality: Some(ImageQuality::Auto),
-        size: None,
-    });
-    let edit_request = (!recent_images.is_empty()).then(|| ImageEditRequest {
-        images: recent_images
-            .into_iter()
-            .map(|image_url| ImageUrl { image_url })
-            .collect(),
-        prompt: prompt.to_string(),
-        background: None,
-        model: "gpt-image-2".to_string(),
-        n: Some(1),
-        quality: Some(ImageQuality::Auto),
-        size: None,
-    });
+    let generation_request = recent_images
+        .is_empty()
+        .then(|| standalone_image_generation_request(prompt));
+    let edit_request =
+        (!recent_images.is_empty()).then(|| standalone_image_edit_request(prompt, recent_images));
     let response = match cancellable_api(
         cancellation,
         request_image(&client, generation_request.as_ref(), edit_request.as_ref()),
@@ -1303,14 +1489,37 @@ async fn execute_image_tool(
         Ok(response) => response,
         Err(error) if is_unauthorized(&error) => {
             cancellable_bridge(cancellation, refresh_after_unauthorized(runtime)).await?;
-            cancellable_api(
+            match cancellable_api(
                 cancellation,
                 request_image(&client, generation_request.as_ref(), edit_request.as_ref()),
             )
             .await?
-            .map_err(map_api_error)?
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    report_api_failure(
+                        runtime,
+                        run_id,
+                        &request.session_id,
+                        "imageGeneration",
+                        &error,
+                    )
+                    .await;
+                    return Err(map_api_error(error));
+                }
+            }
         }
-        Err(error) => return Err(map_api_error(error)),
+        Err(error) => {
+            report_api_failure(
+                runtime,
+                run_id,
+                &request.session_id,
+                "imageGeneration",
+                &error,
+            )
+            .await;
+            return Err(map_api_error(error));
+        }
     };
     let encoded = response
         .data
@@ -1360,6 +1569,45 @@ async fn execute_image_tool(
         ]),
         internal_chat_message_metadata_passthrough: None,
     })
+}
+
+fn validated_image_tool_args(arguments: &str) -> Result<ImageToolArgs, &'static str> {
+    let args: ImageToolArgs = serde_json::from_str(arguments)
+        .map_err(|_| "The image generation arguments were invalid.")?;
+    let prompt = args.prompt.trim();
+    if prompt.is_empty() || prompt.len() > 32_000 {
+        return Err("The image prompt was invalid.");
+    }
+    if args.num_last_images_to_include.unwrap_or(0) > MAX_RECENT_IMAGES {
+        return Err("Too many recent images were requested.");
+    }
+    Ok(args)
+}
+
+fn standalone_image_generation_request(prompt: &str) -> ImageGenerationRequest {
+    ImageGenerationRequest {
+        prompt: prompt.to_string(),
+        background: Some(ImageBackground::Auto),
+        model: IMAGE_MODEL.to_string(),
+        n: None,
+        quality: Some(ImageQuality::Auto),
+        size: Some("auto".to_string()),
+    }
+}
+
+fn standalone_image_edit_request(prompt: &str, image_urls: Vec<String>) -> ImageEditRequest {
+    ImageEditRequest {
+        images: image_urls
+            .into_iter()
+            .map(|image_url| ImageUrl { image_url })
+            .collect(),
+        prompt: prompt.to_string(),
+        background: Some(ImageBackground::Auto),
+        model: IMAGE_MODEL.to_string(),
+        n: None,
+        quality: Some(ImageQuality::Auto),
+        size: Some("auto".to_string()),
+    }
 }
 
 async fn request_image(
@@ -1670,11 +1918,10 @@ fn web_tool_spec() -> Value {
                     "screenshot": {"type": "array", "items": {"type": "object", "properties": {"ref_id": {"type": "string"}, "pageno": {"type": "integer"}}, "required": ["ref_id", "pageno"]}},
                     "finance": {"type": "array", "items": {"type": "object", "properties": {"ticker": {"type": "string"}, "type": {"type": "string", "enum": ["equity", "fund", "crypto", "index"]}, "market": {"type": "string"}}, "required": ["ticker", "type"]}},
                     "weather": {"type": "array", "items": {"type": "object", "properties": {"location": {"type": "string"}, "start": {"type": "string"}, "duration": {"type": "integer"}}, "required": ["location"]}},
-                    "sports": {"type": "array", "items": {"type": "object", "properties": {"fn": {"type": "string", "enum": ["schedule", "standings"]}, "league": {"type": "string"}, "team": {"type": "string"}, "opponent": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}, "num_games": {"type": "integer"}, "locale": {"type": "string"}}, "required": ["fn", "league"]}},
+                    "sports": {"type": "array", "items": {"type": "object", "properties": {"tool": {"type": "string", "enum": ["sports"]}, "fn": {"type": "string", "enum": ["schedule", "standings"]}, "league": {"type": "string", "enum": ["nba", "wnba", "nfl", "nhl", "mlb", "epl", "ncaamb", "ncaawb", "ipl"]}, "team": {"type": "string"}, "opponent": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}, "num_games": {"type": "integer"}, "locale": {"type": "string"}}, "required": ["fn", "league"]}},
                     "time": {"type": "array", "items": {"type": "object", "properties": {"utc_offset": {"type": "string"}}, "required": ["utc_offset"]}},
                     "response_length": {"type": "string", "enum": ["short", "medium", "long"]}
-                },
-                "additionalProperties": false
+                }
             }
         }]
     })
@@ -1694,7 +1941,7 @@ fn image_tool_spec() -> Value {
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string"},
-                    "num_last_images_to_include": {"type": "integer", "minimum": 1, "maximum": MAX_RECENT_IMAGES}
+                    "num_last_images_to_include": {"type": ["integer", "null"]}
                 },
                 "required": ["prompt"],
                 "additionalProperties": false
@@ -1876,7 +2123,115 @@ fn cancellation_error() -> BridgeError {
 }
 
 fn is_unauthorized(error: &ApiError) -> bool {
-    matches!(error, ApiError::Api { status, .. } if status.as_u16() == 401)
+    api_error_status(error).is_some_and(|status| status.as_u16() == 401)
+}
+
+fn api_error_status(error: &ApiError) -> Option<http::StatusCode> {
+    match error {
+        ApiError::Api { status, .. } | ApiError::Transport(TransportError::Http { status, .. }) => {
+            Some(*status)
+        }
+        _ => None,
+    }
+}
+
+async fn report_api_failure(
+    runtime: &Arc<RuntimeHandle>,
+    run_id: &str,
+    session_id: &str,
+    operation: &'static str,
+    error: &ApiError,
+) {
+    let mut details = serde_json::Map::from_iter([
+        ("reason".to_string(), json!("apiFailure")),
+        ("operation".to_string(), json!(operation)),
+        ("class".to_string(), json!(api_error_class(error))),
+    ]);
+    if let Some(status) = api_error_status(error) {
+        details.insert("status".to_string(), json!(status.as_u16()));
+    }
+    if let Some(body) = api_error_body(error)
+        && let Ok(value) = serde_json::from_str::<Value>(body)
+    {
+        let provider_error = value.get("error").unwrap_or(&value);
+        for key in ["code", "type", "param"] {
+            if let Some(value) = provider_error
+                .get(key)
+                .and_then(Value::as_str)
+                .and_then(sanitized_diagnostic_token)
+            {
+                details.insert(key.to_string(), json!(value));
+            }
+        }
+        if let Some(detail) = provider_error
+            .get("message")
+            .and_then(Value::as_str)
+            .and_then(classify_provider_error_detail)
+        {
+            details.insert("detail".to_string(), json!(detail));
+        }
+    }
+    runtime
+        .hub
+        .emit(
+            run_event(RuntimeEventKind::Diagnostic, run_id, session_id)
+                .with_json(Value::Object(details)),
+        )
+        .await;
+}
+
+fn api_error_class(error: &ApiError) -> &'static str {
+    match error {
+        ApiError::Api { .. } => "api",
+        ApiError::Transport(TransportError::Http { .. }) => "http",
+        ApiError::Transport(TransportError::RetryLimit) => "retryLimit",
+        ApiError::Transport(TransportError::Timeout) => "timeout",
+        ApiError::Transport(TransportError::Network(_)) => "network",
+        ApiError::Transport(TransportError::Build(_)) => "requestBuild",
+        ApiError::Stream(_) => "stream",
+        ApiError::ContextWindowExceeded => "contextWindow",
+        ApiError::QuotaExceeded => "quota",
+        ApiError::UsageNotIncluded => "usage",
+        ApiError::Retryable { .. } => "retryable",
+        ApiError::RateLimit(_) => "rateLimit",
+        ApiError::InvalidRequest { .. } => "invalidRequest",
+        ApiError::CyberPolicy { .. } => "cyberPolicy",
+        ApiError::ServerOverloaded => "serverOverloaded",
+    }
+}
+
+fn api_error_body(error: &ApiError) -> Option<&str> {
+    match error {
+        ApiError::Transport(TransportError::Http { body, .. }) => body.as_deref(),
+        ApiError::Api { message, .. } => Some(message.as_str()),
+        _ => None,
+    }
+}
+
+fn sanitized_diagnostic_token(value: &str) -> Option<String> {
+    (!value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'[' | b']')
+        }))
+    .then(|| value.to_string())
+}
+
+fn classify_provider_error_detail(message: &str) -> Option<&'static str> {
+    let message = message.to_ascii_lowercase();
+    if message.contains("additional_tools") {
+        Some("additionalTools")
+    } else if message.contains("namespace") {
+        Some("namespace")
+    } else if message.contains("parallel_tool_calls") {
+        Some("parallelTools")
+    } else if message.contains("schema") {
+        Some("schema")
+    } else if message.contains("not supported") || message.contains("unsupported") {
+        Some("unsupported")
+    } else {
+        None
+    }
 }
 
 async fn persist_current_auth(runtime: &Arc<RuntimeHandle>) -> Result<(), BridgeError> {
@@ -2032,6 +2387,43 @@ async fn model_compact_limit(runtime: &Arc<RuntimeHandle>, model_id: &str) -> Op
         .and_then(|cache| cache.upstream_models.get(model_id))
         .and_then(CodexModelInfo::auto_compact_token_limit)
         .and_then(|value| u64::try_from(value).ok())
+}
+
+async fn response_wire_config(
+    runtime: &Arc<RuntimeHandle>,
+    model_id: &str,
+) -> Result<ResponseWireConfig, BridgeError> {
+    let cached = {
+        let cache = runtime.model_cache.lock().await;
+        cache
+            .as_ref()
+            .filter(|cache| cache.expires_at > Instant::now())
+            .and_then(|cache| cache.upstream_models.get(model_id))
+            .cloned()
+    };
+    let model = if let Some(model) = cached {
+        model
+    } else {
+        list_models().await?;
+        runtime
+            .model_cache
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|cache| cache.upstream_models.get(model_id))
+            .cloned()
+            .ok_or_else(|| {
+                BridgeError::new(
+                    BridgeErrorKind::InvalidInput,
+                    "the selected ChatGPT model is unavailable",
+                )
+            })?
+    };
+    Ok(ResponseWireConfig {
+        use_responses_lite: model.use_responses_lite,
+        supports_reasoning_summary: model.supports_reasoning_summary_parameter,
+        supports_parallel_tool_calls: model.supports_parallel_tool_calls,
+    })
 }
 
 fn validate_turn_request(request: &TurnRequest) -> Result<(), BridgeError> {
@@ -2216,17 +2608,35 @@ fn validate_identifier(value: &str, name: &str) -> Result<(), BridgeError> {
 }
 
 fn map_api_error(error: ApiError) -> BridgeError {
-    match error {
-        ApiError::Api { status, .. } if status.as_u16() == 401 || status.as_u16() == 403 => {
-            BridgeError::new(
+    if let Some(status) = api_error_status(&error) {
+        return match status.as_u16() {
+            401 | 403 => BridgeError::new(
                 BridgeErrorKind::Authentication,
                 "ChatGPT authentication expired",
-            )
-        }
-        ApiError::Api { status, .. } if status.as_u16() == 429 => BridgeError::new(
-            BridgeErrorKind::RateLimit,
-            "ChatGPT is temporarily rate limited",
-        ),
+            ),
+            429 => BridgeError::new(
+                BridgeErrorKind::RateLimit,
+                "ChatGPT is temporarily rate limited",
+            ),
+            400 | 409 | 413 | 415 | 422 => BridgeError::new(
+                BridgeErrorKind::InvalidInput,
+                "ChatGPT rejected the request",
+            ),
+            408 => BridgeError::new(
+                BridgeErrorKind::Network,
+                "the ChatGPT service is unavailable",
+            ),
+            value if (500..=599).contains(&value) => BridgeError::new(
+                BridgeErrorKind::Network,
+                "the ChatGPT service is unavailable",
+            ),
+            _ => BridgeError::new(
+                BridgeErrorKind::ProtocolMismatch,
+                "the ChatGPT response was not understood",
+            ),
+        };
+    }
+    match error {
         ApiError::ContextWindowExceeded => {
             BridgeError::new(BridgeErrorKind::InvalidInput, CONTEXT_WINDOW_MESSAGE)
         }
@@ -2376,6 +2786,258 @@ mod tests {
         assert_eq!(tools[0]["tools"][0]["name"], "run");
         assert_eq!(tools[1]["name"], "image_gen");
         assert_eq!(tools[1]["tools"][0]["name"], "imagegen");
+    }
+
+    #[test]
+    fn tool_schemas_match_the_pinned_codex_wire_contract() {
+        let web = web_tool_spec();
+        let web_parameters = &web["tools"][0]["parameters"];
+        assert!(web_parameters.get("additionalProperties").is_none());
+        assert_eq!(
+            web_parameters["properties"]["sports"]["items"]["properties"]["league"]["enum"],
+            json!([
+                "nba", "wnba", "nfl", "nhl", "mlb", "epl", "ncaamb", "ncaawb", "ipl"
+            ])
+        );
+
+        let image = image_tool_spec();
+        assert_eq!(
+            image["tools"][0]["parameters"]["properties"]["num_last_images_to_include"]["type"],
+            json!(["integer", "null"])
+        );
+    }
+
+    #[test]
+    fn invalid_image_tool_arguments_are_recoverable() {
+        assert!(validated_image_tool_args("{}").is_err());
+        assert!(
+            validated_image_tool_args(r#"{"prompt":"","num_last_images_to_include":1}"#).is_err()
+        );
+        assert!(
+            validated_image_tool_args(
+                r#"{"prompt":"blue circle","num_last_images_to_include":-1}"#
+            )
+            .is_err()
+        );
+        assert!(
+            validated_image_tool_args(r#"{"prompt":"blue circle","num_last_images_to_include":6}"#)
+                .is_err()
+        );
+        assert!(
+            validated_image_tool_args(r#"{"prompt":"blue circle","num_last_images_to_include":5}"#)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn responses_lite_embeds_tools_in_developer_input() {
+        let request = turn_request("session-1");
+        let conversation = encode_messages(&request.messages).expect("encode messages");
+        let response = response_api_request(
+            &request,
+            &conversation,
+            true,
+            ResponseWireConfig {
+                use_responses_lite: true,
+                supports_reasoning_summary: true,
+                supports_parallel_tool_calls: true,
+            },
+        )
+        .expect("build response request");
+
+        assert!(response.instructions.is_empty());
+        assert!(response.tools.is_none());
+        assert!(!response.parallel_tool_calls);
+        assert!(matches!(
+            response.input.first(),
+            Some(ResponseItem::AdditionalTools { role, tools, .. })
+                if role == "developer" && tools.len() == 2
+        ));
+        assert!(matches!(
+            response.input.get(1),
+            Some(ResponseItem::Message { role, content, .. })
+                if role == "developer"
+                    && matches!(content.as_slice(), [ContentItem::InputText { text }] if text == GENERAL_CHAT_INSTRUCTIONS)
+        ));
+        assert_eq!(
+            response.reasoning.and_then(|reasoning| reasoning.context),
+            Some(ReasoningContext::AllTurns)
+        );
+        let options = response_options(
+            &request,
+            &Arc::new(OnceLock::new()),
+            ResponseWireConfig {
+                use_responses_lite: true,
+                supports_reasoning_summary: true,
+                supports_parallel_tool_calls: true,
+            },
+        );
+        assert_eq!(
+            options
+                .extra_headers
+                .get(RESPONSES_LITE_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn standard_responses_keeps_tools_at_top_level() {
+        let request = turn_request("session-1");
+        let conversation = encode_messages(&request.messages).expect("encode messages");
+        let response = response_api_request(
+            &request,
+            &conversation,
+            true,
+            ResponseWireConfig {
+                use_responses_lite: false,
+                supports_reasoning_summary: true,
+                supports_parallel_tool_calls: true,
+            },
+        )
+        .expect("build response request");
+
+        assert_eq!(response.instructions, GENERAL_CHAT_INSTRUCTIONS);
+        assert_eq!(response.tools.as_ref().map(Vec::len), Some(2));
+        assert!(response.parallel_tool_calls);
+        assert!(!matches!(
+            response.input.first(),
+            Some(ResponseItem::AdditionalTools { .. })
+        ));
+        let options = response_options(
+            &request,
+            &Arc::new(OnceLock::new()),
+            ResponseWireConfig {
+                use_responses_lite: false,
+                supports_reasoning_summary: true,
+                supports_parallel_tool_calls: true,
+            },
+        );
+        assert!(!options.extra_headers.contains_key(RESPONSES_LITE_HEADER));
+    }
+
+    #[test]
+    fn standalone_search_request_matches_pinned_codex_contract() {
+        let message = |role: &str, text: &str| ResponseItem::Message {
+            id: None,
+            role: role.to_string(),
+            content: vec![if role == "assistant" {
+                ContentItem::OutputText {
+                    text: text.to_string(),
+                }
+            } else {
+                ContentItem::InputText {
+                    text: text.to_string(),
+                }
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        };
+        let conversation = vec![
+            message("user", "previous user"),
+            message("assistant", "previous assistant"),
+            message("user", "current user"),
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "run".to_string(),
+                namespace: Some("web".to_string()),
+                arguments: r#"{"search_query":[{"q":"current"}]}"#.to_string(),
+                call_id: "call-1".to_string(),
+                internal_chat_message_metadata_passthrough: None,
+            },
+        ];
+        let request = standalone_search_request(
+            &turn_request("session-1"),
+            &conversation,
+            SearchCommands::default(),
+        );
+        let value = serde_json::to_value(request).expect("serialize search request");
+
+        assert_eq!(
+            value["input"],
+            json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "previous user"}],
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "previous assistant"}],
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "current user"}],
+                },
+            ])
+        );
+        assert_eq!(value["settings"]["allowed_callers"], json!(["direct"]));
+        assert_eq!(value["settings"]["external_web_access"], json!(true));
+        assert_eq!(value["max_output_tokens"], json!(MAX_SEARCH_OUTPUT_TOKENS));
+
+        let oversized_assistant = ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![
+                ContentItem::OutputText {
+                    text: "a".repeat(4_500),
+                },
+                ContentItem::OutputText {
+                    text: "must be dropped".to_string(),
+                },
+                ContentItem::InputText {
+                    text: "must not be forwarded".to_string(),
+                },
+            ],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        };
+        let bounded_input = standalone_search_input(&[
+            message("user", "dropped user"),
+            message("assistant", "dropped assistant"),
+            message("user", "retained user"),
+            oversized_assistant,
+            message("user", "latest user"),
+        ])
+        .expect("bounded search input");
+        let bounded_value = serde_json::to_value(bounded_input).expect("serialize bounded input");
+
+        assert_eq!(bounded_value.as_array().map(Vec::len), Some(3));
+        assert_eq!(bounded_value[0]["content"][0]["text"], "retained user");
+        assert_eq!(
+            bounded_value[1]["content"],
+            json!([{"type": "output_text", "text": "a".repeat(4_000)}])
+        );
+        assert_eq!(bounded_value[2]["content"][0]["text"], "latest user");
+    }
+
+    #[test]
+    fn standalone_image_request_matches_pinned_codex_contract() {
+        let value = serde_json::to_value(standalone_image_generation_request("paint a fox"))
+            .expect("serialize image request");
+        assert_eq!(
+            value,
+            json!({
+                "prompt": "paint a fox",
+                "background": "auto",
+                "model": "gpt-image-2",
+                "quality": "auto",
+                "size": "auto",
+            })
+        );
+
+        let edit = serde_json::to_value(standalone_image_edit_request(
+            "add a hat",
+            vec!["data:image/png;base64,aW1hZ2U=".to_string()],
+        ))
+        .expect("serialize image edit request");
+        assert_eq!(edit["background"], json!("auto"));
+        assert_eq!(edit["model"], json!(IMAGE_MODEL));
+        assert_eq!(edit["quality"], json!("auto"));
+        assert_eq!(edit["size"], json!("auto"));
+        assert!(edit.get("n").is_none());
     }
 
     #[test]
@@ -2609,11 +3271,53 @@ mod tests {
         });
         assert_eq!(offline.kind, BridgeErrorKind::Network);
         assert!(!offline.message.contains("socket details"));
+
+        let unary_unauthorized = ApiError::Transport(TransportError::Http {
+            status: http::StatusCode::UNAUTHORIZED,
+            url: Some("https://chatgpt.com/private".to_string()),
+            headers: None,
+            body: Some("secret account response".to_string()),
+        });
+        assert!(is_unauthorized(&unary_unauthorized));
+        let unary_unauthorized = map_api_error(unary_unauthorized);
+        assert_eq!(unary_unauthorized.kind, BridgeErrorKind::Authentication);
+        assert!(!unary_unauthorized.message.contains("secret"));
+
+        let unary_invalid = map_api_error(ApiError::Transport(TransportError::Http {
+            status: http::StatusCode::BAD_REQUEST,
+            url: None,
+            headers: None,
+            body: Some("provider internals".to_string()),
+        }));
+        assert_eq!(unary_invalid.kind, BridgeErrorKind::InvalidInput);
+        assert!(!unary_invalid.message.contains("provider internals"));
+
+        let timeout = map_api_error(ApiError::Transport(TransportError::Http {
+            status: http::StatusCode::REQUEST_TIMEOUT,
+            url: None,
+            headers: None,
+            body: None,
+        }));
+        assert_eq!(timeout.kind, BridgeErrorKind::Network);
+    }
+
+    #[test]
+    fn provider_tool_details_are_reduced_to_fixed_categories() {
+        assert_eq!(
+            classify_provider_error_detail("Unknown namespace tool type"),
+            Some("namespace")
+        );
+        assert_eq!(
+            classify_provider_error_detail("Invalid schema for function"),
+            Some("schema")
+        );
+        assert_eq!(classify_provider_error_detail("private prompt text"), None);
     }
 
     #[test]
     fn tool_and_checkpoint_limits_stay_bounded() {
         assert_eq!(MAX_TOOL_CALLS, 8);
+        assert_eq!(MAX_SEARCH_OUTPUT_TOKENS, 12_000);
         assert_eq!(MAX_IMAGE_CALLS, 2);
         assert_eq!(MAX_RECENT_IMAGES, 5);
         assert_eq!(MAX_SOURCES, 20);
