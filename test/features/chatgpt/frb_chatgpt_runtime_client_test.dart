@@ -157,6 +157,62 @@ void main() {
     await retry.timeout(const Duration(seconds: 1));
     check(streamIndex).equals(2);
   });
+
+  test('stream close drains events already delivered by native', () async {
+    final nativeEvents = StreamController<RuntimeEvent>(sync: true);
+    late BigInt observedEpoch;
+    final client = FrbChatGptRuntimeClient(
+      snapshotStore: _MemorySnapshotStore(),
+      ensureNativeLoaded: () async {},
+      bridgeProtocolVersion: () async => 3,
+      initializeRuntime: ({required clientEpoch, authSnapshot}) async {},
+      runtimeEvents: ({required BigInt clientEpoch}) {
+        observedEpoch = clientEpoch;
+        return nativeEvents.stream;
+      },
+      shutdownRuntime: () async {},
+    );
+    final received = <RuntimeEvent>[];
+    final subscription = client.events.listen(
+      received.add,
+      onError: (Object _) {},
+    );
+    addTearDown(() async {
+      await subscription.cancel();
+      await client.dispose();
+      if (!nativeEvents.isClosed) await nativeEvents.close();
+    });
+
+    final initialization = client.initialize();
+    for (var index = 0; index < 5; index += 1) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    nativeEvents.add(
+      RuntimeEvent(
+        clientEpoch: observedEpoch,
+        sequence: BigInt.one,
+        kind: RuntimeEventKind.diagnostic,
+        jsonData: '{"reason":"eventStreamReady"}',
+      ),
+    );
+    await initialization.timeout(const Duration(seconds: 1));
+
+    nativeEvents.add(
+      RuntimeEvent(
+        clientEpoch: observedEpoch,
+        sequence: BigInt.two,
+        kind: RuntimeEventKind.completed,
+      ),
+    );
+    await nativeEvents.close();
+    for (var index = 0; index < 5; index += 1) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    check(
+      received.map((event) => event.kind),
+    ).deepEquals([RuntimeEventKind.completed]);
+  });
 }
 
 final class _MemorySnapshotStore implements ChatGptAuthSnapshotStore {

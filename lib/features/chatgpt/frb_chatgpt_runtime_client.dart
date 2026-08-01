@@ -210,16 +210,7 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
           );
           return;
         }
-        _nativeSubscriptionToken = null;
-        _nativeSubscription = null;
-        _initializing = null;
-        _clientEpoch = null;
-        DebugLogger.warning('event-stream-closed', scope: 'native/chatgpt');
-        if (!_events.isClosed) {
-          _events.addError(
-            StateError('The native ChatGPT event stream closed.'),
-          );
-        }
+        _enqueueNativeStreamClose(epoch, subscriptionToken);
       },
     );
     if (identical(_nativeSubscriptionToken, subscriptionToken)) {
@@ -270,6 +261,34 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
       onError: (Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'event-handling-failed',
+          scope: 'native/chatgpt',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        if (!_events.isClosed) _events.addError(error, stackTrace);
+      },
+    );
+  }
+
+  void _enqueueNativeStreamClose(BigInt epoch, Object subscriptionToken) {
+    final work = _nativeEventQueue.then<void>((_) {
+      if (_clientEpoch != epoch ||
+          !identical(_nativeSubscriptionToken, subscriptionToken)) {
+        return;
+      }
+      _nativeSubscriptionToken = null;
+      _nativeSubscription = null;
+      _initializing = null;
+      _clientEpoch = null;
+      DebugLogger.warning('event-stream-closed', scope: 'native/chatgpt');
+      if (!_events.isClosed) {
+        _events.addError(StateError('The native ChatGPT event stream closed.'));
+      }
+    });
+    _nativeEventQueue = work.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'event-stream-close-failed',
           scope: 'native/chatgpt',
           data: {'errorType': error.runtimeType.toString()},
         );

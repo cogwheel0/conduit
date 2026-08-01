@@ -77,6 +77,7 @@ static RUNTIME_LIFECYCLE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()))
 struct EventHub {
     epoch: u64,
     sequence: Arc<AtomicU64>,
+    closed: Arc<AtomicBool>,
     delivery: Arc<Mutex<()>>,
     subscribers: Arc<Mutex<Vec<mpsc::Sender<RuntimeEvent>>>>,
 }
@@ -86,20 +87,35 @@ impl EventHub {
         Self {
             epoch,
             sequence: Arc::new(AtomicU64::new(0)),
+            closed: Arc::new(AtomicBool::new(false)),
             delivery: Arc::new(Mutex::new(())),
             subscribers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    async fn subscribe(&self) -> mpsc::Receiver<RuntimeEvent> {
+    async fn subscribe(&self) -> Option<mpsc::Receiver<RuntimeEvent>> {
         let (tx, rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
-        self.subscribers.lock().await.push(tx);
-        rx
+        let mut subscribers = self.subscribers.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return None;
+        }
+        subscribers.push(tx);
+        Some(rx)
+    }
+
+    async fn close(&self) {
+        let _delivery = self.delivery.lock().await;
+        let mut subscribers = self.subscribers.lock().await;
+        self.closed.store(true, Ordering::Release);
+        subscribers.clear();
     }
 
     async fn emit(&self, event: impl Into<RuntimeEvent>) {
         let mut event = event.into();
         let _delivery = self.delivery.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         event.client_epoch = self.epoch;
         event.sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
         let subscribers = self.subscribers.lock().await.clone();
@@ -442,6 +458,7 @@ pub async fn runtime_events(
     client_epoch: u64,
     sink: StreamSink<RuntimeEvent>,
 ) -> Result<(), BridgeError> {
+    let lifecycle = RUNTIME_LIFECYCLE.lock().await;
     let runtime = runtime_handle().await?;
     if runtime.epoch != client_epoch {
         return Err(BridgeError::new(
@@ -449,7 +466,12 @@ pub async fn runtime_events(
             "the native event stream belongs to a stale client epoch",
         ));
     }
-    let mut receiver = runtime.hub.subscribe().await;
+    let Some(mut receiver) = runtime.hub.subscribe().await else {
+        return Err(BridgeError::new(
+            BridgeErrorKind::Cancellation,
+            "the ChatGPT runtime is shutting down",
+        ));
+    };
     runtime
         .hub
         .emit(
@@ -457,6 +479,7 @@ pub async fn runtime_events(
                 .with_json(json!({"reason": EVENT_STREAM_READY_REASON})),
         )
         .await;
+    drop(lifecycle);
     while let Some(event) = receiver.recv().await {
         if sink.add(event).is_err() {
             break;
@@ -756,7 +779,7 @@ async fn shutdown_runtime_inner() {
     let runtime = RUNTIME.lock().await.take();
     if let Some(runtime) = runtime {
         cancel_all_work(&runtime).await;
-        runtime.hub.subscribers.lock().await.clear();
+        runtime.hub.close().await;
         let _ = runtime.auth_manager.logout().await;
         let codex_home = runtime.codex_home.clone();
         let _ = tokio::task::spawn_blocking(move || {
@@ -3431,7 +3454,7 @@ mod tests {
     #[tokio::test]
     async fn full_bounded_queue_applies_backpressure_without_dropping_events() {
         let hub = EventHub::new(7);
-        let mut receiver = hub.subscribe().await;
+        let mut receiver = hub.subscribe().await.expect("open event hub");
         for _ in 0..EVENT_QUEUE_CAPACITY {
             hub.emit(event(RuntimeEventKind::TextDelta).with_text("delta"))
                 .await;
@@ -3452,6 +3475,14 @@ mod tests {
             saw_terminal |= delivered.kind == RuntimeEventKind::Completed;
         }
         assert!(saw_terminal);
+    }
+
+    #[tokio::test]
+    async fn closed_event_hub_rejects_late_subscribers() {
+        let hub = EventHub::new(7);
+        hub.close().await;
+
+        assert!(hub.subscribe().await.is_none());
     }
 
     #[tokio::test]
