@@ -13,6 +13,7 @@ import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
 import 'navigation_service.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
+import '../../features/chat/voice_call/voice_call_eligibility.dart';
 
 part 'quick_actions_service.g.dart';
 
@@ -71,7 +72,6 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
   Timer? _shortcutRefreshTimer;
   Timer? _actionRetryTimer;
   bool _isProcessing = false;
-  bool _isResolvingVoiceCallModel = false;
 
   @override
   FutureOr<void> build() {
@@ -178,31 +178,24 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
         }
 
         final authState = ref.read(authNavigationStateProvider);
-        if (authState == AuthNavigationState.loading) {
-          _scheduleRetry();
-          return;
-        }
-        if (authState != AuthNavigationState.authenticated) {
-          return;
-        }
-
-        final event = _pendingEvents.first;
-        if (event.type == _quickActionVoiceCall) {
-          await _ensureVoiceCallModelReady();
-          if (ref.read(selectedModelProvider) == null) {
-            _pendingEvents.removeFirst();
-            DebugLogger.warning(
-              'quick-actions-voice-model-unavailable',
-              scope: 'platform',
-            );
-            await ref
-                .read(appIntentCoordinatorProvider.notifier)
-                .openChatFromExternal(focusComposer: true, resetChat: true);
-            continue;
+        final dispatchIndex = quickActionDispatchIndex(
+          queuedTypes: _pendingEvents
+              .map((event) => event.type)
+              .toList(growable: false),
+          authState: authState,
+          voiceCanBypassAuthLoading: voiceCallCanResolveWithoutOpenWebUiAuth(
+            ref,
+          ),
+        );
+        if (dispatchIndex == null) {
+          if (authState == AuthNavigationState.loading) {
+            _scheduleRetry();
           }
+          return;
         }
 
-        _pendingEvents.removeFirst();
+        final event = _pendingEvents.elementAt(dispatchIndex);
+        _pendingEvents.remove(event);
         await _dispatch(event.type);
       }
     } finally {
@@ -216,27 +209,6 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
       if (!ref.mounted) return;
       unawaited(_maybeProcessPendingActions());
     });
-  }
-
-  Future<void> _ensureVoiceCallModelReady() async {
-    if (_isResolvingVoiceCallModel) return;
-    if (ref.read(selectedModelProvider) != null) return;
-
-    _isResolvingVoiceCallModel = true;
-    try {
-      await ref
-          .read(defaultModelProvider.future)
-          .timeout(const Duration(seconds: 3), onTimeout: () => null);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'quick-actions-voice-model',
-        scope: 'platform',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    } finally {
-      _isResolvingVoiceCallModel = false;
-    }
   }
 
   Future<void> _dispatch(String type) async {
@@ -261,6 +233,15 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
           await ref
               .read(appIntentCoordinatorProvider.notifier)
               .openChatFromExternal(focusComposer: true, resetChat: true);
+          final context = NavigationService.context;
+          if (context == null || !context.mounted) return;
+          final message = error is StateError
+              ? error.message.toString()
+              : AppLocalizations.of(context)?.errorMessage ??
+                    'Unable to start a voice call.';
+          ScaffoldMessenger.maybeOf(
+            context,
+          )?.showSnackBar(SnackBar(content: Text(message)));
         }
         return;
       default:
@@ -268,6 +249,21 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
         return;
     }
   }
+}
+
+@visibleForTesting
+int? quickActionDispatchIndex({
+  required List<String> queuedTypes,
+  required AuthNavigationState authState,
+  required bool voiceCanBypassAuthLoading,
+}) {
+  if (queuedTypes.isEmpty) return null;
+  if (authState == AuthNavigationState.authenticated) return 0;
+
+  final voiceIndex = queuedTypes.indexOf(_quickActionVoiceCall);
+  if (voiceIndex < 0) return null;
+  if (!voiceCanBypassAuthLoading) return null;
+  return voiceIndex;
 }
 
 class _QuickActionEvent {

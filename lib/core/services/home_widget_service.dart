@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,6 +13,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
+import '../../features/chat/voice_call/voice_call_eligibility.dart';
+import '../../l10n/app_localizations.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
 import 'media_upload_controller.dart';
@@ -139,7 +141,18 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     // Check if action was already processed by stream handler while waiting
     if (_pendingWidgetAction == null) return;
 
-    // Now wait for authentication to complete (up to 30 seconds for login flow)
+    final pendingUri = _pendingWidgetAction;
+    if (pendingUri != null &&
+        homeWidgetVoiceActionCanDispatch(
+          pendingUri,
+          canBypassOpenWebUiAuth: voiceCallCanResolveWithoutOpenWebUiAuth(ref),
+        )) {
+      _pendingWidgetAction = null;
+      await _handleWidgetClick(pendingUri);
+      return;
+    }
+
+    // Non-voice actions retain their existing authentication wait.
     for (var i = 0; i < 300; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
@@ -149,6 +162,19 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
           scope: 'widget',
         );
         _pendingWidgetAction = null;
+        return;
+      }
+
+      final pendingUri = _pendingWidgetAction;
+      if (pendingUri != null &&
+          homeWidgetVoiceActionCanDispatch(
+            pendingUri,
+            canBypassOpenWebUiAuth: voiceCallCanResolveWithoutOpenWebUiAuth(
+              ref,
+            ),
+          )) {
+        _pendingWidgetAction = null;
+        await _handleWidgetClick(pendingUri);
         return;
       }
 
@@ -194,9 +220,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       return;
     }
 
-    final action = uri.host.isNotEmpty
-        ? uri.host
-        : uri.pathSegments.firstOrNull;
+    final action = homeWidgetActionOf(uri);
     if (action == null || action.isEmpty) {
       // Default action: open new chat
       await _handleNewChat();
@@ -253,6 +277,15 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       await ref
           .read(appIntentCoordinatorProvider.notifier)
           .openChatFromExternal(focusComposer: true, resetChat: true);
+      final context = NavigationService.context;
+      if (context == null || !context.mounted) return;
+      final message = error is StateError
+          ? error.message.toString()
+          : AppLocalizations.of(context)?.errorMessage ??
+                'Unable to start a voice call.';
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -453,6 +486,18 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       );
     }
   }
+}
+
+@visibleForTesting
+String? homeWidgetActionOf(Uri uri) =>
+    uri.host.isNotEmpty ? uri.host : uri.pathSegments.firstOrNull;
+
+@visibleForTesting
+bool homeWidgetVoiceActionCanDispatch(
+  Uri uri, {
+  required bool canBypassOpenWebUiAuth,
+}) {
+  return homeWidgetActionOf(uri) == WidgetActions.mic && canBypassOpenWebUiAuth;
 }
 
 /// Provider to trigger home widget initialization at app startup.

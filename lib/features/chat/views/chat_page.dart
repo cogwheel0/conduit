@@ -1637,10 +1637,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await Future.delayed(const Duration(milliseconds: 300));
   }
 
-  void _handleVoiceCall() {
-    unawaited(
-      ref.read(voiceCallLauncherProvider).launch(startNewConversation: false),
-    );
+  Future<void> _handleVoiceCall() async {
+    try {
+      await ref
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'launch-failed',
+        scope: 'chat/voice_call',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      final message = error is StateError
+          ? error.message.toString()
+          : AppLocalizations.of(context)!.errorMessage;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   void _prewarmVisibleMarkdownRows() {

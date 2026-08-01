@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/auth/providers/unified_auth_providers.dart';
+import '../../features/chat/voice_call/voice_call_eligibility.dart';
 import '../../features/chat/voice_mode/chat_voice_mode_controller.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -28,6 +28,7 @@ final class CarPlayCoordinator {
   bool _startedByCarPlay = false;
   bool _sceneConnected = false;
   int _sceneGeneration = 0;
+  Completer<void>? _sceneDisconnectSignal;
   String? _lastSentStateKey;
 
   void initialize() {
@@ -86,36 +87,52 @@ final class CarPlayCoordinator {
       return _success();
     }
 
-    final authState = await _waitForAuthReady();
+    final disconnectSignal = _sceneDisconnectSignal!;
+    late final VoiceCallEligibility eligibility;
+    try {
+      eligibility = await resolveVoiceCallEligibility(
+        _ref,
+        cancellationSignal: disconnectSignal.future,
+        cancellationRequested: () => !_isCurrentScene(sceneGeneration),
+      );
+    } on VoiceCallEligibilityResolutionCancelled {
+      if (!_isCurrentScene(sceneGeneration)) {
+        return _failure('CarPlay disconnected.');
+      }
+      rethrow;
+    }
     if (!_isCurrentScene(sceneGeneration)) {
       return _failure('CarPlay disconnected.');
     }
-    if (authState != AuthNavigationState.authenticated) {
-      return _failure('Please sign in to Conduit on iPhone first.');
+
+    if (!eligibility.canStart) {
+      return _failure(eligibility.errorMessage!);
     }
 
-    await _ensureModelSelected();
-    if (!_isCurrentScene(sceneGeneration)) {
-      return _failure('CarPlay disconnected.');
-    }
-    if (_ref.read(selectedModelProvider) == null) {
-      return _failure('Please select a model in Conduit on iPhone first.');
-    }
-
-    _startedByCarPlay = true;
-    await _ref
+    final startResult = await _ref
         .read(chatVoiceModeControllerProvider.notifier)
-        .start(startNewConversation: true);
+        .start(
+          startNewConversation: true,
+          shouldStart: () => _isCurrentScene(sceneGeneration),
+          admittedModel: eligibility.model!,
+        );
     if (!_isCurrentScene(sceneGeneration)) {
       final snapshot = _ref.read(chatVoiceModeControllerProvider);
-      if (snapshot.isActive || snapshot.phase == ChatVoiceModePhase.error) {
+      final claimedOwnership = startResult == ChatVoiceModeStartResult.started;
+      if (claimedOwnership &&
+          (snapshot.isActive || snapshot.phase == ChatVoiceModePhase.error)) {
         await _ref.read(chatVoiceModeControllerProvider.notifier).stop();
       }
-      _startedByCarPlay = false;
+      if (claimedOwnership) {
+        _startedByCarPlay = false;
+      }
       return _failure('CarPlay disconnected.');
     }
 
     final next = _ref.read(chatVoiceModeControllerProvider);
+    if (startResult == ChatVoiceModeStartResult.started) {
+      _startedByCarPlay = true;
+    }
     if (next.phase == ChatVoiceModePhase.error) {
       _startedByCarPlay = false;
       return _failure(
@@ -178,6 +195,7 @@ final class CarPlayCoordinator {
     if (!_sceneConnected) {
       _sceneConnected = true;
       _sceneGeneration++;
+      _sceneDisconnectSignal = Completer<void>();
     }
     return _sceneGeneration;
   }
@@ -186,6 +204,11 @@ final class CarPlayCoordinator {
     if (_sceneConnected) {
       _sceneConnected = false;
       _sceneGeneration++;
+      final disconnectSignal = _sceneDisconnectSignal;
+      _sceneDisconnectSignal = null;
+      if (disconnectSignal != null && !disconnectSignal.isCompleted) {
+        disconnectSignal.complete();
+      }
     }
   }
 
@@ -243,37 +266,6 @@ final class CarPlayCoordinator {
     } catch (error, stackTrace) {
       DebugLogger.error(
         'carplay-state-update',
-        scope: 'carplay',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  Future<AuthNavigationState> _waitForAuthReady() async {
-    for (var attempt = 0; attempt < 50; attempt++) {
-      final state = _ref.read(authNavigationStateProvider);
-      if (state != AuthNavigationState.loading) {
-        return state;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-
-    return _ref.read(authNavigationStateProvider);
-  }
-
-  Future<void> _ensureModelSelected() async {
-    if (_ref.read(selectedModelProvider) != null) {
-      return;
-    }
-
-    try {
-      await _ref
-          .read(defaultModelProvider.future)
-          .timeout(const Duration(seconds: 3), onTimeout: () => null);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'carplay-default-model',
         scope: 'carplay',
         error: error,
         stackTrace: stackTrace,
