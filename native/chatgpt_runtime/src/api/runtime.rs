@@ -78,6 +78,7 @@ struct EventHub {
     epoch: u64,
     sequence: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
+    shutdown: CancellationToken,
     delivery: Arc<Mutex<()>>,
     subscribers: Arc<Mutex<Vec<mpsc::Sender<RuntimeEvent>>>>,
 }
@@ -88,6 +89,7 @@ impl EventHub {
             epoch,
             sequence: Arc::new(AtomicU64::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
+            shutdown: CancellationToken::new(),
             delivery: Arc::new(Mutex::new(())),
             subscribers: Arc::new(Mutex::new(Vec::new())),
         }
@@ -104,9 +106,10 @@ impl EventHub {
     }
 
     async fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.shutdown.cancel();
         let _delivery = self.delivery.lock().await;
         let mut subscribers = self.subscribers.lock().await;
-        self.closed.store(true, Ordering::Release);
         subscribers.clear();
     }
 
@@ -121,12 +124,21 @@ impl EventHub {
         let subscribers = self.subscribers.lock().await.clone();
         let mut closed = Vec::new();
         for subscriber in subscribers {
+            if self.closed.load(Ordering::Acquire) {
+                return;
+            }
             match subscriber.try_send(event.clone()) {
                 Ok(()) => {}
                 Err(TrySendError::Closed(_)) => closed.push(subscriber),
                 Err(TrySendError::Full(event)) => {
-                    if subscriber.send(event).await.is_err() {
-                        closed.push(subscriber);
+                    tokio::select! {
+                        biased;
+                        _ = self.shutdown.cancelled() => return,
+                        result = subscriber.send(event) => {
+                            if result.is_err() {
+                                closed.push(subscriber);
+                            }
+                        }
                     }
                 }
             }
@@ -3483,6 +3495,31 @@ mod tests {
         hub.close().await;
 
         assert!(hub.subscribe().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn event_hub_close_preempts_backpressured_delivery() {
+        let hub = EventHub::new(7);
+        let _receiver = hub.subscribe().await.expect("open event hub");
+        for _ in 0..EVENT_QUEUE_CAPACITY {
+            hub.emit(event(RuntimeEventKind::TextDelta).with_text("delta"))
+                .await;
+        }
+
+        let pending_hub = hub.clone();
+        let terminal = tokio::spawn(async move {
+            pending_hub.emit(event(RuntimeEventKind::Completed)).await;
+        });
+        tokio::task::yield_now().await;
+        assert!(!terminal.is_finished());
+
+        timeout(Duration::from_millis(250), hub.close())
+            .await
+            .expect("event hub shutdown must preempt a blocked delivery");
+        timeout(Duration::from_millis(250), terminal)
+            .await
+            .expect("blocked delivery task must finish on shutdown")
+            .expect("delivery task");
     }
 
     #[tokio::test]
