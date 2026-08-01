@@ -5,7 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import io.flutter.embedding.android.FlutterActivity
+import androidx.activity.enableEdgeToEdge
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import android.os.Bundle
 import android.os.Parcelable
@@ -512,7 +513,7 @@ internal fun loadPendingShareState(
     return healed
 }
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
@@ -520,11 +521,8 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
         sanitizeLaunchIntent(intent)?.let { setIntent(it) }
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-
-        // Enable edge-to-edge display for all Android versions
-        // This is the official way to enable edge-to-edge that works with Android 15+
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Configure system bar appearance for edge-to-edge
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
