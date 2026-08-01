@@ -514,6 +514,20 @@ bool _startsSvgRootElement(String value, int offset) {
     return false;
   }
   final boundary = value.codeUnitAt(offset + 4);
+  if (boundary == 0x3a) {
+    final localNameOffset = offset + 5;
+    const localName = 'svg';
+    final localNameEnd = localNameOffset + localName.length;
+    if (!value.startsWith(localName, localNameOffset) ||
+        localNameEnd >= value.length) {
+      return false;
+    }
+    return _isSvgRootNameBoundary(value.codeUnitAt(localNameEnd));
+  }
+  return _isSvgRootNameBoundary(boundary);
+}
+
+bool _isSvgRootNameBoundary(int boundary) {
   return boundary == 0x3e ||
       boundary == 0x2f ||
       boundary == 0x20 ||

@@ -68,6 +68,7 @@ const CONTEXT_WINDOW_MESSAGE: &str = "the conversation is too long";
 const GENERAL_CHAT_INSTRUCTIONS: &str = "You are ChatGPT inside Conduit, a general-purpose chat client. Answer the user's request directly. You have no shell, filesystem, workspace, patching, approval, MCP, or coding-agent capabilities. Use web search and image generation only when those tools are present. Never claim to have used a tool that was not provided.";
 const PROVIDER_ANNOTATION_START: char = '\u{e200}';
 const PROVIDER_ANNOTATION_END: char = '\u{e201}';
+const EVENT_STREAM_READY_REASON: &str = "eventStreamReady";
 
 static RUNTIME: LazyLock<Mutex<Option<Arc<RuntimeHandle>>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LIFECYCLE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -449,6 +450,13 @@ pub async fn runtime_events(
         ));
     }
     let mut receiver = runtime.hub.subscribe().await;
+    runtime
+        .hub
+        .emit(
+            event(RuntimeEventKind::Diagnostic)
+                .with_json(json!({"reason": EVENT_STREAM_READY_REASON})),
+        )
+        .await;
     while let Some(event) = receiver.recv().await {
         if sink.add(event).is_err() {
             break;

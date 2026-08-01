@@ -9,6 +9,9 @@ import 'native_generated/api/contract.dart';
 import 'native_generated/api/runtime.dart' as native;
 import 'native_generated/frb_generated.dart';
 
+const _eventStreamReadyReason = 'eventStreamReady';
+const _eventStreamReadyTimeout = Duration(seconds: 10);
+
 Map<String, Object> debugSanitizedChatGptDiagnosticData(String? source) {
   if (source == null || source.isEmpty) return const {};
   try {
@@ -37,6 +40,12 @@ Map<String, Object> debugSanitizedChatGptDiagnosticData(String? source) {
   } catch (_) {
     return const {};
   }
+}
+
+bool _isEventStreamReady(RuntimeEvent event) {
+  if (event.kind != RuntimeEventKind.diagnostic) return false;
+  return debugSanitizedChatGptDiagnosticData(event.jsonData)['reason'] ==
+      _eventStreamReadyReason;
 }
 
 final class SecureChatGptAuthSnapshotStore implements ChatGptAuthSnapshotStore {
@@ -75,13 +84,42 @@ final class ChatGptNativeBootstrap {
 }
 
 final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
-  FrbChatGptRuntimeClient({required ChatGptAuthSnapshotStore snapshotStore})
-    : _snapshotStore = snapshotStore;
+  FrbChatGptRuntimeClient({
+    required ChatGptAuthSnapshotStore snapshotStore,
+    Future<void> Function()? ensureNativeLoaded,
+    Future<int> Function()? bridgeProtocolVersion,
+    Future<void> Function({
+      required BigInt clientEpoch,
+      Uint8List? authSnapshot,
+    })?
+    initializeRuntime,
+    Stream<RuntimeEvent> Function({required BigInt clientEpoch})? runtimeEvents,
+    Future<void> Function()? shutdownRuntime,
+  }) : _snapshotStore = snapshotStore,
+       _ensureNativeLoaded =
+           ensureNativeLoaded ?? ChatGptNativeBootstrap.ensureLoaded,
+       _bridgeProtocolVersion =
+           bridgeProtocolVersion ?? native.bridgeProtocolVersion,
+       _initializeRuntime = initializeRuntime ?? native.initializeRuntime,
+       _runtimeEvents = runtimeEvents ?? native.runtimeEvents,
+       _shutdownRuntime = shutdownRuntime ?? native.shutdownRuntime;
 
   final ChatGptAuthSnapshotStore _snapshotStore;
+  final Future<void> Function() _ensureNativeLoaded;
+  final Future<int> Function() _bridgeProtocolVersion;
+  final Future<void> Function({
+    required BigInt clientEpoch,
+    Uint8List? authSnapshot,
+  })
+  _initializeRuntime;
+  final Stream<RuntimeEvent> Function({required BigInt clientEpoch})
+  _runtimeEvents;
+  final Future<void> Function() _shutdownRuntime;
   final StreamController<RuntimeEvent> _events =
       StreamController<RuntimeEvent>.broadcast(sync: true);
   StreamSubscription<RuntimeEvent>? _nativeSubscription;
+  Object? _nativeSubscriptionToken;
+  Completer<void>? _eventStreamReady;
   Future<void> _nativeEventQueue = Future<void>.value();
   Future<void>? _initializing;
   Future<void>? _shuttingDown;
@@ -114,8 +152,8 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
   }
 
   Future<void> _initialize() async {
-    await ChatGptNativeBootstrap.ensureLoaded();
-    final protocol = await native.bridgeProtocolVersion();
+    await _ensureNativeLoaded();
+    final protocol = await _bridgeProtocolVersion();
     if (protocol != 3) {
       throw const BridgeError(
         kind: BridgeErrorKind.protocolMismatch,
@@ -124,34 +162,100 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
     }
     final epoch = BigInt.from(DateTime.now().microsecondsSinceEpoch);
     final snapshot = await _snapshotStore.read();
-    await native.initializeRuntime(clientEpoch: epoch, authSnapshot: snapshot);
+    await _initializeRuntime(clientEpoch: epoch, authSnapshot: snapshot);
     _clientEpoch = epoch;
-    await _nativeSubscription?.cancel();
-    _nativeSubscription = native
-        .runtimeEvents(clientEpoch: epoch)
-        .listen(
-          _enqueueNativeEvent,
-          onError: (Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'event-stream-failed',
-              scope: 'native/chatgpt',
-              data: {'errorType': error.runtimeType.toString()},
-            );
-            if (!_events.isClosed) _events.addError(error, stackTrace);
-          },
-          onDone: () {
-            if (_clientEpoch != epoch) return;
-            _nativeSubscription = null;
-            _initializing = null;
-            _clientEpoch = null;
-            DebugLogger.warning('event-stream-closed', scope: 'native/chatgpt');
-            if (!_events.isClosed) {
-              _events.addError(
-                StateError('The native ChatGPT event stream closed.'),
-              );
-            }
-          },
+    final previousSubscription = _nativeSubscription;
+    _nativeSubscription = null;
+    _nativeSubscriptionToken = null;
+    await previousSubscription?.cancel();
+    final eventStreamReady = Completer<void>();
+    _eventStreamReady = eventStreamReady;
+    final subscriptionToken = Object();
+    _nativeSubscriptionToken = subscriptionToken;
+    final nativeSubscription = _runtimeEvents(clientEpoch: epoch).listen(
+      (event) {
+        if (_clientEpoch != epoch ||
+            !identical(_nativeSubscriptionToken, subscriptionToken)) {
+          return;
+        }
+        if (_isEventStreamReady(event)) {
+          if (!eventStreamReady.isCompleted) eventStreamReady.complete();
+          return;
+        }
+        _enqueueNativeEvent(event);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_clientEpoch != epoch ||
+            !identical(_nativeSubscriptionToken, subscriptionToken)) {
+          return;
+        }
+        if (!eventStreamReady.isCompleted) {
+          eventStreamReady.completeError(error, stackTrace);
+        }
+        DebugLogger.error(
+          'event-stream-failed',
+          scope: 'native/chatgpt',
+          data: {'errorType': error.runtimeType.toString()},
         );
+        if (!_events.isClosed) _events.addError(error, stackTrace);
+      },
+      onDone: () {
+        if (_clientEpoch != epoch ||
+            !identical(_nativeSubscriptionToken, subscriptionToken)) {
+          return;
+        }
+        if (!eventStreamReady.isCompleted) {
+          eventStreamReady.completeError(
+            StateError('The native ChatGPT event stream closed before ready.'),
+          );
+          return;
+        }
+        _nativeSubscriptionToken = null;
+        _nativeSubscription = null;
+        _initializing = null;
+        _clientEpoch = null;
+        DebugLogger.warning('event-stream-closed', scope: 'native/chatgpt');
+        if (!_events.isClosed) {
+          _events.addError(
+            StateError('The native ChatGPT event stream closed.'),
+          );
+        }
+      },
+    );
+    if (identical(_nativeSubscriptionToken, subscriptionToken)) {
+      _nativeSubscription = nativeSubscription;
+    } else {
+      await nativeSubscription.cancel();
+    }
+    try {
+      await eventStreamReady.future.timeout(
+        _eventStreamReadyTimeout,
+        onTimeout: () => throw const BridgeError(
+          kind: BridgeErrorKind.internal,
+          message: 'The native ChatGPT event stream did not become ready.',
+        ),
+      );
+      if (_clientEpoch != epoch ||
+          !identical(_nativeSubscriptionToken, subscriptionToken)) {
+        throw const BridgeError(
+          kind: BridgeErrorKind.internal,
+          message: 'The native ChatGPT event stream closed during startup.',
+        );
+      }
+    } catch (_) {
+      if (_clientEpoch == epoch &&
+          identical(_nativeSubscriptionToken, subscriptionToken)) {
+        _nativeSubscriptionToken = null;
+        final failedSubscription = _nativeSubscription;
+        _nativeSubscription = null;
+        await failedSubscription?.cancel();
+      }
+      rethrow;
+    } finally {
+      if (identical(_eventStreamReady, eventStreamReady)) {
+        _eventStreamReady = null;
+      }
+    }
     DebugLogger.info(
       'runtime-ready',
       scope: 'native/chatgpt',
@@ -284,6 +388,16 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
   }
 
   Future<void> _shutdown() async {
+    final eventStreamReady = _eventStreamReady;
+    if (eventStreamReady != null && !eventStreamReady.isCompleted) {
+      eventStreamReady.completeError(
+        const BridgeError(
+          kind: BridgeErrorKind.cancellation,
+          message: 'ChatGPT runtime initialization was cancelled.',
+        ),
+        StackTrace.current,
+      );
+    }
     final initializing = _initializing;
     if (initializing != null) {
       try {
@@ -292,10 +406,12 @@ final class FrbChatGptRuntimeClient implements ChatGptRuntimeClient {
         // Initialization already reported its own failure. Cleanup still runs.
       }
     }
-    await _nativeSubscription?.cancel();
+    _nativeSubscriptionToken = null;
+    final nativeSubscription = _nativeSubscription;
     _nativeSubscription = null;
+    await nativeSubscription?.cancel();
     await _nativeEventQueue;
-    if (_clientEpoch != null) await native.shutdownRuntime();
+    if (_clientEpoch != null) await _shutdownRuntime();
     _clientEpoch = null;
     _initializing = null;
   }

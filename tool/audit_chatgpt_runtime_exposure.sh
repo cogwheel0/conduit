@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-manifest="native/chatgpt_runtime/Cargo.toml"
+manifest="${CHATGPT_AUDIT_MANIFEST:-native/chatgpt_runtime/Cargo.toml}"
 runtime="native/chatgpt_runtime/src/api/runtime.rs"
 contract="native/chatgpt_runtime/src/api/contract.rs"
 audit_cargo="${CHATGPT_AUDIT_CARGO:-cargo}"
@@ -11,8 +11,6 @@ fail() {
   echo "ChatGPT runtime exposure audit: $1" >&2
   failed=1
 }
-
-dependency_tree="$($audit_cargo tree --manifest-path "$manifest" --locked --prefix none --target all --all-features)"
 
 # Only the lower-level pinned Codex clients may be direct dependencies. Cargo's
 # transitive graph is reported for review, but accepted transitive crates do not
@@ -35,10 +33,17 @@ prohibited_direct_crates=(
   codex-shell-command
 )
 for crate in "${prohibited_direct_crates[@]}"; do
-  if grep -Eq "^$crate[[:space:]]*=" "$manifest"; then
+  if grep -Eq "^[[:space:]]*($crate|\"$crate\"|'$crate')[[:space:]]*=" "$manifest" ||
+    grep -Eq "package[[:space:]]*=[[:space:]]*['\"]$crate['\"]" "$manifest"; then
     fail "prohibited direct dependency is present: $crate"
   fi
 done
+
+if [ "$failed" -ne 0 ]; then
+  exit "$failed"
+fi
+
+dependency_tree="$($audit_cargo tree --manifest-path "$manifest" --locked --prefix none --target all --all-features)"
 
 for crate in deno_core deno_core_icudata v8; do
   if grep -Eq "^$crate v" <<<"$dependency_tree"; then

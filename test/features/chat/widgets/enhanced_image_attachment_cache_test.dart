@@ -246,6 +246,27 @@ void main() {
     ).isFalse();
   });
 
+  test('SVG byte detection accepts namespace-prefixed root elements', () {
+    check(
+      imageAttachmentBytesAreSvg(
+        Uint8List.fromList(
+          '<svg:svg xmlns:svg="http://www.w3.org/2000/svg"></svg:svg>'
+              .codeUnits,
+        ),
+      ),
+    ).isTrue();
+    for (final invalidRoot in <String>[
+      '<svg:>',
+      '<svg:script>',
+      '<svg:svgx>',
+      '<svg:svg-something>',
+    ]) {
+      check(
+        imageAttachmentBytesAreSvg(Uint8List.fromList(invalidRoot.codeUnits)),
+      ).isFalse();
+    }
+  });
+
   test('core cache deduplicates concurrent loads for the same owner', () async {
     final scope = ImageAttachmentCacheScope(
       api: null,
