@@ -5,13 +5,13 @@ import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
@@ -218,20 +218,8 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Future<void> _openExternalLink(BuildContext context, String url) async {
-    try {
-      final launched = await launchUrlString(
-        url,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!launched && context.mounted) {
-        UiUtils.showMessage(
-          context,
-          AppLocalizations.of(context)!.errorMessage,
-        );
-      }
-    } catch (_) {
-      if (!context.mounted) return;
+    final launched = await launchExternalLink(url, scope: 'profile/support');
+    if (!launched && context.mounted) {
       UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
     }
   }

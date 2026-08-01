@@ -758,10 +758,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     );
   }
 
-  void _handleVoiceCall() {
-    unawaited(
-      ref.read(voiceCallLauncherProvider).launch(startNewConversation: false),
-    );
+  Future<void> _handleVoiceCall() async {
+    try {
+      await ref
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'launch-failed',
+        scope: 'navigation/folder/voice_call',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      final message = error is StateError
+          ? error.message.toString()
+          : AppLocalizations.of(context)!.errorMessage;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   void _dismissComposerFocus() {

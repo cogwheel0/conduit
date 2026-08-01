@@ -3943,5 +3943,14 @@
   "chatGptDisconnectMessage": "このアカウントのローカルチャット、添付ファイル、生成画像、会話データ、認証情報をこのデバイスから完全に削除します。他のプロバイダーには影響しません。",
   "chatGptLoginExpired": "ワンタイムコードの有効期限が切れました。新しいコードを取得するには、最初からやり直してください。",
   "chatGptLoginDenied": "ChatGPT のサインインが拒否されました。",
-  "chatGptLoginError": "ChatGPT にサインインできませんでした。もう一度お試しください。"
+  "chatGptLoginError": "ChatGPT にサインインできませんでした。もう一度お試しください。",
+  "releaseNotesSupportPromptHeading": "Conduit を気に入っていただけましたか?",
+  "releaseNotesSupportPromptMessage": "短いレビューは、より多くの人が Conduit と出会う助けになります。小さなチップは、開発を続ける力になります。どちらも本当に励みになります。",
+  "releaseNotesTitle": "新機能",
+  "releaseNotesAnnouncementTitle": "Conduit {version} が登場",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "詳細を見る",
+  "releaseNotesReviewButton": "Conduit をレビュー",
+  "releaseNotesDoneButton": "完了",
+  "releaseNotesManualSubtitle": "{currentVersion} の同梱変更履歴"
 }

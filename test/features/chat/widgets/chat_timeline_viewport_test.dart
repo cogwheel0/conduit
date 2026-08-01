@@ -13,6 +13,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -92,6 +93,60 @@ class _MountedRowProbeState extends State<_MountedRowProbe> {
   @override
   Widget build(BuildContext context) =>
       SizedBox(height: 52, child: Text(widget.messageId));
+}
+
+class _TransformAvailability extends SingleChildRenderObjectWidget {
+  const _TransformAvailability({
+    required this.available,
+    required super.child,
+    super.key,
+  });
+
+  final bool available;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderTransformAvailability(available);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _RenderTransformAvailability renderObject,
+  ) {
+    renderObject.available = available;
+  }
+}
+
+class _RenderTransformAvailability extends RenderProxyBox {
+  _RenderTransformAvailability(this._available);
+
+  bool _available;
+  int unavailableSizeReads = 0;
+  int unavailableTransformReads = 0;
+
+  @override
+  bool get hasSize {
+    if (!_available) {
+      unavailableSizeReads += 1;
+      return false;
+    }
+    return super.hasSize;
+  }
+
+  set available(bool value) {
+    if (_available == value) return;
+    _available = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    if (!_available) {
+      unavailableTransformReads += 1;
+      throw StateError('Ancestor paint transform is not laid out');
+    }
+    super.applyPaintTransform(child, transform);
+  }
 }
 
 Future<_TrackedGesture> _startTrackedGesture(
@@ -177,6 +232,79 @@ void main() {
 
     check(controller.rowRect(anchorId)!.top).isCloseTo(before, 1);
   });
+
+  _viewportTest(
+    'route transition transform outage preserves the visible anchor',
+    (tester) async {
+      final controller = _controller(tester);
+      var ids = List<String>.generate(50, (index) => 'message-${index + 50}');
+      var transformAvailable = true;
+      final transformKey = GlobalKey();
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _TransformAvailability(
+                key: transformKey,
+                available: transformAvailable,
+                child: _viewport(
+                  controller: controller,
+                  ids: ids,
+                  maintainVisibleAnchor: true,
+                  followLatest: false,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, 420),
+        900,
+      );
+      await tester.pumpAndSettle();
+      final anchor = controller.captureTopVisibleAnchor(
+        loadedCount: ids.length,
+      );
+      check(anchor).isNotNull();
+      final anchorId = anchor!.messageId;
+      final before = controller.rowRect(anchorId)!.top;
+
+      rebuild(() {
+        transformAvailable = false;
+        ids = [
+          ...List<String>.generate(50, (index) => 'message-$index'),
+          ...ids,
+        ];
+      });
+      await tester.pump(const Duration(), EnginePhase.build);
+      final transform =
+          transformKey.currentContext!.findRenderObject()
+              as _RenderTransformAvailability;
+      check(transform.unavailableSizeReads).isGreaterThan(0);
+      check(transform.unavailableTransformReads).equals(0);
+      check(tester.takeException()).isNull();
+
+      // Let the deferred maintenance callbacks observe the unavailable
+      // geometry. Recovery must resume them once the transform is valid.
+      await tester.pump(const Duration(), EnginePhase.paint);
+      check(transform.unavailableTransformReads).equals(0);
+      check(tester.takeException()).isNull();
+
+      rebuild(() => transformAvailable = true);
+      await tester.pump();
+      await tester.pump();
+
+      check(tester.takeException()).isNull();
+      check(controller.rowRect(anchorId)!.top).isCloseTo(before, 1);
+    },
+  );
 
   _viewportTest('oldest edge reserves the toolbar content inset', (
     tester,

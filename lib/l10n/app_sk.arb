@@ -4258,5 +4258,14 @@
   "chatGptDisconnectMessage": "Týmto zo zariadenia natrvalo odstránite lokálne chaty, prílohy, vygenerované obrázky, údaje konverzácií a prihlasovacie údaje tohto účtu. Ostatní poskytovatelia zostanú zachovaní.",
   "chatGptLoginExpired": "Platnosť jednorazového kódu vypršala. Začnite znova a získajte nový kód.",
   "chatGptLoginDenied": "Prihlásenie do ChatGPT bolo zamietnuté.",
-  "chatGptLoginError": "Prihlásenie do ChatGPT sa nepodarilo dokončiť. Skúste to znova."
+  "chatGptLoginError": "Prihlásenie do ChatGPT sa nepodarilo dokončiť. Skúste to znova.",
+  "releaseNotesSupportPromptHeading": "Páči sa vám Conduit?",
+  "releaseNotesSupportPromptMessage": "Krátka recenzia pomôže viacerým ľuďom objaviť Conduit. Malé prepitné mi pomáha pokračovať vo vývoji. Oboje pre mňa veľa znamená.",
+  "releaseNotesTitle": "Novinky",
+  "releaseNotesAnnouncementTitle": "Conduit {version} je tu",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "Zistiť viac",
+  "releaseNotesReviewButton": "Ohodnotiť Conduit",
+  "releaseNotesDoneButton": "Hotovo",
+  "releaseNotesManualSubtitle": "Zabudovaný changelog pre verziu {currentVersion}"
 }

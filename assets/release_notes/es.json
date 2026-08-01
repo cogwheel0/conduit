@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "4.0.1",
+      "title": "Novedades",
+      "intro": "¡Hola! Esta es la mayor actualización desde que Conduit existe, y me hace muchísima ilusión compartirla. Tus chats ahora viven primero en tu dispositivo, y puedes usar Conduit completamente sin servidor.",
+      "bullets": [
+        {
+          "text": "Hermes Agent: conecta tu servidor, sigue sus herramientas, aprueba pasos delicados y programa agentes.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Conexiones directas: chatea con OpenAI u Ollama, como OpenRouter, LM Studio y Ollama Cloud.",
+          "icon": "direct"
+        },
+        {
+          "text": "Detalles cuidados: chats más fluidos, navegación más tranquila. ¡Gracias por estar aquí!",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

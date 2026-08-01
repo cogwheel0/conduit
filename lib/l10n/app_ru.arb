@@ -2603,5 +2603,14 @@
   "chatGptDisconnectMessage": "Локальные чаты, вложения, созданные изображения, данные диалогов и учётные данные этой записи будут навсегда удалены с устройства. Данные других провайдеров сохранятся.",
   "chatGptLoginExpired": "Срок действия одноразового кода истёк. Начните заново, чтобы получить новый код.",
   "chatGptLoginDenied": "Вход в ChatGPT отклонён.",
-  "chatGptLoginError": "Не удалось выполнить вход в ChatGPT. Повторите попытку."
+  "chatGptLoginError": "Не удалось выполнить вход в ChatGPT. Повторите попытку.",
+  "releaseNotesSupportPromptHeading": "Нравится Conduit?",
+  "releaseNotesSupportPromptMessage": "Короткий отзыв помогает большему числу людей найти Conduit. Небольшие чаевые помогают мне продолжать разработку. И то и другое очень ценно.",
+  "releaseNotesTitle": "Что нового",
+  "releaseNotesAnnouncementTitle": "Conduit {version} уже здесь",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "Подробнее",
+  "releaseNotesReviewButton": "Оценить Conduit",
+  "releaseNotesDoneButton": "Готово",
+  "releaseNotesManualSubtitle": "Встроенный список изменений для {currentVersion}"
 }

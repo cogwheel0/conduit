@@ -2603,5 +2603,14 @@
   "chatGptDisconnectMessage": "Questa operazione rimuove definitivamente da questo dispositivo le chat locali, gli allegati, le immagini generate, i dati delle conversazioni e le credenziali dell’account. Gli altri provider restano invariati.",
   "chatGptLoginExpired": "Il codice monouso è scaduto. Ricomincia per ottenere un nuovo codice.",
   "chatGptLoginDenied": "L’accesso a ChatGPT è stato negato.",
-  "chatGptLoginError": "Impossibile completare l’accesso a ChatGPT. Riprova."
+  "chatGptLoginError": "Impossibile completare l’accesso a ChatGPT. Riprova.",
+  "releaseNotesSupportPromptHeading": "Ti piace Conduit?",
+  "releaseNotesSupportPromptMessage": "Una breve recensione aiuta più persone a scoprire Conduit. Una piccola mancia mi aiuta a continuare a svilupparlo. Entrambe significano molto.",
+  "releaseNotesTitle": "Novità",
+  "releaseNotesAnnouncementTitle": "Conduit {version} è arrivato",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "Scopri di più",
+  "releaseNotesReviewButton": "Recensisci Conduit",
+  "releaseNotesDoneButton": "Fatto",
+  "releaseNotesManualSubtitle": "Changelog incluso per {currentVersion}"
 }

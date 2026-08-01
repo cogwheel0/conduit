@@ -122,6 +122,9 @@ TAG_VERSION="v$NEW_VERSION"
 print_status "New version: $NEW_VERSION"
 print_status "Tag version: $TAG_VERSION"
 
+print_status "Validating baked release notes for $NEW_VERSION..."
+dart run tool/validate_release_notes.dart --version "$NEW_VERSION"
+
 echo
 read -p "Do you want to create release $TAG_VERSION? (y/N): " -n 1 -r
 echo

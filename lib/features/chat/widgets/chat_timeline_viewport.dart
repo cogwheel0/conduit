@@ -3,7 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
+import 'package:flutter/rendering.dart'
+    show RenderBox, RenderObject, ScrollCacheExtent, ScrollDirection;
 
 import '../../../core/database/models/chat_transcript_window.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -350,6 +351,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   int? _cachedRowRectFrameStamp;
   int _rowRectFrameStamp = 0;
   bool _rowRectSnapshotInvalidationScheduled = false;
+  bool _geometryUnavailable = false;
+  bool _geometryRecoveryCallbackScheduled = false;
 
   late List<({String id, int sourceIndex})> _timelineEntries;
   late List<String> _messageIds;
@@ -423,7 +426,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
       // Capture before the new child configuration is laid out. This is the
       // exact screen coordinate that insertions and size changes must retain.
-      _freeAnchor = _captureVisibleMaintenanceAnchor();
+      final capturedAnchor = _captureVisibleMaintenanceAnchor();
+      // A route transition can temporarily detach the row or insert an
+      // unlaid-out transform above it. Keep the last valid anchor until a
+      // complete render tree is measurable again.
+      if (capturedAnchor != null) _freeAnchor = capturedAnchor;
     }
     if (messageIdsChanged) {
       _syncTimelineEntries();
@@ -644,9 +651,52 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   Rect? _globalRectFor(GlobalKey key) {
     final box = _renderBoxFor(key);
-    if (box == null) return null;
+    if (box == null || !_hasUsableGlobalTransform(box)) return null;
     final topLeft = box.localToGlobal(Offset.zero);
-    return topLeft & box.size;
+    if (!topLeft.isFinite) return null;
+    final rect = topLeft & box.size;
+    return rect.isFinite ? rect : null;
+  }
+
+  bool _hasUsableGlobalTransform(RenderBox box) {
+    final owner = box.owner;
+    if (!box.attached || owner == null || owner.rootNode == null) return false;
+
+    RenderObject? current = box;
+    while (current != null) {
+      if (!current.attached || !identical(current.owner, owner)) return false;
+      if (current is RenderBox && !current.hasSize) return false;
+      if (identical(current, owner.rootNode)) return true;
+      final parent = current.parent;
+      if (parent is! RenderObject) return false;
+      current = parent;
+    }
+    return false;
+  }
+
+  bool _hasUsableViewportGeometry() {
+    if (_viewportRect != null) return true;
+    _geometryUnavailable = true;
+    _scheduleGeometryRecoveryCallback();
+    return false;
+  }
+
+  void _scheduleGeometryRecoveryCallback() {
+    if (_geometryRecoveryCallbackScheduled) return;
+    _geometryRecoveryCallbackScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _geometryRecoveryCallbackScheduled = false;
+      if (!mounted || !_geometryUnavailable) return;
+      if (_viewportRect == null) {
+        // Observe the next naturally scheduled frame without forcing frames
+        // while this state is detached or covered by another route.
+        _scheduleGeometryRecoveryCallback();
+        return;
+      }
+      _geometryUnavailable = false;
+      _scheduleMetricsCallback();
+      _scheduleLayoutMaintenance();
+    });
   }
 
   Rect? _rowRect(String messageId) {
@@ -862,6 +912,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     binding.addPostFrameCallback((_) {
       _metricsCallbackScheduled = false;
       if (!mounted) return;
+      if (!_hasUsableViewportGeometry()) return;
       final metrics = _currentMetrics(_frameRowRectSnapshot());
       if (metrics == null) return;
       _metricsSnapshot = metrics;
@@ -879,6 +930,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     binding.addPostFrameCallback((_) {
       _layoutMaintenanceScheduled = false;
       if (!mounted || !_scrollController.hasClients) return;
+      // A route transition can leave this mounted state between render trees.
+      // Do not turn that transient measurement outage into empty geometry.
+      if (!_hasUsableViewportGeometry()) return;
       if (!_initialPositionResolved && _messageIds.isNotEmpty) {
         // Re-arm asynchronous transcript settlement even when the parent
         // republishes an identity-equal message-ID list after the empty or

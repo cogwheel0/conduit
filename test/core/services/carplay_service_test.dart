@@ -5,6 +5,9 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/carplay_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,8 +55,29 @@ void main() {
         final result = await _invokeNative('startVoiceConversation');
 
         expect(result['success'], isFalse);
-        expect(result['error'], contains('sign in'));
+        expect(result['error'], contains('Sign in'));
         expect(voice.startCalls, 0);
+      },
+    );
+
+    test(
+      'startVoiceConversation starts signed-out Hermes voice mode',
+      () async {
+        final voice = _FakeVoiceCallController();
+        final container = _buildContainer(
+          voice: voice,
+          authState: AuthNavigationState.needsLogin,
+          selectedModel: hermesSyntheticModel(),
+          hermesConfig: _usableHermesConfig,
+        );
+        addTearDown(container.dispose);
+
+        final result = await _invokeNative('startVoiceConversation');
+
+        expect(result['success'], isTrue);
+        expect(voice.startCalls, 1);
+        expect(voice.startedByStartNewConversation.single, isTrue);
+        expect(voice.admittedModels.single?.id, hermesSyntheticModel().id);
       },
     );
 
@@ -67,30 +91,142 @@ void main() {
         final result = await _invokeNative('startVoiceConversation');
 
         expect(result['success'], isFalse);
-        expect(result['error'], contains('select a model'));
+        expect(result['error'], contains('Choose a model'));
         expect(voice.startCalls, 0);
       },
     );
 
-    test('disconnect during in-flight start stops the native call', () async {
-      final startCompleter = Completer<void>();
-      final voice = _FakeVoiceCallController(startCompleter: startCompleter);
+    test(
+      'disconnect during in-flight readiness cancels native start',
+      () async {
+        final startCompleter = Completer<void>();
+        final voice = _FakeVoiceCallController(startCompleter: startCompleter);
+        final container = _buildContainer(voice: voice);
+        addTearDown(container.dispose);
+
+        final startFuture = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 1);
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        expect(disconnect['success'], isTrue);
+
+        startCompleter.complete();
+        final result = await startFuture;
+
+        expect(result['success'], isFalse);
+        expect(result['error'], contains('disconnected'));
+        expect(voice.stopCalls, 0);
+        expect(voice.startedByStartNewConversation.single, isTrue);
+      },
+    );
+
+    test(
+      'disconnect cancels eligibility readiness without waiting for timeout',
+      () async {
+        final authRead = Completer<void>();
+        final voice = _FakeVoiceCallController();
+        final container = _buildContainer(
+          voice: voice,
+          authState: AuthNavigationState.loading,
+          onAuthRead: () {
+            if (!authRead.isCompleted) authRead.complete();
+          },
+        );
+        addTearDown(container.dispose);
+
+        final startFuture = _invokeNative('startVoiceConversation');
+        await authRead.future.timeout(const Duration(seconds: 1));
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        final result = await startFuture.timeout(const Duration(seconds: 1));
+
+        expect(disconnect['success'], isTrue);
+        expect(result['success'], isFalse);
+        expect(result['error'], contains('disconnected'));
+        expect(voice.startCalls, 0);
+      },
+    );
+
+    test(
+      'overlapping starts preserve CarPlay ownership through disconnect',
+      () async {
+        final firstStart = Completer<void>();
+        final secondStart = Completer<void>();
+        final voice = _FakeVoiceCallController(
+          startCompleters: [firstStart, secondStart],
+          startResults: const [
+            ChatVoiceModeStartResult.started,
+            ChatVoiceModeStartResult.alreadyActive,
+          ],
+        );
+        final container = _buildContainer(voice: voice);
+        addTearDown(container.dispose);
+
+        final firstResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 1);
+        final secondResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 2);
+
+        firstStart.complete();
+        expect((await firstResult)['success'], isTrue);
+        secondStart.complete();
+        expect((await secondResult)['success'], isTrue);
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+
+        expect(disconnect['success'], isTrue);
+        expect(voice.stopCalls, 1);
+      },
+    );
+
+    test(
+      'disconnect stops an owned call while an overlapping start is pending',
+      () async {
+        final firstStart = Completer<void>();
+        final secondStart = Completer<void>();
+        final voice = _FakeVoiceCallController(
+          startCompleters: [firstStart, secondStart],
+          startResults: const [
+            ChatVoiceModeStartResult.started,
+            ChatVoiceModeStartResult.alreadyActive,
+          ],
+        );
+        final container = _buildContainer(voice: voice);
+        addTearDown(container.dispose);
+
+        final firstResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 1);
+        final secondResult = _invokeNative('startVoiceConversation');
+        await _until(() => voice.startCalls == 2);
+
+        firstStart.complete();
+        expect((await firstResult)['success'], isTrue);
+
+        final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+        expect(disconnect['success'], isTrue);
+        expect(voice.stopCalls, 1);
+
+        secondStart.complete();
+        final cancelledOverlap = await secondResult;
+        expect(cancelledOverlap['success'], isFalse);
+        expect(cancelledOverlap['error'], contains('disconnected'));
+        expect(voice.stopCalls, 1);
+      },
+    );
+
+    test('does not take ownership of an already-active phone call', () async {
+      final voice = _FakeVoiceCallController(
+        startResult: ChatVoiceModeStartResult.alreadyActive,
+      );
       final container = _buildContainer(voice: voice);
       addTearDown(container.dispose);
 
-      final startFuture = _invokeNative('startVoiceConversation');
-      await _until(() => voice.startCalls == 1);
-
+      final start = await _invokeNative('startVoiceConversation');
       final disconnect = await _invokeNative('carPlaySceneDidDisconnect');
+
+      expect(start['success'], isTrue);
       expect(disconnect['success'], isTrue);
-
-      startCompleter.complete();
-      final result = await startFuture;
-
-      expect(result['success'], isFalse);
-      expect(result['error'], contains('disconnected'));
-      expect(voice.stopCalls, 1);
-      expect(voice.startedByStartNewConversation.single, isTrue);
+      expect(voice.stopCalls, 0);
     });
 
     test(
@@ -144,17 +280,49 @@ ProviderContainer _buildContainer({
   required _FakeVoiceCallController voice,
   AuthNavigationState authState = AuthNavigationState.authenticated,
   Model? selectedModel = _model,
+  HermesConfig? hermesConfig,
+  VoidCallback? onAuthRead,
 }) {
   final container = ProviderContainer(
     overrides: [
       chatVoiceModeControllerProvider.overrideWith(() => voice),
-      authNavigationStateProvider.overrideWithValue(authState),
+      authNavigationStateProvider.overrideWith((ref) {
+        onAuthRead?.call();
+        return authState;
+      }),
+      reviewerModeProvider.overrideWithValue(false),
       selectedModelProvider.overrideWithValue(selectedModel),
       defaultModelProvider.overrideWith((ref) => selectedModel),
+      if (hermesConfig != null)
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(hermesConfig),
+        ),
+      if (hermesConfig != null)
+        hermesSecretsLoadingProvider.overrideWith(_SettledHermesSecrets.new),
     ],
   );
   container.read(_testCarPlayCoordinatorProvider);
   return container;
+}
+
+const _usableHermesConfig = HermesConfig(
+  enabled: true,
+  baseUrl: 'https://hermes.example/v1',
+  apiKey: 'hermes-key',
+);
+
+final class _FixedHermesConfig extends HermesConfigController {
+  _FixedHermesConfig(this._config);
+
+  final HermesConfig _config;
+
+  @override
+  HermesConfig build() => _config;
+}
+
+final class _SettledHermesSecrets extends HermesSecretsLoading {
+  @override
+  bool build() => false;
 }
 
 Future<Map<String, Object?>> _invokeNative(String method) async {
@@ -189,10 +357,19 @@ Future<void> _until(bool Function() condition) async {
 }
 
 final class _FakeVoiceCallController extends ChatVoiceModeController {
-  _FakeVoiceCallController({this.startCompleter});
+  _FakeVoiceCallController({
+    this.startCompleter,
+    this.startCompleters = const <Completer<void>>[],
+    this.startResult = ChatVoiceModeStartResult.started,
+    this.startResults = const <ChatVoiceModeStartResult>[],
+  });
 
   final Completer<void>? startCompleter;
+  final List<Completer<void>> startCompleters;
+  final ChatVoiceModeStartResult startResult;
+  final List<ChatVoiceModeStartResult> startResults;
   final startedByStartNewConversation = <bool>[];
+  final admittedModels = <Model?>[];
   int startCalls = 0;
   int stopCalls = 0;
   int pauseCalls = 0;
@@ -202,11 +379,35 @@ final class _FakeVoiceCallController extends ChatVoiceModeController {
   ChatVoiceModeSnapshot build() => const ChatVoiceModeSnapshot();
 
   @override
-  Future<void> start({required bool startNewConversation}) async {
+  Future<ChatVoiceModeStartResult> start({
+    required bool startNewConversation,
+    bool Function()? shouldStart,
+    Model? admittedModel,
+  }) async {
+    final callIndex = startCalls;
     startCalls += 1;
     startedByStartNewConversation.add(startNewConversation);
-    await startCompleter?.future;
-    state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
+    admittedModels.add(admittedModel);
+    final gate = callIndex < startCompleters.length
+        ? startCompleters[callIndex]
+        : startCompleter;
+    await gate?.future;
+    if (shouldStart != null && !shouldStart()) {
+      return ChatVoiceModeStartResult.cancelled;
+    }
+    final result = callIndex < startResults.length
+        ? startResults[callIndex]
+        : startResult;
+    if (result == ChatVoiceModeStartResult.started ||
+        result == ChatVoiceModeStartResult.alreadyActive) {
+      state = const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
+    } else if (result == ChatVoiceModeStartResult.failed) {
+      state = const ChatVoiceModeSnapshot(
+        phase: ChatVoiceModePhase.error,
+        errorMessage: 'Unable to start test voice call.',
+      );
+    }
+    return result;
   }
 
   @override

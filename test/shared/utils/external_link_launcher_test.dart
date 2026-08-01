@@ -1,5 +1,6 @@
 import 'package:conduit/shared/utils/external_link_launcher.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   group('parseAllowedExternalLink', () {
@@ -75,6 +76,32 @@ void main() {
 
     test('blocks bare hosts without a scheme', () {
       expect(parseAllowedExternalLink('example.com'), isNull);
+    });
+  });
+
+  group('defaultLaunchModeForAllowedExternalLink', () {
+    test('opens web URLs in the in-app browser by default', () {
+      expect(
+        defaultLaunchModeForAllowedExternalLink(
+          Uri.parse('https://example.com'),
+        ),
+        LaunchMode.inAppBrowserView,
+      );
+      expect(
+        defaultLaunchModeForAllowedExternalLink(
+          Uri.parse('http://192.168.1.10:3000'),
+        ),
+        LaunchMode.inAppBrowserView,
+      );
+    });
+
+    test('keeps non-web schemes external', () {
+      expect(
+        defaultLaunchModeForAllowedExternalLink(
+          Uri.parse('mailto:user@example.com'),
+        ),
+        LaunchMode.externalApplication,
+      );
     });
   });
 }

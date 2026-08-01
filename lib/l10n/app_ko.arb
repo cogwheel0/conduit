@@ -2381,5 +2381,14 @@
   "chatGptDisconnectMessage": "이 계정의 로컬 채팅, 첨부 파일, 생성된 이미지, 대화 데이터 및 자격 증명이 이 기기에서 영구적으로 삭제됩니다. 다른 제공업체는 유지됩니다.",
   "chatGptLoginExpired": "일회용 코드가 만료되었습니다. 새 코드를 받으려면 다시 시작하세요.",
   "chatGptLoginDenied": "ChatGPT 로그인이 거부되었습니다.",
-  "chatGptLoginError": "ChatGPT 로그인에 실패했습니다. 다시 시도하세요."
+  "chatGptLoginError": "ChatGPT 로그인에 실패했습니다. 다시 시도하세요.",
+  "releaseNotesSupportPromptHeading": "Conduit이 마음에 드시나요?",
+  "releaseNotesSupportPromptMessage": "짧은 리뷰는 더 많은 사람이 Conduit을 발견하는 데 도움이 됩니다. 작은 후원은 제가 계속 개발할 수 있게 합니다. 어느 쪽이든 정말 큰 힘이 됩니다.",
+  "releaseNotesTitle": "새로운 소식",
+  "releaseNotesAnnouncementTitle": "Conduit {version} 출시",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "자세히 보기",
+  "releaseNotesReviewButton": "Conduit 리뷰하기",
+  "releaseNotesDoneButton": "완료",
+  "releaseNotesManualSubtitle": "{currentVersion}용 내장 변경 기록"
 }

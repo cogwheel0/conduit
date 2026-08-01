@@ -2603,5 +2603,14 @@
   "chatGptDisconnectMessage": "Dadurch werden die lokalen Chats, Anhänge, generierten Bilder, Verlaufsdaten und Anmeldedaten dieses Kontos dauerhaft von diesem Gerät entfernt. Andere Anbieter bleiben erhalten.",
   "chatGptLoginExpired": "Der Einmalcode ist abgelaufen. Starte erneut, um einen neuen Code zu erhalten.",
   "chatGptLoginDenied": "Die ChatGPT-Anmeldung wurde abgelehnt.",
-  "chatGptLoginError": "Die ChatGPT-Anmeldung konnte nicht abgeschlossen werden. Versuche es erneut."
+  "chatGptLoginError": "Die ChatGPT-Anmeldung konnte nicht abgeschlossen werden. Versuche es erneut.",
+  "releaseNotesSupportPromptHeading": "Gefällt dir Conduit?",
+  "releaseNotesSupportPromptMessage": "Eine kurze Bewertung hilft mehr Menschen, Conduit zu finden. Ein kleines Trinkgeld hilft mir, weiter daran zu bauen. Beides bedeutet mir viel.",
+  "releaseNotesTitle": "Neuigkeiten",
+  "releaseNotesAnnouncementTitle": "Conduit {version} ist da",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "Mehr erfahren",
+  "releaseNotesReviewButton": "Conduit bewerten",
+  "releaseNotesDoneButton": "Fertig",
+  "releaseNotesManualSubtitle": "Gebündeltes Changelog für {currentVersion}"
 }

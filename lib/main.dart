@@ -34,6 +34,10 @@ import 'core/utils/current_localizations.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
+import 'features/release_notes/release_notes_bootstrap.dart';
+import 'features/release_notes/release_notes_coordinator.dart';
+import 'features/release_notes/data/release_notes_repository.dart';
+import 'features/release_notes/release_notes_presenter.dart';
 import 'features/tools/providers/tools_providers.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
@@ -49,6 +53,8 @@ const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
   defaultValue: false,
 );
+
+const _nativeSheetFollowUpDelay = Duration(milliseconds: 700);
 
 Locale? _localeFromNativeTag(String code) {
   final normalized = code.replaceAll('_', '-');
@@ -214,6 +220,7 @@ void main() {
       // Copy Hive-resident preferences into shared_preferences (PR-1 of the
       // Hive removal). Runs once; gated + crash-safe.
       await HivePrefsMigrator(hiveBoxes: hiveBoxes).migrateIfNeeded();
+      await captureReleaseNotesInstallProvenance();
       _startupTimeline?.instant('migration_complete');
 
       // Bound time-to-first-paint even if the platform call stalls. Provider
@@ -449,6 +456,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             extra: const NativeSheetNavigationOrigin(),
           ),
         );
+        return;
+      }
+
+      if (event.id == NativeSheetRoutes.releaseNotesManual) {
+        await _dismissNativeSheetBeforeFollowUp();
+        final context = NavigationService.context;
+        if (context == null || !context.mounted) return;
+        await _showManualReleaseNotes(context);
         return;
       }
 
@@ -803,6 +818,34 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     _nativeSheetDraftValues.remove('confirm-password');
   }
 
+  Future<void> _showManualReleaseNotes(BuildContext context) async {
+    final packageInfo = await ref.read(packageInfoProvider.future);
+    if (!context.mounted) return;
+
+    final allNotes = await const ReleaseNotesRepository().load(
+      Localizations.localeOf(context),
+    );
+    if (!context.mounted) return;
+    final notes = latestBundledReleaseNotesForVersion(
+      currentVersion: packageInfo.version,
+      notes: allNotes,
+    );
+    if (notes.isEmpty) return;
+
+    await showReleaseNotesSheet(
+      context: context,
+      currentVersion: packageInfo.version,
+      notes: notes,
+    );
+  }
+
+  Future<void> _dismissNativeSheetBeforeFollowUp() async {
+    await NativeSheetBridge.instance.dismiss();
+    // The platform channel returns before UIKit finishes dismissing the sheet.
+    // Presenting the next sheet inside that animation window can no-op on iOS.
+    await Future<void>.delayed(_nativeSheetFollowUpDelay);
+  }
+
   Future<void> _handleNativeTtsVoicePick(
     NativeSheetControlChanged event,
   ) async {
@@ -946,7 +989,9 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
           return Theme(
             data: materialTheme,
-            child: _KeyboardDismissOnScroll(child: safeChild),
+            child: ReleaseNotesCoordinator(
+              child: _KeyboardDismissOnScroll(child: safeChild),
+            ),
           );
         },
       ),

@@ -2603,5 +2603,14 @@
   "chatGptDisconnectMessage": "这会从此设备永久删除该账户的本地聊天、附件、生成的图片、对话数据和凭据。其他提供商的数据会保留。",
   "chatGptLoginExpired": "一次性代码已过期。请重新开始以获取新代码。",
   "chatGptLoginDenied": "ChatGPT 登录已被拒绝。",
-  "chatGptLoginError": "无法完成 ChatGPT 登录。请重试。"
+  "chatGptLoginError": "无法完成 ChatGPT 登录。请重试。",
+  "releaseNotesSupportPromptHeading": "喜欢 Conduit 吗？",
+  "releaseNotesSupportPromptMessage": "一条简短的评价能帮助更多人发现 Conduit。一点小小的打赏能支持我继续开发。无论哪一种，对我都意义重大。",
+  "releaseNotesTitle": "新变化",
+  "releaseNotesAnnouncementTitle": "Conduit {version} 来了",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "了解更多",
+  "releaseNotesReviewButton": "评价 Conduit",
+  "releaseNotesDoneButton": "完成",
+  "releaseNotesManualSubtitle": "{currentVersion} 的内置更新日志"
 }

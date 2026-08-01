@@ -4,8 +4,10 @@ import 'dart:math' as math;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 import '../theme/theme_extensions.dart';
+import '../utils/adaptive_glass.dart';
 import 'modal_safe_area.dart';
 import 'sheet_handle.dart';
 
@@ -93,6 +95,86 @@ class ThemedSheets {
       maxWidth: sheetWidth,
       minHeight: requested?.minHeight ?? 0,
       maxHeight: requested?.maxHeight ?? double.infinity,
+    );
+  }
+
+  /// Presents the iOS 26 glass sheet on iOS and the package's plain sheet
+  /// route elsewhere, with a static fallback for reduced motion.
+  static Future<T?> showAdaptive<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) {
+    final theme = context.conduitTheme;
+    final backgroundColor = theme.surfaceBackground;
+    final platform = Theme.of(context).platform;
+    final barrierLabel = MaterialLocalizations.of(
+      context,
+    ).modalBarrierDismissLabel;
+    final outline = BorderSide(
+      color: theme.dividerColor,
+      width: BorderWidth.regular,
+    );
+    final glassShape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(36)),
+      side: outline,
+    );
+    final plainShape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      side: outline,
+    );
+
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return _showTracked<T>(
+        context: context,
+        present: (coverage) => showModalBottomSheet<T>(
+          context: context,
+          useRootNavigator: true,
+          isScrollControlled: true,
+          backgroundColor: backgroundColor,
+          barrierColor: Colors.black54,
+          barrierLabel: barrierLabel,
+          shape: platform == TargetPlatform.iOS ? glassShape : plainShape,
+          clipBehavior: Clip.antiAlias,
+          sheetAnimationStyle: AnimationStyle.noAnimation,
+          builder: (sheetContext) => _SheetCoverageBoundary(
+            coverage: coverage,
+            child: Builder(builder: builder),
+          ),
+        ),
+      );
+    }
+
+    return _showTracked<T>(
+      context: context,
+      present: (coverage) {
+        Widget child = _SheetCoverageBoundary(
+          coverage: coverage,
+          child: Builder(builder: builder),
+        );
+
+        final Route<T> route;
+        if (platform == TargetPlatform.iOS) {
+          route = StupidSimpleGlassSheetRoute<T>(
+            child: child,
+            backgroundColor: backgroundColor,
+            blurBehindBarrier: false,
+            shape: glassShape,
+          );
+        } else {
+          child = SheetBackground(
+            backgroundColor: backgroundColor,
+            shape: plainShape,
+            child: child,
+          );
+          route = StupidSimpleSheetRoute<T>(
+            child: child,
+            barrierColor: Colors.black54,
+            barrierLabel: barrierLabel,
+          );
+        }
+
+        return Navigator.of(context, rootNavigator: true).push<T>(route);
+      },
     );
   }
 
@@ -298,14 +380,38 @@ class SheetCloseButton extends StatelessWidget {
       color: iconColor,
     );
 
+    if (!conduitSupportsNativeGlass()) {
+      return SizedBox.square(
+        dimension: buttonSize,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: icon,
+          padding: EdgeInsets.zero,
+          constraints: BoxConstraints.tightFor(
+            width: buttonSize,
+            height: buttonSize,
+          ),
+          style: IconButton.styleFrom(
+            minimumSize: Size.zero,
+            maximumSize: Size.square(buttonSize),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          color: iconColor,
+        ),
+      );
+    }
+
     final button = AdaptiveButton.child(
       onPressed: onPressed,
+      enabled: onPressed != null,
       style: AdaptiveButtonStyle.glass,
       size: buttonSize > 36
           ? AdaptiveButtonSize.large
           : AdaptiveButtonSize.medium,
       padding: EdgeInsets.zero,
       minSize: Size.square(buttonSize),
+      borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
       child: icon,
     );
@@ -424,6 +530,32 @@ class ConduitModalSheetSurface extends StatelessWidget {
         boxShadow: ConduitShadows.modal(context),
       ),
       child: ModalSheetSafeArea(padding: padding, child: content),
+    );
+  }
+}
+
+/// Safe content padding for adaptive sheet routes.
+///
+/// The route supplies the iOS 26 glass surface on iOS. On other platforms,
+/// [ThemedSheets.showAdaptive] wraps this content in [SheetBackground].
+class ConduitAdaptiveSheetSurface extends StatelessWidget {
+  const ConduitAdaptiveSheetSurface({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(Spacing.modalPadding),
+    this.bottomSafeArea = true,
+  });
+
+  final Widget child;
+  final EdgeInsets padding;
+  final bool bottomSafeArea;
+
+  @override
+  Widget build(BuildContext context) {
+    return ModalSheetSafeArea(
+      padding: padding,
+      bottom: bottomSafeArea,
+      child: child,
     );
   }
 }

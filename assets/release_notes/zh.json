@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "4.0.1",
+      "title": "新变化",
+      "intro": "你好！这是 Conduit 有史以来最大的一次更新，很高兴能与你分享。你的聊天现在优先保存在设备上，而且完全不需要服务器也能使用 Conduit。",
+      "bullets": [
+        {
+          "text": "Hermes Agent: 连接服务器，查看工具运行，批准敏感步骤，也可预约 Agent 稍后执行。",
+          "icon": "hermes"
+        },
+        {
+          "text": "直连: 与 OpenRouter、LM Studio、Ollama Cloud 等 OpenAI 兼容服务或 Ollama 对话。",
+          "icon": "direct"
+        },
+        {
+          "text": "贴心细节: 聊天更流畅，导航更从容。谢谢你的陪伴！",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

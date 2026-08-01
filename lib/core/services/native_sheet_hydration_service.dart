@@ -380,6 +380,11 @@ class NativeSheetHydrationService {
                 kind: NativeSheetItemKind.info,
               ),
             NativeSheetItemConfig(
+              id: NativeSheetRoutes.releaseNotesManual,
+              title: l10n.releaseNotesTitle,
+              sfSymbol: 'sparkles',
+            ),
+            NativeSheetItemConfig(
               id: 'github',
               title: l10n.githubRepository,
               subtitle: 'github.com/cogwheel0/conduit',

@@ -2603,5 +2603,14 @@
   "chatGptDisconnectMessage": "Hiermee worden de lokale chats, bijlagen, gegenereerde afbeeldingen, gespreksgegevens en inloggegevens van dit account permanent van dit apparaat verwijderd. Andere providers blijven behouden.",
   "chatGptLoginExpired": "De eenmalige code is verlopen. Begin opnieuw om een nieuwe code te ontvangen.",
   "chatGptLoginDenied": "Aanmelden bij ChatGPT is geweigerd.",
-  "chatGptLoginError": "Aanmelden bij ChatGPT kon niet worden voltooid. Probeer het opnieuw."
+  "chatGptLoginError": "Aanmelden bij ChatGPT kon niet worden voltooid. Probeer het opnieuw.",
+  "releaseNotesSupportPromptHeading": "Bevalt Conduit je?",
+  "releaseNotesSupportPromptMessage": "Een korte review helpt meer mensen Conduit te vinden. Een kleine fooi helpt me om eraan te blijven bouwen. Allebei betekenen veel.",
+  "releaseNotesTitle": "Nieuw",
+  "releaseNotesAnnouncementTitle": "Conduit {version} is er",
+  "@releaseNotesAnnouncementTitle": {"placeholders":{"version":{"type":"String"}}},
+  "releaseNotesLearnMore": "Meer informatie",
+  "releaseNotesReviewButton": "Beoordeel Conduit",
+  "releaseNotesDoneButton": "Gereed",
+  "releaseNotesManualSubtitle": "Meegeleverde changelog voor {currentVersion}"
 }

@@ -827,29 +827,6 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
       return {'success': false, 'error': 'App not ready'};
     }
 
-    // Check authentication state
-    final navState = ref.read(authNavigationStateProvider);
-    if (navState != AuthNavigationState.authenticated) {
-      DebugLogger.log(
-        'Not authenticated for voice call',
-        scope: 'app-intents/voice',
-      );
-      return {
-        'success': false,
-        'error': 'Please sign in to start a voice call',
-      };
-    }
-
-    // Check if a model is selected
-    final model = ref.read(selectedModelProvider);
-    if (model == null) {
-      DebugLogger.log(
-        'No model selected for voice call',
-        scope: 'app-intents/voice',
-      );
-      return {'success': false, 'error': 'Please select a model first'};
-    }
-
     try {
       await _startVoiceCall();
       DebugLogger.log(

@@ -445,6 +445,7 @@ class ConduitButton extends ConsumerWidget {
   final bool isFullWidth;
   final bool isCompact;
   final bool useNativeLabel;
+  final bool useNative;
 
   const ConduitButton({
     super.key,
@@ -458,6 +459,7 @@ class ConduitButton extends ConsumerWidget {
     this.isFullWidth = false,
     this.isCompact = false,
     this.useNativeLabel = false,
+    this.useNative = true,
   });
 
   @override
@@ -531,6 +533,7 @@ class ConduitButton extends ConsumerWidget {
                         AppBorderRadius.button,
                       ),
                       minSize: Size(effectiveMinWidth, height),
+                      useNative: useNative,
                     )
                   : AdaptiveButton.child(
                       onPressed: onPressed,
@@ -548,6 +551,7 @@ class ConduitButton extends ConsumerWidget {
                         AppBorderRadius.button,
                       ),
                       minSize: Size(effectiveMinWidth, height),
+                      useNative: useNative,
                       child: isLoading
                           ? Semantics(
                               label:
