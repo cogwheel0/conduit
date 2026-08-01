@@ -3,8 +3,7 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -35,11 +34,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        // Generate JVM bytecode targeting Java 17
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
             create("release") {
@@ -67,6 +61,13 @@ android {
             // signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Generate JVM bytecode targeting Java 17.
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 

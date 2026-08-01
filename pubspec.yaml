@@ -39,7 +39,7 @@ dependencies:
   pdfrx: ^2.4.7
   archive: ^4.0.9
   xml: ^7.0.1
-  flutter_inappwebview: ^6.1.5
+  flutter_inappwebview: ^6.2.0-beta.3
   flutter_svg: ^2.3.0
   # Native Mermaid renderer. These unpublished workspace packages are pinned
   # as submodules under third_party/.
