@@ -22,7 +22,7 @@ use codex_login::{
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::models::{
     ContentItem, FunctionCallOutputContentItem, FunctionCallOutputPayload, ImageDetail,
-    MessagePhase, ResponseItem,
+    MessagePhase, ReasoningItemContent, ReasoningItemReasoningSummary, ResponseItem,
 };
 use codex_protocol::openai_models::{
     InputModality, ModelInfo as CodexModelInfo, ModelVisibility, ReasoningEffort,
@@ -66,6 +66,8 @@ const IMAGE_MODEL: &str = "gpt-image-2";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const CONTEXT_WINDOW_MESSAGE: &str = "the conversation is too long";
 const GENERAL_CHAT_INSTRUCTIONS: &str = "You are ChatGPT inside Conduit, a general-purpose chat client. Answer the user's request directly. You have no shell, filesystem, workspace, patching, approval, MCP, or coding-agent capabilities. Use web search and image generation only when those tools are present. Never claim to have used a tool that was not provided.";
+const PROVIDER_ANNOTATION_START: char = '\u{e200}';
+const PROVIDER_ANNOTATION_END: char = '\u{e201}';
 
 static RUNTIME: LazyLock<Mutex<Option<Arc<RuntimeHandle>>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LIFECYCLE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -176,6 +178,69 @@ struct QueuedRun {
 enum TurnExecutionError {
     ContextWindowExceeded,
     Bridge(BridgeError),
+}
+
+#[derive(Default)]
+#[frb(ignore)]
+struct ProviderAnnotationFilter {
+    inside_annotation: bool,
+}
+
+impl ProviderAnnotationFilter {
+    fn push(&mut self, delta: String) -> String {
+        if !self.inside_annotation && !delta.contains(PROVIDER_ANNOTATION_START) {
+            return delta;
+        }
+        if self.inside_annotation && !delta.contains(PROVIDER_ANNOTATION_END) {
+            return String::new();
+        }
+
+        let mut visible = String::with_capacity(delta.len());
+        for character in delta.chars() {
+            if self.inside_annotation {
+                if character == PROVIDER_ANNOTATION_END {
+                    self.inside_annotation = false;
+                }
+            } else if character == PROVIDER_ANNOTATION_START {
+                self.inside_annotation = true;
+            } else {
+                visible.push(character);
+            }
+        }
+        visible
+    }
+
+    fn finish_response(&mut self) {
+        self.inside_annotation = false;
+    }
+}
+
+fn strip_provider_annotations_from_item(item: &mut ResponseItem) {
+    let mut filter = ProviderAnnotationFilter::default();
+    match item {
+        ResponseItem::Message { content, .. } => {
+            for part in content {
+                if let ContentItem::OutputText { text } = part {
+                    *text = filter.push(std::mem::take(text));
+                }
+            }
+        }
+        ResponseItem::Reasoning {
+            summary, content, ..
+        } => {
+            for ReasoningItemReasoningSummary::SummaryText { text } in summary {
+                *text = filter.push(std::mem::take(text));
+            }
+            for part in content.iter_mut().flatten() {
+                let text = match part {
+                    ReasoningItemContent::ReasoningText { text }
+                    | ReasoningItemContent::Text { text } => text,
+                };
+                *text = filter.push(std::mem::take(text));
+            }
+        }
+        _ => {}
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -833,6 +898,9 @@ async fn execute_turn(
     let wire_config = response_wire_config(runtime, &request.model_id).await?;
     let policy_hash = tool_policy_hash(request.enable_web_search, request.enable_image_generation);
     let mut conversation = restored_items.unwrap_or_default();
+    for item in &mut conversation {
+        strip_provider_annotations_from_item(item);
+    }
     conversation.extend(encode_messages(&request.messages)?);
     let through_message_id = request
         .messages
@@ -926,6 +994,8 @@ async fn execute_response_loop(
     let mut total_tools = 0usize;
     let mut image_tools = 0usize;
     let mut tools_enabled = request.enable_web_search || request.enable_image_generation;
+    let mut text_annotation_filter = ProviderAnnotationFilter::default();
+    let mut reasoning_annotation_filter = ProviderAnnotationFilter::default();
     let response_operation = if wire_config.use_responses_lite {
         "responsesLite"
     } else {
@@ -1009,15 +1079,22 @@ async fn execute_response_loop(
                     let Some(next) = next else { break; };
                     match next {
                         Ok(ResponseEvent::OutputTextDelta(delta)) => {
-                            visible_output.store(true, Ordering::Relaxed);
-                            coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::TextDelta, delta, &mut pending).await;
+                            let delta = text_annotation_filter.push(delta);
+                            if !delta.is_empty() {
+                                visible_output.store(true, Ordering::Relaxed);
+                                coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::TextDelta, delta, &mut pending).await;
+                            }
                         }
                         Ok(ResponseEvent::ReasoningSummaryDelta { delta, .. }) => {
-                            visible_output.store(true, Ordering::Relaxed);
-                            coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::ReasoningDelta, delta, &mut pending).await;
+                            let delta = reasoning_annotation_filter.push(delta);
+                            if !delta.is_empty() {
+                                visible_output.store(true, Ordering::Relaxed);
+                                coalesce_delta(runtime, run_id, &request.session_id, RuntimeEventKind::ReasoningDelta, delta, &mut pending).await;
+                            }
                         }
-                        Ok(ResponseEvent::OutputItemDone(item)) => {
+                        Ok(ResponseEvent::OutputItemDone(mut item)) => {
                             flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                            strip_provider_annotations_from_item(&mut item);
                             match &item {
                                 ResponseItem::FunctionCall { .. } => tool_calls.push(item.clone()),
                                 ResponseItem::Message { .. } | ResponseItem::Reasoning { .. } => output_items.push(item),
@@ -1041,6 +1118,8 @@ async fn execute_response_loop(
                         }
                         Ok(ResponseEvent::Completed { token_usage, .. }) => {
                             flush_pending(runtime, run_id, &request.session_id, &mut pending).await;
+                            text_annotation_filter.finish_response();
+                            reasoning_annotation_filter.finish_response();
                             if let Some(usage) = token_usage {
                                 runtime.hub.emit(
                                     run_event(RuntimeEventKind::Usage, run_id, &request.session_id)
@@ -1803,14 +1882,16 @@ fn encode_messages(messages: &[TurnMessage]) -> Result<Vec<ResponseItem>, Bridge
         if content.is_empty() {
             continue;
         }
-        output.push(ResponseItem::Message {
+        let mut item = ResponseItem::Message {
             id: None,
             role: role.to_string(),
             content,
             phase: (message.role == TurnMessageRole::Assistant)
                 .then_some(MessagePhase::FinalAnswer),
             internal_chat_message_metadata_passthrough: None,
-        });
+        };
+        strip_provider_annotations_from_item(&mut item);
+        output.push(item);
     }
     if output.is_empty() {
         return Err(BridgeError::new(
@@ -3173,6 +3254,133 @@ mod tests {
             &mut pending,
             RuntimeEventKind::TextDelta,
             "overflow"
+        ));
+    }
+
+    #[test]
+    fn provider_citation_annotations_never_reach_visible_text() {
+        let mut filter = ProviderAnnotationFilter::default();
+
+        assert_eq!(
+            filter.push("The official page is OpenAI. \u{e200}ci".to_string()),
+            "The official page is OpenAI. "
+        );
+        assert_eq!(
+            filter.push("te\u{e202}turn0search0\u{e202}turn0".to_string()),
+            ""
+        );
+        assert_eq!(filter.push("search1\u{e201}".to_string()), "");
+        assert_eq!(filter.push(" More text.".to_string()), " More text.");
+    }
+
+    #[test]
+    fn completed_items_strip_annotations_across_content_parts() {
+        let mut item = ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![
+                ContentItem::OutputText {
+                    text: "Before \u{e200}ci".to_string(),
+                },
+                ContentItem::OutputText {
+                    text: "te\u{e202}turn0search0\u{e201} after".to_string(),
+                },
+            ],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        };
+
+        strip_provider_annotations_from_item(&mut item);
+
+        let ResponseItem::Message { content, .. } = item else {
+            panic!("expected message");
+        };
+        assert_eq!(
+            content,
+            vec![
+                ContentItem::OutputText {
+                    text: "Before ".to_string(),
+                },
+                ContentItem::OutputText {
+                    text: " after".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn completed_reasoning_items_strip_annotations_across_fields() {
+        let mut item = ResponseItem::Reasoning {
+            id: None,
+            summary: vec![ReasoningItemReasoningSummary::SummaryText {
+                text: "Visible summary \u{e200}ci".to_string(),
+            }],
+            content: Some(vec![
+                ReasoningItemContent::ReasoningText {
+                    text: "te\u{e202}turn0search0\u{e201} visible reasoning".to_string(),
+                },
+                ReasoningItemContent::Text {
+                    text: " remains".to_string(),
+                },
+            ]),
+            encrypted_content: None,
+            internal_chat_message_metadata_passthrough: None,
+        };
+
+        strip_provider_annotations_from_item(&mut item);
+
+        let ResponseItem::Reasoning {
+            summary, content, ..
+        } = item
+        else {
+            panic!("expected reasoning");
+        };
+        assert_eq!(
+            summary,
+            vec![ReasoningItemReasoningSummary::SummaryText {
+                text: "Visible summary ".to_string(),
+            }]
+        );
+        assert_eq!(
+            content,
+            Some(vec![
+                ReasoningItemContent::ReasoningText {
+                    text: " visible reasoning".to_string(),
+                },
+                ReasoningItemContent::Text {
+                    text: " remains".to_string(),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn assistant_replay_strips_annotations_across_input_parts() {
+        let part = |text: &str| TurnInputPart {
+            kind: "text".to_string(),
+            text: Some(text.to_string()),
+            filename: None,
+            mime_type: None,
+            bytes: None,
+        };
+        let messages = [TurnMessage {
+            role: TurnMessageRole::Assistant,
+            message_id: Some("assistant-1".to_string()),
+            parts: vec![
+                part("Before \u{e200}ci"),
+                part("te\u{e202}turn0search0\u{e201} after"),
+            ],
+        }];
+
+        let encoded = encode_messages(&messages).expect("encode assistant replay");
+
+        assert!(matches!(
+            encoded.as_slice(),
+            [ResponseItem::Message { content, .. }]
+                if content == &vec![
+                    ContentItem::OutputText { text: "Before ".to_string() },
+                    ContentItem::OutputText { text: " after".to_string() },
+                ]
         ));
     }
 
