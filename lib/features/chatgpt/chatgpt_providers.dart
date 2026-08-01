@@ -172,12 +172,15 @@ class ChatGptConnectionController
 
   Future<void> _disconnectAndDeleteAccountData() async {
     final auth = state.value?.auth ?? await _client.authState();
-    final fingerprint =
-        auth.accountFingerprint ??
-        PreferencesStore.getString(PreferenceKeys.chatGptAccountFingerprint);
+    final fingerprint = _disconnectAccountFingerprint(auth);
+    if (fingerprint == null) {
+      throw StateError(
+        'ChatGPT account ownership could not be verified for disconnect.',
+      );
+    }
     await PreferencesStore.putChecked(
       PreferenceKeys.chatGptDisconnectTombstone,
-      fingerprint ?? 'pending',
+      fingerprint,
     );
     await _client.disconnectAccount();
     await _client.shutdown();
@@ -189,17 +192,34 @@ class ChatGptConnectionController
       PreferenceKeys.chatGptDisconnectTombstone,
     );
     if (tombstone == null) return;
-    await _finishDisconnectCleanup(tombstone == 'pending' ? null : tombstone);
+    final scopedFingerprint = _validatedAccountFingerprint(tombstone);
+    if (scopedFingerprint != null) {
+      await _finishDisconnectCleanup(scopedFingerprint);
+      return;
+    }
+
+    DebugLogger.warning(
+      'disconnect-cleanup-owner-recovery-required',
+      scope: 'auth/chatgpt',
+    );
+    await _client.initialize();
+    final recoveredFingerprint = _disconnectAccountFingerprint(
+      await _client.authState(),
+    );
+    if (recoveredFingerprint == null) return;
+    await PreferencesStore.putChecked(
+      PreferenceKeys.chatGptDisconnectTombstone,
+      recoveredFingerprint,
+    );
+    await _client.disconnectAccount();
+    await _client.shutdown();
+    await _finishDisconnectCleanup(recoveredFingerprint);
   }
 
-  Future<void> _finishDisconnectCleanup(String? accountFingerprint) async {
-    if (accountFingerprint != null) {
-      await ref
-          .read(chatGptThreadBindingStoreProvider)
-          .deleteAccountChats(accountFingerprint);
-    } else {
-      await ref.read(chatGptThreadBindingStoreProvider).deleteAllChats();
-    }
+  Future<void> _finishDisconnectCleanup(String accountFingerprint) async {
+    await ref
+        .read(chatGptThreadBindingStoreProvider)
+        .deleteAccountChats(accountFingerprint);
     final secureStorage = SecureCredentialStorage(
       instance: ref.read(secureStorageProvider),
     );
@@ -245,6 +265,31 @@ class ChatGptConnectionController
     } catch (_) {
       return const {};
     }
+  }
+
+  static String? _validatedAccountFingerprint(String? value) {
+    final fingerprint = value?.trim();
+    if (fingerprint == null ||
+        fingerprint.length != 32 ||
+        fingerprint.codeUnits.any(
+          (codeUnit) =>
+              !((codeUnit >= 0x30 && codeUnit <= 0x39) ||
+                  (codeUnit >= 0x61 && codeUnit <= 0x66)),
+        )) {
+      return null;
+    }
+    return fingerprint;
+  }
+
+  static String? _disconnectAccountFingerprint(AuthStateInfo auth) {
+    final liveFingerprint = _validatedAccountFingerprint(
+      auth.accountFingerprint,
+    );
+    if (auth.authenticated) return liveFingerprint;
+    return liveFingerprint ??
+        _validatedAccountFingerprint(
+          PreferencesStore.getString(PreferenceKeys.chatGptAccountFingerprint),
+        );
   }
 }
 

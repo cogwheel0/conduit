@@ -90,25 +90,4 @@ class DirectThreadBindingsDao extends DatabaseAccessor<AppDatabase>
       return deleted;
     });
   }
-
-  /// Deletes every chat carrying a ChatGPT transport ownership binding. This is
-  /// used only to resume a single-account disconnect whose non-secret
-  /// fingerprint tombstone could not be written before termination.
-  Future<int> deleteAllBoundChats() async {
-    return transaction(() async {
-      final bindings = await select(directThreadBindings).get();
-      final candidateChatIds = bindings
-          .map((binding) => binding.localChatId)
-          .toSet();
-      await delete(directThreadBindings).go();
-
-      var deleted = 0;
-      for (final chatId in candidateChatIds) {
-        deleted += await (delete(
-          chats,
-        )..where((table) => table.id.equals(chatId))).go();
-      }
-      return deleted;
-    });
-  }
 }

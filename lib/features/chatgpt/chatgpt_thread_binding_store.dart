@@ -80,7 +80,6 @@ abstract interface class ChatGptThreadBindingStore {
     String headMessageId,
   );
   Future<int> deleteAccountChats(String accountFingerprint);
-  Future<int> deleteAllChats();
 }
 
 final class DriftChatGptThreadBindingStore
@@ -149,10 +148,6 @@ final class DriftChatGptThreadBindingStore
   @override
   Future<int> deleteAccountChats(String accountFingerprint) =>
       _database.directThreadBindingsDao.deleteAccountChats(accountFingerprint);
-
-  @override
-  Future<int> deleteAllChats() =>
-      _database.directThreadBindingsDao.deleteAllBoundChats();
 
   static ChatGptThreadBinding _fromRow(DirectThreadBindingRow row) =>
       ChatGptThreadBinding(
@@ -243,15 +238,6 @@ final class MemoryChatGptThreadBindingStore
       (chatId) =>
           _bindings.values.any((binding) => binding.localChatId == chatId),
     );
-    return chatIds.length;
-  }
-
-  @override
-  Future<int> deleteAllChats() async {
-    final chatIds = _bindings.values
-        .map((binding) => binding.localChatId)
-        .toSet();
-    _bindings.clear();
     return chatIds.length;
   }
 }

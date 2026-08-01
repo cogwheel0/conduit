@@ -106,34 +106,6 @@ void main() {
       ).isNotNull();
     },
   );
-
-  test('fallback cleanup deletes every bound chat', () async {
-    await _insertChat(db, 'owned-a');
-    await _insertChat(db, 'owned-b');
-    await _insertChat(db, 'unrelated');
-    for (final entry in <(String, String)>[
-      ('owned-a', 'account-a'),
-      ('owned-b', 'account-b'),
-    ]) {
-      await db.directThreadBindingsDao.putBinding(
-        DirectThreadBindingsCompanion.insert(
-          localChatId: entry.$1,
-          profileId: 'chatgpt-account',
-          headMessageId: 'head-${entry.$1}',
-          transportSessionId: 'session-${entry.$1}',
-          modelId: 'gpt-test',
-          accountFingerprint: entry.$2,
-          createdAt: 1,
-          updatedAt: 1,
-        ),
-      );
-    }
-
-    check(await db.directThreadBindingsDao.deleteAllBoundChats()).equals(2);
-    check(await db.chatsDao.getChat('owned-a')).isNull();
-    check(await db.chatsDao.getChat('owned-b')).isNull();
-    check(await db.chatsDao.getChat('unrelated')).isNotNull();
-  });
 }
 
 Future<void> _insertChat(AppDatabase db, String id) => db
