@@ -164,7 +164,7 @@ class ThemedSheets {
           child = SheetBackground(
             backgroundColor: backgroundColor,
             shape: plainShape,
-            child: child,
+            child: Material(type: MaterialType.transparency, child: child),
           );
           route = StupidSimpleSheetRoute<T>(
             child: child,

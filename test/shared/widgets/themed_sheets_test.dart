@@ -79,6 +79,12 @@ void main() {
     final route = ModalRoute.of(tester.element(find.text('Adaptive content')));
     expect(route, isA<StupidSimpleSheetRoute<void>>());
     expect(find.byType(SheetBackground), findsOneWidget);
+    final contentContext = tester.element(find.text('Adaptive content'));
+    expect(
+      DefaultTextStyle.of(contentContext).style.decoration,
+      TextDecoration.none,
+      reason: 'The package popup route must not leak WidgetsApp debug text.',
+    );
   });
 
   for (final entry in <TargetPlatform, double>{

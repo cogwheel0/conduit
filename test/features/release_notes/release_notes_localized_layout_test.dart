@@ -76,7 +76,7 @@ void main() {
                       0,
                     ),
                     child: ReleaseNotesSheet(
-                      currentVersion: '4.0.1',
+                      currentVersion: '4.0.2',
                       notes: notes,
                       onReview: _noop,
                       onOpenSupport: _noop,

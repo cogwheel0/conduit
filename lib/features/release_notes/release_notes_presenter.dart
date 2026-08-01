@@ -2,9 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/services/native_sheet_bridge.dart';
-import '../../core/utils/debug_logger.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/utils/external_link_launcher.dart';
@@ -15,34 +14,20 @@ import 'models/release_note.dart';
 import 'models/release_version.dart';
 import 'widgets/release_notes_sheet.dart';
 
-typedef NativeReviewRequester = Future<bool> Function();
 typedef ReviewUrlLauncher = Future<bool> Function(String url);
 
 Future<void> requestReleaseNotesReview({
   TargetPlatform? platform,
-  NativeReviewRequester? requestNativeReview,
   ReviewUrlLauncher? launchReviewUrl,
 }) async {
   final resolvedPlatform = platform ?? defaultTargetPlatform;
   final urlLauncher =
       launchReviewUrl ??
-      (url) => launchInAppBrowserLink(url, scope: 'release-notes/review');
-
-  if (resolvedPlatform == TargetPlatform.iOS) {
-    try {
-      final requested =
-          await (requestNativeReview ??
-              NativeSheetBridge.instance.requestAppStoreReview)();
-      if (requested) return;
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'native-review-request-failed',
+      (url) => launchExternalLink(
+        url,
         scope: 'release-notes/review',
-        error: error,
-        stackTrace: stackTrace,
+        mode: LaunchMode.externalApplication,
       );
-    }
-  }
 
   await urlLauncher(reviewUrlForPlatform(resolvedPlatform));
 }
