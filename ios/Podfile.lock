@@ -20,10 +20,10 @@ PODS:
   - flutter_inappwebview_ios (0.0.1):
     - Flutter
     - flutter_inappwebview_ios/Core (= 0.0.1)
-    - OrderedSet (~> 6.0.3)
+    - swift-collections (~> 1.1.1)
   - flutter_inappwebview_ios/Core (0.0.1):
     - Flutter
-    - OrderedSet (~> 6.0.3)
+    - swift-collections (~> 1.1.1)
   - flutter_local_notifications (0.0.1):
     - Flutter
   - flutter_secure_storage_darwin (10.0.0):
@@ -40,6 +40,7 @@ PODS:
     - Flutter
   - image_picker_ios (0.0.1):
     - Flutter
+  - InternalCollectionsUtilities (1.1.1)
   - just_audio (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -60,7 +61,6 @@ PODS:
     - onnxruntime-objc/Core (= 1.22.0)
   - onnxruntime-objc/Core (1.22.0):
     - onnxruntime-c (= 1.22.0)
-  - OrderedSet (6.0.3)
   - package_info_plus (0.4.5):
     - Flutter
   - pdfium_flutter (0.1.5):
@@ -86,6 +86,22 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
+  - swift-collections (1.1.1):
+    - swift-collections/BitCollections (= 1.1.1)
+    - swift-collections/DequeModule (= 1.1.1)
+    - swift-collections/HashTreeCollections (= 1.1.1)
+    - swift-collections/HeapModule (= 1.1.1)
+    - swift-collections/OrderedCollections (= 1.1.1)
+  - swift-collections/BitCollections (1.1.1):
+    - InternalCollectionsUtilities (= 1.1.1)
+  - swift-collections/DequeModule (1.1.1):
+    - InternalCollectionsUtilities (= 1.1.1)
+  - swift-collections/HashTreeCollections (1.1.1):
+    - InternalCollectionsUtilities (= 1.1.1)
+  - swift-collections/HeapModule (1.1.1):
+    - InternalCollectionsUtilities (= 1.1.1)
+  - swift-collections/OrderedCollections (1.1.1):
+    - InternalCollectionsUtilities (= 1.1.1)
   - url_launcher_ios (0.0.1):
     - Flutter
   - vad (0.0.6):
@@ -130,12 +146,13 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - CryptoSwift
+    - InternalCollectionsUtilities
     - libwebp
     - onnxruntime-c
     - onnxruntime-objc
-    - OrderedSet
     - SDWebImage
     - SDWebImageWebPCoder
+    - swift-collections
 
 EXTERNAL SOURCES:
   adaptive_platform_ui:
@@ -196,41 +213,42 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/webview_flutter_wkwebview/darwin"
 
 SPEC CHECKSUMS:
-  adaptive_platform_ui: cd3c5a2997126f138a1e7f12e8376d3ca3fdbfad
-  audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
-  connectivity_plus: cb623214f4e1f6ef8fe7403d580fdad517d2f7dd
+  adaptive_platform_ui: 76b089c653197e733139d9774b97a90e50275cbe
+  audio_session: 19e9480dbdd4e5f6c4543826b2e8b0e4ab6145fe
+  connectivity_plus: 2a701ffec2c0ae28a48cf7540e279787e77c447d
   CryptoSwift: e64e11850ede528a02a0f3e768cec8e9d92ecb90
-  file_picker: 70164d9778c42c47218d6cd79ce435de0856b11a
+  file_picker: e81e2d2db6261a4e98febeae383bd2173ba8b396
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_callkit_incoming: a143995975818a3717524decd3566d5ca7a8c608
-  flutter_image_compress_common: 11d5dcfb36f4ded92320bfa896261813a073240e
-  flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
-  flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
-  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
-  flutter_sharing_intent: 0c1e53949f09fa8df8ac2268505687bde8ff264c
-  gaimon: 1979ed07cdcfd0bf0d208f255f550936a196cf5a
-  geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
-  home_widget: 54b4f6b36ed8d64cfee594a476225c35c3e45091
-  image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
-  just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
+  flutter_callkit_incoming: 139fb358c785e109854158086fd399aa64d77891
+  flutter_image_compress_common: d1d827ee42025290fc9e3203ece582e4c74182ed
+  flutter_inappwebview_ios: 4ba92d0d329027e39735ff0c5d5dc8bd4d1ada99
+  flutter_local_notifications: eda81afddbf18f8589f6ec069ce593c4c6378769
+  flutter_secure_storage_darwin: 557817588b80e60213cbecb573c45c76b788018d
+  flutter_sharing_intent: ea3bb5ac2838e6700a5a8506804c08a78a1ef316
+  gaimon: d47cb3bc6226329cf6c6730c0d2e8062f05d1527
+  geolocator_apple: 66b711889fd333205763b83c9dcf0a57a28c7afd
+  home_widget: fdbbfaa90f06f3022cb57f79678d4d58b9c5e140
+  image_picker_ios: 4f2f91b01abdb52842a8e277617df877e40f905b
+  InternalCollectionsUtilities: af3f471602c4a67cbcb0bee0a80f6f55a33ae453
+  just_audio: a42c63806f16995daf5b219ae1d679deb76e6a79
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
   onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
-  OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
-  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
-  pdfium_flutter: e5a6e881af0b182d5b0465ebad23a8a20caa28d4
-  permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
-  quick_actions_ios: 500fcc11711d9f646739093395c4ae8eec25f779
-  record_ios: 980fd386a97a35987d0fce3dfda4b26a38c90f4c
+  package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
+  pdfium_flutter: 814416ae1e24618fc80353aacbf17c7229373559
+  permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed
+  quick_actions_ios: b49ed09d6362da1bf520dacc204661978a8fc5c2
+  record_ios: 3b171007ae5de51221a3a76d2b379a7105ca98b5
   SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
-  share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
-  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
-  sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
-  vad: 7934867589afe53567f492df66fb1615f2185822
-  wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
-  webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
+  share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
+  shared_preferences_foundation: 5086985c1d43c5ba4d5e69a4e8083a389e2909e6
+  sqflite_darwin: 5a7236e3b501866c1c9befc6771dfd73ffb8702d
+  swift-collections: ba248ecaf44ef500b27d5cf94d304218c89892ff
+  url_launcher_ios: bb13df5870e8c4234ca12609d04010a21be43dfa
+  vad: adfd9a29558d39cffd94fead982ceb8347b6fb86
+  wakelock_plus: 76957ab028e12bfa4e66813c99e46637f367fc7e
+  webview_flutter_wkwebview: 29eb20d43355b48fe7d07113835b9128f84e3af4
 
 PODFILE CHECKSUM: 1bed8b2262b594f89f58bee2826557447173bc56
 
