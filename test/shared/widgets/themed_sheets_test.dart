@@ -19,6 +19,7 @@ void main() {
       check(kConduitNativeToolbarSymbolExtent).equals(17);
       check(kConduitNativeUtilitySymbolExtent).equals(17);
       check(kConduitNativePrimarySymbolExtent).equals(17);
+      check(kConduitNativeModelChevronExtent).equals(13);
       check(
         kConduitNativeToolbarSymbolExtent,
       ).equals(kConduitNativeUtilitySymbolExtent);

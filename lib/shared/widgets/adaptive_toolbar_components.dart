@@ -20,11 +20,12 @@ const double kConduitMaximumSystemControlScale = 1.5;
 const double kConduitNativeToolbarSymbolExtent = 17;
 const double kConduitNativeUtilitySymbolExtent = 17;
 const double kConduitNativePrimarySymbolExtent = 17;
+const double kConduitNativeModelChevronExtent = 13;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
 const double _kConduitNativeModelChevronPadding = 6;
 const double _kConduitNativeModelChevronReservedWidth =
-    kConduitNativeToolbarSymbolExtent + _kConduitNativeModelChevronPadding;
+    kConduitNativeModelChevronExtent + _kConduitNativeModelChevronPadding;
 // Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
 // a small optical guard instead of letting UIButton wrap at the measured edge.
 const double _kConduitNativeModelTitleWrapGuard = 8;
@@ -758,7 +759,7 @@ class _ConduitNativeModelSelectorButtonState
       creationParams: <String, Object?>{
         'label': widget.label,
         'symbolName': widget.symbolName,
-        'symbolSize': kConduitNativeToolbarSymbolExtent,
+        'symbolSize': kConduitNativeModelChevronExtent,
         'symbolPadding': _kConduitNativeModelChevronPadding,
         'foregroundColor': widget.foregroundColor.toARGB32(),
         'enabled': widget.enabled,

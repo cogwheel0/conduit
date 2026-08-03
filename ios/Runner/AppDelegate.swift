@@ -2295,7 +2295,7 @@ private final class ConduitNativeModelSelectorButtonView:
     let values = arguments as? [String: Any]
     let label = values?["label"] as? String ?? ""
     let symbolName = values?["symbolName"] as? String
-    let symbolSize = (values?["symbolSize"] as? NSNumber)?.doubleValue ?? 17
+    let symbolSize = (values?["symbolSize"] as? NSNumber)?.doubleValue ?? 13
     let symbolPadding =
       (values?["symbolPadding"] as? NSNumber)?.doubleValue ?? 6
     let enabled = (values?["enabled"] as? NSNumber)?.boolValue ?? true
