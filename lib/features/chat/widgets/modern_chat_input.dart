@@ -70,61 +70,12 @@ import 'prompt_suggestion_overlay.dart';
 bool composerCursorOpacityAnimates({required bool usesNativePlatformView}) =>
     !usesNativePlatformView;
 
-/// Suppresses the remaining discrete caret blink while the selection menu is
-/// visible over an iOS 26 platform view.
+/// Whether the composer should delegate its edit menu to UIKit.
 @visibleForTesting
-bool composerShowsCursor({
-  required bool usesNativePlatformView,
-  required bool selectionMenuVisible,
-}) => !usesNativePlatformView || !selectionMenuVisible;
-
-/// Reports the lifetime of the Flutter-rendered composer selection menu.
-@visibleForTesting
-Widget buildComposerSelectionMenuLifecycle({
-  required Widget child,
-  required ValueChanged<bool> onVisibilityChanged,
-}) => _ComposerSelectionMenuLifecycle(
-  onVisibilityChanged: onVisibilityChanged,
-  child: child,
-);
-
-class _ComposerSelectionMenuLifecycle extends StatefulWidget {
-  const _ComposerSelectionMenuLifecycle({
-    required this.child,
-    required this.onVisibilityChanged,
-  });
-
-  final Widget child;
-  final ValueChanged<bool> onVisibilityChanged;
-
-  @override
-  State<_ComposerSelectionMenuLifecycle> createState() =>
-      _ComposerSelectionMenuLifecycleState();
-}
-
-class _ComposerSelectionMenuLifecycleState
-    extends State<_ComposerSelectionMenuLifecycle> {
-  void _scheduleVisibility(bool visible) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.onVisibilityChanged(visible);
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _scheduleVisibility(true);
-  }
-
-  @override
-  void dispose() {
-    _scheduleVisibility(false);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
-}
+bool composerUsesNativeSystemSelectionMenu({
+  required bool isIOS,
+  required bool systemMenuSupported,
+}) => isIOS && systemMenuSupported;
 
 /// Whether the selected model may accept locally pasted/picked images.
 /// Reserved direct identities fail closed when their mutable registry binding
@@ -394,7 +345,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   final MentionTextEditingController _controller =
       MentionTextEditingController();
   final FocusNode _focusNode = FocusNode();
-  final ValueNotifier<bool> _selectionMenuVisible = ValueNotifier<bool>(false);
   late final String _generatedInsertionTargetId =
       'modern-chat-input-${_nextGeneratedInsertionTargetId++}';
   String get _composerTextInsertionTargetId =>
@@ -555,7 +505,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
     _controller.dispose();
     _focusNode.dispose();
-    _selectionMenuVisible.dispose();
     _pendingFocus = false;
     _voiceStreamSubscription?.cancel();
     if (!kIsWeb && Platform.isIOS) {
@@ -843,10 +792,69 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     BuildContext context,
     EditableTextState editableTextState,
   ) {
-    // iOS 26 can assert when Flutter tries to show overlapping system edit
-    // menus while focus is changing. Use the Flutter-rendered toolbar until
-    // the platform SystemContextMenu path is reliable again.
+    final useSystemMenu = composerUsesNativeSystemSelectionMenu(
+      isIOS: !kIsWeb && Platform.isIOS,
+      systemMenuSupported: SystemContextMenu.isSupportedByField(
+        editableTextState,
+      ),
+    );
+    if (useSystemMenu) {
+      return SystemContextMenu.editableText(
+        editableTextState: editableTextState,
+        items: _buildIosSystemContextMenuItems(editableTextState),
+      );
+    }
+
     return _buildFallbackContextMenu(context, editableTextState);
+  }
+
+  List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
+    EditableTextState editableTextState,
+  ) {
+    final items = List<IOSSystemContextMenuItem>.from(
+      SystemContextMenu.getDefaultItems(editableTextState),
+    );
+
+    if (widget.onPastedAttachments != null &&
+        _selectedModelAcceptsImageInput &&
+        !items.any((item) => item is IOSSystemContextMenuItemPaste)) {
+      final insertionIndex = items.indexWhere(
+        (item) =>
+            item is IOSSystemContextMenuItemSelectAll ||
+            item is IOSSystemContextMenuItemLookUp ||
+            item is IOSSystemContextMenuItemSearchWeb ||
+            item is IOSSystemContextMenuItemShare ||
+            item is IOSSystemContextMenuItemLiveText,
+      );
+      const pasteItem = IOSSystemContextMenuItemPaste();
+      if (insertionIndex >= 0) {
+        items.insert(insertionIndex, pasteItem);
+      } else {
+        items.add(pasteItem);
+      }
+    }
+
+    final selectedText = selectedTextFromEditableTextState(editableTextState);
+    if (selectedText != null &&
+        selectedText.trim().isNotEmpty &&
+        _composerTextInsertionTargetId.isNotEmpty) {
+      items.add(
+        IOSSystemContextMenuItemCustom(
+          title: 'Ask Conduit',
+          onPressed: () {
+            editableTextState.hideToolbar(false);
+            ref
+                .read(composerTextInsertionProvider.notifier)
+                .insert(
+                  targetId: _composerTextInsertionTargetId,
+                  text: selectedText,
+                );
+          },
+        ),
+      );
+    }
+
+    return items;
   }
 
   /// Builds a Flutter-rendered fallback text editing menu.
@@ -858,20 +866,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       editableTextState,
     );
-    return buildComposerSelectionMenuLifecycle(
-      onVisibilityChanged: _handleSelectionMenuVisibilityChanged,
-      child: AdaptiveTextSelectionToolbar.buttonItems(
-        anchors: editableTextState.contextMenuAnchors,
-        buttonItems: buttonItems,
-      ),
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: buttonItems,
     );
-  }
-
-  void _handleSelectionMenuVisibilityChanged(bool visible) {
-    if (!mounted || _selectionMenuVisible.value == visible) {
-      return;
-    }
-    _selectionMenuVisible.value = visible;
   }
 
   List<ContextMenuButtonItem> _buildFallbackContextMenuItems(
@@ -3518,68 +3516,53 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // by keyboard shortcuts (Enter key) instead.
               if (!kIsWeb && Platform.isIOS) {
                 final usesNativePlatformView = conduitSupportsNativeGlass();
-                return ValueListenableBuilder<bool>(
-                  valueListenable: _selectionMenuVisible,
-                  builder: (context, selectionMenuVisible, _) =>
-                      CupertinoTextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        placeholder: inputPlaceholder,
-                        placeholderStyle: baseChatStyle.copyWith(
-                          color: animatedPlaceholder,
-                        ),
-                        enabled: widget.enabled,
-                        autofocus: false,
-                        minLines: 1,
-                        maxLines: null,
-                        textAlignVertical: TextAlignVertical.center,
-                        keyboardType: TextInputType.multiline,
-                        textCapitalization: TextCapitalization.sentences,
-                        textInputAction: TextInputAction.newline,
-                        autofillHints: const <String>[],
-                        showCursor: composerShowsCursor(
-                          usesNativePlatformView: usesNativePlatformView,
-                          selectionMenuVisible: selectionMenuVisible,
-                        ),
-                        cursorOpacityAnimates: composerCursorOpacityAnimates(
-                          usesNativePlatformView: usesNativePlatformView,
-                        ),
-                        cursorColor: Theme.of(
-                          context,
-                        ).textSelectionTheme.cursorColor,
-                        scrollPadding: const EdgeInsets.only(bottom: 80),
-                        keyboardAppearance: brightness,
-                        style: baseChatStyle.copyWith(color: animatedTextColor),
-                        contentInsertionConfiguration:
-                            _selectedModelAcceptsImageInput
-                            ? ContentInsertionConfiguration(
-                                allowedMimeTypes: ClipboardAttachmentService
-                                    .supportedImageMimeTypes
-                                    .toList(),
-                                onContentInserted: _handleContentInserted,
-                              )
-                            : null,
-                        // Transparent decoration, the glass container provides
-                        // the visual frame.
-                        decoration: const BoxDecoration(),
-                        padding: contentPadding,
-                        contextMenuBuilder: (context, editableTextState) {
-                          return _buildIosContextMenu(
-                            context,
-                            editableTextState,
-                          );
-                        },
-                        onSubmitted: (_) {},
-                        onTap: () {
-                          if (!widget.enabled) return;
-                          unawaited(
-                            _hideAttachmentPanels(
-                              restoreFallbackKeyboard: true,
-                            ),
-                          );
-                          _ensureFocusedIfEnabled();
-                        },
-                      ),
+                return CupertinoTextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  placeholder: inputPlaceholder,
+                  placeholderStyle: baseChatStyle.copyWith(
+                    color: animatedPlaceholder,
+                  ),
+                  enabled: widget.enabled,
+                  autofocus: false,
+                  minLines: 1,
+                  maxLines: null,
+                  textAlignVertical: TextAlignVertical.center,
+                  keyboardType: TextInputType.multiline,
+                  textCapitalization: TextCapitalization.sentences,
+                  textInputAction: TextInputAction.newline,
+                  autofillHints: const <String>[],
+                  showCursor: true,
+                  cursorOpacityAnimates: composerCursorOpacityAnimates(
+                    usesNativePlatformView: usesNativePlatformView,
+                  ),
+                  cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
+                  scrollPadding: const EdgeInsets.only(bottom: 80),
+                  keyboardAppearance: brightness,
+                  style: baseChatStyle.copyWith(color: animatedTextColor),
+                  contentInsertionConfiguration: _selectedModelAcceptsImageInput
+                      ? ContentInsertionConfiguration(
+                          allowedMimeTypes: ClipboardAttachmentService
+                              .supportedImageMimeTypes
+                              .toList(),
+                          onContentInserted: _handleContentInserted,
+                        )
+                      : null,
+                  // Transparent decoration, the glass container provides
+                  // the visual frame.
+                  decoration: const BoxDecoration(),
+                  padding: contentPadding,
+                  contextMenuBuilder: (context, editableTextState) {
+                    return _buildIosContextMenu(context, editableTextState);
+                  },
+                  onSubmitted: (_) {},
+                  onTap: () {
+                    if (!widget.enabled) return;
+                    unawaited(
+                      _hideAttachmentPanels(restoreFallbackKeyboard: true),
+                    );
+                    _ensureFocusedIfEnabled();
+                  },
                 );
               }
               return TextField(

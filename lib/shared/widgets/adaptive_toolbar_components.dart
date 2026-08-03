@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show Factory;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
@@ -18,6 +19,7 @@ const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitMaximumSystemControlScale = 1.5;
 const double kConduitNativeToolbarSymbolExtent = 17;
+const double kConduitNativeGroupedToolbarSymbolExtent = 20;
 const double kConduitNativeUtilitySymbolExtent = 17;
 const double kConduitNativePrimarySymbolExtent = 17;
 const double kConduitNativeModelChevronExtent = 13;
@@ -582,6 +584,173 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
                 color: effectiveIconColor,
               ),
             ),
+    );
+  }
+}
+
+/// One native iOS toolbar menu item shown from a grouped trailing action.
+class ConduitNativeToolbarMenuItem {
+  const ConduitNativeToolbarMenuItem({
+    required this.label,
+    required this.onSelected,
+    this.iosSymbol,
+    this.isDestructive = false,
+    this.isChecked = false,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String? iosSymbol;
+  final VoidCallback onSelected;
+  final bool isDestructive;
+  final bool isChecked;
+  final bool enabled;
+}
+
+/// One action in an iOS 26 toolbar group.
+class ConduitNativeToolbarAction {
+  const ConduitNativeToolbarAction({
+    required this.iosSymbol,
+    required this.accessibilityLabel,
+    this.onPressed,
+    this.menuItems = const <ConduitNativeToolbarMenuItem>[],
+    this.tintColor,
+    this.enabled = true,
+  }) : assert(onPressed != null || menuItems.length > 0 || !enabled);
+
+  final String iosSymbol;
+  final String accessibilityLabel;
+  final VoidCallback? onPressed;
+  final List<ConduitNativeToolbarMenuItem> menuItems;
+  final Color? tintColor;
+  final bool enabled;
+}
+
+/// Serializes native toolbar actions without leaking their Dart callbacks.
+List<Map<String, Object?>> encodeConduitNativeToolbarActions(
+  List<ConduitNativeToolbarAction> actions,
+) => [
+  for (final action in actions)
+    <String, Object?>{
+      'iosSymbol': action.iosSymbol,
+      'accessibilityLabel': action.accessibilityLabel,
+      'enabled': action.enabled,
+      if (action.tintColor != null) 'tintColor': action.tintColor!.toARGB32(),
+      if (action.menuItems.isNotEmpty)
+        'menuItems': <Map<String, Object?>>[
+          for (final item in action.menuItems)
+            <String, Object?>{
+              'label': item.label,
+              if (item.iosSymbol != null) 'iosSymbol': item.iosSymbol,
+              'isDestructive': item.isDestructive,
+              'isChecked': item.isChecked,
+              'enabled': item.enabled,
+            },
+        ],
+    },
+];
+
+/// Builds the native creation payload with navigation-bar optical sizing.
+Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
+  List<ConduitNativeToolbarAction> actions,
+) => <String, Object?>{
+  'actions': encodeConduitNativeToolbarActions(actions),
+  'symbolSize': kConduitNativeGroupedToolbarSymbolExtent,
+};
+
+/// A single native toolbar surface whose adjacent items share Liquid Glass.
+///
+/// This is intentionally used only for the two-action iOS 26 trailing group.
+/// Other action counts and platforms keep their existing Flutter controls.
+class ConduitNativeToolbarActionGroup extends StatefulWidget {
+  const ConduitNativeToolbarActionGroup({super.key, required this.actions})
+    : assert(actions.length == 2);
+
+  final List<ConduitNativeToolbarAction> actions;
+
+  @override
+  State<ConduitNativeToolbarActionGroup> createState() =>
+      _ConduitNativeToolbarActionGroupState();
+}
+
+class _ConduitNativeToolbarActionGroupState
+    extends State<ConduitNativeToolbarActionGroup> {
+  MethodChannel? _channel;
+
+  Object get _configurationKey => Object.hashAll([
+    for (final action in widget.actions) ...[
+      action.iosSymbol,
+      action.accessibilityLabel,
+      action.enabled,
+      action.tintColor?.toARGB32(),
+      for (final item in action.menuItems) ...[
+        item.label,
+        item.iosSymbol,
+        item.isDestructive,
+        item.isChecked,
+        item.enabled,
+      ],
+    ],
+  ]);
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  Future<void> _handleMethodCall(MethodCall call) async {
+    final arguments = call.arguments;
+    if (arguments is! Map<Object?, Object?>) return;
+    final actionIndex = arguments['actionIndex'];
+    if (actionIndex is! int ||
+        actionIndex < 0 ||
+        actionIndex >= widget.actions.length) {
+      return;
+    }
+
+    final action = widget.actions[actionIndex];
+    switch (call.method) {
+      case 'actionTapped':
+        action.onPressed?.call();
+      case 'menuItemSelected':
+        final itemIndex = arguments['itemIndex'];
+        if (itemIndex is int &&
+            itemIndex >= 0 &&
+            itemIndex < action.menuItems.length) {
+          action.menuItems[itemIndex].onSelected();
+        }
+    }
+  }
+
+  void _onPlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    _channel = MethodChannel(
+      'app.cogwheel.conduit/native_toolbar_action_group_$id',
+    )..setMethodCallHandler(_handleMethodCall);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controlExtent = conduitScaledControlExtent(context);
+    final width = (controlExtent * widget.actions.length) + Spacing.sm;
+    final size = Size(width, controlExtent);
+
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: size,
+      child: SizedBox.fromSize(
+        size: size,
+        child: UiKitView(
+          key: ValueKey<Object>(_configurationKey),
+          viewType: 'app.cogwheel.conduit/native_toolbar_action_group',
+          creationParams: encodeConduitNativeToolbarActionGroupParams(
+            widget.actions,
+          ),
+          creationParamsCodec: const StandardMessageCodec(),
+          onPlatformViewCreated: _onPlatformViewCreated,
+          hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+        ),
+      ),
     );
   }
 }

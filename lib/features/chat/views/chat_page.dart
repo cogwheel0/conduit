@@ -96,6 +96,16 @@ Widget _buildArchivedAssistantPlaceholder({Key? key}) =>
 Widget debugBuildArchivedAssistantPlaceholderForTesting({Key? key}) =>
     _buildArchivedAssistantPlaceholder(key: key);
 
+class _ChatToolbarActionDescriptor {
+  const _ChatToolbarActionDescriptor({
+    required this.widget,
+    required this.nativeAction,
+  });
+
+  final Widget widget;
+  final ConduitNativeToolbarAction nativeAction;
+}
+
 @visibleForTesting
 Widget debugBuildChatEmptyStateViewportForTesting({
   required EdgeInsetsGeometry padding,
@@ -3549,13 +3559,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       maxModelWidth: maxModelWidth,
       showModelDropdown: showModelDropdown,
     );
-    final actions = _buildAdaptiveToolbarActionWidgets(
+    final actionDescriptors = _buildAdaptiveToolbarActions(
       context: context,
       activeConversation: activeConversation,
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       showNewChatAction: showNewChatAction,
     );
+    final actionWidgets = buildConduitAdaptiveToolbarActionWidgets([
+      for (final action in actionDescriptors) action.widget,
+    ]);
+    final useNativeActionGroup =
+        Platform.isIOS &&
+        conduitSupportsNativeGlass() &&
+        actionDescriptors.length == 2;
+    final cupertinoTrailing = useNativeActionGroup
+        ? ConduitNativeToolbarActionGroup(
+            actions: [
+              for (final action in actionDescriptors) action.nativeAction,
+            ],
+          )
+        : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);
     final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
@@ -3567,7 +3591,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       child: leading,
     );
     final scaledActions = [
-      for (final action in actions)
+      for (final action in actionWidgets)
         ConduitSystemTextScaling(textScaler: textScaler, child: action),
     ];
 
@@ -3577,7 +3601,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
         textScaler: textScaler,
         leading: leading,
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        trailing: cupertinoTrailing,
         systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
@@ -3611,7 +3635,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ConduitAdaptiveAppBarIconButton(
           key: const ValueKey('chat-sidebar-toggle'),
           icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          iosSymbolSize: kConduitNativeToolbarSymbolExtent,
+          iosSymbol: 'sidebar.left',
+          iosSymbolSize: kConduitNativeGroupedToolbarSymbolExtent,
           onPressed: () => _toggleResponsiveDrawer(context),
           iconColor: context.conduitTheme.textPrimary,
         ),
@@ -3627,17 +3652,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  List<Widget> _buildAdaptiveToolbarActionWidgets({
+  List<_ChatToolbarActionDescriptor> _buildAdaptiveToolbarActions({
     required BuildContext context,
     required Conversation? activeConversation,
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
   }) {
-    final actions = <Widget>[];
+    final actions = <_ChatToolbarActionDescriptor>[];
     final defaultTint = context.conduitTheme.textPrimary;
 
     final temporaryAction = _buildTemporaryChatToolbarAction(
+      context: context,
       activeConversation: activeConversation,
       isTemporary: isTemporary,
       hasMessages: hasMessages,
@@ -3649,16 +3675,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (showNewChatAction) {
       actions.add(
-        ConduitAdaptiveAppBarIconButton(
+        _buildChatToolbarIconAction(
           icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
-          iosSymbolSize: kConduitNativeToolbarSymbolExtent,
-          iconColor: defaultTint,
+          accessibilityLabel: AppLocalizations.of(context)!.newChat,
+          tintColor: defaultTint,
           onPressed: _handleNewChat,
         ),
       );
     }
 
-    final overflowButton = _buildChatToolbarOverflowButton(
+    final overflowButton = _buildChatToolbarOverflowAction(
       context: context,
       activeConversation: activeConversation,
       tintColor: defaultTint,
@@ -3667,10 +3693,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       actions.add(overflowButton);
     }
 
-    return buildConduitAdaptiveToolbarActionWidgets(actions);
+    return actions;
   }
 
-  Widget? _buildTemporaryChatToolbarAction({
+  _ChatToolbarActionDescriptor _buildChatToolbarIconAction({
+    required IconData icon,
+    required String accessibilityLabel,
+    required Color tintColor,
+    required VoidCallback? onPressed,
+  }) {
+    final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
+    assert(iosSymbol != null);
+    return _ChatToolbarActionDescriptor(
+      widget: ConduitAdaptiveAppBarIconButton(
+        icon: icon,
+        iosSymbol: iosSymbol,
+        iosSymbolSize: kConduitNativeToolbarSymbolExtent,
+        iconColor: tintColor,
+        onPressed: onPressed,
+      ),
+      nativeAction: ConduitNativeToolbarAction(
+        iosSymbol: iosSymbol!,
+        accessibilityLabel: accessibilityLabel,
+        tintColor: tintColor,
+        enabled: onPressed != null,
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  _ChatToolbarActionDescriptor? _buildTemporaryChatToolbarAction({
+    required BuildContext context,
     required Conversation? activeConversation,
     required bool isTemporary,
     required bool hasMessages,
@@ -3683,20 +3736,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     if (isTemporary && hasMessages && activeConversation != null) {
-      return ConduitAdaptiveAppBarIconButton(
+      return _buildChatToolbarIconAction(
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
-        iosSymbolSize: kConduitNativeToolbarSymbolExtent,
-        iconColor: tintColor,
+        accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
+        tintColor: tintColor,
         onPressed: _isSavingTemporary ? null : _saveTemporaryChat,
       );
     }
 
-    return ConduitAdaptiveAppBarIconButton(
+    return _buildChatToolbarIconAction(
       icon: isTemporary
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-      iosSymbolSize: kConduitNativeToolbarSymbolExtent,
-      iconColor: isTemporary ? Colors.blue : tintColor,
+      accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
+      tintColor: isTemporary ? Colors.blue : tintColor,
       onPressed: () {
         ConduitHaptics.selectionClick();
         final current = ref.read(temporaryChatEnabledProvider);
@@ -3705,23 +3758,39 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  Widget? _buildChatToolbarOverflowButton({
+  _ChatToolbarActionDescriptor? _buildChatToolbarOverflowAction({
     required BuildContext context,
     required Conversation? activeConversation,
     required Color tintColor,
   }) {
     final items = <AdaptivePopupMenuEntry>[];
     final callbacks = <Future<void> Function()>[];
+    final nativeItems = <ConduitNativeToolbarMenuItem>[];
 
     void addItem({
       required String label,
       required Object icon,
+      String? iosSymbol,
+      bool isDestructive = false,
       required Future<void> Function() onSelected,
     }) {
       final index = callbacks.length;
       callbacks.add(onSelected);
       items.add(
-        AdaptivePopupMenuItem<int>(value: index, label: label, icon: icon),
+        AdaptivePopupMenuItem<int>(
+          value: index,
+          label: label,
+          icon: icon,
+          isDestructive: isDestructive,
+        ),
+      );
+      nativeItems.add(
+        ConduitNativeToolbarMenuItem(
+          label: label,
+          iosSymbol: iosSymbol,
+          isDestructive: isDestructive,
+          onSelected: () => unawaited(onSelected()),
+        ),
       );
     }
 
@@ -3737,6 +3806,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       addItem(
         label: action.label,
         icon: _chatToolbarConversationActionIcon(action),
+        iosSymbol: action.sfSymbol,
+        isDestructive: action.destructive,
         onSelected: () async {
           action.onBeforeClose?.call();
           await action.onSelected();
@@ -3748,16 +3819,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return null;
     }
 
-    return ConduitAdaptiveToolbarOverflowButton<int>(
-      tintColor: tintColor,
-      materialIcon: Icons.more_vert,
-      items: items,
-      onSelected: (index) {
-        if (index < 0 || index >= callbacks.length) {
-          return;
-        }
-        unawaited(callbacks[index]());
-      },
+    return _ChatToolbarActionDescriptor(
+      widget: ConduitAdaptiveToolbarOverflowButton<int>(
+        tintColor: tintColor,
+        materialIcon: Icons.more_vert,
+        items: items,
+        onSelected: (index) {
+          if (index < 0 || index >= callbacks.length) {
+            return;
+          }
+          unawaited(callbacks[index]());
+        },
+      ),
+      nativeAction: ConduitNativeToolbarAction(
+        iosSymbol: 'ellipsis',
+        accessibilityLabel: AppLocalizations.of(context)!.more,
+        tintColor: tintColor,
+        menuItems: nativeItems,
+      ),
     );
   }
 

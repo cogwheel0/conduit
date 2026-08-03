@@ -2318,9 +2318,12 @@ private final class ConduitNativeModelSelectorButtonView:
     configuration.baseForegroundColor = foreground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 8,
-      leading: 16,
+      // The downward chevron's trailing side bearing reads wider than its
+      // leading edge. Shift the content group one point right optically while
+      // preserving the 32-point inset budget used by Dart's width resolver.
+      leading: 17,
       bottom: 8,
-      trailing: 16
+      trailing: 15
     )
     configuration.imagePlacement = .trailing
     configuration.imagePadding = symbolPadding
@@ -2352,6 +2355,175 @@ private final class ConduitNativeModelSelectorButtonView:
 
   @objc private func handlePress() {
     channel.invokeMethod("pressed", arguments: nil)
+  }
+
+  private static func color(fromARGB number: NSNumber?) -> UIColor? {
+    guard let number else { return nil }
+    let value = number.uint32Value
+    return UIColor(
+      red: CGFloat((value >> 16) & 0xff) / 255,
+      green: CGFloat((value >> 8) & 0xff) / 255,
+      blue: CGFloat(value & 0xff) / 255,
+      alpha: CGFloat((value >> 24) & 0xff) / 255
+    )
+  }
+}
+
+private final class ConduitNativeToolbarActionGroupFactory:
+  NSObject, FlutterPlatformViewFactory
+{
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    ConduitNativeToolbarActionGroupView(
+      frame: frame,
+      viewId: viewId,
+      arguments: args,
+      messenger: messenger
+    )
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class ConduitNativeToolbarActionGroupView:
+  NSObject, FlutterPlatformView
+{
+  private let container: UIView
+  private let toolbar: UIToolbar
+  private let channel: FlutterMethodChannel
+
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    arguments: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    container = UIView(frame: frame)
+    toolbar = UIToolbar(frame: frame)
+    channel = FlutterMethodChannel(
+      name: "app.cogwheel.conduit/native_toolbar_action_group_\(viewId)",
+      binaryMessenger: messenger
+    )
+    super.init()
+
+    container.backgroundColor = .clear
+    container.clipsToBounds = false
+    toolbar.translatesAutoresizingMaskIntoConstraints = false
+    toolbar.clipsToBounds = false
+
+    let appearance = UIToolbarAppearance()
+    appearance.configureWithTransparentBackground()
+    toolbar.standardAppearance = appearance
+    if #available(iOS 15.0, *) {
+      toolbar.scrollEdgeAppearance = appearance
+    }
+
+    let values = arguments as? [String: Any]
+    let actions = values?["actions"] as? [[String: Any]] ?? []
+    let symbolSize =
+      (values?["symbolSize"] as? NSNumber)?.doubleValue ?? 20
+    let items = actions.enumerated().compactMap { index, action in
+      Self.makeBarButtonItem(
+        action,
+        actionIndex: index,
+        symbolSize: symbolSize,
+        channel: channel
+      )
+    }
+    toolbar.items = [.flexibleSpace()] + items + [.flexibleSpace()]
+
+    container.addSubview(toolbar)
+    NSLayoutConstraint.activate([
+      toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      toolbar.topAnchor.constraint(equalTo: container.topAnchor),
+      toolbar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+  }
+
+  func view() -> UIView { container }
+
+  private static func makeBarButtonItem(
+    _ action: [String: Any],
+    actionIndex: Int,
+    symbolSize: Double,
+    channel: FlutterMethodChannel
+  ) -> UIBarButtonItem? {
+    guard let symbolName = action["iosSymbol"] as? String,
+          let image = UIImage(systemName: symbolName)?
+            .applyingSymbolConfiguration(
+              UIImage.SymbolConfiguration(
+                pointSize: symbolSize,
+                weight: .regular
+              )
+            ) else {
+      return nil
+    }
+
+    let menuValues = action["menuItems"] as? [[String: Any]] ?? []
+    let menu = menuValues.isEmpty ? nil : UIMenu(
+      children: menuValues.enumerated().map { itemIndex, item in
+        var attributes: UIMenuElement.Attributes = []
+        if item["isDestructive"] as? Bool == true {
+          attributes.insert(.destructive)
+        }
+        if item["enabled"] as? Bool == false {
+          attributes.insert(.disabled)
+        }
+        let state: UIMenuElement.State =
+          item["isChecked"] as? Bool == true ? .on : .off
+        let itemImage = (item["iosSymbol"] as? String).flatMap {
+          UIImage(systemName: $0)
+        }
+        return UIAction(
+          title: item["label"] as? String ?? "",
+          image: itemImage,
+          attributes: attributes,
+          state: state
+        ) { _ in
+          channel.invokeMethod(
+            "menuItemSelected",
+            arguments: [
+              "actionIndex": actionIndex,
+              "itemIndex": itemIndex,
+            ]
+          )
+        }
+      }
+    )
+
+    let primaryAction: UIAction? = menu == nil
+      ? UIAction { _ in
+          channel.invokeMethod(
+            "actionTapped",
+            arguments: ["actionIndex": actionIndex]
+          )
+        }
+      : nil
+    let item = UIBarButtonItem(
+      image: image,
+      primaryAction: primaryAction,
+      menu: menu
+    )
+    item.accessibilityLabel = action["accessibilityLabel"] as? String
+    item.isEnabled = action["enabled"] as? Bool ?? true
+    item.tintColor = color(fromARGB: action["tintColor"] as? NSNumber)
+    if #available(iOS 26.0, *) {
+      item.sharesBackground = true
+    }
+    return item
   }
 
   private static func color(fromARGB number: NSNumber?) -> UIColor? {
@@ -2493,6 +2665,16 @@ private final class ConduitNativeModelSelectorButtonView:
         withId: "app.cogwheel.conduit/native_model_selector_button"
       )
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "ConduitNativeToolbarActionGroup"
+    ) {
+      registrar.register(
+        ConduitNativeToolbarActionGroupFactory(
+          messenger: registrar.messenger()
+        ),
+        withId: "app.cogwheel.conduit/native_toolbar_action_group"
+      )
+    }
     configureApplicationFlutterChannels(
       messenger: engineBridge.applicationRegistrar.messenger()
     )
@@ -2552,6 +2734,16 @@ private final class ConduitNativeModelSelectorButtonView:
           messenger: registrar.messenger()
         ),
         withId: "app.cogwheel.conduit/native_model_selector_button"
+      )
+    }
+    if let registrar = engine.registrar(
+      forPlugin: "ConduitNativeToolbarActionGroup"
+    ) {
+      registrar.register(
+        ConduitNativeToolbarActionGroupFactory(
+          messenger: registrar.messenger()
+        ),
+        withId: "app.cogwheel.conduit/native_toolbar_action_group"
       )
     }
     configureApplicationFlutterChannels(messenger: engine.binaryMessenger)

@@ -13,6 +13,7 @@ import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:checks/checks.dart';
@@ -30,48 +31,64 @@ void main() {
     ).equals(true);
   });
 
-  test('native composer hides the blinking caret under its selection menu', () {
+  test('iOS composer uses the native system edit menu when supported', () {
     check(
-      composerShowsCursor(
-        usesNativePlatformView: true,
-        selectionMenuVisible: true,
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: true,
+        systemMenuSupported: true,
+      ),
+    ).isTrue();
+    check(
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: true,
+        systemMenuSupported: false,
       ),
     ).isFalse();
     check(
-      composerShowsCursor(
-        usesNativePlatformView: true,
-        selectionMenuVisible: false,
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: false,
+        systemMenuSupported: true,
       ),
-    ).isTrue();
-    check(
-      composerShowsCursor(
-        usesNativePlatformView: false,
-        selectionMenuVisible: true,
-      ),
-    ).isTrue();
+    ).isFalse();
   });
 
-  testWidgets('composer selection menu reports mount and removal', (
-    tester,
-  ) async {
-    final visibility = <bool>[];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: buildComposerSelectionMenuLifecycle(
-          onVisibilityChanged: visibility.add,
-          child: const SizedBox.shrink(),
-        ),
+  test('native toolbar action groups preserve action and menu order', () {
+    final actions = [
+      ConduitNativeToolbarAction(
+        iosSymbol: 'square.and.pencil',
+        accessibilityLabel: 'New Chat',
+        onPressed: () {},
       ),
-    );
-    await tester.pump();
+      ConduitNativeToolbarAction(
+        iosSymbol: 'ellipsis',
+        accessibilityLabel: 'More',
+        menuItems: [
+          ConduitNativeToolbarMenuItem(
+            label: 'Rename',
+            iosSymbol: 'pencil',
+            onSelected: () {},
+          ),
+          ConduitNativeToolbarMenuItem(
+            label: 'Delete',
+            iosSymbol: 'trash',
+            isDestructive: true,
+            onSelected: () {},
+          ),
+        ],
+      ),
+    ];
+    final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
+    final params = creationParams['actions']! as List<Map<String, Object?>>;
 
-    check(visibility).deepEquals(<bool>[true]);
-
-    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
-    await tester.pump();
-
-    check(visibility).deepEquals(<bool>[true, false]);
+    check(creationParams['symbolSize']).equals(20.0);
+    check(params.length).equals(2);
+    check(params[0]['iosSymbol']).equals('square.and.pencil');
+    check(params[1]['iosSymbol']).equals('ellipsis');
+    final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
+    check(
+      menuItems.map((item) => item['label']),
+    ).deepEquals(['Rename', 'Delete']);
+    check(menuItems[1]['isDestructive']).equals(true);
   });
 
   test('composer measurement style matches recording typography', () {
