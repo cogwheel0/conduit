@@ -770,7 +770,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
             // Only reserve chevron space when a chevron is actually rendered.
             trailingWidth: showChevron ? chevronSize + Spacing.xs : 0,
           );
-    final child = SizedBox(
+    Widget buildFallbackChild() => SizedBox(
       width: targetWidth,
       child: ConstrainedBox(
         constraints: BoxConstraints(minHeight: controlExtent),
@@ -820,7 +820,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       return FloatingAppBarButton(
         onTap: (isLoading || !showChevron) ? null : onPressed,
         semanticLabel: label,
-        child: child,
+        child: buildFallbackChild(),
       );
     }
 
@@ -859,7 +859,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
               padding: EdgeInsets.zero,
               minSize: Size(targetWidth, controlExtent),
               useSmoothRectangleBorder: false,
-              child: child,
+              child: buildFallbackChild(),
             ),
     );
   }
