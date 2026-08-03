@@ -2,6 +2,8 @@ import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,10 +22,12 @@ const double kConduitNativeUtilitySymbolExtent = 17;
 const double kConduitNativePrimarySymbolExtent = 17;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
+const double _kConduitNativeModelChevronPadding = 6;
+const double _kConduitNativeModelChevronReservedWidth =
+    kConduitNativeToolbarSymbolExtent + _kConduitNativeModelChevronPadding;
 // Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
 // a small optical guard instead of letting UIButton wrap at the measured edge.
 const double _kConduitNativeModelTitleWrapGuard = 8;
-const String _kConduitNativeModelChevronSuffix = '  ⌄';
 const TextStyle _kConduitNativeModelTitleStyle = TextStyle(
   fontSize: 17,
   fontWeight: FontWeight.w600,
@@ -637,6 +641,9 @@ String _middleEllipsizeConduitNativeModelTitle({
 String _normalizedConduitNativeModelLabel(String label) =>
     label.replaceAll(RegExp(r'\s+'), ' ').trim();
 
+String? conduitNativeModelSelectorSymbol({required bool showChevron}) =>
+    showChevron ? 'chevron.down' : null;
+
 /// Width required by the package's native large label button, capped to the
 /// toolbar space Conduit can safely allocate.
 double resolveConduitNativeModelSelectorWidth({
@@ -652,11 +659,10 @@ double resolveConduitNativeModelSelectorWidth({
   if (isLoading) return safeMaxWidth.clamp(0.0, 104.0).toDouble();
 
   final safeMinWidth = minWidth.clamp(0.0, safeMaxWidth).toDouble();
-  final suffix = showChevron ? _kConduitNativeModelChevronSuffix : '';
   final normalizedLabel = _normalizedConduitNativeModelLabel(label);
   final desiredWidth =
       _measureConduitNativeModelTitle(normalizedLabel, textDirection) +
-      _measureConduitNativeModelTitle(suffix, textDirection) +
+      (showChevron ? _kConduitNativeModelChevronReservedWidth : 0) +
       _kConduitNativeButtonHorizontalInsets +
       _kConduitNativeModelTitleWrapGuard;
   return desiredWidth.clamp(safeMinWidth, safeMaxWidth).toDouble();
@@ -673,23 +679,20 @@ String resolveConduitNativeModelSelectorLabel({
 }) {
   if (isLoading) return '…';
 
-  final suffix = showChevron ? _kConduitNativeModelChevronSuffix : '';
   final normalizedLabel = _normalizedConduitNativeModelLabel(label);
-  final suffixWidth = _measureConduitNativeModelTitle(suffix, textDirection);
-  final contentWidth = availableWidth - _kConduitNativeButtonHorizontalInsets;
-  if (_measureConduitNativeModelTitle(normalizedLabel, textDirection) +
-          suffixWidth <=
+  final contentWidth =
+      availableWidth -
+      _kConduitNativeButtonHorizontalInsets -
+      (showChevron ? _kConduitNativeModelChevronReservedWidth : 0);
+  if (_measureConduitNativeModelTitle(normalizedLabel, textDirection) <=
       contentWidth) {
-    return '$normalizedLabel$suffix';
+    return normalizedLabel;
   }
-  final labelWidth =
-      contentWidth - suffixWidth - _kConduitNativeModelTitleWrapGuard;
-  final fittedLabel = _middleEllipsizeConduitNativeModelTitle(
+  return _middleEllipsizeConduitNativeModelTitle(
     value: normalizedLabel,
-    maxWidth: labelWidth,
+    maxWidth: contentWidth - _kConduitNativeModelTitleWrapGuard,
     textDirection: textDirection,
   );
-  return '$fittedLabel$suffix';
 }
 
 /// Forces the package-owned platform view to be recreated when its foreground
@@ -697,6 +700,77 @@ String resolveConduitNativeModelSelectorLabel({
 /// `didUpdateWidget`, so preserving the state would retain the previous theme.
 ValueKey<int> conduitNativeModelSelectorViewKey(Color foregroundColor) =>
     ValueKey<int>(foregroundColor.toARGB32());
+
+class _ConduitNativeModelSelectorButton extends StatefulWidget {
+  const _ConduitNativeModelSelectorButton({
+    super.key,
+    required this.label,
+    required this.symbolName,
+    required this.foregroundColor,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String? symbolName;
+  final Color foregroundColor;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  State<_ConduitNativeModelSelectorButton> createState() =>
+      _ConduitNativeModelSelectorButtonState();
+}
+
+class _ConduitNativeModelSelectorButtonState
+    extends State<_ConduitNativeModelSelectorButton> {
+  MethodChannel? _channel;
+
+  void _handlePlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    final channel = MethodChannel(
+      'app.cogwheel.conduit/native_model_selector_button_$id',
+    );
+    _channel = channel;
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'pressed' && widget.enabled) {
+        widget.onPressed();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return UiKitView(
+      key: ValueKey<Object>((
+        widget.label,
+        widget.symbolName,
+        widget.foregroundColor.toARGB32(),
+        widget.enabled,
+      )),
+      viewType: 'app.cogwheel.conduit/native_model_selector_button',
+      creationParams: <String, Object?>{
+        'label': widget.label,
+        'symbolName': widget.symbolName,
+        'symbolSize': kConduitNativeToolbarSymbolExtent,
+        'symbolPadding': _kConduitNativeModelChevronPadding,
+        'foregroundColor': widget.foregroundColor.toARGB32(),
+        'enabled': widget.enabled,
+      },
+      creationParamsCodec: const StandardMessageCodec(),
+      onPlatformViewCreated: _handlePlatformViewCreated,
+      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+        Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+      },
+    );
+  }
+}
 
 /// Adaptive model-selector control used by floating route toolbars.
 class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
@@ -832,24 +906,27 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
               button: true,
               enabled: !isLoading && showChevron,
               excludeSemantics: true,
-              child: AdaptiveButton(
-                key: conduitNativeModelSelectorViewKey(
-                  context.conduitTheme.textPrimary,
+              child: SizedBox(
+                width: targetWidth,
+                height: controlExtent,
+                child: _ConduitNativeModelSelectorButton(
+                  key: conduitNativeModelSelectorViewKey(
+                    context.conduitTheme.textPrimary,
+                  ),
+                  label: resolveConduitNativeModelSelectorLabel(
+                    label: label,
+                    isLoading: isLoading,
+                    showChevron: showChevron,
+                    availableWidth: targetWidth,
+                    textDirection: textDirection,
+                  ),
+                  symbolName: conduitNativeModelSelectorSymbol(
+                    showChevron: showChevron,
+                  ),
+                  foregroundColor: context.conduitTheme.textPrimary,
+                  enabled: !isLoading && showChevron,
+                  onPressed: onPressed,
                 ),
-                onPressed: (isLoading || !showChevron) ? null : onPressed,
-                label: resolveConduitNativeModelSelectorLabel(
-                  label: label,
-                  isLoading: isLoading,
-                  showChevron: showChevron,
-                  availableWidth: targetWidth,
-                  textDirection: textDirection,
-                ),
-                textColor: context.conduitTheme.textPrimary,
-                style: AdaptiveButtonStyle.glass,
-                size: AdaptiveButtonSize.large,
-                padding: EdgeInsets.zero,
-                minSize: Size(targetWidth, controlExtent),
-                useSmoothRectangleBorder: false,
               ),
             )
           : AdaptiveButton.child(

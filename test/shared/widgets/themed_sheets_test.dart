@@ -80,12 +80,15 @@ void main() {
       textDirection: TextDirection.ltr,
     );
 
-    check(shortLabel).equals('Inkling  ⌄');
+    check(shortLabel).equals('Inkling');
     expect(shortWidth, lessThan(400));
     check(longLabel).contains('…');
-    check(longLabel.endsWith('  ⌄')).isTrue();
     check(longLabel.contains('\n')).isFalse();
-    check(longLabel.length).isLessThan('google/gemma-4-31b-it  ⌄'.length);
+    check(longLabel.length).isLessThan('google/gemma-4-31b-it'.length);
+    check(
+      conduitNativeModelSelectorSymbol(showChevron: true),
+    ).equals('chevron.down');
+    check(conduitNativeModelSelectorSymbol(showChevron: false)).isNull();
   });
 
   test('native model-selector identity follows its foreground color', () {

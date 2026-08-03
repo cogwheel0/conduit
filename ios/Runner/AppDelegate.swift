@@ -2243,6 +2243,129 @@ private func cookieIsPreferred(
     return candidate.value < current.value
 }
 
+private final class ConduitNativeModelSelectorButtonFactory:
+  NSObject, FlutterPlatformViewFactory
+{
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    ConduitNativeModelSelectorButtonView(
+      frame: frame,
+      viewId: viewId,
+      arguments: args,
+      messenger: messenger
+    )
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class ConduitNativeModelSelectorButtonView:
+  NSObject, FlutterPlatformView
+{
+  private let container: UIView
+  private let button: UIButton
+  private let channel: FlutterMethodChannel
+
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    arguments: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    container = UIView(frame: frame)
+    button = UIButton(type: .system)
+    channel = FlutterMethodChannel(
+      name: "app.cogwheel.conduit/native_model_selector_button_\(viewId)",
+      binaryMessenger: messenger
+    )
+    super.init()
+
+    let values = arguments as? [String: Any]
+    let label = values?["label"] as? String ?? ""
+    let symbolName = values?["symbolName"] as? String
+    let symbolSize = (values?["symbolSize"] as? NSNumber)?.doubleValue ?? 17
+    let symbolPadding =
+      (values?["symbolPadding"] as? NSNumber)?.doubleValue ?? 6
+    let enabled = (values?["enabled"] as? NSNumber)?.boolValue ?? true
+    let foreground = Self.color(
+      fromARGB: values?["foregroundColor"] as? NSNumber
+    ) ?? .label
+
+    container.backgroundColor = .clear
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.isEnabled = enabled
+    button.isAccessibilityElement = false
+
+    var configuration: UIButton.Configuration
+    if #available(iOS 26.0, *) {
+      configuration = .glass()
+    } else {
+      configuration = .plain()
+    }
+    configuration.cornerStyle = .capsule
+    configuration.baseForegroundColor = foreground
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+      top: 8,
+      leading: 16,
+      bottom: 8,
+      trailing: 16
+    )
+    configuration.imagePlacement = .trailing
+    configuration.imagePadding = symbolPadding
+
+    var attributedTitle = AttributedString(label)
+    attributedTitle.font = .systemFont(ofSize: 17, weight: .semibold)
+    configuration.attributedTitle = attributedTitle
+
+    if let symbolName,
+       let image = UIImage(systemName: symbolName)?.applyingSymbolConfiguration(
+         UIImage.SymbolConfiguration(pointSize: symbolSize)
+       ) {
+      configuration.image = image
+    }
+
+    button.configuration = configuration
+    button.addTarget(self, action: #selector(handlePress), for: .touchUpInside)
+
+    container.addSubview(button)
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      button.topAnchor.constraint(equalTo: container.topAnchor),
+      button.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+  }
+
+  func view() -> UIView { container }
+
+  @objc private func handlePress() {
+    channel.invokeMethod("pressed", arguments: nil)
+  }
+
+  private static func color(fromARGB number: NSNumber?) -> UIColor? {
+    guard let number else { return nil }
+    let value = number.uint32Value
+    return UIColor(
+      red: CGFloat((value >> 16) & 0xff) / 255,
+      green: CGFloat((value >> 8) & 0xff) / 255,
+      blue: CGFloat(value & 0xff) / 255,
+      alpha: CGFloat((value >> 24) & 0xff) / 255
+    )
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var backgroundStreamingHandler: BackgroundStreamingHandler?
@@ -2360,6 +2483,16 @@ private func cookieIsPreferred(
     guard sharedFlutterEngine == nil else { return }
 
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "ConduitNativeModelSelectorButton"
+    ) {
+      registrar.register(
+        ConduitNativeModelSelectorButtonFactory(
+          messenger: registrar.messenger()
+        ),
+        withId: "app.cogwheel.conduit/native_model_selector_button"
+      )
+    }
     configureApplicationFlutterChannels(
       messenger: engineBridge.applicationRegistrar.messenger()
     )
@@ -2411,6 +2544,16 @@ private func cookieIsPreferred(
     guard !didConfigureSharedFlutterEngine else { return }
 
     GeneratedPluginRegistrant.register(with: engine)
+    if let registrar = engine.registrar(
+      forPlugin: "ConduitNativeModelSelectorButton"
+    ) {
+      registrar.register(
+        ConduitNativeModelSelectorButtonFactory(
+          messenger: registrar.messenger()
+        ),
+        withId: "app.cogwheel.conduit/native_model_selector_button"
+      )
+    }
     configureApplicationFlutterChannels(messenger: engine.binaryMessenger)
     didConfigureSharedFlutterEngine = true
   }
