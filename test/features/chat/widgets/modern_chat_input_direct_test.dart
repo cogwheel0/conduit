@@ -21,6 +21,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('native composer glass uses non-animated cursor opacity', () {
+    check(
+      composerCursorOpacityAnimates(usesNativePlatformView: true),
+    ).equals(false);
+    check(
+      composerCursorOpacityAnimates(usesNativePlatformView: false),
+    ).equals(true);
+  });
+
   test('composer measurement style matches recording typography', () {
     final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
       isRecording: true,

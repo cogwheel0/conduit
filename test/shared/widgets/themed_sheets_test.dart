@@ -13,6 +13,58 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 void main() {
+  test(
+    'native SF Symbols keep compact optical sizes inside scaled controls',
+    () {
+      check(kConduitNativeUtilitySymbolExtent).equals(20);
+      check(kConduitNativePrimarySymbolExtent).equals(22);
+      check(kConduitNativeUtilitySymbolExtent).isLessThan(IconSize.large);
+      check(kConduitNativePrimarySymbolExtent).isLessThan(IconSize.large);
+    },
+  );
+
+  test('native model-selector labels remain on one line within their cap', () {
+    const maxWidth = 198.0;
+    final shortWidth = resolveConduitNativeModelSelectorWidth(
+      label: 'Inkling',
+      isLoading: false,
+      showChevron: true,
+      // Widget tests use the wide Ahem test font rather than UIKit's SF Pro.
+      // Leave enough room here to exercise the untruncated branch itself.
+      maxWidth: 400,
+      textDirection: TextDirection.ltr,
+    );
+    final shortLabel = resolveConduitNativeModelSelectorLabel(
+      label: 'Inkling',
+      isLoading: false,
+      showChevron: true,
+      availableWidth: shortWidth,
+      textDirection: TextDirection.ltr,
+    );
+    final longLabel = resolveConduitNativeModelSelectorLabel(
+      label: 'google/gemma-4-31b-it',
+      isLoading: false,
+      showChevron: true,
+      availableWidth: maxWidth,
+      textDirection: TextDirection.ltr,
+    );
+
+    check(shortLabel).equals('Inkling  ▾');
+    expect(shortWidth, lessThan(400));
+    check(longLabel).contains('…');
+    check(longLabel.endsWith('  ▾')).isTrue();
+    check(longLabel.contains('\n')).isFalse();
+    check(longLabel.length).isLessThan('google/gemma-4-31b-it  ▾'.length);
+  });
+
+  test('native model-selector identity follows its foreground color', () {
+    final lightKey = conduitNativeModelSelectorViewKey(Colors.black);
+    final darkKey = conduitNativeModelSelectorViewKey(Colors.white);
+
+    check(lightKey == darkKey).isFalse();
+    check(lightKey).equals(conduitNativeModelSelectorViewKey(Colors.black));
+  });
+
   testWidgets('adaptive sheets use the iOS 26 glass route on iOS', (
     tester,
   ) async {

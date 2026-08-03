@@ -2323,6 +2323,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? AdaptiveButtonStyle.filled
         : AdaptiveButtonStyle.glass;
 
+    if (conduitSupportsNativeGlass()) {
+      return AdaptiveButton.sfSymbol(
+        onPressed: _userScrollToBottom,
+        sfSymbol: SFSymbol(
+          'chevron.down',
+          size: iconSize,
+          color: theme.textPrimary,
+        ),
+        style: style,
+        size: AdaptiveButtonSize.medium,
+        minSize: const Size.square(buttonSize),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(buttonSize),
+        useSmoothRectangleBorder: false,
+      );
+    }
+
     return AdaptiveButton.child(
       onPressed: _userScrollToBottom,
       style: style,

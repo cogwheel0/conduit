@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -131,6 +131,46 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   return l10n.searchConversations;
 }
 
+/// Builds a compact profile avatar without an iOS 26 child platform view.
+@visibleForTesting
+Widget buildSidebarProfileButton({
+  required bool supportsNativeGlass,
+  required VoidCallback onPressed,
+  required AdaptiveButtonStyle fallbackStyle,
+  Color? fallbackColor,
+  required Widget child,
+}) {
+  const buttonKey = ValueKey<String>('sidebar-profile-button');
+
+  if (supportsNativeGlass) {
+    // AdaptiveButton.child expands to the native toolbar's full leading slot
+    // on iOS 26. Keep the custom avatar Flutter-owned so it remains a compact
+    // tap target and does not add another persistent platform glass surface.
+    return SizedBox.square(
+      dimension: TouchTarget.minimum,
+      child: CupertinoButton(
+        key: buttonKey,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        minimumSize: const Size.square(TouchTarget.minimum),
+        child: child,
+      ),
+    );
+  }
+
+  return AdaptiveButton.child(
+    key: buttonKey,
+    onPressed: onPressed,
+    style: fallbackStyle,
+    color: fallbackColor,
+    size: AdaptiveButtonSize.large,
+    padding: EdgeInsets.zero,
+    minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+    useSmoothRectangleBorder: false,
+    child: child,
+  );
+}
+
 /// Profile button used as the sidebar adaptive app bar leading widget.
 class SidebarProfileAppBarLeading extends ConsumerWidget {
   const SidebarProfileAppBarLeading({super.key});
@@ -178,8 +218,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     return Semantics(
       label: l10n.manage,
       button: true,
-      child: AdaptiveButton.child(
-        key: const ValueKey<String>('sidebar-profile-button'),
+      child: buildSidebarProfileButton(
+        supportsNativeGlass: conduitSupportsNativeGlass(),
         onPressed: () async {
           await Navigator.of(context).maybePop();
           if (!context.mounted) return;
@@ -214,12 +254,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             );
           }
         },
-        style: style,
-        color: useOpaqueFallback ? iconColor : null,
-        size: AdaptiveButtonSize.large,
-        padding: EdgeInsets.zero,
-        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-        useSmoothRectangleBorder: false,
+        fallbackStyle: style,
+        fallbackColor: useOpaqueFallback ? iconColor : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
           child: UserAvatar(

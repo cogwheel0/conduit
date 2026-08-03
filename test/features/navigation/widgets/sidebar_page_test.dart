@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
@@ -59,6 +60,47 @@ Finder _sidebarBottomNavTabLabel(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
 void main() {
+  testWidgets('native glass profile avatar stays compact and Flutter-owned', (
+    tester,
+  ) async {
+    var presses = 0;
+    const profileButtonKey = ValueKey<String>('sidebar-profile-button');
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: Center(
+          child: buildSidebarProfileButton(
+            supportsNativeGlass: true,
+            onPressed: () => presses++,
+            fallbackStyle: AdaptiveButtonStyle.glass,
+            child: const SizedBox.square(dimension: 36),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(CupertinoButton), findsOneWidget);
+    expect(find.byType(AdaptiveButton), findsNothing);
+    expect(tester.getSize(find.byKey(profileButtonKey)), const Size(44, 44));
+    await tester.tap(find.byKey(profileButtonKey));
+    expect(presses, 1);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: Center(
+          child: buildSidebarProfileButton(
+            supportsNativeGlass: false,
+            onPressed: () {},
+            fallbackStyle: AdaptiveButtonStyle.plain,
+            child: const SizedBox.square(dimension: 36),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(AdaptiveButton), findsOneWidget);
+  });
+
   test('Hermes profile host fallback comes from localizations', () {
     check(
       AppLocalizationsEn().hermesSelfHostedAgentLabel,

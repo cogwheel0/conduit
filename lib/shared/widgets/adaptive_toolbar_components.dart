@@ -15,6 +15,18 @@ import 'themed_sheets.dart';
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitMaximumSystemControlScale = 1.5;
+const double kConduitNativeUtilitySymbolExtent = 20;
+const double kConduitNativePrimarySymbolExtent = 22;
+
+const double _kConduitNativeButtonHorizontalInsets = 32;
+// Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
+// a small optical guard instead of letting UIButton wrap at the measured edge.
+const double _kConduitNativeModelTitleWrapGuard = 8;
+const String _kConduitNativeModelChevronSuffix = '  ▾';
+const TextStyle _kConduitNativeModelTitleStyle = TextStyle(
+  fontSize: 17,
+  fontWeight: FontWeight.w600,
+);
 
 /// Converts Dynamic Type into bounded control geometry.
 ///
@@ -267,6 +279,7 @@ Widget _buildMaterialToolbarAction(
 
   return ConduitAdaptiveAppBarIconButton(
     icon: action.icon ?? Icons.circle,
+    iosSymbol: action.iosSymbol,
     onPressed: action.onPressed,
     iconColor: tintColor,
   );
@@ -455,18 +468,54 @@ Object conduitAdaptivePopupMenuIcon({
   return Platform.isIOS ? iosSymbol : materialIcon;
 }
 
+/// Resolves the native SF Symbol used by Conduit's common toolbar actions.
+///
+/// Callers may still provide [iosSymbol] explicitly for icons that do not have
+/// a stable cross-platform mapping.
+String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) {
+  if (iosSymbol != null) return iosSymbol;
+  if (icon == CupertinoIcons.line_horizontal_3 || icon == Icons.menu) {
+    return 'line.3.horizontal';
+  }
+  if (icon == CupertinoIcons.chevron_back ||
+      icon == CupertinoIcons.back ||
+      icon == Icons.arrow_back) {
+    return 'chevron.left';
+  }
+  if (icon == CupertinoIcons.create || icon == Icons.add_comment) {
+    return 'square.and.pencil';
+  }
+  if (icon == CupertinoIcons.add || icon == Icons.add) return 'plus';
+  if (icon == CupertinoIcons.eye || icon == Icons.visibility_outlined) {
+    return 'eye';
+  }
+  if (icon == CupertinoIcons.eye_slash || icon == Icons.visibility_off) {
+    return 'eye.slash';
+  }
+  if (icon == CupertinoIcons.arrow_down_doc || icon == Icons.save_alt) {
+    return 'arrow.down.doc';
+  }
+  if (icon == Icons.people_outline) return 'person.2';
+  if (icon == Icons.circle) return 'circle';
+  return null;
+}
+
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Creates an adaptive toolbar icon button.
   const ConduitAdaptiveAppBarIconButton({
     super.key,
     required this.icon,
+    this.iosSymbol,
     this.onPressed,
     this.iconColor,
   });
 
   /// Icon shown inside the control.
   final IconData icon;
+
+  /// Native SF Symbol rendered on iOS 26+.
+  final String? iosSymbol;
 
   /// Invoked when the control is tapped.
   final VoidCallback? onPressed;
@@ -479,6 +528,10 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
+    final nativeSymbol = conduitToolbarSfSymbolForIcon(
+      icon,
+      iosSymbol: iosSymbol,
+    );
 
     if (conduitUsesOpaqueGlassFallback()) {
       return SizedBox.square(
@@ -497,22 +550,153 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
 
     return _hideNativeToolbarChromeWhileSheetCovered(
       size: Size.square(controlExtent),
-      child: AdaptiveButton.child(
-        onPressed: onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        padding: EdgeInsets.zero,
-        minSize: Size.square(controlExtent),
-        useSmoothRectangleBorder: false,
-        child: ConduitSystemAdaptiveIcon(
-          icon,
-          size: iconExtent,
-          color: effectiveIconColor,
-        ),
-      ),
+      child: conduitSupportsNativeGlass() && nativeSymbol != null
+          ? AdaptiveButton.sfSymbol(
+              onPressed: onPressed,
+              sfSymbol: SFSymbol(
+                nativeSymbol,
+                size: kConduitNativeUtilitySymbolExtent,
+                color: effectiveIconColor,
+              ),
+              style: AdaptiveButtonStyle.glass,
+              size: AdaptiveButtonSize.large,
+              padding: EdgeInsets.zero,
+              minSize: Size.square(controlExtent),
+              useSmoothRectangleBorder: false,
+            )
+          : AdaptiveButton.child(
+              onPressed: onPressed,
+              style: AdaptiveButtonStyle.glass,
+              size: AdaptiveButtonSize.large,
+              padding: EdgeInsets.zero,
+              minSize: Size.square(controlExtent),
+              useSmoothRectangleBorder: false,
+              child: ConduitSystemAdaptiveIcon(
+                icon,
+                size: iconExtent,
+                color: effectiveIconColor,
+              ),
+            ),
     );
   }
 }
+
+double _measureConduitNativeModelTitle(
+  String value,
+  TextDirection textDirection,
+) {
+  final painter = TextPainter(
+    text: TextSpan(text: value, style: _kConduitNativeModelTitleStyle),
+    maxLines: 1,
+    textScaler: TextScaler.noScaling,
+    textDirection: textDirection,
+  )..layout(minWidth: 0, maxWidth: double.infinity);
+  final width = painter.width;
+  painter.dispose();
+  return width;
+}
+
+String _middleEllipsizeConduitNativeModelTitle({
+  required String value,
+  required double maxWidth,
+  required TextDirection textDirection,
+}) {
+  if (value.isEmpty || maxWidth <= 0) return '';
+  if (_measureConduitNativeModelTitle(value, textDirection) <= maxWidth) {
+    return value;
+  }
+
+  const ellipsis = '…';
+  if (_measureConduitNativeModelTitle(ellipsis, textDirection) > maxWidth) {
+    return '';
+  }
+
+  final graphemes = value.characters;
+  var low = 0;
+  var high = graphemes.length;
+  var best = ellipsis;
+  while (low <= high) {
+    final visibleCount = (low + high) >> 1;
+    final leadingCount = (visibleCount + 1) >> 1;
+    final trailingCount = visibleCount - leadingCount;
+    final leading = graphemes.take(leadingCount).toString();
+    final trailing = trailingCount == 0
+        ? ''
+        : graphemes.takeLast(trailingCount).toString();
+    final candidate = '$leading$ellipsis$trailing';
+    if (_measureConduitNativeModelTitle(candidate, textDirection) <= maxWidth) {
+      best = candidate;
+      low = visibleCount + 1;
+    } else {
+      high = visibleCount - 1;
+    }
+  }
+  return best;
+}
+
+String _normalizedConduitNativeModelLabel(String label) =>
+    label.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+/// Width required by the package's native large label button, capped to the
+/// toolbar space Conduit can safely allocate.
+double resolveConduitNativeModelSelectorWidth({
+  required String label,
+  required bool isLoading,
+  required bool showChevron,
+  required double maxWidth,
+  required TextDirection textDirection,
+  double minWidth = 112,
+}) {
+  final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
+  if (safeMaxWidth == 0) return 0;
+  if (isLoading) return safeMaxWidth.clamp(0.0, 104.0).toDouble();
+
+  final safeMinWidth = minWidth.clamp(0.0, safeMaxWidth).toDouble();
+  final suffix = showChevron ? _kConduitNativeModelChevronSuffix : '';
+  final normalizedLabel = _normalizedConduitNativeModelLabel(label);
+  final desiredWidth =
+      _measureConduitNativeModelTitle(normalizedLabel, textDirection) +
+      _measureConduitNativeModelTitle(suffix, textDirection) +
+      _kConduitNativeButtonHorizontalInsets +
+      _kConduitNativeModelTitleWrapGuard;
+  return desiredWidth.clamp(safeMinWidth, safeMaxWidth).toDouble();
+}
+
+/// Produces a single-line native button title while retaining both ends of a
+/// long model name and reserving the trailing disclosure chevron.
+String resolveConduitNativeModelSelectorLabel({
+  required String label,
+  required bool isLoading,
+  required bool showChevron,
+  required double availableWidth,
+  required TextDirection textDirection,
+}) {
+  if (isLoading) return '…';
+
+  final suffix = showChevron ? _kConduitNativeModelChevronSuffix : '';
+  final normalizedLabel = _normalizedConduitNativeModelLabel(label);
+  final suffixWidth = _measureConduitNativeModelTitle(suffix, textDirection);
+  final contentWidth = availableWidth - _kConduitNativeButtonHorizontalInsets;
+  if (_measureConduitNativeModelTitle(normalizedLabel, textDirection) +
+          suffixWidth <=
+      contentWidth) {
+    return '$normalizedLabel$suffix';
+  }
+  final labelWidth =
+      contentWidth - suffixWidth - _kConduitNativeModelTitleWrapGuard;
+  final fittedLabel = _middleEllipsizeConduitNativeModelTitle(
+    value: normalizedLabel,
+    maxWidth: labelWidth,
+    textDirection: textDirection,
+  );
+  return '$fittedLabel$suffix';
+}
+
+/// Forces the package-owned platform view to be recreated when its foreground
+/// changes. adaptive_platform_ui 0.1.110 does not synchronize `textColor` from
+/// `didUpdateWidget`, so preserving the state would retain the previous theme.
+ValueKey<int> conduitNativeModelSelectorViewKey(Color foregroundColor) =>
+    ValueKey<int>(foregroundColor.toARGB32());
 
 /// Adaptive model-selector control used by floating route toolbars.
 class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
@@ -563,9 +747,19 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       context,
       Platform.isIOS ? IconSize.small : IconSize.medium,
     );
+    final usesNativeGlass = conduitSupportsNativeGlass();
+    final textDirection = Directionality.of(context);
     const leadingPadding = 10.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
+        : usesNativeGlass
+        ? resolveConduitNativeModelSelectorWidth(
+            label: label,
+            isLoading: false,
+            showChevron: showChevron,
+            maxWidth: safeMaxWidth,
+            textDirection: textDirection,
+          )
         : resolveConduitAdaptiveTextPillWidth(
             context: context,
             label: label,
@@ -632,15 +826,41 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 
     return _hideNativeToolbarChromeWhileSheetCovered(
       size: Size(targetWidth, controlExtent),
-      child: AdaptiveButton.child(
-        onPressed: (isLoading || !showChevron) ? null : onPressed,
-        style: AdaptiveButtonStyle.glass,
-        size: AdaptiveButtonSize.large,
-        padding: EdgeInsets.zero,
-        minSize: Size(targetWidth, controlExtent),
-        useSmoothRectangleBorder: false,
-        child: child,
-      ),
+      child: usesNativeGlass
+          ? Semantics(
+              label: label,
+              button: true,
+              enabled: !isLoading && showChevron,
+              excludeSemantics: true,
+              child: AdaptiveButton(
+                key: conduitNativeModelSelectorViewKey(
+                  context.conduitTheme.textPrimary,
+                ),
+                onPressed: (isLoading || !showChevron) ? null : onPressed,
+                label: resolveConduitNativeModelSelectorLabel(
+                  label: label,
+                  isLoading: isLoading,
+                  showChevron: showChevron,
+                  availableWidth: targetWidth,
+                  textDirection: textDirection,
+                ),
+                textColor: context.conduitTheme.textPrimary,
+                style: AdaptiveButtonStyle.glass,
+                size: AdaptiveButtonSize.large,
+                padding: EdgeInsets.zero,
+                minSize: Size(targetWidth, controlExtent),
+                useSmoothRectangleBorder: false,
+              ),
+            )
+          : AdaptiveButton.child(
+              onPressed: (isLoading || !showChevron) ? null : onPressed,
+              style: AdaptiveButtonStyle.glass,
+              size: AdaptiveButtonSize.large,
+              padding: EdgeInsets.zero,
+              minSize: Size(targetWidth, controlExtent),
+              useSmoothRectangleBorder: false,
+              child: child,
+            ),
     );
   }
 }

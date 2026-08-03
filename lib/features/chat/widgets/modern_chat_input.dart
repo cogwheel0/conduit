@@ -63,6 +63,13 @@ import 'mention_text_controller.dart';
 import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
 
+/// Native platform views are recomposited for every animated cursor-opacity
+/// frame. Keep the normal animated caret everywhere else, but use the much
+/// cheaper periodic cursor toggle while the iOS 26 glass view is present.
+@visibleForTesting
+bool composerCursorOpacityAnimates({required bool usesNativePlatformView}) =>
+    !usesNativePlatformView;
+
 /// Whether the selected model may accept locally pasted/picked images.
 /// Reserved direct identities fail closed when their mutable registry binding
 /// has been removed or replaced.
@@ -3459,6 +3466,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   textInputAction: TextInputAction.newline,
                   autofillHints: const <String>[],
                   showCursor: true,
+                  cursorOpacityAnimates: composerCursorOpacityAnimates(
+                    usesNativePlatformView: conduitSupportsNativeGlass(),
+                  ),
                   cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
@@ -3602,6 +3612,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : null,
           size: buttonSize,
           forcePlain: true,
+          iosSymbol: attachmentPanelVisible ? 'xmark' : 'plus',
+          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+          iosSymbolColor: iconColor,
           child: ConduitSystemAdaptiveIcon(
             overflowIcon,
             size: iconSize,
@@ -3760,6 +3773,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onPressed: enabled ? _createNoteFromDraft : null,
         size: buttonSize,
         forcePlain: true,
+        iosSymbol: isLoading ? null : 'doc.text',
+        iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+        iosSymbolColor: iconColor,
         child: isLoading
             ? SizedBox(
                 width: iconSize,
@@ -3798,6 +3814,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       dense ? IconSize.large : IconSize.xl,
     );
+    final nativePrimaryIconSize = dense
+        ? kConduitNativeUtilitySymbolExtent
+        : kConduitNativePrimarySymbolExtent;
 
     // Don't allow sending until all uploads are complete
     final enabled =
@@ -3815,6 +3834,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           },
           size: buttonSize,
           isProminent: true,
+          iosSymbol: 'stop.fill',
+          iosSymbolSize: nativePrimaryIconSize,
+          iosSymbolColor: context.conduitTheme.buttonPrimaryText,
           child: ConduitSystemAdaptiveIcon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
             size: primaryIconSize,
@@ -3864,6 +3886,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           onPressed: onPressed,
           size: buttonSize,
           isProminent: true,
+          iosSymbol: hasUploadsInProgress ? null : 'arrow.up',
+          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+          iosSymbolColor: enabled
+              ? context.conduitTheme.buttonPrimaryText
+              : context.conduitTheme.textPrimary.withValues(
+                  alpha: Alpha.disabled,
+                ),
           child: sendChild,
         ),
       );
@@ -3885,6 +3914,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : null,
           size: buttonSize,
           isProminent: true,
+          iosSymbol: 'waveform',
+          iosSymbolSize: nativePrimaryIconSize,
+          iosSymbolColor: enabledVoiceCall
+              ? context.conduitTheme.buttonPrimaryText
+              : context.conduitTheme.textPrimary.withValues(
+                  alpha: Alpha.disabled,
+                ),
           child: ConduitSystemAdaptiveIcon(
             Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
             size: primaryIconSize,
@@ -3904,6 +3940,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onPressed: null,
       size: buttonSize,
       isProminent: false,
+      iosSymbol: 'arrow.up',
+      iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+      iosSymbolColor: context.conduitTheme.textPrimary.withValues(
+        alpha: Alpha.disabled,
+      ),
       child: ConduitSystemAdaptiveIcon(
         CupertinoIcons.arrow_up,
         size: largeIconSize,
@@ -4013,6 +4054,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool androidShowBackground = false,
     bool forcePlain = false,
     Color? color,
+    String? iosSymbol,
+    double? iosSymbolSize,
+    Color? iosSymbolColor,
   }) {
     final theme = context.conduitTheme;
     final effectiveColor = color ?? theme.buttonPrimary;
@@ -4037,6 +4081,46 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ? AdaptiveButtonStyle.prominentGlass
               : AdaptiveButtonStyle.glass);
 
+    final adaptiveSize = size > 40
+        ? AdaptiveButtonSize.large
+        : AdaptiveButtonSize.medium;
+    final buttonColor =
+        usesOpaqueFallback && androidShowBackground && !isProminent
+        ? androidBackgroundColor
+        : effectiveColor;
+
+    if (conduitSupportsNativeGlass()) {
+      // Loading indicators are transient Flutter content. Keeping them out of
+      // child-mode avoids creating another persistent platform view.
+      if (iosSymbol == null) {
+        return SizedBox.square(
+          key: key,
+          dimension: size,
+          child: Center(child: child),
+        );
+      }
+      return SizedBox.square(
+        dimension: size,
+        child: AdaptiveButton.sfSymbol(
+          key: key,
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          sfSymbol: SFSymbol(
+            iosSymbol,
+            size: iosSymbolSize ?? kConduitNativeUtilitySymbolExtent,
+            color: iosSymbolColor,
+          ),
+          style: buttonStyle,
+          color: buttonColor,
+          size: adaptiveSize,
+          minSize: Size.square(size),
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(size),
+          useSmoothRectangleBorder: false,
+        ),
+      );
+    }
+
     return SizedBox.square(
       dimension: size,
       child: AdaptiveButton.child(
@@ -4044,10 +4128,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onPressed: onPressed,
         enabled: onPressed != null,
         style: buttonStyle,
-        color: usesOpaqueFallback && androidShowBackground && !isProminent
-            ? androidBackgroundColor
-            : effectiveColor,
-        size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
+        color: buttonColor,
+        size: adaptiveSize,
         minSize: Size.square(size),
         padding: EdgeInsets.zero,
         borderRadius: BorderRadius.circular(size),
