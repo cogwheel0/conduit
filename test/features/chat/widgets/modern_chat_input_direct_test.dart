@@ -30,6 +30,50 @@ void main() {
     ).equals(true);
   });
 
+  test('native composer hides the blinking caret under its selection menu', () {
+    check(
+      composerShowsCursor(
+        usesNativePlatformView: true,
+        selectionMenuVisible: true,
+      ),
+    ).isFalse();
+    check(
+      composerShowsCursor(
+        usesNativePlatformView: true,
+        selectionMenuVisible: false,
+      ),
+    ).isTrue();
+    check(
+      composerShowsCursor(
+        usesNativePlatformView: false,
+        selectionMenuVisible: true,
+      ),
+    ).isTrue();
+  });
+
+  testWidgets('composer selection menu reports mount and removal', (
+    tester,
+  ) async {
+    final visibility = <bool>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: buildComposerSelectionMenuLifecycle(
+          onVisibilityChanged: visibility.add,
+          child: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    check(visibility).deepEquals(<bool>[true]);
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pump();
+
+    check(visibility).deepEquals(<bool>[true, false]);
+  });
+
   test('composer measurement style matches recording typography', () {
     final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
       isRecording: true,

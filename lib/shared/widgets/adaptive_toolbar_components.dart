@@ -15,14 +15,15 @@ import 'themed_sheets.dart';
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitMaximumSystemControlScale = 1.5;
-const double kConduitNativeUtilitySymbolExtent = 20;
-const double kConduitNativePrimarySymbolExtent = 22;
+const double kConduitNativeToolbarSymbolExtent = 17;
+const double kConduitNativeUtilitySymbolExtent = 17;
+const double kConduitNativePrimarySymbolExtent = 17;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
 // Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
 // a small optical guard instead of letting UIButton wrap at the measured edge.
 const double _kConduitNativeModelTitleWrapGuard = 8;
-const String _kConduitNativeModelChevronSuffix = '  ▾';
+const String _kConduitNativeModelChevronSuffix = '  ⌄';
 const TextStyle _kConduitNativeModelTitleStyle = TextStyle(
   fontSize: 17,
   fontWeight: FontWeight.w600,
@@ -472,33 +473,28 @@ Object conduitAdaptivePopupMenuIcon({
 ///
 /// Callers may still provide [iosSymbol] explicitly for icons that do not have
 /// a stable cross-platform mapping.
-String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) {
-  if (iosSymbol != null) return iosSymbol;
-  if (icon == CupertinoIcons.line_horizontal_3 || icon == Icons.menu) {
-    return 'line.3.horizontal';
-  }
-  if (icon == CupertinoIcons.chevron_back ||
-      icon == CupertinoIcons.back ||
-      icon == Icons.arrow_back) {
-    return 'chevron.left';
-  }
-  if (icon == CupertinoIcons.create || icon == Icons.add_comment) {
-    return 'square.and.pencil';
-  }
-  if (icon == CupertinoIcons.add || icon == Icons.add) return 'plus';
-  if (icon == CupertinoIcons.eye || icon == Icons.visibility_outlined) {
-    return 'eye';
-  }
-  if (icon == CupertinoIcons.eye_slash || icon == Icons.visibility_off) {
-    return 'eye.slash';
-  }
-  if (icon == CupertinoIcons.arrow_down_doc || icon == Icons.save_alt) {
-    return 'arrow.down.doc';
-  }
-  if (icon == Icons.people_outline) return 'person.2';
-  if (icon == Icons.circle) return 'circle';
-  return null;
-}
+final Map<IconData, String> _kConduitToolbarSfSymbolByIcon = {
+  CupertinoIcons.line_horizontal_3: 'line.3.horizontal',
+  Icons.menu: 'line.3.horizontal',
+  CupertinoIcons.chevron_back: 'chevron.left',
+  CupertinoIcons.back: 'chevron.left',
+  Icons.arrow_back: 'chevron.left',
+  CupertinoIcons.create: 'square.and.pencil',
+  Icons.add_comment: 'square.and.pencil',
+  CupertinoIcons.add: 'plus',
+  Icons.add: 'plus',
+  CupertinoIcons.eye: 'eye',
+  Icons.visibility_outlined: 'eye',
+  CupertinoIcons.eye_slash: 'eye.slash',
+  Icons.visibility_off: 'eye.slash',
+  CupertinoIcons.arrow_down_doc: 'arrow.down.doc',
+  Icons.save_alt: 'arrow.down.doc',
+  Icons.people_outline: 'person.2',
+  Icons.circle: 'circle',
+};
+
+String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) =>
+    iosSymbol ?? _kConduitToolbarSfSymbolByIcon[icon];
 
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
@@ -509,6 +505,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     this.iosSymbol,
     this.onPressed,
     this.iconColor,
+    this.iosSymbolSize = kConduitNativeToolbarSymbolExtent,
   });
 
   /// Icon shown inside the control.
@@ -522,6 +519,9 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
 
   /// Optional icon tint.
   final Color? iconColor;
+
+  /// Native SF Symbol point size on iOS 26+.
+  final double iosSymbolSize;
 
   @override
   Widget build(BuildContext context) {
@@ -555,7 +555,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
               onPressed: onPressed,
               sfSymbol: SFSymbol(
                 nativeSymbol,
-                size: kConduitNativeUtilitySymbolExtent,
+                size: iosSymbolSize,
                 color: effectiveIconColor,
               ),
               style: AdaptiveButtonStyle.glass,

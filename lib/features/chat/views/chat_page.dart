@@ -2316,7 +2316,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
     const buttonSize = 40.0;
-    const iconSize = IconSize.medium;
+    final iconSize = conduitSupportsNativeGlass()
+        ? kConduitNativeUtilitySymbolExtent
+        : IconSize.medium;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final style = usesOpaqueFallback
@@ -3609,6 +3611,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ConduitAdaptiveAppBarIconButton(
           key: const ValueKey('chat-sidebar-toggle'),
           icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+          iosSymbolSize: kConduitNativeToolbarSymbolExtent,
           onPressed: () => _toggleResponsiveDrawer(context),
           iconColor: context.conduitTheme.textPrimary,
         ),
@@ -3648,6 +3651,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       actions.add(
         ConduitAdaptiveAppBarIconButton(
           icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
+          iosSymbolSize: kConduitNativeToolbarSymbolExtent,
           iconColor: defaultTint,
           onPressed: _handleNewChat,
         ),
@@ -3681,6 +3685,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (isTemporary && hasMessages && activeConversation != null) {
       return ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
+        iosSymbolSize: kConduitNativeToolbarSymbolExtent,
         iconColor: tintColor,
         onPressed: _isSavingTemporary ? null : _saveTemporaryChat,
       );
@@ -3690,6 +3695,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       icon: isTemporary
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
+      iosSymbolSize: kConduitNativeToolbarSymbolExtent,
       iconColor: isTemporary ? Colors.blue : tintColor,
       onPressed: () {
         ConduitHaptics.selectionClick();

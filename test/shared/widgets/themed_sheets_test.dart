@@ -16,12 +16,43 @@ void main() {
   test(
     'native SF Symbols keep compact optical sizes inside scaled controls',
     () {
-      check(kConduitNativeUtilitySymbolExtent).equals(20);
-      check(kConduitNativePrimarySymbolExtent).equals(22);
+      check(kConduitNativeToolbarSymbolExtent).equals(17);
+      check(kConduitNativeUtilitySymbolExtent).equals(17);
+      check(kConduitNativePrimarySymbolExtent).equals(17);
+      check(
+        kConduitNativeToolbarSymbolExtent,
+      ).equals(kConduitNativeUtilitySymbolExtent);
       check(kConduitNativeUtilitySymbolExtent).isLessThan(IconSize.large);
-      check(kConduitNativePrimarySymbolExtent).isLessThan(IconSize.large);
+      check(
+        kConduitNativePrimarySymbolExtent,
+      ).equals(kConduitNativeUtilitySymbolExtent);
     },
   );
+
+  test('toolbar icons preserve their SF Symbol lookup values', () {
+    check(
+      conduitToolbarSfSymbolForIcon(CupertinoIcons.line_horizontal_3),
+    ).equals('line.3.horizontal');
+    check(
+      conduitToolbarSfSymbolForIcon(Icons.menu),
+    ).equals('line.3.horizontal');
+    check(
+      conduitToolbarSfSymbolForIcon(CupertinoIcons.chevron_back),
+    ).equals('chevron.left');
+    check(
+      conduitToolbarSfSymbolForIcon(CupertinoIcons.create),
+    ).equals('square.and.pencil');
+    check(
+      conduitToolbarSfSymbolForIcon(CupertinoIcons.eye_slash),
+    ).equals('eye.slash');
+    check(
+      conduitToolbarSfSymbolForIcon(Icons.people_outline),
+    ).equals('person.2');
+    check(
+      conduitToolbarSfSymbolForIcon(Icons.circle, iosSymbol: 'ellipsis'),
+    ).equals('ellipsis');
+    check(conduitToolbarSfSymbolForIcon(Icons.delete)).isNull();
+  });
 
   test('native model-selector labels remain on one line within their cap', () {
     const maxWidth = 198.0;
@@ -49,12 +80,12 @@ void main() {
       textDirection: TextDirection.ltr,
     );
 
-    check(shortLabel).equals('Inkling  ▾');
+    check(shortLabel).equals('Inkling  ⌄');
     expect(shortWidth, lessThan(400));
     check(longLabel).contains('…');
-    check(longLabel.endsWith('  ▾')).isTrue();
+    check(longLabel.endsWith('  ⌄')).isTrue();
     check(longLabel.contains('\n')).isFalse();
-    check(longLabel.length).isLessThan('google/gemma-4-31b-it  ▾'.length);
+    check(longLabel.length).isLessThan('google/gemma-4-31b-it  ⌄'.length);
   });
 
   test('native model-selector identity follows its foreground color', () {
