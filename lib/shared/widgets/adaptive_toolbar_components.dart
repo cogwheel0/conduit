@@ -963,6 +963,24 @@ ValueKey<Object> conduitNativeModelSelectorViewKey(
   double titleFontSize = 17,
 }) => ValueKey<Object>((foregroundColor.toARGB32(), titleFontSize));
 
+/// Builds the native model-selector payload without truncating accessibility
+/// content that does not participate in UIKit layout measurement.
+Map<String, Object?> encodeConduitNativeModelSelectorParams({
+  required String label,
+  required String? symbolName,
+  required Color foregroundColor,
+  required double titleFontSize,
+  required bool enabled,
+}) => <String, Object?>{
+  'label': label,
+  'symbolName': symbolName,
+  'symbolSize': kConduitNativeModelChevronExtent,
+  'symbolPadding': _kConduitNativeModelChevronPadding,
+  'foregroundColor': foregroundColor.toARGB32(),
+  'titleFontSize': titleFontSize,
+  'enabled': enabled,
+};
+
 class _ConduitNativeModelSelectorButton extends StatefulWidget {
   const _ConduitNativeModelSelectorButton({
     super.key,
@@ -1020,15 +1038,13 @@ class _ConduitNativeModelSelectorButtonState
         widget.enabled,
       )),
       viewType: 'app.cogwheel.conduit/native_model_selector_button',
-      creationParams: <String, Object?>{
-        'label': widget.label,
-        'symbolName': widget.symbolName,
-        'symbolSize': kConduitNativeModelChevronExtent,
-        'symbolPadding': _kConduitNativeModelChevronPadding,
-        'foregroundColor': widget.foregroundColor.toARGB32(),
-        'titleFontSize': widget.titleFontSize,
-        'enabled': widget.enabled,
-      },
+      creationParams: encodeConduitNativeModelSelectorParams(
+        label: widget.label,
+        symbolName: widget.symbolName,
+        foregroundColor: widget.foregroundColor,
+        titleFontSize: widget.titleFontSize,
+        enabled: widget.enabled,
+      ),
       creationParamsCodec: const StandardMessageCodec(),
       onPlatformViewCreated: _handlePlatformViewCreated,
       gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{

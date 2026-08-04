@@ -118,6 +118,21 @@ void main() {
     check(lightKey).equals(conduitNativeModelSelectorViewKey(Colors.black));
   });
 
+  test('native model-selector parameters preserve the full label', () {
+    final label = '${List.filled(5000, 'a').join()}-model-tail';
+    final bounded = boundConduitNativeModelLabel(label);
+    final params = encodeConduitNativeModelSelectorParams(
+      label: label,
+      symbolName: 'chevron.down',
+      foregroundColor: Colors.black,
+      titleFontSize: 17,
+      enabled: true,
+    );
+
+    check(params['label']).equals(label);
+    check(params['label'] == bounded).isFalse();
+  });
+
   test('native model-selector title follows Dynamic Type', () {
     check(
       resolveConduitNativeModelTitleFontSize(TextScaler.noScaling),
