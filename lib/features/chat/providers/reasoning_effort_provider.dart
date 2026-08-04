@@ -84,10 +84,13 @@ String? modelConfiguredReasoningEffort(Model? model) {
   if (metadata == null) return null;
 
   final info = metadata['info'];
-  final candidates = <Object?>[
+  return _reasoningEffortFromParams(<Object?>[
     if (info is Map) info['params'],
     metadata['params'],
-  ];
+  ]);
+}
+
+String? _reasoningEffortFromParams(Iterable<Object?> candidates) {
   for (final candidate in candidates) {
     if (candidate is! Map) continue;
     final rawEffort = candidate['reasoning_effort'];
@@ -100,6 +103,25 @@ String? modelConfiguredReasoningEffort(Model? model) {
   }
   return null;
 }
+
+bool _isOpenWebUiWorkspaceModel(Model model) {
+  final info = model.metadata?['info'];
+  if (info is! Map) return false;
+  return info['id']?.toString() == model.id &&
+      (info.containsKey('user_id') || info.containsKey('base_model_id'));
+}
+
+/// Loads private workspace-model parameters that OpenWebUI intentionally omits
+/// from `/api/models`. The detail route returns them only to callers with write
+/// access; read-only callers receive an empty params map.
+final serverModelReasoningEffortProvider =
+    FutureProvider.family<String?, Model>((ref, model) async {
+      if (!_isOpenWebUiWorkspaceModel(model)) return null;
+      final api = ref.watch(apiServiceProvider);
+      if (api == null) return null;
+      final details = await api.getModelDetails(model.id);
+      return _reasoningEffortFromParams(<Object?>[details?['params']]);
+    });
 
 @Riverpod(keepAlive: true)
 class LocalReasoningEfforts extends _$LocalReasoningEfforts {
@@ -180,7 +202,12 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
         );
   }
 
-  final modelEffort = modelConfiguredReasoningEffort(model);
+  final detailedModelEffort = ref
+      .watch(serverModelReasoningEffortProvider(model))
+      .asData
+      ?.value;
+  final modelEffort =
+      detailedModelEffort ?? modelConfiguredReasoningEffort(model);
   if (modelEffort != null) {
     return reasoningEffortPolicyForModel(
       ref.watch,
@@ -240,7 +267,11 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
-  final modelEffort = modelConfiguredReasoningEffort(model);
+  final detailedModelEffort = read(
+    serverModelReasoningEffortProvider(model),
+  ).asData?.value;
+  final modelEffort =
+      detailedModelEffort ?? modelConfiguredReasoningEffort(model);
   final policy = reasoningEffortPolicyForModel(read, model);
   if (modelEffort != null) {
     return policy.effectiveConfiguredEffort(modelEffort) ??
@@ -275,7 +306,10 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
   if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) {
-    return model.supportsReasoningEffort
+    final detailedModelEffort = read(
+      serverModelReasoningEffortProvider(model),
+    ).asData?.value;
+    return model.supportsReasoningEffort || detailedModelEffort != null
         ? ReasoningEffortPolicy.generic
         : ReasoningEffortPolicy.unsupported;
   }

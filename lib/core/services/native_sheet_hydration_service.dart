@@ -128,6 +128,10 @@ class NativeSheetHydrationService {
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
+      if (effortModel != null) {
+        await _ref.read(serverModelReasoningEffortProvider(effortModel).future);
+        if (!context.mounted) return null;
+      }
       final effortPolicy = reasoningEffortPolicyForModel(
         _ref.read,
         effortModel,

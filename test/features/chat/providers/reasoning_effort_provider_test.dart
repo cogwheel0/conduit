@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/models/server_user_settings.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -18,6 +20,7 @@ import 'package:conduit/features/direct_connections/models/openrouter_reasoning.
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,6 +46,68 @@ final class _PendingProfiles extends DirectConnectionProfilesController {
       setting: setting?.storageValue,
     ));
   }
+}
+
+final class _FixedPersonalizationSettings extends PersonalizationSettings {
+  _FixedPersonalizationSettings(this.settings);
+
+  final ServerUserSettings settings;
+
+  @override
+  Future<ServerUserSettings> build() async => settings;
+}
+
+final class _FixedSelectedModel extends SelectedModel {
+  _FixedSelectedModel(this.model);
+
+  final Model model;
+
+  @override
+  Model build() => model;
+}
+
+final class _ModelDetailsAdapter implements HttpClientAdapter {
+  int requestCount = 0;
+  final Completer<void> requested = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestCount++;
+    if (!requested.isCompleted) requested.complete();
+    check(options.method).equals('GET');
+    check(options.path).equals('/api/v1/models/model');
+    check(
+      options.queryParameters,
+    ).deepEquals(<String, dynamic>{'id': 'workspace-reasoning-model'});
+    return ResponseBody(
+      Stream<Uint8List>.value(
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode(<String, dynamic>{
+              'id': 'workspace-reasoning-model',
+              'name': 'Workspace reasoning model',
+              'base_model_id': 'gpt-5',
+              'params': <String, dynamic>{'reasoning_effort': 'Vendor_Ultra'},
+              'meta': <String, dynamic>{},
+              'is_active': true,
+              'write_access': true,
+            }),
+          ),
+        ),
+      ),
+      200,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 void main() {
@@ -117,6 +182,62 @@ void main() {
     check(modelConfiguredReasoningEffort(model)).equals('vendor_ultra');
     check(container.read(reasoningEffortProvider)).equals('vendor_ultra');
   });
+
+  test(
+    'workspace model detail restores effort stripped from the model catalog',
+    () async {
+      const model = Model(
+        id: 'workspace-reasoning-model',
+        name: 'Workspace reasoning model',
+        metadata: <String, dynamic>{
+          'info': <String, dynamic>{
+            'id': 'workspace-reasoning-model',
+            'user_id': 'owner',
+            'base_model_id': 'gpt-5',
+            'meta': <String, dynamic>{},
+          },
+        },
+      );
+      final adapter = _ModelDetailsAdapter();
+      final api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'reasoning-test',
+          name: 'Reasoning test',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+      api.dio.httpClientAdapter = adapter;
+      api.dio.interceptors.clear();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          personalizationSettingsProvider.overrideWith(
+            () => _FixedPersonalizationSettings(
+              const ServerUserSettings(reasoningEffort: 'low'),
+            ),
+          ),
+          selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(personalizationSettingsProvider.future);
+      final subscription = container.listen<String?>(
+        configuredReasoningEffortProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+
+      await adapter.requested.future.timeout(const Duration(seconds: 1));
+      await container.read(serverModelReasoningEffortProvider(model).future);
+
+      check(adapter.requestCount).equals(1);
+      check(
+        container.read(configuredReasoningEffortProvider),
+      ).equals('vendor_ultra');
+    },
+  );
 
   test('server policy only exposes effort for supported models', () {
     const unsupported = Model(id: 'gpt-4o', name: 'GPT-4o');
