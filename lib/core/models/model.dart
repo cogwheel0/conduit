@@ -148,8 +148,17 @@ sealed class Model with _$Model {
 
     // Handle different response formats from OpenWebUI
 
+    // Preserve provider-specific capability metadata while normalizing the
+    // fields Conduit consumes directly.
+    final rawCapabilities = json['capabilities'];
+    final incomingCapabilities = rawCapabilities is Map
+        ? Map<String, dynamic>.from(rawCapabilities)
+        : const <String, dynamic>{};
+
     // Extract architecture info for capabilities
-    final architecture = json['architecture'] as Map<String, dynamic>?;
+    final architecture =
+        (json['architecture'] as Map<String, dynamic>?) ??
+        (incomingCapabilities['architecture'] as Map<String, dynamic>?);
     final modality = architecture?['modality'] as String?;
     final inputModalities = architecture?['input_modalities'] as List?;
 
@@ -162,7 +171,9 @@ sealed class Model with _$Model {
     // Extract supported parameters robustly (top-level or nested under provider keys)
     List? supportedParams =
         (json['supported_parameters'] as List?) ??
-        (json['supportedParameters'] as List?);
+        (json['supportedParameters'] as List?) ??
+        (incomingCapabilities['supported_parameters'] as List?) ??
+        (incomingCapabilities['supportedParameters'] as List?);
 
     if (supportedParams == null) {
       const providerKeys = [
@@ -330,11 +341,13 @@ sealed class Model with _$Model {
       supportsRAG: _safeBool(json['supportsRAG']) ?? false,
       supportedParameters: supportedParamsList,
       capabilities: {
+        ...incomingCapabilities,
         'architecture': architecture,
-        'pricing': json['pricing'],
-        'context_length': json['context_length'],
+        'pricing': json['pricing'] ?? incomingCapabilities['pricing'],
+        'context_length':
+            json['context_length'] ?? incomingCapabilities['context_length'],
         'supported_parameters': supportedParamsList ?? supportedParams,
-        'usage': supportsUsage,
+        'usage': supportsUsage || incomingCapabilities['usage'] == true,
       },
       metadata: mergedMetadata,
       toolIds: toolIds,

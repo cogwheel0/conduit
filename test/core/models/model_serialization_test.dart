@@ -113,6 +113,27 @@ void main() {
       check(model.isMultimodal).isTrue();
     });
 
+    test('preserves provider reasoning capabilities', () {
+      final model = Model.fromJson({
+        'id': 'provider-reasoning-model',
+        'name': 'Provider reasoning model',
+        'capabilities': {
+          'reasoning_effort': true,
+          'reasoning': {
+            'supported_efforts': ['low', 'vendor_ultra'],
+          },
+        },
+      });
+
+      check(model.capabilities?['reasoning_effort']).equals(true);
+      check(
+        model.capabilities?['reasoning'],
+      ).isA<Map<String, dynamic>>().deepEquals(<String, dynamic>{
+        'supported_efforts': ['low', 'vendor_ultra'],
+      });
+      check(model.supportsReasoningEffort).isTrue();
+    });
+
     test('name defaults to id when blank', () {
       final model = Model.fromJson({'id': 'my-model', 'name': ''});
       check(model.name).equals('my-model');

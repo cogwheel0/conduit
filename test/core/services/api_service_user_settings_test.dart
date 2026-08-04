@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
@@ -99,21 +100,25 @@ void main() {
 
     test('automatic reasoning effort clears the server-side value', () async {
       final adapter = _UserSettingsAdapter(<String, dynamic>{
-        'params': <String, dynamic>{'reasoning_effort': 'medium'},
+        'params': <String, dynamic>{
+          'reasoning_effort': 'medium',
+          'temperature': 0.3,
+        },
       });
       final api = _buildApi(adapter, authToken: 'account-a');
 
-      expect(
+      check(
         (adapter.settings['params']
             as Map<String, dynamic>)['reasoning_effort'],
-        'medium',
-      );
+      ).equals('medium');
       adapter.releaseFirstGet.complete();
 
       final result = await api.updateUserReasoningEffort(null);
 
-      expect(result.reasoningEffort, isNull);
-      expect(adapter.settings['params'], isEmpty);
+      check(result.reasoningEffort).isNull();
+      check(adapter.settings['params']).isA<Map<String, dynamic>>().deepEquals(
+        <String, dynamic>{'temperature': 0.3},
+      );
     });
   });
 }

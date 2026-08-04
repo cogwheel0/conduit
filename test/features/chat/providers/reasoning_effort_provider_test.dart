@@ -9,6 +9,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -109,7 +110,12 @@ void main() {
       },
     );
 
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+
     check(modelConfiguredReasoningEffort(model)).equals('vendor_ultra');
+    check(container.read(reasoningEffortProvider)).equals('vendor_ultra');
   });
 
   test('server policy only exposes effort for supported models', () {
@@ -177,6 +183,59 @@ void main() {
     check(unsupportedParams.containsKey('reasoning_effort')).isFalse();
     check(unsupportedParams['temperature']).equals(0.3);
     check(supportedParams['reasoning_effort']).equals('medium');
+  });
+
+  test('custom OpenWebUI model metadata retains supported effort', () {
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'reasoning-test',
+        name: 'Reasoning test',
+        url: 'https://example.test',
+      ),
+      workerManager: WorkerManager(),
+    );
+
+    Map<String, dynamic> build(Model model, String effort) {
+      final modelItem = buildLocalModelItemForTest(model);
+      return api.buildChatCompletionPayloadForTest(
+        messages: const <Map<String, dynamic>>[
+          <String, dynamic>{'role': 'user', 'content': 'Hello'},
+        ],
+        model: model.id,
+        messageId: 'message-id',
+        sessionId: 'session-id',
+        modelItem: modelItem,
+        userSettings: <String, dynamic>{
+          'params': <String, dynamic>{'reasoning_effort': effort},
+        },
+      );
+    }
+
+    final configuredModel = Model.fromJson(<String, dynamic>{
+      'id': 'custom-configured-model',
+      'name': 'Custom configured model',
+      'params': <String, dynamic>{'reasoning_effort': 'vendor_ultra'},
+    });
+    final aliasModel = Model.fromJson(<String, dynamic>{
+      'id': 'custom-gpt-alias',
+      'name': 'Custom GPT alias',
+      'base_model_id': 'gpt-5',
+    });
+
+    final configuredModelItem = buildLocalModelItemForTest(configuredModel);
+    final aliasModelItem = buildLocalModelItemForTest(aliasModel);
+    check(configuredModelItem['params']).isA<Map<String, dynamic>>().deepEquals(
+      <String, dynamic>{'reasoning_effort': 'vendor_ultra'},
+    );
+    check(aliasModelItem['base_model_id']).equals('gpt-5');
+    check(
+      (build(configuredModel, 'vendor_ultra')['params']
+          as Map<String, dynamic>)['reasoning_effort'],
+    ).equals('vendor_ultra');
+    check(
+      (build(aliasModel, 'high')['params']
+          as Map<String, dynamic>)['reasoning_effort'],
+    ).equals('high');
   });
 
   test(

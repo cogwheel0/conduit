@@ -271,6 +271,10 @@ String _effortLabel(AppLocalizations l10n, String effort) => switch (effort) {
 };
 
 @visibleForTesting
+String reasoningEffortLabelForTest(AppLocalizations l10n, String effort) =>
+    _effortLabel(l10n, effort);
+
+@visibleForTesting
 bool modelSelectorQueryMatches(Model model, String query) {
   final normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery.isEmpty) return true;
