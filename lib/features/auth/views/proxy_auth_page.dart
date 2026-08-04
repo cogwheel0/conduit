@@ -768,7 +768,16 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       while (mounted) {
         final url = _historyUpdateQueue.takeLatest();
         if (url == null) break;
-        await _onNavigationUrlChanged(controller, url);
+        try {
+          await _onNavigationUrlChanged(controller, url);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'proxy-history-update-failed',
+            scope: 'auth/proxy',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
       }
     } finally {
       if (mounted && _historyUpdateQueue.restartAfterDrain()) {

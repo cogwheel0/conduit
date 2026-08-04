@@ -389,6 +389,19 @@ void main() {
       check(queue.takeLatest()).equals('https://chat.example/final');
       check(queue.restartAfterDrain()).isFalse();
     });
+
+    test('reset drops pending history work', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+      check(queue.enqueue('https://chat.example/stale')).isFalse();
+
+      queue.reset();
+
+      check(queue.takeLatest()).isNull();
+      check(queue.restartAfterDrain()).isFalse();
+    });
   });
 
   group('isTrustedProxyCredentialCaptureUrl', () {
