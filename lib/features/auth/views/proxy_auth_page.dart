@@ -396,30 +396,35 @@ final class ProxyAuthDocumentFence {
     _clearCommittedDocument();
   }
 
-  /// Tracks redirects and same-document history changes that may not emit a
-  /// new load-start callback.
+  /// Invalidates a committed document when a URL update reports that the
+  /// WebView is loading a different document without a load-start callback.
   ///
-  /// A URL change on an already committed document (for example pushState)
-  /// remains committed under a fresh generation. A provisional redirect stays
-  /// uncommitted until [markDocumentCommitted] observes the final document.
-  bool observeNavigationUrl(String url) {
-    final documentKey = _documentKey;
-    if (documentKey == null) return false;
+  /// The callback URL is deliberately not adopted here because the platform
+  /// does not correlate history callbacks with their originating navigation.
+  /// Load-stop adopts the final URL after checking it against the live WebView.
+  bool markNavigationProvisional(ProxyAuthDocumentTicket document) {
+    if (!ownsCommittedDocument(document)) return false;
+
+    _generation++;
+    _clearCommittedDocument();
+    return true;
+  }
+
+  /// Advances an already-committed document after a verified non-loading
+  /// History API update.
+  bool observeSameDocumentHistory({
+    required ProxyAuthDocumentTicket document,
+    required String url,
+  }) {
+    if (!ownsCommittedDocument(document)) return false;
 
     final nextKey = _key(url);
-    if (nextKey == documentKey) return false;
+    if (nextKey == document.url) return false;
 
-    final wasCommitted =
-        _committedGeneration == _generation &&
-        _committedDocumentKey == documentKey;
     _generation++;
     _documentKey = nextKey;
-    if (wasCommitted) {
-      _committedGeneration = _generation;
-      _committedDocumentKey = nextKey;
-    } else {
-      _clearCommittedDocument();
-    }
+    _committedGeneration = _generation;
+    _committedDocumentKey = nextKey;
     return true;
   }
 
@@ -446,6 +451,9 @@ final class ProxyAuthDocumentFence {
 
   bool ownsLiveDocument(ProxyAuthDocumentTicket document, String currentUrl) =>
       ownsCommittedDocument(document) && document.url == _key(currentUrl);
+
+  bool matchesUrl(String firstUrl, String secondUrl) =>
+      _key(firstUrl) == _key(secondUrl);
 
   /// Commits the URL reported when the owned main-frame navigation finishes.
   ///
@@ -484,6 +492,28 @@ final class ProxyAuthDocumentFence {
     // Fragments do not select a different credential origin/document.
     return uri.replace(fragment: '').toString();
   }
+}
+
+@visibleForTesting
+bool commitProxyAuthLoadStopDocument({
+  required ProxyAuthDocumentFence fence,
+  required ProxyAuthCaptureQueue captureQueue,
+  required ProxyAuthDocumentTicket document,
+  required String callbackUrl,
+  required String currentUrl,
+}) {
+  final previousGeneration = fence.generation;
+  if (!fence.commitDocument(
+    document: document,
+    callbackUrl: callbackUrl,
+    currentUrl: currentUrl,
+  )) {
+    return false;
+  }
+  if (fence.generation != previousGeneration) {
+    captureQueue.reset();
+  }
+  return true;
 }
 
 class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
@@ -622,17 +652,64 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     });
   }
 
-  void _onNavigationUrlChanged(String url) {
+  Future<void> _onNavigationUrlChanged(
+    InAppWebViewController controller,
+    String url,
+  ) async {
     if (!mounted || url.isEmpty) return;
-    if (!_documentFence.observeNavigationUrl(url)) return;
+    final document = _documentFence.activeDocument;
+    if (document == null) return;
 
-    // Redirects and History API changes can update WKWebView.url without a
-    // matching load-start callback. Cancel any capture tied to the old URL.
+    WebUri? currentUrl;
+    bool isLoading;
+    try {
+      currentUrl = await controller.getUrl();
+      isLoading = await controller.isLoading();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'proxy-history-state-read-failed',
+        scope: 'auth/proxy',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return;
+    }
+    if (!mounted ||
+        currentUrl == null ||
+        !_documentFence.matchesUrl(url, currentUrl.toString())) {
+      return;
+    }
+
+    if (isLoading) {
+      if (_documentFence.markNavigationProvisional(document)) {
+        _captureQueue.reset();
+      }
+      if (!_isLoading) {
+        setState(() {
+          _isLoading = true;
+          _error = null;
+        });
+      }
+      return;
+    }
+
+    if (!_documentFence.observeSameDocumentHistory(
+      document: document,
+      url: url,
+    )) {
+      return;
+    }
+
     _captureQueue.reset();
     _isOnTargetServer = isTrustedProxyCredentialCaptureUrl(
       pageUrl: url,
       serverUrl: widget.config.serverConfig.url,
     );
+
+    final committedDocument = _documentFence.committedDocument;
+    if (_isOnTargetServer && committedDocument != null) {
+      await _checkIfOpenWebUI(committedDocument);
+    }
   }
 
   void _onPageCommitted(String url) {
@@ -653,16 +730,55 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     // commit this ticket if the callback and live URL still agree.
     final pendingDocument = _documentFence.activeDocument;
     if (pendingDocument == null) return;
-    final currentUrl = await controller.getUrl();
-    if (!mounted) return;
-    if (currentUrl == null) {
+    WebUri? currentUrl;
+    bool isLoading;
+    try {
+      currentUrl = await controller.getUrl();
+      isLoading = await controller.isLoading();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'proxy-webview-url-read-failed',
+        scope: 'auth/proxy',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted ||
+          !_documentFence.ownsDocument(
+            pendingDocument.generation,
+            pendingDocument.url,
+          )) {
+        return;
+      }
       setState(() {
         _error = 'The sign-in page URL could not be verified. Please retry.';
         _isLoading = false;
       });
       return;
     }
-    if (!_documentFence.commitDocument(
+    if (!mounted) return;
+    if (currentUrl == null) {
+      if (!_documentFence.ownsDocument(
+        pendingDocument.generation,
+        pendingDocument.url,
+      )) {
+        return;
+      }
+      setState(() {
+        _error = 'The sign-in page URL could not be verified. Please retry.';
+        _isLoading = false;
+      });
+      return;
+    }
+    if (isLoading) {
+      DebugLogger.log(
+        'Ignoring proxy auth completion while a newer page is loading',
+        scope: 'auth/proxy',
+      );
+      return;
+    }
+    if (!commitProxyAuthLoadStopDocument(
+      fence: _documentFence,
+      captureQueue: _captureQueue,
       document: pendingDocument,
       callbackUrl: url,
       currentUrl: currentUrl.toString(),
@@ -1420,7 +1536,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             _onPageStarted(url?.toString() ?? '');
           },
           onUpdateVisitedHistory: (controller, url, _) {
-            _onNavigationUrlChanged(url?.toString() ?? '');
+            unawaited(
+              _onNavigationUrlChanged(controller, url?.toString() ?? ''),
+            );
           },
           onPageCommitVisible: (controller, url) {
             _onPageCommitted(url?.toString() ?? '');
