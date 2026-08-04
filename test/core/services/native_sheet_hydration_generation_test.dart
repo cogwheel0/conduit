@@ -1,8 +1,24 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'reasoning effort hydration timeout does not block the picker',
+    () async {
+      final pending = Completer<void>();
+
+      check(
+        await waitForNativeReasoningEffortHydration(
+          pending.future,
+          timeout: Duration.zero,
+        ),
+      ).isFalse();
+    },
+  );
+
   test('late selector hydration cannot update a newer presentation', () {
     final generations = NativeSheetHydrationGeneration();
     final first = generations.begin();

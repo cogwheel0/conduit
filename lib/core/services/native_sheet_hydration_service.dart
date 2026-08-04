@@ -61,6 +61,19 @@ class NativeSheetPresentationAdmission {
   void finish() => _active = false;
 }
 
+@visibleForTesting
+Future<bool> waitForNativeReasoningEffortHydration(
+  Future<Object?> hydration, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  try {
+    await hydration.timeout(timeout);
+    return true;
+  } on TimeoutException {
+    return false;
+  }
+}
+
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref);
 
@@ -129,7 +142,16 @@ class NativeSheetHydrationService {
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
       if (effortModel != null) {
-        await _ref.read(serverModelReasoningEffortProvider(effortModel).future);
+        final hydrated = await waitForNativeReasoningEffortHydration(
+          _ref.read(serverModelReasoningEffortProvider(effortModel).future),
+        );
+        if (!hydrated) {
+          DebugLogger.warning(
+            'reasoning-effort-hydration-timeout',
+            scope: 'native-sheet/models',
+            data: {'modelId': effortModel.id},
+          );
+        }
         if (!context.mounted) return null;
       }
       final effortPolicy = reasoningEffortPolicyForModel(

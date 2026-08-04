@@ -70,10 +70,14 @@ final class _ModelDetailsAdapter implements HttpClientAdapter {
   _ModelDetailsAdapter({
     this.failuresBeforeSuccess = 0,
     this.holdSuccessfulResponse = true,
+    this.writeAccess = true,
+    this.includeEffort = true,
   });
 
   final int failuresBeforeSuccess;
   final bool holdSuccessfulResponse;
+  final bool writeAccess;
+  final bool includeEffort;
   int requestCount = 0;
   final Completer<void> requested = Completer<void>();
   final Completer<void> release = Completer<void>();
@@ -109,10 +113,12 @@ final class _ModelDetailsAdapter implements HttpClientAdapter {
               'id': 'workspace-reasoning-model',
               'name': 'Workspace reasoning model',
               'base_model_id': 'gpt-5',
-              'params': <String, dynamic>{'reasoning_effort': 'Vendor_Ultra'},
+              'params': <String, dynamic>{
+                if (includeEffort) 'reasoning_effort': 'Vendor_Ultra',
+              },
               'meta': <String, dynamic>{},
               'is_active': true,
-              'write_access': true,
+              'write_access': writeAccess,
             }),
           ),
         ),
@@ -291,13 +297,67 @@ void main() {
     addTearDown(container.dispose);
 
     check(
-      await container.read(serverModelReasoningEffortProvider(model).future),
+      (await container.read(
+        serverModelReasoningEffortProvider(model).future,
+      )).value,
     ).isNull();
     await container.pump();
     check(
-      await container.read(serverModelReasoningEffortProvider(model).future),
+      (await container.read(
+        serverModelReasoningEffortProvider(model).future,
+      )).value,
     ).equals('vendor_ultra');
     check(adapter.requestCount).equals(2);
+  });
+
+  test('read-only workspace params do not restore the user fallback', () async {
+    const model = Model(
+      id: 'workspace-reasoning-model',
+      name: 'Workspace reasoning model',
+      metadata: <String, dynamic>{
+        'info': <String, dynamic>{
+          'id': 'workspace-reasoning-model',
+          'user_id': 'owner',
+          'base_model_id': 'gpt-5',
+        },
+      },
+    );
+    final adapter = _ModelDetailsAdapter(
+      holdSuccessfulResponse: false,
+      writeAccess: false,
+      includeEffort: false,
+    );
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'reasoning-read-only-test',
+        name: 'Reasoning read-only test',
+        url: 'https://example.test',
+      ),
+      workerManager: WorkerManager(),
+    );
+    api.dio.httpClientAdapter = adapter;
+    api.dio.interceptors.clear();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        personalizationSettingsProvider.overrideWith(
+          () => _FixedPersonalizationSettings(
+            const ServerUserSettings(reasoningEffort: 'low'),
+          ),
+        ),
+        selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(personalizationSettingsProvider.future);
+
+    final detail = await container.read(
+      serverModelReasoningEffortProvider(model).future,
+    );
+
+    check(detail.canUsePersonalizationFallback).isFalse();
+    check(container.read(configuredReasoningEffortProvider)).isNull();
+    check(container.read(reasoningEffortProvider)).equals('automatic');
   });
 
   test('server policy only exposes effort for supported models', () {

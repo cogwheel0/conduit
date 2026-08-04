@@ -111,16 +111,41 @@ bool _isOpenWebUiWorkspaceModel(Model model) {
       (info.containsKey('user_id') || info.containsKey('base_model_id'));
 }
 
+final class ServerModelReasoningEffort {
+  const ServerModelReasoningEffort.known(this.value)
+    : canUsePersonalizationFallback = true;
+
+  const ServerModelReasoningEffort.unavailable()
+    : value = null,
+      canUsePersonalizationFallback = false;
+
+  final String? value;
+  final bool canUsePersonalizationFallback;
+}
+
 /// Loads private workspace-model parameters that OpenWebUI intentionally omits
 /// from `/api/models`. The detail route returns them only to callers with write
 /// access; read-only callers receive an empty params map.
 @riverpod
-Future<String?> serverModelReasoningEffort(Ref ref, Model model) async {
-  if (!_isOpenWebUiWorkspaceModel(model)) return null;
+Future<ServerModelReasoningEffort> serverModelReasoningEffort(
+  Ref ref,
+  Model model,
+) async {
+  if (!_isOpenWebUiWorkspaceModel(model)) {
+    return const ServerModelReasoningEffort.known(null);
+  }
   final api = ref.watch(apiServiceProvider);
-  if (api == null) return null;
+  if (api == null) return const ServerModelReasoningEffort.unavailable();
   final details = await api.getModelDetails(model.id);
-  return _reasoningEffortFromParams(<Object?>[details?['params']]);
+  if (details == null) return const ServerModelReasoningEffort.unavailable();
+  final effort = _reasoningEffortFromParams(<Object?>[details['params']]);
+  if (effort != null || details['write_access'] == true) {
+    return ServerModelReasoningEffort.known(effort);
+  }
+  // OpenWebUI deliberately returns an empty params map to read-only callers.
+  // Do not mistake that hidden value for confirmed absence and override it
+  // with the user's personalization setting.
+  return const ServerModelReasoningEffort.unavailable();
 }
 
 @Riverpod(keepAlive: true)
@@ -207,8 +232,10 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
     final detailedEffort = ref.watch(serverModelReasoningEffortProvider(model));
     // Until OpenWebUI returns the private workspace params, do not let a
     // user-level fallback override the model's server-side configuration.
-    if (detailedEffort.isLoading) return null;
-    detailedModelEffort = detailedEffort.asData?.value;
+    if (detailedEffort.isLoading || detailedEffort.hasError) return null;
+    final detail = detailedEffort.asData?.value;
+    if (detail == null || !detail.canUsePersonalizationFallback) return null;
+    detailedModelEffort = detail.value;
   }
   final modelEffort =
       detailedModelEffort ?? modelConfiguredReasoningEffort(model);
@@ -274,8 +301,14 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
   String? detailedModelEffort;
   if (_isOpenWebUiWorkspaceModel(model)) {
     final detailedEffort = read(serverModelReasoningEffortProvider(model));
-    if (detailedEffort.isLoading) return kAutomaticReasoningEffort;
-    detailedModelEffort = detailedEffort.asData?.value;
+    if (detailedEffort.isLoading || detailedEffort.hasError) {
+      return kAutomaticReasoningEffort;
+    }
+    final detail = detailedEffort.asData?.value;
+    if (detail == null || !detail.canUsePersonalizationFallback) {
+      return kAutomaticReasoningEffort;
+    }
+    detailedModelEffort = detail.value;
   }
   final modelEffort =
       detailedModelEffort ?? modelConfiguredReasoningEffort(model);
@@ -314,7 +347,7 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) {
     final detailedModelEffort = _isOpenWebUiWorkspaceModel(model)
-        ? read(serverModelReasoningEffortProvider(model)).asData?.value
+        ? read(serverModelReasoningEffortProvider(model)).asData?.value.value
         : null;
     return model.supportsReasoningEffort || detailedModelEffort != null
         ? ReasoningEffortPolicy.generic
