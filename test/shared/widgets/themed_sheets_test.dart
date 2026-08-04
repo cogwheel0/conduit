@@ -95,9 +95,89 @@ void main() {
   test('native model-selector identity follows its foreground color', () {
     final lightKey = conduitNativeModelSelectorViewKey(Colors.black);
     final darkKey = conduitNativeModelSelectorViewKey(Colors.white);
+    final largeTextKey = conduitNativeModelSelectorViewKey(
+      Colors.black,
+      titleFontSize: 34,
+    );
 
     check(lightKey == darkKey).isFalse();
+    check(lightKey == largeTextKey).isFalse();
     check(lightKey).equals(conduitNativeModelSelectorViewKey(Colors.black));
+  });
+
+  test('native model-selector title follows Dynamic Type', () {
+    check(
+      resolveConduitNativeModelTitleFontSize(TextScaler.noScaling),
+    ).equals(17);
+    check(
+      resolveConduitNativeModelTitleFontSize(const TextScaler.linear(2)),
+    ).equals(34);
+  });
+
+  test('native model-selector semantics expose only valid activation', () {
+    var activations = 0;
+    void activate() => activations += 1;
+
+    final enabled = conduitNativeModelSelectorActivation(
+      isLoading: false,
+      showChevron: true,
+      onPressed: activate,
+    );
+    enabled!();
+
+    check(activations).equals(1);
+    check(
+      conduitNativeModelSelectorActivation(
+        isLoading: true,
+        showChevron: true,
+        onPressed: activate,
+      ),
+    ).isNull();
+    check(
+      conduitNativeModelSelectorActivation(
+        isLoading: false,
+        showChevron: false,
+        onPressed: activate,
+      ),
+    ).isNull();
+  });
+
+  test('native model-selector bounds untrusted labels before layout', () {
+    final oversized = '${List.filled(5000, 'a').join()}-model-tail';
+    final bounded = boundConduitNativeModelLabel(oversized);
+
+    check(bounded.length).isLessOrEqual(kConduitNativeModelLabelMaxCodeUnits);
+    check(bounded).startsWith('aaa');
+    check(bounded).contains('…');
+    check(bounded).endsWith('-model-tail');
+  });
+
+  test('native model-selector omits chevron width when hidden', () {
+    final withChevron = resolveConduitNativeModelSelectorWidth(
+      label: 'Inkling',
+      isLoading: false,
+      showChevron: true,
+      maxWidth: 400,
+      textDirection: TextDirection.ltr,
+    );
+    final withoutChevron = resolveConduitNativeModelSelectorWidth(
+      label: 'Inkling',
+      isLoading: false,
+      showChevron: false,
+      maxWidth: 400,
+      textDirection: TextDirection.ltr,
+    );
+
+    check(withoutChevron).isLessThan(withChevron);
+    check(
+      resolveConduitNativeModelSelectorLabel(
+        label: 'Inkling',
+        isLoading: false,
+        showChevron: false,
+        availableWidth: withoutChevron,
+        textDirection: TextDirection.ltr,
+      ),
+    ).equals('Inkling');
   });
 
   testWidgets('adaptive sheets use the iOS 26 glass route on iOS', (

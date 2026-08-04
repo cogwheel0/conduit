@@ -3738,7 +3738,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (isTemporary && hasMessages && activeConversation != null) {
       return _buildChatToolbarIconAction(
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
-        accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
+        accessibilityLabel: AppLocalizations.of(context)!.saveChat,
         tintColor: tintColor,
         onPressed: _isSavingTemporary ? null : _saveTemporaryChat,
       );

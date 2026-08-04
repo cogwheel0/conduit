@@ -46,7 +46,6 @@ import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
-import '../../../shared/utils/ask_conduit_context_menu.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -76,6 +75,41 @@ bool composerUsesNativeSystemSelectionMenu({
   required bool isIOS,
   required bool systemMenuSupported,
 }) => isIOS && systemMenuSupported;
+
+/// Returns a stable UIKit edit-menu model for the composer.
+///
+/// Keep composer actions limited to operations that mutate the editable field.
+/// In particular, "Ask Conduit" belongs to selected response text: adding it
+/// here both reinserted the selection into the same field and created a fresh
+/// callback identity whenever selection handles moved, forcing UIKit to
+/// re-present the menu.
+@visibleForTesting
+List<IOSSystemContextMenuItem> buildComposerSystemContextMenuItems({
+  required List<IOSSystemContextMenuItem> defaultItems,
+  required bool ensurePaste,
+}) {
+  final items = List<IOSSystemContextMenuItem>.from(defaultItems);
+  if (!ensurePaste ||
+      items.any((item) => item is IOSSystemContextMenuItemPaste)) {
+    return items;
+  }
+
+  final insertionIndex = items.indexWhere(
+    (item) =>
+        item is IOSSystemContextMenuItemSelectAll ||
+        item is IOSSystemContextMenuItemLookUp ||
+        item is IOSSystemContextMenuItemSearchWeb ||
+        item is IOSSystemContextMenuItemShare ||
+        item is IOSSystemContextMenuItemLiveText,
+  );
+  const pasteItem = IOSSystemContextMenuItemPaste();
+  if (insertionIndex >= 0) {
+    items.insert(insertionIndex, pasteItem);
+  } else {
+    items.add(pasteItem);
+  }
+  return items;
+}
 
 /// Whether the selected model may accept locally pasted/picked images.
 /// Reserved direct identities fail closed when their mutable registry binding
@@ -811,50 +845,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
     EditableTextState editableTextState,
   ) {
-    final items = List<IOSSystemContextMenuItem>.from(
-      SystemContextMenu.getDefaultItems(editableTextState),
+    return buildComposerSystemContextMenuItems(
+      defaultItems: SystemContextMenu.getDefaultItems(editableTextState),
+      ensurePaste:
+          widget.onPastedAttachments != null && _selectedModelAcceptsImageInput,
     );
-
-    if (widget.onPastedAttachments != null &&
-        _selectedModelAcceptsImageInput &&
-        !items.any((item) => item is IOSSystemContextMenuItemPaste)) {
-      final insertionIndex = items.indexWhere(
-        (item) =>
-            item is IOSSystemContextMenuItemSelectAll ||
-            item is IOSSystemContextMenuItemLookUp ||
-            item is IOSSystemContextMenuItemSearchWeb ||
-            item is IOSSystemContextMenuItemShare ||
-            item is IOSSystemContextMenuItemLiveText,
-      );
-      const pasteItem = IOSSystemContextMenuItemPaste();
-      if (insertionIndex >= 0) {
-        items.insert(insertionIndex, pasteItem);
-      } else {
-        items.add(pasteItem);
-      }
-    }
-
-    final selectedText = selectedTextFromEditableTextState(editableTextState);
-    if (selectedText != null &&
-        selectedText.trim().isNotEmpty &&
-        _composerTextInsertionTargetId.isNotEmpty) {
-      items.add(
-        IOSSystemContextMenuItemCustom(
-          title: 'Ask Conduit',
-          onPressed: () {
-            editableTextState.hideToolbar(false);
-            ref
-                .read(composerTextInsertionProvider.notifier)
-                .insert(
-                  targetId: _composerTextInsertionTargetId,
-                  text: selectedText,
-                );
-          },
-        ),
-      );
-    }
-
-    return items;
   }
 
   /// Builds a Flutter-rendered fallback text editing menu.
@@ -914,13 +909,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
-    return withAskConduitContextMenuItem(
-      items: items,
-      ref: ref,
-      selectedText: selectedTextFromEditableTextState(editableTextState),
-      composerTargetId: _composerTextInsertionTargetId,
-      hideToolbar: () => editableTextState.hideToolbar(false),
-    );
+    return items;
   }
 
   Future<void> _handleFallbackPaste(
@@ -4160,10 +4149,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       // Loading indicators are transient Flutter content. Keeping them out of
       // child-mode avoids creating another persistent platform view.
       if (iosSymbol == null) {
-        return SizedBox.square(
+        return Semantics(
           key: key,
-          dimension: size,
-          child: Center(child: child),
+          button: true,
+          enabled: onPressed != null,
+          child: SizedBox.square(
+            dimension: size,
+            child: Center(child: child),
+          ),
         );
       }
       return SizedBox.square(

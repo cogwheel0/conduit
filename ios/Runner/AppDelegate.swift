@@ -2269,6 +2269,8 @@ private final class ConduitNativeModelSelectorButtonFactory:
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     FlutterStandardMessageCodec.sharedInstance()
   }
+
+  deinit {}
 }
 
 private final class ConduitNativeModelSelectorButtonView:
@@ -2298,6 +2300,8 @@ private final class ConduitNativeModelSelectorButtonView:
     let symbolSize = (values?["symbolSize"] as? NSNumber)?.doubleValue ?? 13
     let symbolPadding =
       (values?["symbolPadding"] as? NSNumber)?.doubleValue ?? 6
+    let titleFontSize =
+      (values?["titleFontSize"] as? NSNumber)?.doubleValue ?? 17
     let enabled = (values?["enabled"] as? NSNumber)?.boolValue ?? true
     let foreground = Self.color(
       fromARGB: values?["foregroundColor"] as? NSNumber
@@ -2329,7 +2333,10 @@ private final class ConduitNativeModelSelectorButtonView:
     configuration.imagePadding = symbolPadding
 
     var attributedTitle = AttributedString(label)
-    attributedTitle.font = .systemFont(ofSize: 17, weight: .semibold)
+    attributedTitle.font = .systemFont(
+      ofSize: titleFontSize,
+      weight: .semibold
+    )
     configuration.attributedTitle = attributedTitle
 
     if let symbolName,
@@ -2367,6 +2374,8 @@ private final class ConduitNativeModelSelectorButtonView:
       alpha: CGFloat((value >> 24) & 0xff) / 255
     )
   }
+
+  deinit {}
 }
 
 private final class ConduitNativeToolbarActionGroupFactory:
@@ -2395,6 +2404,8 @@ private final class ConduitNativeToolbarActionGroupFactory:
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     FlutterStandardMessageCodec.sharedInstance()
   }
+
+  deinit {}
 }
 
 private final class ConduitNativeToolbarActionGroupView:
@@ -2536,6 +2547,8 @@ private final class ConduitNativeToolbarActionGroupView:
       alpha: CGFloat((value >> 24) & 0xff) / 255
     )
   }
+
+  deinit {}
 }
 
 @main
@@ -2655,25 +2668,8 @@ private final class ConduitNativeToolbarActionGroupView:
     guard sharedFlutterEngine == nil else { return }
 
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(
-      forPlugin: "ConduitNativeModelSelectorButton"
-    ) {
-      registrar.register(
-        ConduitNativeModelSelectorButtonFactory(
-          messenger: registrar.messenger()
-        ),
-        withId: "app.cogwheel.conduit/native_model_selector_button"
-      )
-    }
-    if let registrar = engineBridge.pluginRegistry.registrar(
-      forPlugin: "ConduitNativeToolbarActionGroup"
-    ) {
-      registrar.register(
-        ConduitNativeToolbarActionGroupFactory(
-          messenger: registrar.messenger()
-        ),
-        withId: "app.cogwheel.conduit/native_toolbar_action_group"
-      )
+    registerConduitNativeToolbarPlatformViews { pluginName in
+      engineBridge.pluginRegistry.registrar(forPlugin: pluginName)
     }
     configureApplicationFlutterChannels(
       messenger: engineBridge.applicationRegistrar.messenger()
@@ -2726,8 +2722,18 @@ private final class ConduitNativeToolbarActionGroupView:
     guard !didConfigureSharedFlutterEngine else { return }
 
     GeneratedPluginRegistrant.register(with: engine)
-    if let registrar = engine.registrar(
-      forPlugin: "ConduitNativeModelSelectorButton"
+    registerConduitNativeToolbarPlatformViews { pluginName in
+      engine.registrar(forPlugin: pluginName)
+    }
+    configureApplicationFlutterChannels(messenger: engine.binaryMessenger)
+    didConfigureSharedFlutterEngine = true
+  }
+
+  private func registerConduitNativeToolbarPlatformViews(
+    registrarForPlugin: (String) -> FlutterPluginRegistrar?
+  ) {
+    if let registrar = registrarForPlugin(
+      "ConduitNativeModelSelectorButton"
     ) {
       registrar.register(
         ConduitNativeModelSelectorButtonFactory(
@@ -2736,8 +2742,8 @@ private final class ConduitNativeToolbarActionGroupView:
         withId: "app.cogwheel.conduit/native_model_selector_button"
       )
     }
-    if let registrar = engine.registrar(
-      forPlugin: "ConduitNativeToolbarActionGroup"
+    if let registrar = registrarForPlugin(
+      "ConduitNativeToolbarActionGroup"
     ) {
       registrar.register(
         ConduitNativeToolbarActionGroupFactory(
@@ -2746,8 +2752,6 @@ private final class ConduitNativeToolbarActionGroupView:
         withId: "app.cogwheel.conduit/native_toolbar_action_group"
       )
     }
-    configureApplicationFlutterChannels(messenger: engine.binaryMessenger)
-    didConfigureSharedFlutterEngine = true
   }
 
   private func configureApplicationFlutterChannels(

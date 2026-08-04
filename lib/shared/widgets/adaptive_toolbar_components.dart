@@ -31,6 +31,8 @@ const double _kConduitNativeModelChevronReservedWidth =
 // Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
 // a small optical guard instead of letting UIButton wrap at the measured edge.
 const double _kConduitNativeModelTitleWrapGuard = 8;
+const int kConduitNativeModelLabelMaxCodeUnits = 256;
+const int _kConduitNativeModelLabelPrefixCodeUnits = 160;
 const TextStyle _kConduitNativeModelTitleStyle = TextStyle(
   fontSize: 17,
   fontWeight: FontWeight.w600,
@@ -755,12 +757,52 @@ class _ConduitNativeToolbarActionGroupState
   }
 }
 
+double resolveConduitNativeModelTitleFontSize(TextScaler textScaler) {
+  final scaledSize = textScaler.scale(_kConduitNativeModelTitleStyle.fontSize!);
+  if (!scaledSize.isFinite || scaledSize <= 0) {
+    return _kConduitNativeModelTitleStyle.fontSize!;
+  }
+  return scaledSize;
+}
+
+bool _isLeadingSurrogate(int codeUnit) =>
+    codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+
+bool _isTrailingSurrogate(int codeUnit) =>
+    codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
+
+/// Bounds backend-controlled model names before regex, layout, grapheme, or
+/// platform-channel work while preserving enough of both ends to distinguish
+/// namespaced model identifiers.
+String boundConduitNativeModelLabel(String value) {
+  if (value.length <= kConduitNativeModelLabelMaxCodeUnits) return value;
+
+  var prefixEnd = _kConduitNativeModelLabelPrefixCodeUnits;
+  if (_isLeadingSurrogate(value.codeUnitAt(prefixEnd - 1)) &&
+      _isTrailingSurrogate(value.codeUnitAt(prefixEnd))) {
+    prefixEnd -= 1;
+  }
+
+  final suffixBudget = kConduitNativeModelLabelMaxCodeUnits - prefixEnd - 1;
+  var suffixStart = value.length - suffixBudget;
+  if (_isTrailingSurrogate(value.codeUnitAt(suffixStart)) &&
+      _isLeadingSurrogate(value.codeUnitAt(suffixStart - 1))) {
+    suffixStart += 1;
+  }
+
+  return '${value.substring(0, prefixEnd)}…${value.substring(suffixStart)}';
+}
+
 double _measureConduitNativeModelTitle(
   String value,
   TextDirection textDirection,
+  double titleFontSize,
 ) {
   final painter = TextPainter(
-    text: TextSpan(text: value, style: _kConduitNativeModelTitleStyle),
+    text: TextSpan(
+      text: value,
+      style: _kConduitNativeModelTitleStyle.copyWith(fontSize: titleFontSize),
+    ),
     maxLines: 1,
     textScaler: TextScaler.noScaling,
     textDirection: textDirection,
@@ -774,14 +816,17 @@ String _middleEllipsizeConduitNativeModelTitle({
   required String value,
   required double maxWidth,
   required TextDirection textDirection,
+  required double titleFontSize,
 }) {
   if (value.isEmpty || maxWidth <= 0) return '';
-  if (_measureConduitNativeModelTitle(value, textDirection) <= maxWidth) {
+  if (_measureConduitNativeModelTitle(value, textDirection, titleFontSize) <=
+      maxWidth) {
     return value;
   }
 
   const ellipsis = '…';
-  if (_measureConduitNativeModelTitle(ellipsis, textDirection) > maxWidth) {
+  if (_measureConduitNativeModelTitle(ellipsis, textDirection, titleFontSize) >
+      maxWidth) {
     return '';
   }
 
@@ -798,7 +843,12 @@ String _middleEllipsizeConduitNativeModelTitle({
         ? ''
         : graphemes.takeLast(trailingCount).toString();
     final candidate = '$leading$ellipsis$trailing';
-    if (_measureConduitNativeModelTitle(candidate, textDirection) <= maxWidth) {
+    if (_measureConduitNativeModelTitle(
+          candidate,
+          textDirection,
+          titleFontSize,
+        ) <=
+        maxWidth) {
       best = candidate;
       low = visibleCount + 1;
     } else {
@@ -809,10 +859,16 @@ String _middleEllipsizeConduitNativeModelTitle({
 }
 
 String _normalizedConduitNativeModelLabel(String label) =>
-    label.replaceAll(RegExp(r'\s+'), ' ').trim();
+    boundConduitNativeModelLabel(label).replaceAll(RegExp(r'\s+'), ' ').trim();
 
 String? conduitNativeModelSelectorSymbol({required bool showChevron}) =>
     showChevron ? 'chevron.down' : null;
+
+VoidCallback? conduitNativeModelSelectorActivation({
+  required bool isLoading,
+  required bool showChevron,
+  required VoidCallback onPressed,
+}) => !isLoading && showChevron ? onPressed : null;
 
 /// Width required by the package's native large label button, capped to the
 /// toolbar space Conduit can safely allocate.
@@ -823,6 +879,7 @@ double resolveConduitNativeModelSelectorWidth({
   required double maxWidth,
   required TextDirection textDirection,
   double minWidth = 112,
+  double titleFontSize = 17,
 }) {
   final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
   if (safeMaxWidth == 0) return 0;
@@ -831,7 +888,11 @@ double resolveConduitNativeModelSelectorWidth({
   final safeMinWidth = minWidth.clamp(0.0, safeMaxWidth).toDouble();
   final normalizedLabel = _normalizedConduitNativeModelLabel(label);
   final desiredWidth =
-      _measureConduitNativeModelTitle(normalizedLabel, textDirection) +
+      _measureConduitNativeModelTitle(
+        normalizedLabel,
+        textDirection,
+        titleFontSize,
+      ) +
       (showChevron ? _kConduitNativeModelChevronReservedWidth : 0) +
       _kConduitNativeButtonHorizontalInsets +
       _kConduitNativeModelTitleWrapGuard;
@@ -846,6 +907,7 @@ String resolveConduitNativeModelSelectorLabel({
   required bool showChevron,
   required double availableWidth,
   required TextDirection textDirection,
+  double titleFontSize = 17,
 }) {
   if (isLoading) return '…';
 
@@ -854,22 +916,33 @@ String resolveConduitNativeModelSelectorLabel({
       availableWidth -
       _kConduitNativeButtonHorizontalInsets -
       (showChevron ? _kConduitNativeModelChevronReservedWidth : 0);
-  if (_measureConduitNativeModelTitle(normalizedLabel, textDirection) <=
-      contentWidth) {
+  final guardedContentWidth =
+      (contentWidth - _kConduitNativeModelTitleWrapGuard)
+          .clamp(0.0, double.infinity)
+          .toDouble();
+  if (_measureConduitNativeModelTitle(
+        normalizedLabel,
+        textDirection,
+        titleFontSize,
+      ) <=
+      guardedContentWidth) {
     return normalizedLabel;
   }
   return _middleEllipsizeConduitNativeModelTitle(
     value: normalizedLabel,
-    maxWidth: contentWidth - _kConduitNativeModelTitleWrapGuard,
+    maxWidth: guardedContentWidth,
     textDirection: textDirection,
+    titleFontSize: titleFontSize,
   );
 }
 
 /// Forces the package-owned platform view to be recreated when its foreground
 /// changes. adaptive_platform_ui 0.1.110 does not synchronize `textColor` from
 /// `didUpdateWidget`, so preserving the state would retain the previous theme.
-ValueKey<int> conduitNativeModelSelectorViewKey(Color foregroundColor) =>
-    ValueKey<int>(foregroundColor.toARGB32());
+ValueKey<Object> conduitNativeModelSelectorViewKey(
+  Color foregroundColor, {
+  double titleFontSize = 17,
+}) => ValueKey<Object>((foregroundColor.toARGB32(), titleFontSize));
 
 class _ConduitNativeModelSelectorButton extends StatefulWidget {
   const _ConduitNativeModelSelectorButton({
@@ -877,6 +950,7 @@ class _ConduitNativeModelSelectorButton extends StatefulWidget {
     required this.label,
     required this.symbolName,
     required this.foregroundColor,
+    required this.titleFontSize,
     required this.enabled,
     required this.onPressed,
   });
@@ -884,6 +958,7 @@ class _ConduitNativeModelSelectorButton extends StatefulWidget {
   final String label;
   final String? symbolName;
   final Color foregroundColor;
+  final double titleFontSize;
   final bool enabled;
   final VoidCallback onPressed;
 
@@ -922,6 +997,7 @@ class _ConduitNativeModelSelectorButtonState
         widget.label,
         widget.symbolName,
         widget.foregroundColor.toARGB32(),
+        widget.titleFontSize,
         widget.enabled,
       )),
       viewType: 'app.cogwheel.conduit/native_model_selector_button',
@@ -931,6 +1007,7 @@ class _ConduitNativeModelSelectorButtonState
         'symbolSize': kConduitNativeModelChevronExtent,
         'symbolPadding': _kConduitNativeModelChevronPadding,
         'foregroundColor': widget.foregroundColor.toARGB32(),
+        'titleFontSize': widget.titleFontSize,
         'enabled': widget.enabled,
       },
       creationParamsCodec: const StandardMessageCodec(),
@@ -993,20 +1070,25 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     );
     final usesNativeGlass = conduitSupportsNativeGlass();
     final textDirection = Directionality.of(context);
+    final nativeTitleFontSize = resolveConduitNativeModelTitleFontSize(
+      MediaQuery.textScalerOf(context),
+    );
+    final boundedLabel = boundConduitNativeModelLabel(label);
     const leadingPadding = 10.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
         : usesNativeGlass
         ? resolveConduitNativeModelSelectorWidth(
-            label: label,
+            label: boundedLabel,
             isLoading: false,
             showChevron: showChevron,
             maxWidth: safeMaxWidth,
             textDirection: textDirection,
+            titleFontSize: nativeTitleFontSize,
           )
         : resolveConduitAdaptiveTextPillWidth(
             context: context,
-            label: label,
+            label: boundedLabel,
             textStyle: effectiveTextStyle,
             maxWidth: safeMaxWidth,
             minWidth: 96,
@@ -1033,10 +1115,10 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                     children: [
                       Flexible(
                         child: MiddleEllipsisText(
-                          label,
+                          boundedLabel,
                           style: effectiveTextStyle,
                           textAlign: TextAlign.center,
-                          semanticsLabel: label,
+                          semanticsLabel: boundedLabel,
                           textHeightBehavior: const TextHeightBehavior(
                             applyHeightToFirstAscent: false,
                             applyHeightToLastDescent: false,
@@ -1062,8 +1144,12 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 
     if (conduitUsesOpaqueGlassFallback()) {
       return FloatingAppBarButton(
-        onTap: (isLoading || !showChevron) ? null : onPressed,
-        semanticLabel: label,
+        onTap: conduitNativeModelSelectorActivation(
+          isLoading: isLoading,
+          showChevron: showChevron,
+          onPressed: onPressed,
+        ),
+        semanticLabel: boundedLabel,
         child: buildFallbackChild(),
       );
     }
@@ -1072,9 +1158,14 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       size: Size(targetWidth, controlExtent),
       child: usesNativeGlass
           ? Semantics(
-              label: label,
+              label: boundedLabel,
               button: true,
               enabled: !isLoading && showChevron,
+              onTap: conduitNativeModelSelectorActivation(
+                isLoading: isLoading,
+                showChevron: showChevron,
+                onPressed: onPressed,
+              ),
               excludeSemantics: true,
               child: SizedBox(
                 width: targetWidth,
@@ -1082,25 +1173,32 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                 child: _ConduitNativeModelSelectorButton(
                   key: conduitNativeModelSelectorViewKey(
                     context.conduitTheme.textPrimary,
+                    titleFontSize: nativeTitleFontSize,
                   ),
                   label: resolveConduitNativeModelSelectorLabel(
-                    label: label,
+                    label: boundedLabel,
                     isLoading: isLoading,
                     showChevron: showChevron,
                     availableWidth: targetWidth,
                     textDirection: textDirection,
+                    titleFontSize: nativeTitleFontSize,
                   ),
                   symbolName: conduitNativeModelSelectorSymbol(
                     showChevron: showChevron,
                   ),
                   foregroundColor: context.conduitTheme.textPrimary,
+                  titleFontSize: nativeTitleFontSize,
                   enabled: !isLoading && showChevron,
                   onPressed: onPressed,
                 ),
               ),
             )
           : AdaptiveButton.child(
-              onPressed: (isLoading || !showChevron) ? null : onPressed,
+              onPressed: conduitNativeModelSelectorActivation(
+                isLoading: isLoading,
+                showChevron: showChevron,
+                onPressed: onPressed,
+              ),
               style: AdaptiveButtonStyle.glass,
               size: AdaptiveButtonSize.large,
               padding: EdgeInsets.zero,

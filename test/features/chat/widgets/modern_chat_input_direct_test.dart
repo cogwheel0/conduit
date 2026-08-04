@@ -52,6 +52,31 @@ void main() {
     ).isFalse();
   });
 
+  test(
+    'native composer edit items remain stable across selection rebuilds',
+    () {
+      const defaults = <IOSSystemContextMenuItem>[
+        IOSSystemContextMenuItemCopy(),
+        IOSSystemContextMenuItemSelectAll(),
+      ];
+
+      final first = buildComposerSystemContextMenuItems(
+        defaultItems: defaults,
+        ensurePaste: true,
+      );
+      final second = buildComposerSystemContextMenuItems(
+        defaultItems: defaults,
+        ensurePaste: true,
+      );
+
+      expect(first, orderedEquals(second));
+      expect(first.whereType<IOSSystemContextMenuItemCustom>(), isEmpty);
+      expect(first[0], isA<IOSSystemContextMenuItemCopy>());
+      expect(first[1], isA<IOSSystemContextMenuItemPaste>());
+      expect(first[2], isA<IOSSystemContextMenuItemSelectAll>());
+    },
+  );
+
   test('native toolbar action groups preserve action and menu order', () {
     final actions = [
       ConduitNativeToolbarAction(
