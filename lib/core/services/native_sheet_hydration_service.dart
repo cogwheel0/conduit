@@ -74,6 +74,12 @@ Future<bool> waitForNativeReasoningEffortHydration(
   }
 }
 
+@visibleForTesting
+ReasoningEffortPolicy nativeModelSelectorReasoningEffortPolicy(
+  bool hydrated,
+  ReasoningEffortPolicy hydratedPolicy,
+) => hydrated ? hydratedPolicy : ReasoningEffortPolicy.unsupported;
+
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref);
 
@@ -141,11 +147,12 @@ class NativeSheetHydrationService {
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
+      var effortHydrated = effortModel == null;
       if (effortModel != null) {
-        final hydrated = await waitForNativeReasoningEffortHydration(
+        effortHydrated = await waitForNativeReasoningEffortHydration(
           _ref.read(serverModelReasoningEffortProvider(effortModel).future),
         );
-        if (!hydrated) {
+        if (!effortHydrated) {
           DebugLogger.warning(
             'reasoning-effort-hydration-timeout',
             scope: 'native-sheet/models',
@@ -154,9 +161,9 @@ class NativeSheetHydrationService {
         }
         if (!context.mounted) return null;
       }
-      final effortPolicy = reasoningEffortPolicyForModel(
-        _ref.read,
-        effortModel,
+      final effortPolicy = nativeModelSelectorReasoningEffortPolicy(
+        effortHydrated,
+        reasoningEffortPolicyForModel(_ref.read, effortModel),
       );
       final allowsCustomEffort = effortPolicy.allowsCustom;
       final effortOptions = effortPolicy.options;
@@ -204,7 +211,7 @@ class NativeSheetHydrationService {
         moreModelsTitle: l10n?.moreModels ?? 'More models',
         searchModelsTitle: l10n?.searchModels ?? 'Search models',
         reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
-        reasoningEffortValue: effortModel == null
+        reasoningEffortValue: effortModel == null || !effortHydrated
             ? kAutomaticReasoningEffort
             : reasoningEffortForModel(_ref.read, effortModel),
         reasoningEffortOptions: effortOptions,

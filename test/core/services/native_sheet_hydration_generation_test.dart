@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
+import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -18,6 +19,17 @@ void main() {
       ).isFalse();
     },
   );
+
+  test('timed-out effort hydration hides stale picker controls', () {
+    final policy = nativeModelSelectorReasoningEffortPolicy(
+      false,
+      ReasoningEffortPolicy.generic,
+    );
+
+    check(policy.visible).isFalse();
+    check(policy.options).isEmpty();
+    check(policy.allowsCustom).isFalse();
+  });
 
   test('late selector hydration cannot update a newer presentation', () {
     final generations = NativeSheetHydrationGeneration();
