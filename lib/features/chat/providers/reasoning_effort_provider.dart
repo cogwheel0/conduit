@@ -202,10 +202,14 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
         );
   }
 
-  final detailedModelEffort = ref
-      .watch(serverModelReasoningEffortProvider(model))
-      .asData
-      ?.value;
+  String? detailedModelEffort;
+  if (_isOpenWebUiWorkspaceModel(model)) {
+    final detailedEffort = ref.watch(serverModelReasoningEffortProvider(model));
+    // Until OpenWebUI returns the private workspace params, do not let a
+    // user-level fallback override the model's server-side configuration.
+    if (detailedEffort.isLoading) return null;
+    detailedModelEffort = detailedEffort.asData?.value;
+  }
   final modelEffort =
       detailedModelEffort ?? modelConfiguredReasoningEffort(model);
   if (modelEffort != null) {
@@ -267,9 +271,12 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
-  final detailedModelEffort = read(
-    serverModelReasoningEffortProvider(model),
-  ).asData?.value;
+  String? detailedModelEffort;
+  if (_isOpenWebUiWorkspaceModel(model)) {
+    final detailedEffort = read(serverModelReasoningEffortProvider(model));
+    if (detailedEffort.isLoading) return kAutomaticReasoningEffort;
+    detailedModelEffort = detailedEffort.asData?.value;
+  }
   final modelEffort =
       detailedModelEffort ?? modelConfiguredReasoningEffort(model);
   final policy = reasoningEffortPolicyForModel(read, model);
@@ -306,9 +313,9 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
   if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) {
-    final detailedModelEffort = read(
-      serverModelReasoningEffortProvider(model),
-    ).asData?.value;
+    final detailedModelEffort = _isOpenWebUiWorkspaceModel(model)
+        ? read(serverModelReasoningEffortProvider(model)).asData?.value
+        : null;
     return model.supportsReasoningEffort || detailedModelEffort != null
         ? ReasoningEffortPolicy.generic
         : ReasoningEffortPolicy.unsupported;

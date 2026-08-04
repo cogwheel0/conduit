@@ -69,6 +69,7 @@ final class _FixedSelectedModel extends SelectedModel {
 final class _ModelDetailsAdapter implements HttpClientAdapter {
   int requestCount = 0;
   final Completer<void> requested = Completer<void>();
+  final Completer<void> release = Completer<void>();
 
   @override
   Future<ResponseBody> fetch(
@@ -83,6 +84,7 @@ final class _ModelDetailsAdapter implements HttpClientAdapter {
     check(
       options.queryParameters,
     ).deepEquals(<String, dynamic>{'id': 'workspace-reasoning-model'});
+    await release.future;
     return ResponseBody(
       Stream<Uint8List>.value(
         Uint8List.fromList(
@@ -230,6 +232,8 @@ void main() {
       addTearDown(subscription.close);
 
       await adapter.requested.future.timeout(const Duration(seconds: 1));
+      check(container.read(configuredReasoningEffortProvider)).isNull();
+      adapter.release.complete();
       await container.read(serverModelReasoningEffortProvider(model).future);
 
       check(adapter.requestCount).equals(1);
