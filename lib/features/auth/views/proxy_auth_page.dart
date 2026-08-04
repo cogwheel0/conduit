@@ -425,13 +425,9 @@ final class ProxyAuthDocumentFence {
 
   /// Marks the document that the platform WebView reports as committed.
   bool markDocumentCommitted(String url) {
-    if (_documentKey == null) return false;
-
     final committedKey = _key(url);
-    if (_documentKey != committedKey) {
-      _generation++;
-      _documentKey = committedKey;
-    }
+    if (_documentKey != committedKey) return false;
+
     _committedGeneration = _generation;
     _committedDocumentKey = committedKey;
     return true;
@@ -641,14 +637,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
   void _onPageCommitted(String url) {
     if (!mounted || url.isEmpty) return;
-    final previousGeneration = _documentFence.generation;
-    if (!_documentFence.markDocumentCommitted(url)) return;
-
-    // Some platforms report the committed redirect URL before their visited-
-    // history callback. Treat that transition as a new capture document too.
-    if (_documentFence.generation != previousGeneration) {
-      _captureQueue.reset();
-    }
+    // Commit callbacks only confirm the already-active navigation. Redirect
+    // URLs that arrive without a matching navigation/history callback are
+    // adopted by the generation-safe load-stop fallback instead.
+    _documentFence.markDocumentCommitted(url);
   }
 
   Future<void> _onPageFinished(

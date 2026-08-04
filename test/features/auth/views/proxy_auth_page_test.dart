@@ -161,6 +161,44 @@ void main() {
       check(fence.committedDocument).isNull();
     });
 
+    test('delayed commit callback cannot replace a newer navigation', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/old');
+
+      fence.startNavigation('https://chat.example/new');
+      final newDocument = fence.activeDocument!;
+
+      check(fence.markDocumentCommitted('https://chat.example/old')).isFalse();
+      check(fence.committedDocument).isNull();
+      check(
+        fence.ownsDocument(newDocument.generation, newDocument.url),
+      ).isTrue();
+    });
+
+    test('redirect commit waits for the load-stop fallback', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      final pendingDocument = fence.activeDocument!;
+
+      check(
+        fence.markDocumentCommitted('https://auth.example/login'),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/login',
+          currentUrl: 'https://auth.example/login',
+        ),
+      ).isTrue();
+      check(
+        fence.ownsLiveDocument(
+          fence.committedDocument!,
+          'https://auth.example/login',
+        ),
+      ).isTrue();
+    });
+
     test('rejects a delayed completion after a newer navigation starts', () {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://auth.example/login');
