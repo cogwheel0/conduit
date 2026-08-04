@@ -4155,7 +4155,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           enabled: onPressed != null,
           child: SizedBox.square(
             dimension: size,
-            child: Center(child: child),
+            child: isProminent
+                ? DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: buttonColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(child: child),
+                  )
+                : Center(child: child),
           ),
         );
       }
