@@ -114,14 +114,14 @@ bool _isOpenWebUiWorkspaceModel(Model model) {
 /// Loads private workspace-model parameters that OpenWebUI intentionally omits
 /// from `/api/models`. The detail route returns them only to callers with write
 /// access; read-only callers receive an empty params map.
-final serverModelReasoningEffortProvider =
-    FutureProvider.family<String?, Model>((ref, model) async {
-      if (!_isOpenWebUiWorkspaceModel(model)) return null;
-      final api = ref.watch(apiServiceProvider);
-      if (api == null) return null;
-      final details = await api.getModelDetails(model.id);
-      return _reasoningEffortFromParams(<Object?>[details?['params']]);
-    });
+@Riverpod(keepAlive: true)
+Future<String?> serverModelReasoningEffort(Ref ref, Model model) async {
+  if (!_isOpenWebUiWorkspaceModel(model)) return null;
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) return null;
+  final details = await api.getModelDetails(model.id);
+  return _reasoningEffortFromParams(<Object?>[details?['params']]);
+}
 
 @Riverpod(keepAlive: true)
 class LocalReasoningEfforts extends _$LocalReasoningEfforts {
