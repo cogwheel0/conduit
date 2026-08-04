@@ -22,8 +22,11 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
+import 'package:fleather/fleather.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _testUser = User(
@@ -108,6 +111,7 @@ Widget _noteEditorHarness({
   required AppDatabase db,
   required SyncEngine syncEngine,
   bool withBackRoute = false,
+  TargetPlatform platform = TargetPlatform.android,
 }) {
   return ProviderScope(
     overrides: [
@@ -126,7 +130,7 @@ Widget _noteEditorHarness({
     child: MaterialApp(
       theme: AppTheme.light(
         TweakcnThemes.conduit,
-      ).copyWith(platform: TargetPlatform.android),
+      ).copyWith(platform: platform),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       initialRoute: withBackRoute ? '/editor' : null,
@@ -152,6 +156,79 @@ void main() {
     tearDown(() async {
       await db.close();
     });
+
+    testWidgets(
+      'note context-menu copy keeps a scroll client on Android and iOS',
+      (tester) async {
+        final originalErrorWidgetBuilder = ErrorWidget.builder;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final platformCalls = <MethodCall>[];
+        messenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            platformCalls.add(call);
+            return null;
+          },
+        );
+
+        try {
+          await tester.binding.setSurfaceSize(const Size(1200, 900));
+          await tester.pumpWidget(
+            _noteEditorHarness(
+              db: db,
+              syncEngine: _NoDrainSyncEngine(),
+              platform: defaultTargetPlatform,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final editorState = tester.state<EditorState>(find.byType(RawEditor));
+          editorState.userUpdateTextEditingValue(
+            editorState.textEditingValue.copyWith(
+              selection: const TextSelection(baseOffset: 0, extentOffset: 7),
+            ),
+            SelectionChangedCause.longPress,
+          );
+          await tester.pump();
+
+          final copyButton = editorState.contextMenuButtonItems.singleWhere(
+            (button) => button.type == ContextMenuButtonType.copy,
+          );
+          expect(copyButton.onPressed, isNotNull);
+          copyButton.onPressed!();
+          await tester.pumpAndSettle();
+
+          final editor = tester.widget<FleatherEditor>(
+            find.byType(FleatherEditor),
+          );
+          final pageScrollView = tester.widget<SingleChildScrollView>(
+            find
+                .ancestor(
+                  of: find.byType(FleatherEditor),
+                  matching: find.byType(SingleChildScrollView),
+                )
+                .first,
+          );
+          expect(editor.scrollController, same(pageScrollView.controller));
+          expect(editor.scrollController?.hasClients, isTrue);
+          final clipboardCall = platformCalls.singleWhere(
+            (call) => call.method == 'Clipboard.setData',
+          );
+          expect(clipboardCall.arguments, <String, dynamic>{'text': 'Deleted'});
+          expect(tester.takeException(), isNull);
+        } finally {
+          messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.binding.setSurfaceSize(null);
+          ErrorWidget.builder = originalErrorWidgetBuilder;
+        }
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      }),
+    );
 
     test('renders cached Drift notes when the API is unavailable', () async {
       await db

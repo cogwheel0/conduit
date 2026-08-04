@@ -2661,7 +2661,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         controller: controller,
         focusNode: _contentFocusNode,
         // Lives inside the page's SingleChildScrollView; the editor must not
-        // scroll independently so the whole note grows with the content.
+        // scroll independently so the whole note grows with the content. Give
+        // Fleather the parent controller so context-menu actions can reveal the
+        // selection without reading an unattached internal ScrollController.
+        scrollController: _scrollController,
         scrollable: false,
         expands: false,
         padding: EdgeInsets.zero,
