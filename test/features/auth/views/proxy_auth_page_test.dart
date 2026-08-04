@@ -260,7 +260,7 @@ void main() {
       check(fence.committedDocument).isNull();
     });
 
-    test('committed ticket rejects a different same-origin URL', () {
+    test('committed ticket rejects full URL drift', () {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://chat.example/auth');
       fence.markDocumentCommitted('https://chat.example/auth');
@@ -268,10 +268,33 @@ void main() {
 
       check(
         fence.ownsLiveDocument(document, 'https://chat.example/auth#ready'),
-      ).isTrue();
+      ).isFalse();
       check(
         fence.ownsLiveDocument(document, 'https://chat.example/chat/new'),
       ).isFalse();
+    });
+
+    test('fragment-only history change advances the committed ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth#login');
+      fence.markDocumentCommitted('https://chat.example/auth#login');
+      final oldDocument = fence.committedDocument!;
+
+      check(
+        fence.observeSameDocumentHistory(
+          document: oldDocument,
+          url: 'https://chat.example/auth#ready',
+        ),
+      ).isTrue();
+      final currentDocument = fence.committedDocument!;
+
+      check(fence.ownsCommittedDocument(oldDocument)).isFalse();
+      check(
+        fence.ownsLiveDocument(
+          currentDocument,
+          'https://chat.example/auth#ready',
+        ),
+      ).isTrue();
     });
 
     test('same-document history change advances the committed ticket', () {

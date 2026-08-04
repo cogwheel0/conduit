@@ -360,40 +360,46 @@ enum _ProxyAuthDocumentState { live, movedAway, lost }
 final class ProxyAuthDocumentFence {
   int _generation = 0;
   String? _documentKey;
+  String? _documentUrl;
   int? _committedGeneration;
   String? _committedDocumentKey;
+  String? _committedDocumentUrl;
 
   int get generation => _generation;
 
   ProxyAuthDocumentTicket? get activeDocument {
-    final documentKey = _documentKey;
-    if (documentKey == null) return null;
-    return ProxyAuthDocumentTicket(generation: _generation, url: documentKey);
+    final documentUrl = _documentUrl;
+    if (documentUrl == null) return null;
+    return ProxyAuthDocumentTicket(generation: _generation, url: documentUrl);
   }
 
   ProxyAuthDocumentTicket? get committedDocument {
     final documentKey = _committedDocumentKey;
+    final documentUrl = _committedDocumentUrl;
     final committedGeneration = _committedGeneration;
     if (documentKey == null ||
+        documentUrl == null ||
         committedGeneration == null ||
         committedGeneration != _generation) {
       return null;
     }
     return ProxyAuthDocumentTicket(
       generation: committedGeneration,
-      url: documentKey,
+      url: documentUrl,
     );
   }
 
   void startNavigation(String url) {
     _generation++;
     _documentKey = _key(url);
+    _documentUrl = _fullKey(url);
     _clearCommittedDocument();
   }
 
   void invalidate() {
     _generation++;
     _documentKey = null;
+    _documentUrl = null;
     _clearCommittedDocument();
   }
 
@@ -419,23 +425,29 @@ final class ProxyAuthDocumentFence {
   }) {
     if (!ownsCommittedDocument(document)) return false;
 
-    final nextKey = _key(url);
-    if (nextKey == document.url) return false;
+    final nextUrl = _fullKey(url);
+    if (nextUrl == document.url) return false;
 
     _generation++;
-    _documentKey = nextKey;
+    _documentKey = _key(nextUrl);
+    _documentUrl = nextUrl;
     _committedGeneration = _generation;
-    _committedDocumentKey = nextKey;
+    _committedDocumentKey = _documentKey;
+    _committedDocumentUrl = nextUrl;
     return true;
   }
 
   /// Marks the document that the platform WebView reports as committed.
   bool markDocumentCommitted(String url) {
     final committedKey = _key(url);
-    if (_documentKey != committedKey) return false;
+    final committedUrl = _fullKey(url);
+    if (_documentKey != committedKey || _documentUrl != committedUrl) {
+      return false;
+    }
 
     _committedGeneration = _generation;
     _committedDocumentKey = committedKey;
+    _committedDocumentUrl = committedUrl;
     return true;
   }
 
@@ -444,17 +456,22 @@ final class ProxyAuthDocumentFence {
   bool ownsDocument(int generation, String url) =>
       ownsGeneration(generation) && _documentKey == _key(url);
 
-  bool ownsCommittedDocument(ProxyAuthDocumentTicket document) =>
+  bool ownsActiveDocument(ProxyAuthDocumentTicket document) =>
       document.generation == _generation &&
-      _documentKey == document.url &&
+      _documentKey == _key(document.url) &&
+      _documentUrl == _fullKey(document.url);
+
+  bool ownsCommittedDocument(ProxyAuthDocumentTicket document) =>
+      ownsActiveDocument(document) &&
       _committedGeneration == document.generation &&
-      _committedDocumentKey == document.url;
+      _committedDocumentKey == _key(document.url) &&
+      _committedDocumentUrl == _fullKey(document.url);
 
   bool ownsLiveDocument(ProxyAuthDocumentTicket document, String currentUrl) =>
-      ownsCommittedDocument(document) && document.url == _key(currentUrl);
+      ownsCommittedDocument(document) && document.url == _fullKey(currentUrl);
 
   bool matchesUrl(String firstUrl, String secondUrl) =>
-      _key(firstUrl) == _key(secondUrl);
+      _fullKey(firstUrl) == _fullKey(secondUrl);
 
   /// Commits the URL reported when the owned main-frame navigation finishes.
   ///
@@ -468,23 +485,27 @@ final class ProxyAuthDocumentFence {
     required String currentUrl,
   }) {
     final callbackKey = _key(callbackUrl);
-    if (!ownsDocument(document.generation, document.url) ||
-        callbackKey != _key(currentUrl)) {
+    final callbackFullUrl = _fullKey(callbackUrl);
+    if (!ownsActiveDocument(document) ||
+        callbackFullUrl != _fullKey(currentUrl)) {
       return false;
     }
 
-    if (_documentKey != callbackKey) {
+    if (_documentKey != callbackKey || _documentUrl != callbackFullUrl) {
       _generation++;
       _documentKey = callbackKey;
+      _documentUrl = callbackFullUrl;
     }
     _committedGeneration = _generation;
     _committedDocumentKey = callbackKey;
+    _committedDocumentUrl = callbackFullUrl;
     return true;
   }
 
   void _clearCommittedDocument() {
     _committedGeneration = null;
     _committedDocumentKey = null;
+    _committedDocumentUrl = null;
   }
 
   static String _key(String url) {
@@ -492,6 +513,11 @@ final class ProxyAuthDocumentFence {
     if (uri == null) return url;
     // Fragments do not select a different credential origin/document.
     return uri.replace(fragment: '').toString();
+  }
+
+  static String _fullKey(String url) {
+    final uri = Uri.tryParse(url);
+    return uri?.toString() ?? url;
   }
 }
 
@@ -816,11 +842,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      if (!mounted ||
-          !_documentFence.ownsDocument(
-            pendingDocument.generation,
-            pendingDocument.url,
-          )) {
+      if (!mounted || !_documentFence.ownsActiveDocument(pendingDocument)) {
         return;
       }
       setState(() {
@@ -831,10 +853,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
     if (!mounted) return;
     if (currentUrl == null) {
-      if (!_documentFence.ownsDocument(
-        pendingDocument.generation,
-        pendingDocument.url,
-      )) {
+      if (!_documentFence.ownsActiveDocument(pendingDocument)) {
         return;
       }
       setState(() {
