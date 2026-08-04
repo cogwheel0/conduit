@@ -677,10 +677,10 @@ Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
   'symbolSize': kConduitNativeGroupedToolbarSymbolExtent,
 };
 
-/// A native toolbar surface for one action or two adjacent shared actions.
+/// A native toolbar surface for one to three adjacent shared actions.
 class ConduitNativeToolbarActionGroup extends StatefulWidget {
   const ConduitNativeToolbarActionGroup({super.key, required this.actions})
-    : assert(actions.length == 1 || actions.length == 2);
+    : assert(actions.length >= 1 && actions.length <= 3);
 
   final List<ConduitNativeToolbarAction> actions;
 
@@ -1252,51 +1252,24 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
     }
   }
 
-  List<ConduitNativeToolbarMenuItem>? _nativeMenuItems() {
-    final nativeItems = <ConduitNativeToolbarMenuItem>[];
-    for (final entry in items) {
-      if (entry is! AdaptivePopupMenuItem<T> ||
-          entry.value == null ||
-          entry.subtitle?.isNotEmpty == true ||
-          entry.imageBytes != null ||
-          (entry.icon != null && entry.icon is! String)) {
-        return null;
-      }
-      final value = entry.value as T;
-      nativeItems.add(
-        ConduitNativeToolbarMenuItem(
-          label: entry.label,
-          iosSymbol: entry.icon as String?,
-          isDestructive: entry.isDestructive,
-          enabled: entry.enabled,
-          onSelected: () => onSelected(value),
-        ),
-      );
-    }
-    return nativeItems.isEmpty ? null : nativeItems;
-  }
-
   @override
   Widget build(BuildContext context) {
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
-    final nativeMenuItems = conduitSupportsNativeGlass()
-        ? _nativeMenuItems()
-        : null;
-    if (nativeMenuItems != null) {
-      return ConduitNativeToolbarActionGroup(
-        actions: [
-          ConduitNativeToolbarAction(
+    final nativeMenuAction = conduitSupportsNativeGlass()
+        ? buildConduitNativeToolbarMenuAction<T>(
             iosSymbol: iosIcon,
             accessibilityLabel: MaterialLocalizations.of(
               context,
             ).moreButtonTooltip,
-            menuItems: nativeMenuItems,
             tintColor: tintColor,
             symbolSize: conduitNativeToolbarSymbolExtentFor(iosIcon),
-          ),
-        ],
-      );
+            items: items,
+            onSelected: onSelected,
+          )
+        : null;
+    if (nativeMenuAction != null) {
+      return ConduitNativeToolbarActionGroup(actions: [nativeMenuAction]);
     }
     if (conduitUsesOpaqueGlassFallback()) {
       return AdaptivePopupMenuButton.widget<T>(
@@ -1328,4 +1301,48 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Converts simple adaptive popup entries into one native toolbar menu action.
+///
+/// Entries with subtitles, images, dividers, non-SF-Symbol icons, or null
+/// values keep the package popup fallback because UIKit cannot reproduce those
+/// trigger/menu contracts through this compact adapter.
+ConduitNativeToolbarAction? buildConduitNativeToolbarMenuAction<T>({
+  required String iosSymbol,
+  required String accessibilityLabel,
+  required Color tintColor,
+  required double symbolSize,
+  required List<AdaptivePopupMenuEntry> items,
+  required ValueChanged<T> onSelected,
+}) {
+  final nativeItems = <ConduitNativeToolbarMenuItem>[];
+  for (final entry in items) {
+    if (entry is! AdaptivePopupMenuItem<T> ||
+        entry.value == null ||
+        entry.subtitle?.isNotEmpty == true ||
+        entry.imageBytes != null ||
+        (entry.icon != null && entry.icon is! String)) {
+      return null;
+    }
+    final value = entry.value as T;
+    nativeItems.add(
+      ConduitNativeToolbarMenuItem(
+        label: entry.label,
+        iosSymbol: entry.icon as String?,
+        isDestructive: entry.isDestructive,
+        enabled: entry.enabled,
+        onSelected: () => onSelected(value),
+      ),
+    );
+  }
+  if (nativeItems.isEmpty) return null;
+
+  return ConduitNativeToolbarAction(
+    iosSymbol: iosSymbol,
+    accessibilityLabel: accessibilityLabel,
+    menuItems: nativeItems,
+    tintColor: tintColor,
+    symbolSize: symbolSize,
+  );
 }

@@ -23,6 +23,7 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -158,7 +159,54 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       leadingGap: leadingGap,
       maxModelWidth: maxModelWidth,
     );
-    final actions = _buildFolderToolbarActionWidgets(context, folder);
+    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    final menuItems = folder == null
+        ? const <AdaptivePopupMenuEntry>[]
+        : _buildFolderToolbarMenuItems(l10n);
+    void onMenuSelected(String action) {
+      if (folder != null) {
+        _handleFolderToolbarSelection(folder, action);
+      }
+    }
+
+    final actions = _buildFolderToolbarActionWidgets(
+      context,
+      folder: folder,
+      isTemporary: isTemporary,
+      menuItems: menuItems,
+      onMenuSelected: onMenuSelected,
+    );
+    final nativeMenuAction = folder == null
+        ? null
+        : buildConduitNativeToolbarMenuAction<String>(
+            iosSymbol: 'ellipsis',
+            accessibilityLabel: l10n.more,
+            tintColor: tintColor,
+            symbolSize: kConduitNativeToolbarSymbolExtent,
+            items: menuItems,
+            onSelected: onMenuSelected,
+          );
+    final nativeActions = <ConduitNativeToolbarAction>[
+      ConduitNativeToolbarAction(
+        iosSymbol: isTemporary ? 'eye.slash' : 'eye',
+        accessibilityLabel: l10n.temporaryChat,
+        tintColor: isTemporary ? Colors.blue : tintColor,
+        symbolSize: kConduitNativeVisibilitySymbolExtent,
+        onPressed: _toggleTemporaryChat,
+      ),
+      ConduitNativeToolbarAction(
+        iosSymbol: 'square.and.pencil',
+        accessibilityLabel: l10n.newChat,
+        tintColor: tintColor,
+        symbolSize: kConduitNativeToolbarSymbolExtent,
+        onPressed: _handleNewChat,
+      ),
+      ?nativeMenuAction,
+    ];
+    final useNativeActionGroup =
+        Platform.isIOS &&
+        conduitSupportsNativeGlass() &&
+        (folder == null || nativeMenuAction != null);
     final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
@@ -180,7 +228,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
         textScaler: textScaler,
         leading: leading,
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        trailing: useNativeActionGroup
+            ? ConduitNativeToolbarActionGroup(actions: nativeActions)
+            : Row(mainAxisSize: MainAxisSize.min, children: actions),
         systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
@@ -232,10 +282,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   List<Widget> _buildFolderToolbarActionWidgets(
-    BuildContext context,
-    Folder? folder,
-  ) {
-    final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    BuildContext context, {
+    required Folder? folder,
+    required bool isTemporary,
+    required List<AdaptivePopupMenuEntry> menuItems,
+    required ValueChanged<String> onMenuSelected,
+  }) {
     final actions = buildConduitAdaptiveToolbarActionWidgets([
       ConduitAdaptiveAppBarIconButton(
         key: const ValueKey<String>('folder-page-temp-button'),
@@ -243,11 +295,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
             : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
         iconColor: isTemporary ? Colors.blue : context.conduitTheme.textPrimary,
-        onPressed: () {
-          ConduitHaptics.selectionClick();
-          final current = ref.read(temporaryChatEnabledProvider);
-          ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-        },
+        onPressed: _toggleTemporaryChat,
       ),
       ConduitAdaptiveAppBarIconButton(
         key: const ValueKey<String>('folder-page-new-chat-button'),
@@ -258,12 +306,40 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       if (folder != null)
         _FolderToolbarPopupButton(
           tintColor: context.conduitTheme.textPrimary,
-          onSelected: (action) => _handleFolderToolbarSelection(folder, action),
+          items: menuItems,
+          onSelected: onMenuSelected,
         ),
     ]);
 
     return actions;
   }
+
+  void _toggleTemporaryChat() {
+    ConduitHaptics.selectionClick();
+    final current = ref.read(temporaryChatEnabledProvider);
+    ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+  }
+
+  List<AdaptivePopupMenuEntry> _buildFolderToolbarMenuItems(
+    AppLocalizations l10n,
+  ) => [
+    AdaptivePopupMenuItem<String>(
+      value: 'edit-folder',
+      label: l10n.editFolder,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'pencil',
+        materialIcon: Icons.edit_outlined,
+      ),
+    ),
+    AdaptivePopupMenuItem<String>(
+      value: 'system-prompt',
+      label: l10n.systemPrompt,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'text.bubble',
+        materialIcon: Icons.notes_outlined,
+      ),
+    ),
+  ];
 
   void _handleFolderToolbarSelection(Folder folder, String action) {
     ConduitHaptics.selectionClick();
@@ -2173,37 +2249,21 @@ class _SectionHeader extends StatelessWidget {
 class _FolderToolbarPopupButton extends StatelessWidget {
   const _FolderToolbarPopupButton({
     required this.tintColor,
+    required this.items,
     required this.onSelected,
   });
 
   final Color tintColor;
+  final List<AdaptivePopupMenuEntry> items;
   final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     return KeyedSubtree(
       key: const ValueKey<String>('folder-page-overflow-button'),
       child: ConduitAdaptiveToolbarOverflowButton<String>(
         tintColor: tintColor,
-        items: [
-          AdaptivePopupMenuItem<String>(
-            value: 'edit-folder',
-            label: l10n.editFolder,
-            icon: conduitAdaptivePopupMenuIcon(
-              iosSymbol: 'pencil',
-              materialIcon: Icons.edit_outlined,
-            ),
-          ),
-          AdaptivePopupMenuItem<String>(
-            value: 'system-prompt',
-            label: l10n.systemPrompt,
-            icon: conduitAdaptivePopupMenuIcon(
-              iosSymbol: 'text.bubble',
-              materialIcon: Icons.notes_outlined,
-            ),
-          ),
-        ],
+        items: items,
         onSelected: onSelected,
       ),
     );

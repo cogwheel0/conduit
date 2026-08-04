@@ -140,6 +140,55 @@ void main() {
     check(actions.single['symbolSize']).equals(22.0);
   });
 
+  test('native toolbar menu adapters preserve values, order, and state', () {
+    String? selected;
+    final action = buildConduitNativeToolbarMenuAction<String>(
+      iosSymbol: 'ellipsis',
+      accessibilityLabel: 'More',
+      tintColor: Colors.black,
+      symbolSize: kConduitNativeToolbarSymbolExtent,
+      items: const [
+        AdaptivePopupMenuItem<String>(
+          value: 'edit',
+          label: 'Edit',
+          icon: 'pencil',
+        ),
+        AdaptivePopupMenuItem<String>(
+          value: 'delete',
+          label: 'Delete',
+          icon: 'trash',
+          enabled: false,
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (value) => selected = value,
+    );
+
+    check(action).isNotNull();
+    check(
+      action!.menuItems.map((item) => item.label),
+    ).deepEquals(['Edit', 'Delete']);
+    check(action.menuItems[1].enabled).isFalse();
+    check(action.menuItems[1].isDestructive).isTrue();
+    action.menuItems[0].onSelected();
+    check(selected).equals('edit');
+  });
+
+  test('native toolbar groups accept three shared actions', () {
+    final actions = List.generate(
+      3,
+      (index) => ConduitNativeToolbarAction(
+        iosSymbol: 'circle',
+        accessibilityLabel: 'Action $index',
+        onPressed: () {},
+      ),
+    );
+
+    check(
+      ConduitNativeToolbarActionGroup(actions: actions).actions,
+    ).length.equals(3);
+  });
+
   test('composer measurement style matches recording typography', () {
     final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
       isRecording: true,
