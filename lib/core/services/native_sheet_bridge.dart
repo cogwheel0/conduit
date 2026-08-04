@@ -253,6 +253,37 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  Future<void> updateModelSelectorReasoningEffort({
+    required String presentationId,
+    required String value,
+    required List<String> options,
+    required bool allowsCustom,
+    Future<void> Function(String value)? onReasoningEffortChanged,
+  }) async {
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || normalizedPresentationId.isEmpty) return;
+    final previousHandler = _reasoningEffortChangedHandler;
+    _reasoningEffortChangedHandler = onReasoningEffortChanged;
+    try {
+      await _api.updateModelSelectorReasoningEffort(
+        normalizedPresentationId,
+        value,
+        options,
+        allowsCustom,
+      );
+    } catch (error, stackTrace) {
+      if (identical(_reasoningEffortChangedHandler, onReasoningEffortChanged)) {
+        _reasoningEffortChangedHandler = previousHandler;
+      }
+      _logNativeSheetBridgeError(
+        'updateModelSelectorReasoningEffort',
+        error,
+        stackTrace,
+        data: {'optionCount': options.length},
+      );
+    }
+  }
+
   void _restorePreviousModelPinToggleHandler({
     required Object owner,
     required Future<void> Function(String modelId)? previousHandler,

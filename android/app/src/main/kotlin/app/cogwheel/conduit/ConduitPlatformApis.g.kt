@@ -3068,7 +3068,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun backgroundTaskExpiring(callback: (Result<Unit>) -> Unit)
@@ -3085,7 +3085,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun backgroundTaskExtended(eventArg: PlatformBackgroundTaskExtendedEvent, callback: (Result<Unit>) -> Unit)
@@ -3102,7 +3102,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun backgroundKeepAlive(callback: (Result<Unit>) -> Unit)
@@ -3119,7 +3119,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun serviceFailed(eventArg: PlatformServiceFailureEvent, callback: (Result<Unit>) -> Unit)
@@ -3136,7 +3136,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun timeLimitApproaching(eventArg: PlatformTimeLimitWarningEvent, callback: (Result<Unit>) -> Unit)
@@ -3153,7 +3153,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun microphonePermissionFallback(callback: (Result<Unit>) -> Unit)
@@ -3170,7 +3170,7 @@ class BackgroundStreamingFlutterApi(private val binaryMessenger: BinaryMessenger
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }
@@ -3199,7 +3199,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun startVoiceCall(invocationIdArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
@@ -3219,7 +3219,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun sendText(invocationIdArg: String, textArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
@@ -3239,7 +3239,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun sendUrl(invocationIdArg: String, urlArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
@@ -3259,7 +3259,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun sendImage(invocationIdArg: String, payloadArg: PlatformAppIntentImagePayload, callback: (Result<PlatformAppIntentResponse>) -> Unit)
@@ -3279,7 +3279,7 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }
@@ -3376,7 +3376,7 @@ class NativePasteFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }
@@ -3471,7 +3471,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onVisibilityChanged(eventArg: PlatformKeyboardAttachmentVisibilityEvent, callback: (Result<Unit>) -> Unit)
@@ -3488,7 +3488,7 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }
@@ -3535,6 +3535,7 @@ interface NativeSheetHostApi {
   fun requestAppStoreReview(): Boolean
   fun presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, callback: (Result<String?>) -> Unit)
   fun updateModelSelectorModels(presentationId: String, models: List<PlatformNativeSheetModelOption>)
+  fun updateModelSelectorReasoningEffort(presentationId: String, value: String, options: List<String>, allowsCustom: Boolean)
   fun presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, callback: (Result<String?>) -> Unit)
   fun presentDatePicker(request: PlatformNativeSheetDatePickerRequest, callback: (Result<String?>) -> Unit)
   fun presentTextEditor(request: PlatformNativeSheetTextEditorRequest, callback: (Result<PlatformNativeSheetActionResult?>) -> Unit)
@@ -3629,6 +3630,27 @@ interface NativeSheetHostApi {
             val modelsArg = args[1] as List<PlatformNativeSheetModelOption>
             val wrapped: List<Any?> = try {
               api.updateModelSelectorModels(presentationIdArg, modelsArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorReasoningEffort$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val presentationIdArg = args[0] as String
+            val valueArg = args[1] as String
+            val optionsArg = args[2] as List<String>
+            val allowsCustomArg = args[3] as Boolean
+            val wrapped: List<Any?> = try {
+              api.updateModelSelectorReasoningEffort(presentationIdArg, valueArg, optionsArg, allowsCustomArg)
               listOf(null)
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)
@@ -3761,7 +3783,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onLogoutRequested(callback: (Result<Unit>) -> Unit)
@@ -3778,7 +3800,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onControlChanged(eventArg: PlatformNativeSheetControlChangedEvent, callback: (Result<Unit>) -> Unit)
@@ -3795,7 +3817,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onDetailAppeared(eventArg: PlatformNativeSheetDetailAppearedEvent, callback: (Result<Unit>) -> Unit)
@@ -3812,7 +3834,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onModelPinToggled(eventArg: PlatformNativeSheetModelPinToggledEvent, callback: (Result<Unit>) -> Unit)
@@ -3829,7 +3851,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
   fun onReasoningEffortChanged(eventArg: PlatformNativeSheetReasoningEffortChangedEvent, callback: (Result<Unit>) -> Unit)
@@ -3863,7 +3885,7 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
-      } 
+      }
     }
   }
 }

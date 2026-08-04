@@ -3934,6 +3934,24 @@ class NativeSheetHostApi {
     ;
   }
 
+  Future<void> updateModelSelectorReasoningEffort(String presentationId, String value, List<String> options, bool allowsCustom) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorReasoningEffort$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[presentationId, value, options, allowsCustom]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
+  }
+
   Future<String?> presentOptionsSelector(PlatformNativeSheetOptionsSelectorRequest request) async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentOptionsSelector$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
