@@ -60,6 +60,19 @@ void main() {
       ).isFalse();
     });
 
+    test('invalidated fence ignores navigation URL changes', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+
+      fence.invalidate();
+
+      check(
+        fence.observeNavigationUrl('https://chat.example/chat/new'),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
     test('commits the final URL of an HTTP redirect without another start', () {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://chat.example/');

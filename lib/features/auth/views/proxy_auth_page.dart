@@ -352,6 +352,8 @@ final class ProxyAuthDocumentTicket {
   final String url;
 }
 
+enum _ProxyAuthDocumentState { live, movedAway, lost }
+
 /// Binds asynchronous credential capture to one main-frame document.
 @visibleForTesting
 final class ProxyAuthDocumentFence {
@@ -710,7 +712,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           pageUrl: url,
           serverUrl: serverUrl,
         ) ||
-        !await _isControllerOnDocument(document)) {
+        await _documentState(document) != _ProxyAuthDocumentState.live) {
       _isOnTargetServer = false;
       return;
     }
@@ -745,9 +747,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!_ownsCaptureDocument(document) ||
-          !await _isControllerOnDocument(document) ||
-          !_ownsCaptureDocument(document)) {
+      if (await _documentState(document) != _ProxyAuthDocumentState.live) {
         _isOnTargetServer = false;
         return;
       }
@@ -827,17 +827,20 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   }) async {
     if (_cookiesCaptured || !mounted) return;
     final document = expectedDocument ?? _documentFence.committedDocument;
-    if (document == null || !_ownsCaptureDocument(document)) return;
-    if (!await _isControllerOnDocument(document)) {
-      if (!_ownsCaptureDocument(document)) return;
-      _isOnTargetServer = false;
-      DebugLogger.auth(
-        'Skipping proxy credential capture outside the committed document',
-        scope: 'auth/proxy',
-      );
-      return;
+    if (document == null) return;
+    switch (await _documentState(document)) {
+      case _ProxyAuthDocumentState.live:
+        break;
+      case _ProxyAuthDocumentState.movedAway:
+        _isOnTargetServer = false;
+        DebugLogger.auth(
+          'Skipping proxy credential capture outside the committed document',
+          scope: 'auth/proxy',
+        );
+        return;
+      case _ProxyAuthDocumentState.lost:
+        return;
     }
-    if (!_ownsCaptureDocument(document)) return;
 
     final captureRequest = _captureQueue.begin(request);
     if (captureRequest == null) return;
@@ -857,12 +860,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     ProxyAuthCaptureRequest? nextRequest;
 
     try {
-      if (!await _isControllerOnDocument(document)) {
-        if (!_ownsCaptureDocument(document)) return;
-        _isOnTargetServer = false;
-        return;
-      }
-      if (!_ownsCaptureDocument(document)) return;
+      if (!await _canContinueCredentialCapture(document)) return;
 
       final serverUrl = widget.config.serverConfig.url;
       DebugLogger.auth(
@@ -875,13 +873,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         proxyCookieLookupUrl(serverUrl),
       );
 
-      if (!_ownsCaptureDocument(document)) return;
-      if (!await _isControllerOnDocument(document)) {
-        if (!_ownsCaptureDocument(document)) return;
-        _isOnTargetServer = false;
-        return;
-      }
-      if (!_ownsCaptureDocument(document)) return;
+      if (!await _canContinueCredentialCapture(document)) return;
 
       DebugLogger.auth(
         'Captured ${cookies.length} proxy cookies',
@@ -899,13 +891,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // This happens when oauth2-proxy sets X-Forwarded-Email and OpenWebUI
       // auto-creates/logs in the user
       final jwtToken = await _tryCaptureJwtTokenWithRetry(document);
-      if (!_ownsCaptureDocument(document)) return;
-      if (!await _isControllerOnDocument(document)) {
-        if (!_ownsCaptureDocument(document)) return;
-        _isOnTargetServer = false;
-        return;
-      }
-      if (!_ownsCaptureDocument(document)) return;
+      if (!await _canContinueCredentialCapture(document)) return;
       final decision = decideProxyAuthCapture(
         activeRequest: request,
         queuedRequest: _captureQueue.queuedRequest,
@@ -926,9 +912,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           );
           break;
         case ProxyAuthCaptureDecision.complete:
-          if (!mounted || !_ownsCaptureDocument(document)) return;
-          if (!await _isControllerOnDocument(document)) return;
-          if (!mounted || !_ownsCaptureDocument(document)) return;
+          if (await _documentState(document) != _ProxyAuthDocumentState.live) {
+            return;
+          }
+          if (!mounted) return;
 
           _cookiesCaptured = true;
           didComplete = true;
@@ -1051,7 +1038,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   ) async {
     final controller = _controller;
     if (controller == null || !mounted) return false;
-    if (!await _isControllerOnDocument(document)) return false;
+    if (await _documentState(document) != _ProxyAuthDocumentState.live) {
+      return false;
+    }
 
     try {
       final result = await controller.evaluateJavascript(
@@ -1064,9 +1053,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted ||
-          !await _isControllerOnDocument(document) ||
-          !_ownsCaptureDocument(document)) {
+      if (await _documentState(document) != _ProxyAuthDocumentState.live) {
         return false;
       }
       return result.toString().contains('true');
@@ -1105,7 +1092,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   Future<String?> _tryCaptureJwtToken(ProxyAuthDocumentTicket document) async {
     final controller = _controller;
     if (controller == null || !mounted) return null;
-    if (!await _isControllerOnDocument(document)) return null;
+    if (await _documentState(document) != _ProxyAuthDocumentState.live) {
+      return null;
+    }
 
     // Strategy 1: Check token cookie
     try {
@@ -1124,9 +1113,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted ||
-          !await _isControllerOnDocument(document) ||
-          !_ownsCaptureDocument(document)) {
+      if (await _documentState(document) != _ProxyAuthDocumentState.live) {
         return null;
       }
 
@@ -1147,9 +1134,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       );
     }
 
-    if (!mounted ||
-        !await _isControllerOnDocument(document) ||
-        !_ownsCaptureDocument(document)) {
+    if (await _documentState(document) != _ProxyAuthDocumentState.live) {
       return null;
     }
 
@@ -1159,9 +1144,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         source: 'localStorage.getItem("token")',
       );
 
-      if (!mounted ||
-          !await _isControllerOnDocument(document) ||
-          !_ownsCaptureDocument(document)) {
+      if (await _documentState(document) != _ProxyAuthDocumentState.live) {
         return null;
       }
 
@@ -1188,6 +1171,36 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       scope: 'auth/proxy',
     );
     return null;
+  }
+
+  Future<bool> _canContinueCredentialCapture(
+    ProxyAuthDocumentTicket document,
+  ) async {
+    switch (await _documentState(document)) {
+      case _ProxyAuthDocumentState.live:
+        return true;
+      case _ProxyAuthDocumentState.movedAway:
+        _isOnTargetServer = false;
+        return false;
+      case _ProxyAuthDocumentState.lost:
+        return false;
+    }
+  }
+
+  Future<_ProxyAuthDocumentState> _documentState(
+    ProxyAuthDocumentTicket document,
+  ) async {
+    if (!_ownsCaptureDocument(document)) {
+      return _ProxyAuthDocumentState.lost;
+    }
+    if (!await _isControllerOnDocument(document)) {
+      return _ownsCaptureDocument(document)
+          ? _ProxyAuthDocumentState.movedAway
+          : _ProxyAuthDocumentState.lost;
+    }
+    return _ownsCaptureDocument(document)
+        ? _ProxyAuthDocumentState.live
+        : _ProxyAuthDocumentState.lost;
   }
 
   Future<bool> _isControllerOnDocument(ProxyAuthDocumentTicket document) async {
