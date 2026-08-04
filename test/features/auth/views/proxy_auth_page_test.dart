@@ -364,6 +364,33 @@ void main() {
     });
   });
 
+  group('ProxyAuthHistoryUpdateQueue', () {
+    test('coalesces overlapping updates to the latest URL', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+
+      check(queue.enqueue('https://chat.example/second')).isFalse();
+      check(queue.enqueue('https://chat.example/final')).isFalse();
+      check(queue.takeLatest()).equals('https://chat.example/final');
+      check(queue.takeLatest()).isNull();
+      check(queue.restartAfterDrain()).isFalse();
+    });
+
+    test('restarts when an update arrives before drain cleanup', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+      check(queue.enqueue('https://chat.example/final')).isFalse();
+
+      check(queue.restartAfterDrain()).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/final');
+      check(queue.restartAfterDrain()).isFalse();
+    });
+  });
+
   group('isTrustedProxyCredentialCaptureUrl', () {
     test('allows Open WebUI paths on the exact configured origin', () {
       expect(

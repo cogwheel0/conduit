@@ -517,11 +517,42 @@ bool commitProxyAuthLoadStopDocument({
   return true;
 }
 
+@visibleForTesting
+final class ProxyAuthHistoryUpdateQueue {
+  String? _pendingUrl;
+  bool _isDraining = false;
+
+  bool enqueue(String url) {
+    _pendingUrl = url;
+    if (_isDraining) return false;
+    _isDraining = true;
+    return true;
+  }
+
+  String? takeLatest() {
+    final url = _pendingUrl;
+    _pendingUrl = null;
+    return url;
+  }
+
+  bool restartAfterDrain() {
+    _isDraining = false;
+    if (_pendingUrl == null) return false;
+    _isDraining = true;
+    return true;
+  }
+
+  void reset() {
+    _pendingUrl = null;
+  }
+}
+
 class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   InAppWebViewController? _controller;
   bool _isLoading = true;
   bool _cookiesCaptured = false;
   final _captureQueue = ProxyAuthCaptureQueue();
+  final _historyUpdateQueue = ProxyAuthHistoryUpdateQueue();
   final _documentFence = ProxyAuthDocumentFence();
   bool _automaticCaptureRequiresJwt = false;
   String? _error;
@@ -540,6 +571,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   void dispose() {
     _documentFence.invalidate();
     _captureQueue.reset();
+    _historyUpdateQueue.reset();
     _controller = null;
     super.dispose();
   }
@@ -554,6 +586,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       _documentFence.startNavigation(navigationUrl);
     }
     _captureQueue.reset();
+    _historyUpdateQueue.reset();
   }
 
   Future<void> _initializeWebView() async {
@@ -717,6 +750,30 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
     if (_isOnTargetServer) {
       await _checkIfOpenWebUI(committedDocument);
+    }
+  }
+
+  void _scheduleNavigationUrlChanged(
+    InAppWebViewController controller,
+    String url,
+  ) {
+    if (url.isEmpty || !_historyUpdateQueue.enqueue(url)) return;
+    unawaited(_drainNavigationUrlChanges(controller));
+  }
+
+  Future<void> _drainNavigationUrlChanges(
+    InAppWebViewController controller,
+  ) async {
+    try {
+      while (mounted) {
+        final url = _historyUpdateQueue.takeLatest();
+        if (url == null) break;
+        await _onNavigationUrlChanged(controller, url);
+      }
+    } finally {
+      if (mounted && _historyUpdateQueue.restartAfterDrain()) {
+        unawaited(_drainNavigationUrlChanges(controller));
+      }
     }
   }
 
@@ -1547,9 +1604,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             _onPageStarted(url?.toString() ?? '');
           },
           onUpdateVisitedHistory: (controller, url, _) {
-            unawaited(
-              _onNavigationUrlChanged(controller, url?.toString() ?? ''),
-            );
+            _scheduleNavigationUrlChanged(controller, url?.toString() ?? '');
           },
           onPageCommitVisible: (controller, url) {
             _onPageCommitted(url?.toString() ?? '');
