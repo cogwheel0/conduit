@@ -18,7 +18,7 @@ import 'themed_sheets.dart';
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitMaximumSystemControlScale = 1.5;
-const double kConduitNativeToolbarSymbolExtent = 17;
+const double kConduitNativeToolbarSymbolExtent = 20;
 const double kConduitNativeGroupedToolbarSymbolExtent = 20;
 const double kConduitNativeUtilitySymbolExtent = 17;
 const double kConduitNativePrimarySymbolExtent = 17;

@@ -16,13 +16,13 @@ void main() {
   test(
     'native SF Symbols keep compact optical sizes inside scaled controls',
     () {
-      check(kConduitNativeToolbarSymbolExtent).equals(17);
+      check(kConduitNativeToolbarSymbolExtent).equals(20);
       check(kConduitNativeUtilitySymbolExtent).equals(17);
       check(kConduitNativePrimarySymbolExtent).equals(17);
       check(kConduitNativeModelChevronExtent).equals(13);
       check(
-        kConduitNativeToolbarSymbolExtent,
-      ).equals(kConduitNativeUtilitySymbolExtent);
+        kConduitNativeUtilitySymbolExtent,
+      ).isLessThan(kConduitNativeToolbarSymbolExtent);
       check(kConduitNativeUtilitySymbolExtent).isLessThan(IconSize.large);
       check(
         kConduitNativePrimarySymbolExtent,

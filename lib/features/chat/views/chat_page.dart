@@ -3635,7 +3635,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ConduitAdaptiveAppBarIconButton(
           key: const ValueKey('chat-sidebar-toggle'),
           icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          iosSymbol: 'sidebar.left',
+          iosSymbol: 'line.3.horizontal',
           iosSymbolSize: kConduitNativeGroupedToolbarSymbolExtent,
           onPressed: () => _toggleResponsiveDrawer(context),
           iconColor: context.conduitTheme.textPrimary,
