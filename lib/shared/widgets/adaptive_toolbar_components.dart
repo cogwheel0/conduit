@@ -1137,7 +1137,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                           boundedLabel,
                           style: effectiveTextStyle,
                           textAlign: TextAlign.center,
-                          semanticsLabel: boundedLabel,
+                          semanticsLabel: label,
                           textHeightBehavior: const TextHeightBehavior(
                             applyHeightToFirstAscent: false,
                             applyHeightToLastDescent: false,
@@ -1168,7 +1168,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
           showChevron: showChevron,
           onPressed: onPressed,
         ),
-        semanticLabel: boundedLabel,
+        semanticLabel: label,
         child: buildFallbackChild(),
       );
     }
@@ -1177,7 +1177,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       size: Size(targetWidth, controlExtent),
       child: usesNativeGlass
           ? Semantics(
-              label: boundedLabel,
+              label: label,
               button: true,
               enabled: !isLoading && showChevron,
               onTap: conduitNativeModelSelectorActivation(

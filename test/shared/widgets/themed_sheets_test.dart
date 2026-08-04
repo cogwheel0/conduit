@@ -165,6 +165,30 @@ void main() {
     check(bounded).endsWith('-model-tail');
   });
 
+  testWidgets('model-selector semantics preserve the full label', (
+    tester,
+  ) async {
+    final label = '${List.filled(5000, 'a').join()}-model-tail';
+    final bounded = boundConduitNativeModelLabel(label);
+    final semantics = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ConduitAdaptiveAppBarModelSelector(
+            label: label,
+            maxWidth: 198,
+            onPressed: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.bySemanticsLabel(label), findsOneWidget);
+    expect(find.bySemanticsLabel(bounded), findsNothing);
+    semantics.dispose();
+  });
+
   test('native model-selector omits chevron width when hidden', () {
     final withChevron = resolveConduitNativeModelSelectorWidth(
       label: 'Inkling',
