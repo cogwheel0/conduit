@@ -60,6 +60,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Future<void> Function(String value)? _reasoningEffortChangedHandler;
   Object? _reasoningEffortChangedHandlerOwner;
   Object? _reasoningEffortUpdateOwner;
+  Future<void> _reasoningEffortUpdateQueue = Future<void>.value();
 
   @visibleForTesting
   bool? debugIsIOSOverride;
@@ -268,29 +269,37 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   }) async {
     final normalizedPresentationId = presentationId.trim();
     if (!_isIOS || normalizedPresentationId.isEmpty) return;
-    final previousHandler = _reasoningEffortChangedHandler;
-    final previousUpdateOwner = _reasoningEffortUpdateOwner;
-    final updateOwner = Object();
-    _reasoningEffortChangedHandler = onReasoningEffortChanged;
-    _reasoningEffortUpdateOwner = updateOwner;
+    final previousUpdate = _reasoningEffortUpdateQueue;
+    final updateComplete = Completer<void>();
+    _reasoningEffortUpdateQueue = updateComplete.future;
+    await previousUpdate;
     try {
-      await _api.updateModelSelectorReasoningEffort(
-        normalizedPresentationId,
-        value,
-        options,
-        allowsCustom,
-      );
-    } catch (error, stackTrace) {
-      if (identical(_reasoningEffortUpdateOwner, updateOwner)) {
-        _reasoningEffortChangedHandler = previousHandler;
-        _reasoningEffortUpdateOwner = previousUpdateOwner;
+      final previousHandler = _reasoningEffortChangedHandler;
+      final previousUpdateOwner = _reasoningEffortUpdateOwner;
+      final updateOwner = Object();
+      _reasoningEffortChangedHandler = onReasoningEffortChanged;
+      _reasoningEffortUpdateOwner = updateOwner;
+      try {
+        await _api.updateModelSelectorReasoningEffort(
+          normalizedPresentationId,
+          value,
+          options,
+          allowsCustom,
+        );
+      } catch (error, stackTrace) {
+        if (identical(_reasoningEffortUpdateOwner, updateOwner)) {
+          _reasoningEffortChangedHandler = previousHandler;
+          _reasoningEffortUpdateOwner = previousUpdateOwner;
+        }
+        _logNativeSheetBridgeError(
+          'updateModelSelectorReasoningEffort',
+          error,
+          stackTrace,
+          data: {'optionCount': options.length},
+        );
       }
-      _logNativeSheetBridgeError(
-        'updateModelSelectorReasoningEffort',
-        error,
-        stackTrace,
-        data: {'optionCount': options.length},
-      );
+    } finally {
+      updateComplete.complete();
     }
   }
 
