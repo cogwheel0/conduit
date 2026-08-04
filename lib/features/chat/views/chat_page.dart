@@ -3636,7 +3636,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           key: const ValueKey('chat-sidebar-toggle'),
           icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
           iosSymbol: 'line.3.horizontal',
-          iosSymbolSize: kConduitNativeGroupedToolbarSymbolExtent,
+          iosSymbolSize: kConduitNativeSidebarSymbolExtent,
           onPressed: () => _toggleResponsiveDrawer(context),
           iconColor: context.conduitTheme.textPrimary,
         ),
@@ -3701,6 +3701,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
+    double iosSymbolSize = kConduitNativeToolbarSymbolExtent,
   }) {
     final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
     assert(iosSymbol != null);
@@ -3708,7 +3709,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
-        iosSymbolSize: kConduitNativeToolbarSymbolExtent,
+        iosSymbolSize: iosSymbolSize,
         iconColor: tintColor,
         onPressed: onPressed,
       ),
@@ -3716,6 +3717,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         iosSymbol: iosSymbol!,
         accessibilityLabel: accessibilityLabel,
         tintColor: tintColor,
+        symbolSize: iosSymbolSize,
         enabled: onPressed != null,
         onPressed: onPressed,
       ),
@@ -3750,6 +3752,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
       accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
       tintColor: isTemporary ? Colors.blue : tintColor,
+      iosSymbolSize: kConduitNativeVisibilitySymbolExtent,
       onPressed: () {
         ConduitHaptics.selectionClick();
         final current = ref.read(temporaryChatEnabledProvider);

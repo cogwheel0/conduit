@@ -18,8 +18,10 @@ import 'themed_sheets.dart';
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitMaximumSystemControlScale = 1.5;
-const double kConduitNativeToolbarSymbolExtent = 20;
-const double kConduitNativeGroupedToolbarSymbolExtent = 20;
+const double kConduitNativeSidebarSymbolExtent = 20;
+const double kConduitNativeToolbarSymbolExtent = 22;
+const double kConduitNativeGroupedToolbarSymbolExtent = 22;
+const double kConduitNativeVisibilitySymbolExtent = 18;
 const double kConduitNativeUtilitySymbolExtent = 17;
 const double kConduitNativePrimarySymbolExtent = 17;
 const double kConduitNativeModelChevronExtent = 13;
@@ -617,6 +619,7 @@ class ConduitNativeToolbarAction {
     this.onPressed,
     this.menuItems = const <ConduitNativeToolbarMenuItem>[],
     this.tintColor,
+    this.symbolSize,
     this.enabled = true,
   }) : assert(onPressed != null || menuItems.length > 0 || !enabled);
 
@@ -625,6 +628,7 @@ class ConduitNativeToolbarAction {
   final VoidCallback? onPressed;
   final List<ConduitNativeToolbarMenuItem> menuItems;
   final Color? tintColor;
+  final double? symbolSize;
   final bool enabled;
 }
 
@@ -638,6 +642,7 @@ List<Map<String, Object?>> encodeConduitNativeToolbarActions(
       'accessibilityLabel': action.accessibilityLabel,
       'enabled': action.enabled,
       if (action.tintColor != null) 'tintColor': action.tintColor!.toARGB32(),
+      if (action.symbolSize != null) 'symbolSize': action.symbolSize,
       if (action.menuItems.isNotEmpty)
         'menuItems': <Map<String, Object?>>[
           for (final item in action.menuItems)

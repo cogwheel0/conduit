@@ -2472,11 +2472,13 @@ private final class ConduitNativeToolbarActionGroupView:
     symbolSize: Double,
     channel: FlutterMethodChannel
   ) -> UIBarButtonItem? {
+    let actionSymbolSize =
+      (action["symbolSize"] as? NSNumber)?.doubleValue ?? symbolSize
     guard let symbolName = action["iosSymbol"] as? String,
           let image = UIImage(systemName: symbolName)?
             .applyingSymbolConfiguration(
               UIImage.SymbolConfiguration(
-                pointSize: symbolSize,
+                pointSize: actionSymbolSize,
                 weight: .regular
               )
             ) else {

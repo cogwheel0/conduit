@@ -16,7 +16,10 @@ void main() {
   test(
     'native SF Symbols keep compact optical sizes inside scaled controls',
     () {
-      check(kConduitNativeToolbarSymbolExtent).equals(20);
+      check(kConduitNativeSidebarSymbolExtent).equals(20);
+      check(kConduitNativeToolbarSymbolExtent).equals(22);
+      check(kConduitNativeGroupedToolbarSymbolExtent).equals(22);
+      check(kConduitNativeVisibilitySymbolExtent).equals(18);
       check(kConduitNativeUtilitySymbolExtent).equals(17);
       check(kConduitNativePrimarySymbolExtent).equals(17);
       check(kConduitNativeModelChevronExtent).equals(13);

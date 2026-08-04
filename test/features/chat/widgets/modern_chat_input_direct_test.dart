@@ -82,6 +82,7 @@ void main() {
       ConduitNativeToolbarAction(
         iosSymbol: 'square.and.pencil',
         accessibilityLabel: 'New Chat',
+        symbolSize: kConduitNativeVisibilitySymbolExtent,
         onPressed: () {},
       ),
       ConduitNativeToolbarAction(
@@ -105,9 +106,10 @@ void main() {
     final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
     final params = creationParams['actions']! as List<Map<String, Object?>>;
 
-    check(creationParams['symbolSize']).equals(20.0);
+    check(creationParams['symbolSize']).equals(22.0);
     check(params.length).equals(2);
     check(params[0]['iosSymbol']).equals('square.and.pencil');
+    check(params[0]['symbolSize']).equals(18.0);
     check(params[1]['iosSymbol']).equals('ellipsis');
     final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
     check(
