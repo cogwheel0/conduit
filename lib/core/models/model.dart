@@ -45,6 +45,73 @@ List<String> _coerceModelTags(dynamic value) {
   return tags;
 }
 
+bool _containsReasoningEffortParameter(Object? value) {
+  if (value is! Iterable) return false;
+  return value.any(
+    (parameter) =>
+        parameter.toString().trim().toLowerCase() == 'reasoning_effort',
+  );
+}
+
+bool _paramsConfigureReasoningEffort(Object? value) =>
+    value is Map && value.containsKey('reasoning_effort');
+
+bool _isOpenAiReasoningEffortModel(String value) {
+  final id = value.trim().toLowerCase();
+  if (id.isEmpty) return false;
+
+  // Keep this aligned with OpenWebUI's is_openai_new_model routing rule.
+  if (RegExp(r'(?:^|[/.:])o\d+').hasMatch(id)) return true;
+  final match = RegExp(r'(?:^|[/.:])gpt-(\d+)').firstMatch(id);
+  return match != null && int.parse(match.group(1)!) >= 5;
+}
+
+/// Whether a model explicitly supports the OpenAI `reasoning_effort` request
+/// parameter. Unknown models fail closed because forwarding an unsupported
+/// optional parameter causes the entire completion request to fail.
+bool modelSupportsReasoningEffort({
+  required String modelId,
+  Object? supportedParameters,
+  Map<String, dynamic>? capabilities,
+  Map<String, dynamic>? metadata,
+}) {
+  if (_containsReasoningEffortParameter(supportedParameters) ||
+      _containsReasoningEffortParameter(
+        capabilities?['supported_parameters'],
+      )) {
+    return true;
+  }
+
+  final explicitCapability = capabilities?['reasoning_effort'];
+  if (explicitCapability is bool) return explicitCapability;
+  if (explicitCapability is Map) return true;
+
+  final reasoningCapability = capabilities?['reasoning'];
+  if (reasoningCapability is Map &&
+      reasoningCapability.containsKey('supported_efforts')) {
+    final supportedEfforts = reasoningCapability['supported_efforts'];
+    if (supportedEfforts == null) return true;
+    return supportedEfforts is Iterable && supportedEfforts.isNotEmpty;
+  }
+
+  final info = metadata?['info'];
+  if (_paramsConfigureReasoningEffort(metadata?['params']) ||
+      _paramsConfigureReasoningEffort(info is Map ? info['params'] : null)) {
+    return true;
+  }
+
+  final candidateIds = <Object?>[
+    modelId,
+    metadata?['base_model_id'],
+    if (info is Map) info['base_model_id'],
+  ];
+  return candidateIds.any(
+    (candidate) =>
+        candidate != null &&
+        _isOpenAiReasoningEffortModel(candidate.toString()),
+  );
+}
+
 @freezed
 sealed class Model with _$Model {
   const Model._();
@@ -81,8 +148,17 @@ sealed class Model with _$Model {
 
     // Handle different response formats from OpenWebUI
 
+    // Preserve provider-specific capability metadata while normalizing the
+    // fields Conduit consumes directly.
+    final rawCapabilities = json['capabilities'];
+    final incomingCapabilities = rawCapabilities is Map
+        ? Map<String, dynamic>.from(rawCapabilities)
+        : const <String, dynamic>{};
+
     // Extract architecture info for capabilities
-    final architecture = json['architecture'] as Map<String, dynamic>?;
+    final architecture =
+        (json['architecture'] as Map<String, dynamic>?) ??
+        (incomingCapabilities['architecture'] as Map<String, dynamic>?);
     final modality = architecture?['modality'] as String?;
     final inputModalities = architecture?['input_modalities'] as List?;
 
@@ -95,7 +171,9 @@ sealed class Model with _$Model {
     // Extract supported parameters robustly (top-level or nested under provider keys)
     List? supportedParams =
         (json['supported_parameters'] as List?) ??
-        (json['supportedParameters'] as List?);
+        (json['supportedParameters'] as List?) ??
+        (incomingCapabilities['supported_parameters'] as List?) ??
+        (incomingCapabilities['supportedParameters'] as List?);
 
     if (supportedParams == null) {
       const providerKeys = [
@@ -263,11 +341,13 @@ sealed class Model with _$Model {
       supportsRAG: _safeBool(json['supportsRAG']) ?? false,
       supportedParameters: supportedParamsList,
       capabilities: {
+        ...incomingCapabilities,
         'architecture': architecture,
-        'pricing': json['pricing'],
-        'context_length': json['context_length'],
+        'pricing': json['pricing'] ?? incomingCapabilities['pricing'],
+        'context_length':
+            json['context_length'] ?? incomingCapabilities['context_length'],
         'supported_parameters': supportedParamsList ?? supportedParams,
-        'usage': supportsUsage,
+        'usage': supportsUsage || incomingCapabilities['usage'] == true,
       },
       metadata: mergedMetadata,
       toolIds: toolIds,
@@ -302,6 +382,12 @@ sealed class Model with _$Model {
 
   String? get workspaceOwnerId => metadata?['user_id']?.toString();
   String? get baseModelId => metadata?['base_model_id']?.toString();
+  bool get supportsReasoningEffort => modelSupportsReasoningEffort(
+    modelId: id,
+    supportedParameters: supportedParameters,
+    capabilities: capabilities,
+    metadata: metadata,
+  );
   bool get isWorkspaceActive => _safeBool(metadata?['is_active']) ?? true;
   bool get hasWorkspaceWriteAccess =>
       _safeBool(metadata?['write_access']) ?? false;

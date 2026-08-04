@@ -18297,6 +18297,8 @@ Map<String, dynamic> _buildLocalModelItem(
         ],
     'capabilities': selectedModel.capabilities,
     'info': meta?['info'],
+    if (meta?['params'] != null) 'params': meta!['params'],
+    if (meta?['base_model_id'] != null) 'base_model_id': meta!['base_model_id'],
     // Routing-critical fields for pipe models
     if (meta?['pipe'] != null) 'pipe': meta!['pipe'],
     if (meta?['actions'] != null) 'actions': meta!['actions'],
@@ -18313,3 +18315,7 @@ Map<String, dynamic> _buildLocalModelItem(
           .toList(),
   };
 }
+
+@visibleForTesting
+Map<String, dynamic> buildLocalModelItemForTest(Model selectedModel) =>
+    _buildLocalModelItem(selectedModel);

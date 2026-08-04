@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
@@ -96,6 +97,29 @@ void main() {
       );
       expect(result, 42);
     });
+
+    test('automatic reasoning effort clears the server-side value', () async {
+      final adapter = _UserSettingsAdapter(<String, dynamic>{
+        'params': <String, dynamic>{
+          'reasoning_effort': 'medium',
+          'temperature': 0.3,
+        },
+      });
+      final api = _buildApi(adapter, authToken: 'account-a');
+
+      check(
+        (adapter.settings['params']
+            as Map<String, dynamic>)['reasoning_effort'],
+      ).equals('medium');
+      adapter.releaseFirstGet.complete();
+
+      final result = await api.updateUserReasoningEffort(null);
+
+      check(result.reasoningEffort).isNull();
+      check(adapter.settings['params']).isA<Map<String, dynamic>>().deepEquals(
+        <String, dynamic>{'temperature': 0.3},
+      );
+    });
   });
 }
 
@@ -145,7 +169,8 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
       }
 
       if (options.method == 'POST') {
-        settings = _clone(options.data as Map<String, dynamic>);
+        final submitted = _clone(options.data as Map<String, dynamic>);
+        settings = <String, dynamic>{...settings, ...submitted};
       }
       return _jsonResponse(settings);
     } finally {

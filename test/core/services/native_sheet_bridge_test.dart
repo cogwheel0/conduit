@@ -21,6 +21,11 @@ final _updateModelSelectorChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+final _updateModelSelectorReasoningChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorReasoningEffort',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 final _requestAppStoreReviewChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.requestAppStoreReview',
   NativeSheetHostApi.pigeonChannelCodec,
@@ -43,6 +48,10 @@ void main() {
     );
     messenger.setMockDecodedMessageHandler<Object?>(
       _updateModelSelectorChannel,
+      null,
+    );
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _updateModelSelectorReasoningChannel,
       null,
     );
     messenger.setMockDecodedMessageHandler<Object?>(
@@ -420,6 +429,170 @@ void main() {
           avatarBytes: Uint8List.fromList([4, 5, 6]),
         ),
       ], presentationId: 'presentation-current');
+    });
+
+    test('effort hydration updates controls and installs callback', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final presentation = Completer<dynamic>();
+      final changed = <String>[];
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _presentModelSelectorChannel,
+        (_) => presentation.future,
+      );
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _updateModelSelectorReasoningChannel,
+        (message) async {
+          final args = message! as List<Object?>;
+          check(args[0]).equals('presentation-current');
+          check(args[1]).equals('vendor_ultra');
+          check(
+            args[2]! as List<Object?>,
+          ).deepEquals(['automatic', 'vendor_ultra']);
+          check(args[3]).equals(true);
+          return wrapResponse(empty: true);
+        },
+      );
+      final presented = NativeSheetBridge.instance.presentModelSelector(
+        presentationId: 'presentation-current',
+        title: 'Models',
+        models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      await NativeSheetBridge.instance.updateModelSelectorReasoningEffort(
+        presentationId: 'presentation-current',
+        value: 'vendor_ultra',
+        options: const ['automatic', 'vendor_ultra'],
+        allowsCustom: true,
+        onReasoningEffortChanged: (value) async => changed.add(value),
+      );
+      NativeSheetBridge.instance.onReasoningEffortChanged(
+        PlatformNativeSheetReasoningEffortChangedEvent(value: 'vendor_ultra'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(changed).deepEquals(['vendor_ultra']);
+      presentation.complete(wrapResponse(result: null));
+      await presented;
+    });
+
+    test('effort updates serialize before rollback', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final presentation = Completer<dynamic>();
+      final firstUpdate = Completer<dynamic>();
+      final initialChanges = <String>[];
+      final olderChanges = <String>[];
+      final newerChanges = <String>[];
+      var updateCalls = 0;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _presentModelSelectorChannel,
+        (_) => presentation.future,
+      );
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _updateModelSelectorReasoningChannel,
+        (_) async {
+          updateCalls += 1;
+          if (updateCalls == 1) return firstUpdate.future;
+          return wrapResponse(empty: true);
+        },
+      );
+      final presented = NativeSheetBridge.instance.presentModelSelector(
+        presentationId: 'presentation-current',
+        title: 'Models',
+        models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+        onReasoningEffortChanged: (value) async => initialChanges.add(value),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final older = NativeSheetBridge.instance
+          .updateModelSelectorReasoningEffort(
+            presentationId: 'presentation-current',
+            value: 'vendor_ultra',
+            options: const ['automatic', 'vendor_ultra'],
+            allowsCustom: true,
+            onReasoningEffortChanged: (value) async => olderChanges.add(value),
+          );
+      await Future<void>.delayed(Duration.zero);
+      final newer = NativeSheetBridge.instance
+          .updateModelSelectorReasoningEffort(
+            presentationId: 'presentation-current',
+            value: 'vendor_ultra',
+            options: const ['automatic', 'vendor_ultra'],
+            allowsCustom: true,
+            onReasoningEffortChanged: (value) async => newerChanges.add(value),
+          );
+      await Future<void>.delayed(Duration.zero);
+      check(updateCalls).equals(1);
+      firstUpdate.complete(
+        wrapResponse(error: PlatformException(code: 'STALE_UPDATE')),
+      );
+      await older;
+      await newer;
+      check(updateCalls).equals(2);
+      NativeSheetBridge.instance.onReasoningEffortChanged(
+        PlatformNativeSheetReasoningEffortChangedEvent(value: 'vendor_ultra'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(initialChanges).isEmpty();
+      check(olderChanges).isEmpty();
+      check(newerChanges).deepEquals(['vendor_ultra']);
+      presentation.complete(wrapResponse(result: null));
+      await presented;
+    });
+
+    test('two failed effort updates restore committed callback', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final presentation = Completer<dynamic>();
+      final initialChanges = <String>[];
+      final failedChanges = <String>[];
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _presentModelSelectorChannel,
+        (_) => presentation.future,
+      );
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _updateModelSelectorReasoningChannel,
+        (_) async =>
+            wrapResponse(error: PlatformException(code: 'UPDATE_FAILED')),
+      );
+      final presented = NativeSheetBridge.instance.presentModelSelector(
+        presentationId: 'presentation-current',
+        title: 'Models',
+        models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+        onReasoningEffortChanged: (value) async => initialChanges.add(value),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      await Future.wait([
+        NativeSheetBridge.instance.updateModelSelectorReasoningEffort(
+          presentationId: 'presentation-current',
+          value: 'medium',
+          options: const ['automatic', 'medium'],
+          allowsCustom: true,
+          onReasoningEffortChanged: (value) async => failedChanges.add(value),
+        ),
+        NativeSheetBridge.instance.updateModelSelectorReasoningEffort(
+          presentationId: 'presentation-current',
+          value: 'high',
+          options: const ['automatic', 'high'],
+          allowsCustom: true,
+          onReasoningEffortChanged: (value) async => failedChanges.add(value),
+        ),
+      ]);
+      NativeSheetBridge.instance.onReasoningEffortChanged(
+        PlatformNativeSheetReasoningEffortChangedEvent(value: 'low'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(initialChanges).deepEquals(['low']);
+      check(failedChanges).isEmpty();
+      presentation.complete(wrapResponse(result: null));
+      await presented;
     });
   });
 }

@@ -776,6 +776,13 @@ abstract class NativeSheetHostApi {
     List<PlatformNativeSheetModelOption> models,
   );
 
+  void updateModelSelectorReasoningEffort(
+    String presentationId,
+    String value,
+    List<String> options,
+    bool allowsCustom,
+  );
+
   @async
   String? presentOptionsSelector(
     PlatformNativeSheetOptionsSelectorRequest request,

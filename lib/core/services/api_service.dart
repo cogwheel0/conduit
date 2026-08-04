@@ -3621,11 +3621,9 @@ class ApiService {
         params['reasoning_effort'] = trimmed;
       }
 
-      if (params.isEmpty) {
-        settings.remove('params');
-      } else {
-        settings['params'] = params;
-      }
+      // OpenWebUI shallow-merges the top-level settings object. Posting no
+      // `params` key would therefore preserve the previous nested map.
+      settings['params'] = params;
       _traceApi('Updating user reasoning effort');
       final response = await _postUserSettings(
         settings,
@@ -7666,6 +7664,27 @@ class ApiService {
       }
     } catch (_) {
       // Non-critical: proceed without user params
+    }
+
+    final modelInfo = modelItem?['info'];
+    final openAiModel = modelItem?['openai'];
+    final effort = params['reasoning_effort'];
+    final isAutomaticEffort =
+        effort is String && effort.trim().toLowerCase() == 'automatic';
+    final supportsReasoningEffort = modelSupportsReasoningEffort(
+      modelId: model,
+      supportedParameters: modelItem?['supported_parameters'],
+      capabilities: _coerceJsonMap(modelItem?['capabilities']),
+      metadata: <String, dynamic>{
+        'params': modelItem?['params'],
+        'info': modelInfo,
+        'base_model_id':
+            modelItem?['base_model_id'] ??
+            (openAiModel is Map ? openAiModel['id'] : null),
+      },
+    );
+    if (isAutomaticEffort || !supportsReasoningEffort) {
+      params.remove('reasoning_effort');
     }
     data['params'] = params;
 

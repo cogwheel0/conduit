@@ -61,6 +61,46 @@ class NativeSheetPresentationAdmission {
   void finish() => _active = false;
 }
 
+@visibleForTesting
+Future<bool> waitForNativeReasoningEffortHydration(
+  Future<Object?> hydration, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  try {
+    await hydration.timeout(timeout);
+    return true;
+  } on TimeoutException {
+    return false;
+  }
+}
+
+@visibleForTesting
+ReasoningEffortPolicy nativeModelSelectorReasoningEffortPolicy(
+  bool hydrated,
+  ReasoningEffortPolicy hydratedPolicy,
+) => hydrated ? hydratedPolicy : ReasoningEffortPolicy.unsupported;
+
+@visibleForTesting
+({ReasoningEffortPolicy policy, String value})
+nativeHydratedServerReasoningEffort({
+  required Model model,
+  required ServerModelReasoningEffort detail,
+  String? personalizationEffort,
+}) {
+  final modelEffort = detail.value ?? modelConfiguredReasoningEffort(model);
+  final policy = model.supportsReasoningEffort || modelEffort != null
+      ? ReasoningEffortPolicy.generic
+      : ReasoningEffortPolicy.unsupported;
+  return (
+    policy: policy,
+    value:
+        policy.effectiveConfiguredEffort(
+          modelEffort ?? personalizationEffort,
+        ) ??
+        kAutomaticReasoningEffort,
+  );
+}
+
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref);
 
@@ -128,9 +168,28 @@ class NativeSheetHydrationService {
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
-      final effortPolicy = reasoningEffortPolicyForModel(
-        _ref.read,
-        effortModel,
+      Future<ServerModelReasoningEffort>? effortHydration;
+      var effortHydrated = effortModel == null;
+      if (effortModel != null) {
+        final pendingEffortHydration = _ref.read(
+          serverModelReasoningEffortProvider(effortModel).future,
+        );
+        effortHydration = pendingEffortHydration;
+        effortHydrated = await waitForNativeReasoningEffortHydration(
+          pendingEffortHydration,
+        );
+        if (!effortHydrated) {
+          DebugLogger.warning(
+            'reasoning-effort-hydration-timeout',
+            scope: 'native-sheet/models',
+            data: {'modelId': effortModel.id},
+          );
+        }
+        if (!context.mounted) return null;
+      }
+      final effortPolicy = nativeModelSelectorReasoningEffortPolicy(
+        effortHydrated,
+        reasoningEffortPolicyForModel(_ref.read, effortModel),
       );
       final allowsCustomEffort = effortPolicy.allowsCustom;
       final effortOptions = effortPolicy.options;
@@ -178,7 +237,7 @@ class NativeSheetHydrationService {
         moreModelsTitle: l10n?.moreModels ?? 'More models',
         searchModelsTitle: l10n?.searchModels ?? 'Search models',
         reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
-        reasoningEffortValue: effortModel == null
+        reasoningEffortValue: effortModel == null || !effortHydrated
             ? kAutomaticReasoningEffort
             : reasoningEffortForModel(_ref.read, effortModel),
         reasoningEffortOptions: effortOptions,
@@ -210,6 +269,53 @@ class NativeSheetHydrationService {
         models: nativePresentationOptions,
         rethrowErrors: rethrowErrors,
       );
+      final lateEffortModel = effortHydrated ? null : effortModel;
+      final lateEffortHydration = effortHydrated ? null : effortHydration;
+      if (lateEffortModel != null && lateEffortHydration != null) {
+        unawaited(
+          lateEffortHydration
+              .then((detail) async {
+                if (!detail.canUsePersonalizationFallback ||
+                    !context.mounted ||
+                    !_modelSelectorHydration.isActive(
+                      activeHydrationGeneration,
+                    ) ||
+                    !identical(_ref.read(apiServiceProvider), api)) {
+                  return;
+                }
+                final hydrated = nativeHydratedServerReasoningEffort(
+                  model: lateEffortModel,
+                  detail: detail,
+                  personalizationEffort: _ref
+                      .read(personalizationSettingsProvider)
+                      .asData
+                      ?.value
+                      .reasoningEffort,
+                );
+                await bridge.updateModelSelectorReasoningEffort(
+                  presentationId: presentationId,
+                  value: hydrated.value,
+                  options: hydrated.policy.options,
+                  allowsCustom: hydrated.policy.allowsCustom,
+                  onReasoningEffortChanged: hydrated.policy.visible
+                      ? (value) => setReasoningEffortForModel(
+                          _ref.read,
+                          lateEffortModel,
+                          value,
+                        )
+                      : null,
+                );
+              })
+              .catchError((Object error, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'native-model-effort-progressive-hydration-failed',
+                  scope: 'native-sheet/model-effort-hydration',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
+        );
+      }
       unawaited(
         avatarHydrator
             .hydrateModelOptions(

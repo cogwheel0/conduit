@@ -7,6 +7,7 @@ import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 
 void main() {
   group('sortModelsWithPinnedOrder', () {
@@ -58,5 +59,11 @@ void main() {
     ]).single;
 
     check(modelSelectorQueryMatches(model, 'home ollama')).isTrue();
+  });
+
+  test('custom server reasoning effort uses its configured level name', () {
+    check(
+      reasoningEffortLabelForTest(AppLocalizationsEn(), 'vendor_ultra'),
+    ).equals('vendor_ultra');
   });
 }

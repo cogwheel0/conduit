@@ -40,6 +40,13 @@ final class ReasoningEffortPolicy {
     allowsCustom: true,
   );
 
+  static const unsupported = ReasoningEffortPolicy(
+    visible: false,
+    options: <String>[],
+    allowsCustom: false,
+    restrictsValues: true,
+  );
+
   final bool visible;
   final List<String> options;
   final bool allowsCustom;
@@ -77,10 +84,13 @@ String? modelConfiguredReasoningEffort(Model? model) {
   if (metadata == null) return null;
 
   final info = metadata['info'];
-  final candidates = <Object?>[
+  return _reasoningEffortFromParams(<Object?>[
     if (info is Map) info['params'],
     metadata['params'],
-  ];
+  ]);
+}
+
+String? _reasoningEffortFromParams(Iterable<Object?> candidates) {
   for (final candidate in candidates) {
     if (candidate is! Map) continue;
     final rawEffort = candidate['reasoning_effort'];
@@ -92,6 +102,50 @@ String? modelConfiguredReasoningEffort(Model? model) {
     }
   }
   return null;
+}
+
+bool _isOpenWebUiWorkspaceModel(Model model) {
+  final info = model.metadata?['info'];
+  if (info is! Map) return false;
+  return info['id']?.toString() == model.id &&
+      (info.containsKey('user_id') || info.containsKey('base_model_id'));
+}
+
+final class ServerModelReasoningEffort {
+  const ServerModelReasoningEffort.known(this.value)
+    : canUsePersonalizationFallback = true;
+
+  const ServerModelReasoningEffort.unavailable()
+    : value = null,
+      canUsePersonalizationFallback = false;
+
+  final String? value;
+  final bool canUsePersonalizationFallback;
+}
+
+/// Loads private workspace-model parameters that OpenWebUI intentionally omits
+/// from `/api/models`. The detail route returns them only to callers with write
+/// access; read-only callers receive an empty params map.
+@riverpod
+Future<ServerModelReasoningEffort> serverModelReasoningEffort(
+  Ref ref,
+  Model model,
+) async {
+  if (!_isOpenWebUiWorkspaceModel(model)) {
+    return const ServerModelReasoningEffort.known(null);
+  }
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) return const ServerModelReasoningEffort.unavailable();
+  final details = await api.getModelDetails(model.id);
+  if (details == null) return const ServerModelReasoningEffort.unavailable();
+  final effort = _reasoningEffortFromParams(<Object?>[details['params']]);
+  if (effort != null || details['write_access'] == true) {
+    return ServerModelReasoningEffort.known(effort);
+  }
+  // OpenWebUI deliberately returns an empty params map to read-only callers.
+  // Do not mistake that hidden value for confirmed absence and override it
+  // with the user's personalization setting.
+  return const ServerModelReasoningEffort.unavailable();
 }
 
 @Riverpod(keepAlive: true)
@@ -173,15 +227,35 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
         );
   }
 
-  final modelEffort = modelConfiguredReasoningEffort(model);
-  if (modelEffort != null) return modelEffort;
+  String? detailedModelEffort;
+  if (_isOpenWebUiWorkspaceModel(model)) {
+    final detailedEffort = ref.watch(serverModelReasoningEffortProvider(model));
+    // Until OpenWebUI returns the private workspace params, do not let a
+    // user-level fallback override the model's server-side configuration.
+    if (detailedEffort.isLoading || detailedEffort.hasError) return null;
+    final detail = detailedEffort.asData?.value;
+    if (detail == null || !detail.canUsePersonalizationFallback) return null;
+    detailedModelEffort = detail.value;
+  }
+  final modelEffort =
+      detailedModelEffort ?? modelConfiguredReasoningEffort(model);
+  if (modelEffort != null) {
+    return reasoningEffortPolicyForModel(
+      ref.watch,
+      model,
+    ).effectiveConfiguredEffort(modelEffort);
+  }
 
   if (ref.watch(apiServiceProvider) != null) {
-    return ref
+    final configured = ref
         .watch(personalizationSettingsProvider)
         .asData
         ?.value
         .reasoningEffort;
+    return reasoningEffortPolicyForModel(
+      ref.watch,
+      model,
+    ).effectiveConfiguredEffort(configured);
   }
   return null;
 });
@@ -224,12 +298,30 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
-  final modelEffort = modelConfiguredReasoningEffort(model);
-  if (modelEffort != null) return modelEffort;
+  String? detailedModelEffort;
+  if (_isOpenWebUiWorkspaceModel(model)) {
+    final detailedEffort = read(serverModelReasoningEffortProvider(model));
+    if (detailedEffort.isLoading || detailedEffort.hasError) {
+      return kAutomaticReasoningEffort;
+    }
+    final detail = detailedEffort.asData?.value;
+    if (detail == null || !detail.canUsePersonalizationFallback) {
+      return kAutomaticReasoningEffort;
+    }
+    detailedModelEffort = detail.value;
+  }
+  final modelEffort =
+      detailedModelEffort ?? modelConfiguredReasoningEffort(model);
+  final policy = reasoningEffortPolicyForModel(read, model);
+  if (modelEffort != null) {
+    return policy.effectiveConfiguredEffort(modelEffort) ??
+        kAutomaticReasoningEffort;
+  }
   if (read(apiServiceProvider) != null) {
-    return read(
-          personalizationSettingsProvider,
-        ).asData?.value.reasoningEffort ??
+    final configured = read(
+      personalizationSettingsProvider,
+    ).asData?.value.reasoningEffort;
+    return policy.effectiveConfiguredEffort(configured) ??
         kAutomaticReasoningEffort;
   }
   return kAutomaticReasoningEffort;
@@ -251,8 +343,16 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       allowsCustom: false,
     );
   }
+  if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
   final binding = read(directModelRegistryProvider).resolve(model);
-  if (binding == null) return ReasoningEffortPolicy.generic;
+  if (binding == null) {
+    final detailedModelEffort = _isOpenWebUiWorkspaceModel(model)
+        ? read(serverModelReasoningEffortProvider(model)).asData?.value.value
+        : null;
+    return model.supportsReasoningEffort || detailedModelEffort != null
+        ? ReasoningEffortPolicy.generic
+        : ReasoningEffortPolicy.unsupported;
+  }
   if (binding.adapterKey == kOllamaAdapterKey) {
     return const ReasoningEffortPolicy(
       visible: true,
