@@ -46,7 +46,6 @@ import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
-import '../../../shared/utils/ask_conduit_context_menu.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -62,6 +61,55 @@ import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
 import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
+
+/// Native platform views are recomposited for every animated cursor-opacity
+/// frame. Keep the normal animated caret everywhere else, but use a discrete
+/// blink while the iOS 26 glass view is present.
+@visibleForTesting
+bool composerCursorOpacityAnimates({required bool usesNativePlatformView}) =>
+    !usesNativePlatformView;
+
+/// Whether the composer should delegate its edit menu to UIKit.
+@visibleForTesting
+bool composerUsesNativeSystemSelectionMenu({
+  required bool isIOS,
+  required bool systemMenuSupported,
+}) => isIOS && systemMenuSupported;
+
+/// Returns a stable UIKit edit-menu model for the composer.
+///
+/// Keep composer actions limited to operations that mutate the editable field.
+/// In particular, "Ask Conduit" belongs to selected response text: adding it
+/// here both reinserted the selection into the same field and created a fresh
+/// callback identity whenever selection handles moved, forcing UIKit to
+/// re-present the menu.
+@visibleForTesting
+List<IOSSystemContextMenuItem> buildComposerSystemContextMenuItems({
+  required List<IOSSystemContextMenuItem> defaultItems,
+  required bool ensurePaste,
+}) {
+  final items = List<IOSSystemContextMenuItem>.from(defaultItems);
+  if (!ensurePaste ||
+      items.any((item) => item is IOSSystemContextMenuItemPaste)) {
+    return items;
+  }
+
+  final insertionIndex = items.indexWhere(
+    (item) =>
+        item is IOSSystemContextMenuItemSelectAll ||
+        item is IOSSystemContextMenuItemLookUp ||
+        item is IOSSystemContextMenuItemSearchWeb ||
+        item is IOSSystemContextMenuItemShare ||
+        item is IOSSystemContextMenuItemLiveText,
+  );
+  const pasteItem = IOSSystemContextMenuItemPaste();
+  if (insertionIndex >= 0) {
+    items.insert(insertionIndex, pasteItem);
+  } else {
+    items.add(pasteItem);
+  }
+  return items;
+}
 
 /// Whether the selected model may accept locally pasted/picked images.
 /// Reserved direct identities fail closed when their mutable registry binding
@@ -778,10 +826,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     BuildContext context,
     EditableTextState editableTextState,
   ) {
-    // iOS 26 can assert when Flutter tries to show overlapping system edit
-    // menus while focus is changing. Use the Flutter-rendered toolbar until
-    // the platform SystemContextMenu path is reliable again.
+    final useSystemMenu = composerUsesNativeSystemSelectionMenu(
+      isIOS: !kIsWeb && Platform.isIOS,
+      systemMenuSupported: SystemContextMenu.isSupportedByField(
+        editableTextState,
+      ),
+    );
+    if (useSystemMenu) {
+      return SystemContextMenu.editableText(
+        editableTextState: editableTextState,
+        items: _buildIosSystemContextMenuItems(editableTextState),
+      );
+    }
+
     return _buildFallbackContextMenu(context, editableTextState);
+  }
+
+  List<IOSSystemContextMenuItem> _buildIosSystemContextMenuItems(
+    EditableTextState editableTextState,
+  ) {
+    return buildComposerSystemContextMenuItems(
+      defaultItems: SystemContextMenu.getDefaultItems(editableTextState),
+      ensurePaste:
+          widget.onPastedAttachments != null && _selectedModelAcceptsImageInput,
+    );
   }
 
   /// Builds a Flutter-rendered fallback text editing menu.
@@ -841,13 +909,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
-    return withAskConduitContextMenuItem(
-      items: items,
-      ref: ref,
-      selectedText: selectedTextFromEditableTextState(editableTextState),
-      composerTargetId: _composerTextInsertionTargetId,
-      hideToolbar: () => editableTextState.hideToolbar(false),
-    );
+    return items;
   }
 
   Future<void> _handleFallbackPaste(
@@ -3442,6 +3504,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
               if (!kIsWeb && Platform.isIOS) {
+                final usesNativePlatformView = conduitSupportsNativeGlass();
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
@@ -3459,6 +3522,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   textInputAction: TextInputAction.newline,
                   autofillHints: const <String>[],
                   showCursor: true,
+                  cursorOpacityAnimates: composerCursorOpacityAnimates(
+                    usesNativePlatformView: usesNativePlatformView,
+                  ),
                   cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
@@ -3471,7 +3537,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                           onContentInserted: _handleContentInserted,
                         )
                       : null,
-                  // Transparent decoration — the glass container provides
+                  // Transparent decoration, the glass container provides
                   // the visual frame.
                   decoration: const BoxDecoration(),
                   padding: contentPadding,
@@ -3602,6 +3668,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : null,
           size: buttonSize,
           forcePlain: true,
+          iosSymbol: attachmentPanelVisible ? 'xmark' : 'plus',
+          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+          iosSymbolColor: iconColor,
           child: ConduitSystemAdaptiveIcon(
             overflowIcon,
             size: iconSize,
@@ -3760,6 +3829,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onPressed: enabled ? _createNoteFromDraft : null,
         size: buttonSize,
         forcePlain: true,
+        iosSymbol: isLoading ? null : 'doc.text',
+        iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+        iosSymbolColor: iconColor,
         child: isLoading
             ? SizedBox(
                 width: iconSize,
@@ -3798,6 +3870,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       dense ? IconSize.large : IconSize.xl,
     );
+    final nativePrimaryIconSize = dense
+        ? kConduitNativeUtilitySymbolExtent
+        : kConduitNativePrimarySymbolExtent;
 
     // Don't allow sending until all uploads are complete
     final enabled =
@@ -3815,6 +3890,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           },
           size: buttonSize,
           isProminent: true,
+          iosSymbol: 'stop.fill',
+          iosSymbolSize: nativePrimaryIconSize,
+          iosSymbolColor: context.conduitTheme.buttonPrimaryText,
           child: ConduitSystemAdaptiveIcon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
             size: primaryIconSize,
@@ -3864,6 +3942,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           onPressed: onPressed,
           size: buttonSize,
           isProminent: true,
+          iosSymbol: hasUploadsInProgress ? null : 'arrow.up',
+          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+          iosSymbolColor: enabled
+              ? context.conduitTheme.buttonPrimaryText
+              : context.conduitTheme.textPrimary.withValues(
+                  alpha: Alpha.disabled,
+                ),
           child: sendChild,
         ),
       );
@@ -3885,6 +3970,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : null,
           size: buttonSize,
           isProminent: true,
+          iosSymbol: 'waveform',
+          iosSymbolSize: nativePrimaryIconSize,
+          iosSymbolColor: enabledVoiceCall
+              ? context.conduitTheme.buttonPrimaryText
+              : context.conduitTheme.textPrimary.withValues(
+                  alpha: Alpha.disabled,
+                ),
           child: ConduitSystemAdaptiveIcon(
             Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
             size: primaryIconSize,
@@ -3904,6 +3996,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onPressed: null,
       size: buttonSize,
       isProminent: false,
+      iosSymbol: 'arrow.up',
+      iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+      iosSymbolColor: context.conduitTheme.textPrimary.withValues(
+        alpha: Alpha.disabled,
+      ),
       child: ConduitSystemAdaptiveIcon(
         CupertinoIcons.arrow_up,
         size: largeIconSize,
@@ -4013,6 +4110,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool androidShowBackground = false,
     bool forcePlain = false,
     Color? color,
+    String? iosSymbol,
+    double? iosSymbolSize,
+    Color? iosSymbolColor,
   }) {
     final theme = context.conduitTheme;
     final effectiveColor = color ?? theme.buttonPrimary;
@@ -4037,6 +4137,58 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ? AdaptiveButtonStyle.prominentGlass
               : AdaptiveButtonStyle.glass);
 
+    final adaptiveSize = size > 40
+        ? AdaptiveButtonSize.large
+        : AdaptiveButtonSize.medium;
+    final buttonColor =
+        usesOpaqueFallback && androidShowBackground && !isProminent
+        ? androidBackgroundColor
+        : effectiveColor;
+
+    if (conduitSupportsNativeGlass()) {
+      // Loading indicators are transient Flutter content. Keeping them out of
+      // child-mode avoids creating another persistent platform view.
+      if (iosSymbol == null) {
+        return Semantics(
+          key: key,
+          button: true,
+          enabled: onPressed != null,
+          child: SizedBox.square(
+            dimension: size,
+            child: isProminent
+                ? DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: buttonColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(child: child),
+                  )
+                : Center(child: child),
+          ),
+        );
+      }
+      return SizedBox.square(
+        dimension: size,
+        child: AdaptiveButton.sfSymbol(
+          key: key,
+          onPressed: onPressed,
+          enabled: onPressed != null,
+          sfSymbol: SFSymbol(
+            iosSymbol,
+            size: iosSymbolSize ?? kConduitNativeUtilitySymbolExtent,
+            color: iosSymbolColor,
+          ),
+          style: buttonStyle,
+          color: buttonColor,
+          size: adaptiveSize,
+          minSize: Size.square(size),
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(size),
+          useSmoothRectangleBorder: false,
+        ),
+      );
+    }
+
     return SizedBox.square(
       dimension: size,
       child: AdaptiveButton.child(
@@ -4044,10 +4196,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onPressed: onPressed,
         enabled: onPressed != null,
         style: buttonStyle,
-        color: usesOpaqueFallback && androidShowBackground && !isProminent
-            ? androidBackgroundColor
-            : effectiveColor,
-        size: size > 40 ? AdaptiveButtonSize.large : AdaptiveButtonSize.medium,
+        color: buttonColor,
+        size: adaptiveSize,
         minSize: Size.square(size),
         padding: EdgeInsets.zero,
         borderRadius: BorderRadius.circular(size),

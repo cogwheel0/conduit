@@ -19,6 +19,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -1177,11 +1178,42 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
   }
 
+  List<AdaptivePopupMenuEntry> _buildChannelToolbarMenuItems(
+    AppLocalizations? l10n,
+  ) => [
+    AdaptivePopupMenuItem<String>(
+      value: 'edit',
+      label: l10n?.channelEdit ?? 'Edit Channel',
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'pencil',
+        materialIcon: Icons.edit_outlined,
+      ),
+    ),
+    AdaptivePopupMenuItem<String>(
+      value: 'leave',
+      label: l10n?.channelLeave ?? 'Leave Channel',
+      isDestructive: true,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'rectangle.portrait.and.arrow.right',
+        materialIcon: Icons.logout_outlined,
+      ),
+    ),
+    AdaptivePopupMenuItem<String>(
+      value: 'delete',
+      label: l10n?.channelDelete ?? 'Delete Channel',
+      isDestructive: true,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'trash',
+        materialIcon: Icons.delete_outline,
+      ),
+    ),
+  ];
+
   List<Widget> _buildChannelToolbarActionWidgets(
-    BuildContext context,
     ConduitThemeExtension theme,
     Channel? channel,
-    AppLocalizations? l10n,
+    List<AdaptivePopupMenuEntry> menuItems,
+    ValueChanged<String> onMenuSelected,
   ) {
     return buildConduitAdaptiveToolbarActionWidgets([
       if (channel?.userCount != null)
@@ -1191,9 +1223,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           onPressed: _showMemberList,
         ),
       _ChannelToolbarPopupButton(
-        l10n: l10n,
         tintColor: theme.textPrimary,
-        onSelected: (action) => _handleChannelToolbarSelection(action, channel),
+        items: menuItems,
+        onSelected: onMenuSelected,
       ),
     ]);
   }
@@ -1211,9 +1243,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final textScaler = MediaQuery.textScalerOf(context);
     final controlExtent = conduitScaledControlExtent(context);
     final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
+    final memberCount = channel?.userCount;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: channel?.userCount != null ? 2 : 1,
+      trailingActionCount: memberCount != null ? 2 : 1,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
     final tintColor = theme.textPrimary;
@@ -1229,12 +1262,41 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         _buildChannelTitlePill(context, channel, maxWidth: maxTitleWidth),
       ],
     );
+    final menuItems = _buildChannelToolbarMenuItems(l10n);
+    void onMenuSelected(String action) =>
+        _handleChannelToolbarSelection(action, channel);
     final actions = _buildChannelToolbarActionWidgets(
-      context,
       theme,
       channel,
-      l10n,
+      menuItems,
+      onMenuSelected,
     );
+    final nativeMenuAction = buildConduitNativeToolbarMenuAction<String>(
+      iosSymbol: 'ellipsis',
+      accessibilityLabel:
+          l10n?.more ?? MaterialLocalizations.of(context).moreButtonTooltip,
+      tintColor: tintColor,
+      symbolSize: kConduitNativeToolbarSymbolExtent,
+      items: menuItems,
+      onSelected: onMenuSelected,
+    );
+    final useNativeActionGroup =
+        Platform.isIOS &&
+        conduitSupportsNativeGlass() &&
+        nativeMenuAction != null;
+    final nativeActions = <ConduitNativeToolbarAction>[
+      if (memberCount != null)
+        ConduitNativeToolbarAction(
+          iosSymbol: 'person.2',
+          accessibilityLabel:
+              l10n?.channelMembersTitle(memberCount) ??
+              'Members ($memberCount)',
+          tintColor: tintColor,
+          symbolSize: kConduitNativeToolbarSymbolExtent,
+          onPressed: _showMemberList,
+        ),
+      ?nativeMenuAction,
+    ];
     final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
     final scaledLeading = ConduitSystemTextScaling(
@@ -1252,7 +1314,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
         textScaler: textScaler,
         leading: leading,
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        trailing: useNativeActionGroup
+            ? ConduitNativeToolbarActionGroup(actions: nativeActions)
+            : Row(mainAxisSize: MainAxisSize.min, children: actions),
         systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
@@ -1710,13 +1774,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
 class _ChannelToolbarPopupButton extends StatelessWidget {
   const _ChannelToolbarPopupButton({
-    required this.l10n,
     required this.tintColor,
+    required this.items,
     required this.onSelected,
   });
 
-  final AppLocalizations? l10n;
   final Color tintColor;
+  final List<AdaptivePopupMenuEntry> items;
   final ValueChanged<String> onSelected;
 
   @override
@@ -1724,34 +1788,7 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
     return ConduitAdaptiveToolbarOverflowButton<String>(
       tintColor: tintColor,
       materialIcon: Icons.more_vert,
-      items: [
-        AdaptivePopupMenuItem<String>(
-          value: 'edit',
-          label: l10n?.channelEdit ?? 'Edit Channel',
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'pencil',
-            materialIcon: Icons.edit_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'leave',
-          label: l10n?.channelLeave ?? 'Leave Channel',
-          isDestructive: true,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'rectangle.portrait.and.arrow.right',
-            materialIcon: Icons.logout_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'delete',
-          label: l10n?.channelDelete ?? 'Delete Channel',
-          isDestructive: true,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'trash',
-            materialIcon: Icons.delete_outline,
-          ),
-        ),
-      ],
+      items: items,
       onSelected: onSelected,
     );
   }

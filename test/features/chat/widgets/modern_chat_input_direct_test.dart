@@ -13,6 +13,7 @@ import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:checks/checks.dart';
@@ -21,6 +22,173 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('native composer glass uses non-animated cursor opacity', () {
+    check(
+      composerCursorOpacityAnimates(usesNativePlatformView: true),
+    ).equals(false);
+    check(
+      composerCursorOpacityAnimates(usesNativePlatformView: false),
+    ).equals(true);
+  });
+
+  test('iOS composer uses the native system edit menu when supported', () {
+    check(
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: true,
+        systemMenuSupported: true,
+      ),
+    ).isTrue();
+    check(
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: true,
+        systemMenuSupported: false,
+      ),
+    ).isFalse();
+    check(
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: false,
+        systemMenuSupported: true,
+      ),
+    ).isFalse();
+  });
+
+  test(
+    'native composer edit items remain stable across selection rebuilds',
+    () {
+      const defaults = <IOSSystemContextMenuItem>[
+        IOSSystemContextMenuItemCopy(),
+        IOSSystemContextMenuItemSelectAll(),
+      ];
+
+      final first = buildComposerSystemContextMenuItems(
+        defaultItems: defaults,
+        ensurePaste: true,
+      );
+      final second = buildComposerSystemContextMenuItems(
+        defaultItems: defaults,
+        ensurePaste: true,
+      );
+
+      expect(first, orderedEquals(second));
+      expect(first.whereType<IOSSystemContextMenuItemCustom>(), isEmpty);
+      expect(first[0], isA<IOSSystemContextMenuItemCopy>());
+      expect(first[1], isA<IOSSystemContextMenuItemPaste>());
+      expect(first[2], isA<IOSSystemContextMenuItemSelectAll>());
+    },
+  );
+
+  test('native toolbar action groups preserve action and menu order', () {
+    final actions = [
+      ConduitNativeToolbarAction(
+        iosSymbol: 'square.and.pencil',
+        accessibilityLabel: 'New Chat',
+        symbolSize: kConduitNativeVisibilitySymbolExtent,
+        onPressed: () {},
+      ),
+      ConduitNativeToolbarAction(
+        iosSymbol: 'ellipsis',
+        accessibilityLabel: 'More',
+        menuItems: [
+          ConduitNativeToolbarMenuItem(
+            label: 'Rename',
+            iosSymbol: 'pencil',
+            onSelected: () {},
+          ),
+          ConduitNativeToolbarMenuItem(
+            label: 'Delete',
+            iosSymbol: 'trash',
+            isDestructive: true,
+            onSelected: () {},
+          ),
+        ],
+      ),
+    ];
+    final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
+    final params = creationParams['actions']! as List<Map<String, Object?>>;
+
+    check(creationParams['symbolSize']).equals(22.0);
+    check(params.length).equals(2);
+    check(params[0]['iosSymbol']).equals('square.and.pencil');
+    check(params[0]['symbolSize']).equals(18.0);
+    check(params[1]['iosSymbol']).equals('ellipsis');
+    final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
+    check(
+      menuItems.map((item) => item['label']),
+    ).deepEquals(['Rename', 'Delete']);
+    check(menuItems[1]['isDestructive']).equals(true);
+  });
+
+  test('native toolbar action groups support one optical-sized menu', () {
+    final params = encodeConduitNativeToolbarActionGroupParams([
+      ConduitNativeToolbarAction(
+        iosSymbol: 'ellipsis',
+        accessibilityLabel: 'More',
+        symbolSize: kConduitNativeToolbarSymbolExtent,
+        menuItems: [
+          ConduitNativeToolbarMenuItem(
+            label: 'Delete',
+            isDestructive: true,
+            onSelected: () {},
+          ),
+        ],
+      ),
+    ]);
+    final actions = params['actions']! as List<Map<String, Object?>>;
+
+    check(actions).length.equals(1);
+    check(actions.single['iosSymbol']).equals('ellipsis');
+    check(actions.single['symbolSize']).equals(22.0);
+  });
+
+  test('native toolbar menu adapters preserve values, order, and state', () {
+    String? selected;
+    final action = buildConduitNativeToolbarMenuAction<String>(
+      iosSymbol: 'ellipsis',
+      accessibilityLabel: 'More',
+      tintColor: Colors.black,
+      symbolSize: kConduitNativeToolbarSymbolExtent,
+      items: const [
+        AdaptivePopupMenuItem<String>(
+          value: 'edit',
+          label: 'Edit',
+          icon: 'pencil',
+        ),
+        AdaptivePopupMenuItem<String>(
+          value: 'delete',
+          label: 'Delete',
+          icon: 'trash',
+          enabled: false,
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (value) => selected = value,
+    );
+
+    check(action).isNotNull();
+    check(
+      action!.menuItems.map((item) => item.label),
+    ).deepEquals(['Edit', 'Delete']);
+    check(action.menuItems[1].enabled).isFalse();
+    check(action.menuItems[1].isDestructive).isTrue();
+    action.menuItems[0].onSelected();
+    check(selected).equals('edit');
+  });
+
+  test('native toolbar groups accept three shared actions', () {
+    final actions = List.generate(
+      3,
+      (index) => ConduitNativeToolbarAction(
+        iosSymbol: 'circle',
+        accessibilityLabel: 'Action $index',
+        onPressed: () {},
+      ),
+    );
+
+    check(
+      ConduitNativeToolbarActionGroup(actions: actions).actions,
+    ).length.equals(3);
+  });
+
   test('composer measurement style matches recording typography', () {
     final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
       isRecording: true,
