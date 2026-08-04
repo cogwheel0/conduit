@@ -96,6 +96,25 @@ void main() {
       );
       expect(result, 42);
     });
+
+    test('automatic reasoning effort clears the server-side value', () async {
+      final adapter = _UserSettingsAdapter(<String, dynamic>{
+        'params': <String, dynamic>{'reasoning_effort': 'medium'},
+      });
+      final api = _buildApi(adapter, authToken: 'account-a');
+
+      expect(
+        (adapter.settings['params']
+            as Map<String, dynamic>)['reasoning_effort'],
+        'medium',
+      );
+      adapter.releaseFirstGet.complete();
+
+      final result = await api.updateUserReasoningEffort(null);
+
+      expect(result.reasoningEffort, isNull);
+      expect(adapter.settings['params'], isEmpty);
+    });
   });
 }
 
@@ -145,7 +164,8 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
       }
 
       if (options.method == 'POST') {
-        settings = _clone(options.data as Map<String, dynamic>);
+        final submitted = _clone(options.data as Map<String, dynamic>);
+        settings = <String, dynamic>{...settings, ...submitted};
       }
       return _jsonResponse(settings);
     } finally {

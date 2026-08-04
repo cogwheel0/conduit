@@ -40,6 +40,13 @@ final class ReasoningEffortPolicy {
     allowsCustom: true,
   );
 
+  static const unsupported = ReasoningEffortPolicy(
+    visible: false,
+    options: <String>[],
+    allowsCustom: false,
+    restrictsValues: true,
+  );
+
   final bool visible;
   final List<String> options;
   final bool allowsCustom;
@@ -174,14 +181,23 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
   }
 
   final modelEffort = modelConfiguredReasoningEffort(model);
-  if (modelEffort != null) return modelEffort;
+  if (modelEffort != null) {
+    return reasoningEffortPolicyForModel(
+      ref.watch,
+      model,
+    ).effectiveConfiguredEffort(modelEffort);
+  }
 
   if (ref.watch(apiServiceProvider) != null) {
-    return ref
+    final configured = ref
         .watch(personalizationSettingsProvider)
         .asData
         ?.value
         .reasoningEffort;
+    return reasoningEffortPolicyForModel(
+      ref.watch,
+      model,
+    ).effectiveConfiguredEffort(configured);
   }
   return null;
 });
@@ -225,11 +241,16 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
         kAutomaticReasoningEffort;
   }
   final modelEffort = modelConfiguredReasoningEffort(model);
-  if (modelEffort != null) return modelEffort;
+  final policy = reasoningEffortPolicyForModel(read, model);
+  if (modelEffort != null) {
+    return policy.effectiveConfiguredEffort(modelEffort) ??
+        kAutomaticReasoningEffort;
+  }
   if (read(apiServiceProvider) != null) {
-    return read(
-          personalizationSettingsProvider,
-        ).asData?.value.reasoningEffort ??
+    final configured = read(
+      personalizationSettingsProvider,
+    ).asData?.value.reasoningEffort;
+    return policy.effectiveConfiguredEffort(configured) ??
         kAutomaticReasoningEffort;
   }
   return kAutomaticReasoningEffort;
@@ -251,8 +272,13 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       allowsCustom: false,
     );
   }
+  if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
   final binding = read(directModelRegistryProvider).resolve(model);
-  if (binding == null) return ReasoningEffortPolicy.generic;
+  if (binding == null) {
+    return model.supportsReasoningEffort
+        ? ReasoningEffortPolicy.generic
+        : ReasoningEffortPolicy.unsupported;
+  }
   if (binding.adapterKey == kOllamaAdapterKey) {
     return const ReasoningEffortPolicy(
       visible: true,

@@ -3,9 +3,12 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -13,6 +16,7 @@ import 'package:conduit/features/direct_connections/models/ollama_thinking.dart'
 import 'package:conduit/features/direct_connections/models/openrouter_reasoning.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -106,6 +110,73 @@ void main() {
     );
 
     check(modelConfiguredReasoningEffort(model)).equals('vendor_ultra');
+  });
+
+  test('server policy only exposes effort for supported models', () {
+    const unsupported = Model(id: 'gpt-4o', name: 'GPT-4o');
+    const explicitlyUnsupported = Model(
+      id: 'catalog-model',
+      name: 'Catalog model',
+      capabilities: <String, dynamic>{
+        'reasoning': <String, dynamic>{'supported_efforts': <String>[]},
+      },
+    );
+    const supported = Model(id: 'gpt-5', name: 'GPT-5');
+    final hermes = hermesSyntheticModel();
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    check(
+      reasoningEffortPolicyForModel(container.read, unsupported).visible,
+    ).isFalse();
+    check(
+      reasoningEffortPolicyForModel(
+        container.read,
+        explicitlyUnsupported,
+      ).visible,
+    ).isFalse();
+    check(
+      reasoningEffortPolicyForModel(container.read, supported).visible,
+    ).isTrue();
+    check(
+      reasoningEffortPolicyForModel(container.read, hermes).visible,
+    ).isTrue();
+  });
+
+  test('chat payload omits effort for unsupported server models', () {
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'reasoning-test',
+        name: 'Reasoning test',
+        url: 'https://example.test',
+      ),
+      workerManager: WorkerManager(),
+    );
+    final userSettings = <String, dynamic>{
+      'params': <String, dynamic>{
+        'reasoning_effort': 'medium',
+        'temperature': 0.3,
+      },
+    };
+
+    Map<String, dynamic> build(String model) =>
+        api.buildChatCompletionPayloadForTest(
+          messages: const <Map<String, dynamic>>[
+            <String, dynamic>{'role': 'user', 'content': 'Hello'},
+          ],
+          model: model,
+          messageId: 'message-id',
+          sessionId: 'session-id',
+          modelItem: <String, dynamic>{'id': model, 'name': model},
+          userSettings: userSettings,
+        );
+
+    final unsupportedParams = build('gpt-4o')['params'] as Map<String, dynamic>;
+    final supportedParams = build('gpt-5')['params'] as Map<String, dynamic>;
+
+    check(unsupportedParams.containsKey('reasoning_effort')).isFalse();
+    check(unsupportedParams['temperature']).equals(0.3);
+    check(supportedParams['reasoning_effort']).equals('medium');
   });
 
   test(
