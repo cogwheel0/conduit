@@ -104,6 +104,63 @@ void main() {
       ).isTrue();
     });
 
+    test('load stop commits when no document-commit callback arrives', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      final pendingDocument = fence.activeDocument!;
+
+      check(fence.committedDocument).isNull();
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isTrue();
+      check(
+        fence.ownsLiveDocument(
+          fence.committedDocument!,
+          'https://chat.example/auth',
+        ),
+      ).isTrue();
+    });
+
+    test('load stop adopts a redirect without document callbacks', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      final pendingDocument = fence.activeDocument!;
+
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/login',
+          currentUrl: 'https://auth.example/login',
+        ),
+      ).isTrue();
+      final committedDocument = fence.committedDocument!;
+      check(
+        fence.ownsLiveDocument(committedDocument, 'https://auth.example/login'),
+      ).isTrue();
+      check(fence.ownsCommittedDocument(pendingDocument)).isFalse();
+    });
+
+    test('load stop fallback rejects a superseded navigation ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/old');
+      final oldDocument = fence.activeDocument!;
+
+      fence.startNavigation('https://chat.example/new');
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/old',
+          currentUrl: 'https://chat.example/old',
+        ),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
     test('rejects a delayed completion after a newer navigation starts', () {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://auth.example/login');

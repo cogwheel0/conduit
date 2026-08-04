@@ -343,7 +343,7 @@ class ProxyAuthPage extends ConsumerStatefulWidget {
   ConsumerState<ProxyAuthPage> createState() => _ProxyAuthPageState();
 }
 
-/// Immutable ownership proof for one committed main-frame document.
+/// Immutable ownership proof for one main-frame navigation document.
 @visibleForTesting
 final class ProxyAuthDocumentTicket {
   const ProxyAuthDocumentTicket({required this.generation, required this.url});
@@ -363,6 +363,12 @@ final class ProxyAuthDocumentFence {
   String? _committedDocumentKey;
 
   int get generation => _generation;
+
+  ProxyAuthDocumentTicket? get activeDocument {
+    final documentKey = _documentKey;
+    if (documentKey == null) return null;
+    return ProxyAuthDocumentTicket(generation: _generation, url: documentKey);
+  }
 
   ProxyAuthDocumentTicket? get committedDocument {
     final documentKey = _committedDocumentKey;
@@ -445,18 +451,30 @@ final class ProxyAuthDocumentFence {
   bool ownsLiveDocument(ProxyAuthDocumentTicket document, String currentUrl) =>
       ownsCommittedDocument(document) && document.url == _key(currentUrl);
 
-  /// Commits the URL reported when the current main-frame navigation finishes.
+  /// Commits the URL reported when the owned main-frame navigation finishes.
   ///
-  /// The callback URL must still match the WebView's current URL so a delayed
-  /// completion from an older navigation cannot take ownership of a newer one.
+  /// The ticket must still own the active navigation, and the callback URL must
+  /// match the WebView's current URL. This lets load-stop provide a fallback
+  /// commit when the platform omits its document-commit callback without
+  /// allowing a delayed completion to take ownership of a newer navigation.
   bool commitDocument({
     required ProxyAuthDocumentTicket document,
     required String callbackUrl,
     required String currentUrl,
   }) {
     final callbackKey = _key(callbackUrl);
-    return callbackKey == document.url &&
-        ownsLiveDocument(document, currentUrl);
+    if (!ownsDocument(document.generation, document.url) ||
+        callbackKey != _key(currentUrl)) {
+      return false;
+    }
+
+    if (_documentKey != callbackKey) {
+      _generation++;
+      _documentKey = callbackKey;
+    }
+    _committedGeneration = _generation;
+    _committedDocumentKey = callbackKey;
+    return true;
   }
 
   void _clearCommittedDocument() {
@@ -638,22 +656,37 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     String url,
   ) async {
     if (!mounted) return;
-    // Snapshot the ticket produced by the platform's document-commit event.
-    // Never resample a naked generation after an asynchronous URL read.
-    final document = _documentFence.committedDocument;
-    if (document == null) return;
+    // Snapshot navigation ownership before the asynchronous URL read. On
+    // platforms that omit the document-commit callback, load-stop can safely
+    // commit this ticket if the callback and live URL still agree.
+    final pendingDocument = _documentFence.activeDocument;
+    if (pendingDocument == null) return;
     final currentUrl = await controller.getUrl();
-    if (!mounted ||
-        currentUrl == null ||
-        !_documentFence.commitDocument(
-          document: document,
-          callbackUrl: url,
-          currentUrl: currentUrl.toString(),
-        )) {
+    if (!mounted) return;
+    if (currentUrl == null) {
+      setState(() {
+        _error = 'The sign-in page URL could not be verified. Please retry.';
+        _isLoading = false;
+      });
+      return;
+    }
+    if (!_documentFence.commitDocument(
+      document: pendingDocument,
+      callbackUrl: url,
+      currentUrl: currentUrl.toString(),
+    )) {
       DebugLogger.log(
         'Ignoring stale proxy auth page completion',
         scope: 'auth/proxy',
       );
+      return;
+    }
+    final document = _documentFence.committedDocument;
+    if (document == null) {
+      setState(() {
+        _error = 'The sign-in page could not be verified. Please retry.';
+        _isLoading = false;
+      });
       return;
     }
     DebugLogger.auth(
