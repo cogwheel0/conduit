@@ -67,6 +67,13 @@ final class _FixedSelectedModel extends SelectedModel {
 }
 
 final class _ModelDetailsAdapter implements HttpClientAdapter {
+  _ModelDetailsAdapter({
+    this.failuresBeforeSuccess = 0,
+    this.holdSuccessfulResponse = true,
+  });
+
+  final int failuresBeforeSuccess;
+  final bool holdSuccessfulResponse;
   int requestCount = 0;
   final Completer<void> requested = Completer<void>();
   final Completer<void> release = Completer<void>();
@@ -84,7 +91,16 @@ final class _ModelDetailsAdapter implements HttpClientAdapter {
     check(
       options.queryParameters,
     ).deepEquals(<String, dynamic>{'id': 'workspace-reasoning-model'});
-    await release.future;
+    if (requestCount <= failuresBeforeSuccess) {
+      return ResponseBody.fromString(
+        '{"detail":"temporary failure"}',
+        503,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+        },
+      );
+    }
+    if (holdSuccessfulResponse) await release.future;
     return ResponseBody(
       Stream<Uint8List>.value(
         Uint8List.fromList(
@@ -242,6 +258,47 @@ void main() {
       ).equals('vendor_ultra');
     },
   );
+
+  test('workspace model detail retries after a transient failure', () async {
+    const model = Model(
+      id: 'workspace-reasoning-model',
+      name: 'Workspace reasoning model',
+      metadata: <String, dynamic>{
+        'info': <String, dynamic>{
+          'id': 'workspace-reasoning-model',
+          'user_id': 'owner',
+          'base_model_id': 'gpt-5',
+        },
+      },
+    );
+    final adapter = _ModelDetailsAdapter(
+      failuresBeforeSuccess: 1,
+      holdSuccessfulResponse: false,
+    );
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'reasoning-retry-test',
+        name: 'Reasoning retry test',
+        url: 'https://example.test',
+      ),
+      workerManager: WorkerManager(),
+    );
+    api.dio.httpClientAdapter = adapter;
+    api.dio.interceptors.clear();
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    check(
+      await container.read(serverModelReasoningEffortProvider(model).future),
+    ).isNull();
+    await container.pump();
+    check(
+      await container.read(serverModelReasoningEffortProvider(model).future),
+    ).equals('vendor_ultra');
+    check(adapter.requestCount).equals(2);
+  });
 
   test('server policy only exposes effort for supported models', () {
     const unsupported = Model(id: 'gpt-4o', name: 'GPT-4o');

@@ -114,7 +114,7 @@ bool _isOpenWebUiWorkspaceModel(Model model) {
 /// Loads private workspace-model parameters that OpenWebUI intentionally omits
 /// from `/api/models`. The detail route returns them only to callers with write
 /// access; read-only callers receive an empty params map.
-@Riverpod(keepAlive: true)
+@riverpod
 Future<String?> serverModelReasoningEffort(Ref ref, Model model) async {
   if (!_isOpenWebUiWorkspaceModel(model)) return null;
   final api = ref.watch(apiServiceProvider);
