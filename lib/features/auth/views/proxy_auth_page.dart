@@ -343,22 +343,90 @@ class ProxyAuthPage extends ConsumerStatefulWidget {
   ConsumerState<ProxyAuthPage> createState() => _ProxyAuthPageState();
 }
 
+/// Immutable ownership proof for one committed main-frame document.
+@visibleForTesting
+final class ProxyAuthDocumentTicket {
+  const ProxyAuthDocumentTicket({required this.generation, required this.url});
+
+  final int generation;
+  final String url;
+}
+
 /// Binds asynchronous credential capture to one main-frame document.
 @visibleForTesting
 final class ProxyAuthDocumentFence {
   int _generation = 0;
   String? _documentKey;
+  int? _committedGeneration;
+  String? _committedDocumentKey;
 
   int get generation => _generation;
+
+  ProxyAuthDocumentTicket? get committedDocument {
+    final documentKey = _committedDocumentKey;
+    final committedGeneration = _committedGeneration;
+    if (documentKey == null ||
+        committedGeneration == null ||
+        committedGeneration != _generation) {
+      return null;
+    }
+    return ProxyAuthDocumentTicket(
+      generation: committedGeneration,
+      url: documentKey,
+    );
+  }
 
   void startNavigation(String url) {
     _generation++;
     _documentKey = _key(url);
+    _clearCommittedDocument();
   }
 
   void invalidate() {
     _generation++;
     _documentKey = null;
+    _clearCommittedDocument();
+  }
+
+  /// Tracks redirects and same-document history changes that may not emit a
+  /// new load-start callback.
+  ///
+  /// A URL change on an already committed document (for example pushState)
+  /// remains committed under a fresh generation. A provisional redirect stays
+  /// uncommitted until [markDocumentCommitted] observes the final document.
+  bool observeNavigationUrl(String url) {
+    final documentKey = _documentKey;
+    if (documentKey == null) return false;
+
+    final nextKey = _key(url);
+    if (nextKey == documentKey) return false;
+
+    final wasCommitted =
+        _committedGeneration == _generation &&
+        _committedDocumentKey == documentKey;
+    _generation++;
+    _documentKey = nextKey;
+    if (wasCommitted) {
+      _committedGeneration = _generation;
+      _committedDocumentKey = nextKey;
+    } else {
+      _clearCommittedDocument();
+    }
+    return true;
+  }
+
+  /// Marks the document that the platform WebView reports as committed.
+  bool markDocumentCommitted(String url) {
+    if (_documentKey == null) return false;
+
+    final committedKey = _key(url);
+    if (_documentKey != committedKey) {
+      _generation++;
+      _documentKey = committedKey;
+    }
+    _committedGeneration = _generation;
+    _committedDocumentKey = committedKey;
+    return true;
   }
 
   bool ownsGeneration(int generation) => generation == _generation;
@@ -366,25 +434,32 @@ final class ProxyAuthDocumentFence {
   bool ownsDocument(int generation, String url) =>
       ownsGeneration(generation) && _documentKey == _key(url);
 
+  bool ownsCommittedDocument(ProxyAuthDocumentTicket document) =>
+      document.generation == _generation &&
+      _documentKey == document.url &&
+      _committedGeneration == document.generation &&
+      _committedDocumentKey == document.url;
+
+  bool ownsLiveDocument(ProxyAuthDocumentTicket document, String currentUrl) =>
+      ownsCommittedDocument(document) && document.url == _key(currentUrl);
+
   /// Commits the URL reported when the current main-frame navigation finishes.
   ///
   /// The callback URL must still match the WebView's current URL so a delayed
   /// completion from an older navigation cannot take ownership of a newer one.
   bool commitDocument({
-    required int generation,
+    required ProxyAuthDocumentTicket document,
     required String callbackUrl,
     required String currentUrl,
   }) {
     final callbackKey = _key(callbackUrl);
-    if (!ownsGeneration(generation) || callbackKey != _key(currentUrl)) {
-      return false;
-    }
+    return callbackKey == document.url &&
+        ownsLiveDocument(document, currentUrl);
+  }
 
-    // WKWebView does not emit another load-start callback for HTTP redirects.
-    // Adopt the final URL only after the finish callback and the live WebView
-    // agree, keeping delayed completions from older navigations fenced out.
-    _documentKey = callbackKey;
-    return true;
+  void _clearCommittedDocument() {
+    _committedGeneration = null;
+    _committedDocumentKey = null;
   }
 
   static String _key(String url) {
@@ -422,11 +497,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     super.dispose();
   }
 
-  bool _ownsCaptureGeneration(int generation) =>
-      mounted && _documentFence.ownsGeneration(generation);
-
-  bool _ownsCaptureDocument(int generation, String url) =>
-      mounted && _documentFence.ownsDocument(generation, url);
+  bool _ownsCaptureDocument(ProxyAuthDocumentTicket document) =>
+      mounted && _documentFence.ownsCommittedDocument(document);
 
   void _invalidateCaptureQueue({String? navigationUrl}) {
     if (navigationUrl == null) {
@@ -534,17 +606,45 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     });
   }
 
+  void _onNavigationUrlChanged(String url) {
+    if (!mounted || url.isEmpty) return;
+    if (!_documentFence.observeNavigationUrl(url)) return;
+
+    // Redirects and History API changes can update WKWebView.url without a
+    // matching load-start callback. Cancel any capture tied to the old URL.
+    _captureQueue.reset();
+    _isOnTargetServer = isTrustedProxyCredentialCaptureUrl(
+      pageUrl: url,
+      serverUrl: widget.config.serverConfig.url,
+    );
+  }
+
+  void _onPageCommitted(String url) {
+    if (!mounted || url.isEmpty) return;
+    final previousGeneration = _documentFence.generation;
+    if (!_documentFence.markDocumentCommitted(url)) return;
+
+    // Some platforms report the committed redirect URL before their visited-
+    // history callback. Treat that transition as a new capture document too.
+    if (_documentFence.generation != previousGeneration) {
+      _captureQueue.reset();
+    }
+  }
+
   Future<void> _onPageFinished(
     InAppWebViewController controller,
     String url,
   ) async {
     if (!mounted) return;
-    final generation = _documentFence.generation;
+    // Snapshot the ticket produced by the platform's document-commit event.
+    // Never resample a naked generation after an asynchronous URL read.
+    final document = _documentFence.committedDocument;
+    if (document == null) return;
     final currentUrl = await controller.getUrl();
     if (!mounted ||
         currentUrl == null ||
         !_documentFence.commitDocument(
-          generation: generation,
+          document: document,
           callbackUrl: url,
           currentUrl: currentUrl.toString(),
         )) {
@@ -594,26 +694,27 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     if (isOnTargetServer) {
       // We've reached our server - proxy auth must be complete
       _isOnTargetServer = true;
-      await _checkIfOpenWebUI(url, generation);
+      await _checkIfOpenWebUI(document);
     }
   }
 
   /// Checks if we're on the OpenWebUI page and captures cookies if so.
-  Future<void> _checkIfOpenWebUI(String url, int generation) async {
-    if (_cookiesCaptured || !_ownsCaptureDocument(generation, url)) return;
+  Future<void> _checkIfOpenWebUI(ProxyAuthDocumentTicket document) async {
+    if (_cookiesCaptured || !_ownsCaptureDocument(document)) return;
 
     final controller = _controller;
     if (controller == null) return;
+    final url = document.url;
     final serverUrl = widget.config.serverConfig.url;
     if (!isTrustedProxyCredentialCaptureUrl(
           pageUrl: url,
           serverUrl: serverUrl,
         ) ||
-        !await _isControllerOnTargetOrigin()) {
+        !await _isControllerOnDocument(document)) {
       _isOnTargetServer = false;
       return;
     }
-    if (!_ownsCaptureDocument(generation, url)) return;
+    if (!_ownsCaptureDocument(document)) return;
     final path = Uri.parse(url).path;
 
     try {
@@ -644,9 +745,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!_ownsCaptureDocument(generation, url) ||
-          !await _isControllerOnTargetOrigin() ||
-          !_ownsCaptureDocument(generation, url)) {
+      if (!_ownsCaptureDocument(document) ||
+          !await _isControllerOnDocument(document) ||
+          !_ownsCaptureDocument(document)) {
         _isOnTargetServer = false;
         return;
       }
@@ -665,12 +766,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         looksLikeOpenWebUi: isOpenWebUI,
         path: path,
       )) {
-        final request = await _buildAutomaticCaptureRequest(url, generation);
-        if (request == null || !_ownsCaptureDocument(generation, url)) return;
-        await _requestProxyCookieCapture(
-          request,
-          expectedGeneration: generation,
-        );
+        final request = await _buildAutomaticCaptureRequest(document);
+        if (request == null || !_ownsCaptureDocument(document)) return;
+        await _requestProxyCookieCapture(request, expectedDocument: document);
         return;
       }
 
@@ -687,18 +785,15 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
       // If detection fails, only fall back to automatic capture on OpenWebUI's
       // own auth routes. Same-host proxy login pages must stay in the WebView.
-      if (_ownsCaptureDocument(generation, url) &&
+      if (_ownsCaptureDocument(document) &&
           _isOnTargetServer &&
           isKnownOpenWebUiProxyAuthPath(path)) {
         try {
-          final request = await _buildAutomaticCaptureRequest(url, generation);
-          if (request == null || !_ownsCaptureDocument(generation, url)) return;
-          await _requestProxyCookieCapture(
-            request,
-            expectedGeneration: generation,
-          );
+          final request = await _buildAutomaticCaptureRequest(document);
+          if (request == null || !_ownsCaptureDocument(document)) return;
+          await _requestProxyCookieCapture(request, expectedDocument: document);
         } catch (captureError, captureStackTrace) {
-          if (!_ownsCaptureDocument(generation, url)) return;
+          if (!_ownsCaptureDocument(document)) return;
           DebugLogger.error(
             'automatic-proxy-capture-failed',
             scope: 'auth/proxy',
@@ -728,33 +823,33 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   /// we can capture the JWT token and skip the sign-in page entirely.
   Future<void> _requestProxyCookieCapture(
     ProxyAuthCaptureRequest request, {
-    int? expectedGeneration,
+    ProxyAuthDocumentTicket? expectedDocument,
   }) async {
     if (_cookiesCaptured || !mounted) return;
-    final generation = expectedGeneration ?? _documentFence.generation;
-    if (!_ownsCaptureGeneration(generation)) return;
-    if (!await _isControllerOnTargetOrigin()) {
-      if (!_ownsCaptureGeneration(generation)) return;
+    final document = expectedDocument ?? _documentFence.committedDocument;
+    if (document == null || !_ownsCaptureDocument(document)) return;
+    if (!await _isControllerOnDocument(document)) {
+      if (!_ownsCaptureDocument(document)) return;
       _isOnTargetServer = false;
       DebugLogger.auth(
-        'Skipping proxy credential capture outside the configured origin',
+        'Skipping proxy credential capture outside the committed document',
         scope: 'auth/proxy',
       );
       return;
     }
-    if (!_ownsCaptureGeneration(generation)) return;
+    if (!_ownsCaptureDocument(document)) return;
 
     final captureRequest = _captureQueue.begin(request);
     if (captureRequest == null) return;
 
-    await _captureProxyCookies(captureRequest, generation);
+    await _captureProxyCookies(captureRequest, document);
   }
 
   Future<void> _captureProxyCookies(
     ProxyAuthCaptureRequest request,
-    int generation,
+    ProxyAuthDocumentTicket document,
   ) async {
-    if (_cookiesCaptured || !_ownsCaptureGeneration(generation)) return;
+    if (_cookiesCaptured || !_ownsCaptureDocument(document)) return;
 
     var didComplete = false;
     Object? pendingError;
@@ -762,12 +857,12 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     ProxyAuthCaptureRequest? nextRequest;
 
     try {
-      if (!await _isControllerOnTargetOrigin()) {
-        if (!_ownsCaptureGeneration(generation)) return;
+      if (!await _isControllerOnDocument(document)) {
+        if (!_ownsCaptureDocument(document)) return;
         _isOnTargetServer = false;
         return;
       }
-      if (!_ownsCaptureGeneration(generation)) return;
+      if (!_ownsCaptureDocument(document)) return;
 
       final serverUrl = widget.config.serverConfig.url;
       DebugLogger.auth(
@@ -780,13 +875,13 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         proxyCookieLookupUrl(serverUrl),
       );
 
-      if (!_ownsCaptureGeneration(generation)) return;
-      if (!await _isControllerOnTargetOrigin()) {
-        if (!_ownsCaptureGeneration(generation)) return;
+      if (!_ownsCaptureDocument(document)) return;
+      if (!await _isControllerOnDocument(document)) {
+        if (!_ownsCaptureDocument(document)) return;
         _isOnTargetServer = false;
         return;
       }
-      if (!_ownsCaptureGeneration(generation)) return;
+      if (!_ownsCaptureDocument(document)) return;
 
       DebugLogger.auth(
         'Captured ${cookies.length} proxy cookies',
@@ -803,14 +898,14 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // Check if OpenWebUI has already authenticated via trusted headers
       // This happens when oauth2-proxy sets X-Forwarded-Email and OpenWebUI
       // auto-creates/logs in the user
-      final jwtToken = await _tryCaptureJwtTokenWithRetry();
-      if (!_ownsCaptureGeneration(generation)) return;
-      if (!await _isControllerOnTargetOrigin()) {
-        if (!_ownsCaptureGeneration(generation)) return;
+      final jwtToken = await _tryCaptureJwtTokenWithRetry(document);
+      if (!_ownsCaptureDocument(document)) return;
+      if (!await _isControllerOnDocument(document)) {
+        if (!_ownsCaptureDocument(document)) return;
         _isOnTargetServer = false;
         return;
       }
-      if (!_ownsCaptureGeneration(generation)) return;
+      if (!_ownsCaptureDocument(document)) return;
       final decision = decideProxyAuthCapture(
         activeRequest: request,
         queuedRequest: _captureQueue.queuedRequest,
@@ -831,7 +926,9 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           );
           break;
         case ProxyAuthCaptureDecision.complete:
-          if (!mounted || !_ownsCaptureGeneration(generation)) return;
+          if (!mounted || !_ownsCaptureDocument(document)) return;
+          if (!await _isControllerOnDocument(document)) return;
+          if (!mounted || !_ownsCaptureDocument(document)) return;
 
           _cookiesCaptured = true;
           didComplete = true;
@@ -845,7 +942,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           );
       }
     } catch (e, stackTrace) {
-      if (!_ownsCaptureGeneration(generation)) return;
+      if (!_ownsCaptureDocument(document)) return;
       pendingError = e;
       pendingStackTrace = stackTrace;
       DebugLogger.warning(
@@ -854,7 +951,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         data: {'errorType': e.runtimeType.toString()},
       );
     } finally {
-      if (_ownsCaptureGeneration(generation)) {
+      if (_ownsCaptureDocument(document)) {
         nextRequest = _captureQueue.finish(
           completed: didComplete || _cookiesCaptured,
         );
@@ -863,23 +960,23 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     if (nextRequest != null &&
         !_cookiesCaptured &&
-        _ownsCaptureGeneration(generation)) {
-      await _requestProxyCookieCapture(nextRequest);
+        _ownsCaptureDocument(document)) {
+      await _requestProxyCookieCapture(nextRequest, expectedDocument: document);
     }
 
     if (pendingError != null &&
         pendingStackTrace != null &&
         !_cookiesCaptured &&
-        _ownsCaptureGeneration(generation)) {
+        _ownsCaptureDocument(document)) {
       Error.throwWithStackTrace(pendingError, pendingStackTrace);
     }
   }
 
   Future<ProxyAuthCaptureRequest?> _buildAutomaticCaptureRequest(
-    String url,
-    int generation,
+    ProxyAuthDocumentTicket document,
   ) async {
-    if (!_ownsCaptureDocument(generation, url)) return null;
+    if (!_ownsCaptureDocument(document)) return null;
+    final url = document.url;
     final path = Uri.tryParse(url)?.path ?? '/';
     if (_automaticCaptureRequiresJwt) {
       return ProxyAuthCaptureRequest.automatic(
@@ -890,9 +987,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     final currentPageShouldWait = await _shouldWaitForAutomaticProxyAuthCapture(
       path,
+      document,
     );
     final shouldWaitForJwt = resolveProxyAuthJwtRequirement(
-      ownsDocument: _ownsCaptureDocument(generation, url),
+      ownsDocument: _ownsCaptureDocument(document),
       hasPendingJwtWait: _automaticCaptureRequiresJwt,
       currentPageShouldWait: currentPageShouldWait,
     );
@@ -907,7 +1005,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     );
   }
 
-  Future<bool> _shouldWaitForAutomaticProxyAuthCapture(String path) async {
+  Future<bool> _shouldWaitForAutomaticProxyAuthCapture(
+    String path,
+    ProxyAuthDocumentTicket document,
+  ) async {
     if (path.toLowerCase().contains('/oauth/')) {
       DebugLogger.auth(
         'Automatic proxy auth capture waiting for JWT on OAuth route',
@@ -917,7 +1018,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
 
     for (var attempt = 0; attempt < 3; attempt++) {
-      final hasPasswordField = await _currentPageHasPasswordField();
+      final hasPasswordField = await _currentPageHasPasswordField(document);
+      if (!_ownsCaptureDocument(document)) return false;
       final shouldWait = shouldWaitForAutomaticProxyAuthCapture(
         path: path,
         hasPasswordField: hasPasswordField,
@@ -933,7 +1035,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
       if (attempt < 2) {
         await Future<void>.delayed(const Duration(milliseconds: 250));
-        if (!mounted) return false;
+        if (!_ownsCaptureDocument(document)) return false;
       }
     }
 
@@ -944,10 +1046,12 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     return true;
   }
 
-  Future<bool> _currentPageHasPasswordField() async {
+  Future<bool> _currentPageHasPasswordField(
+    ProxyAuthDocumentTicket document,
+  ) async {
     final controller = _controller;
     if (controller == null || !mounted) return false;
-    if (!await _isControllerOnTargetOrigin()) return false;
+    if (!await _isControllerOnDocument(document)) return false;
 
     try {
       final result = await controller.evaluateJavascript(
@@ -960,7 +1064,11 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted || !await _isControllerOnTargetOrigin()) return false;
+      if (!mounted ||
+          !await _isControllerOnDocument(document) ||
+          !_ownsCaptureDocument(document)) {
+        return false;
+      }
       return result.toString().contains('true');
     } catch (e) {
       DebugLogger.log(
@@ -972,16 +1080,18 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
   }
 
-  Future<String?> _tryCaptureJwtTokenWithRetry() async {
+  Future<String?> _tryCaptureJwtTokenWithRetry(
+    ProxyAuthDocumentTicket document,
+  ) async {
     for (var attempt = 0; attempt < 3; attempt++) {
-      final jwtToken = await _tryCaptureJwtToken();
+      final jwtToken = await _tryCaptureJwtToken(document);
       if (hasCapturedJwtToken(jwtToken)) {
         return jwtToken;
       }
 
       if (attempt < 2) {
         await Future<void>.delayed(const Duration(milliseconds: 250));
-        if (!mounted) return null;
+        if (!_ownsCaptureDocument(document)) return null;
       }
     }
 
@@ -992,10 +1102,10 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   ///
   /// If the proxy uses trusted headers, OpenWebUI will have already
   /// authenticated the user and set a JWT token.
-  Future<String?> _tryCaptureJwtToken() async {
+  Future<String?> _tryCaptureJwtToken(ProxyAuthDocumentTicket document) async {
     final controller = _controller;
     if (controller == null || !mounted) return null;
-    if (!await _isControllerOnTargetOrigin()) return null;
+    if (!await _isControllerOnDocument(document)) return null;
 
     // Strategy 1: Check token cookie
     try {
@@ -1014,7 +1124,11 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted || !await _isControllerOnTargetOrigin()) return null;
+      if (!mounted ||
+          !await _isControllerOnDocument(document) ||
+          !_ownsCaptureDocument(document)) {
+        return null;
+      }
 
       String tokenValue = _cleanJsString(cookieResult.toString());
       if (_isValidJwtFormat(tokenValue)) {
@@ -1033,7 +1147,11 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       );
     }
 
-    if (!mounted || !await _isControllerOnTargetOrigin()) return null;
+    if (!mounted ||
+        !await _isControllerOnDocument(document) ||
+        !_ownsCaptureDocument(document)) {
+      return null;
+    }
 
     // Strategy 2: Check localStorage
     try {
@@ -1041,7 +1159,11 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         source: 'localStorage.getItem("token")',
       );
 
-      if (!mounted || !await _isControllerOnTargetOrigin()) return null;
+      if (!mounted ||
+          !await _isControllerOnDocument(document) ||
+          !_ownsCaptureDocument(document)) {
+        return null;
+      }
 
       String tokenValue = _cleanJsString(result.toString());
       if (_isValidJwtFormat(tokenValue)) {
@@ -1068,20 +1190,21 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     return null;
   }
 
-  Future<bool> _isControllerOnTargetOrigin() async {
+  Future<bool> _isControllerOnDocument(ProxyAuthDocumentTicket document) async {
     final controller = _controller;
-    if (controller == null || !mounted) return false;
+    if (controller == null || !_ownsCaptureDocument(document)) return false;
 
     try {
       final currentUrl = await controller.getUrl();
       return currentUrl != null &&
+          _documentFence.ownsLiveDocument(document, currentUrl.toString()) &&
           isTrustedProxyCredentialCaptureUrl(
             pageUrl: currentUrl.toString(),
             serverUrl: widget.config.serverConfig.url,
           );
     } catch (error) {
       DebugLogger.log(
-        'Unable to verify proxy WebView origin before credential capture',
+        'Unable to verify proxy WebView document before credential capture',
         scope: 'auth/proxy',
         data: {'errorType': error.runtimeType.toString()},
       );
@@ -1257,6 +1380,12 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           },
           onLoadStart: (controller, url) {
             _onPageStarted(url?.toString() ?? '');
+          },
+          onUpdateVisitedHistory: (controller, url, _) {
+            _onNavigationUrlChanged(url?.toString() ?? '');
+          },
+          onPageCommitVisible: (controller, url) {
+            _onPageCommitted(url?.toString() ?? '');
           },
           onLoadStop: (controller, url) async {
             final urlText = url?.toString();

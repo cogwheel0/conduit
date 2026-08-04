@@ -40,13 +40,44 @@ void main() {
       ).isFalse();
     });
 
+    test('invalidated fence rejects a matching delayed completion', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      fence.invalidate();
+
+      final committed = fence.commitDocument(
+        document: document,
+        callbackUrl: 'https://chat.example/auth',
+        currentUrl: 'https://chat.example/auth',
+      );
+
+      check(committed).isFalse();
+      check(
+        fence.ownsDocument(document.generation, 'https://chat.example/auth'),
+      ).isFalse();
+    });
+
     test('commits the final URL of an HTTP redirect without another start', () {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://chat.example/');
+      check(
+        fence.observeNavigationUrl(
+          'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        ),
+      ).isTrue();
+      check(
+        fence.markDocumentCommitted(
+          'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        ),
+      ).isTrue();
       final generation = fence.generation;
+      final document = fence.committedDocument!;
 
       final committed = fence.commitDocument(
-        generation: generation,
+        document: document,
         callbackUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
         currentUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
       );
@@ -64,10 +95,12 @@ void main() {
       final fence = ProxyAuthDocumentFence();
       fence.startNavigation('https://auth.example/login');
       fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
       final currentGeneration = fence.generation;
+      final document = fence.committedDocument!;
 
       final committed = fence.commitDocument(
-        generation: currentGeneration,
+        document: document,
         callbackUrl: 'https://auth.example/login',
         currentUrl: 'https://chat.example/auth',
       );
@@ -75,6 +108,84 @@ void main() {
       check(committed).isFalse();
       check(
         fence.ownsDocument(currentGeneration, 'https://chat.example/auth'),
+      ).isTrue();
+    });
+
+    test('rejects an old document ticket even when the URL is unchanged', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final currentDocument = fence.committedDocument!;
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isFalse();
+      check(
+        fence.commitDocument(
+          document: currentDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isTrue();
+    });
+
+    test('new navigation cannot finish before its document commits', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      fence.startNavigation('https://chat.example/auth');
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
+    test('committed ticket rejects a different same-origin URL', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      check(
+        fence.ownsLiveDocument(document, 'https://chat.example/auth#ready'),
+      ).isTrue();
+      check(
+        fence.ownsLiveDocument(document, 'https://chat.example/chat/new'),
+      ).isFalse();
+    });
+
+    test('same-document history change advances the committed ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      check(
+        fence.observeNavigationUrl('https://chat.example/chat/new'),
+      ).isTrue();
+      final currentDocument = fence.committedDocument!;
+
+      check(fence.ownsCommittedDocument(oldDocument)).isFalse();
+      check(
+        fence.ownsLiveDocument(
+          currentDocument,
+          'https://chat.example/chat/new',
+        ),
       ).isTrue();
     });
   });
