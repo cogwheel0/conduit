@@ -59,6 +59,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Object? _modelPinToggleHandlerOwner;
   Future<void> Function(String value)? _reasoningEffortChangedHandler;
   Object? _reasoningEffortChangedHandlerOwner;
+  Object? _reasoningEffortUpdateOwner;
 
   @visibleForTesting
   bool? debugIsIOSOverride;
@@ -140,12 +141,14 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
     final previousEffortHandler = _reasoningEffortChangedHandler;
     final previousEffortHandlerOwner = _reasoningEffortChangedHandlerOwner;
+    final previousEffortUpdateOwner = _reasoningEffortUpdateOwner;
     final pinToggleHandlerOwner = Object();
     var shouldClearPinToggleHandler = false;
     _modelPinToggleHandler = onTogglePinned;
     _modelPinToggleHandlerOwner = pinToggleHandlerOwner;
     _reasoningEffortChangedHandler = onReasoningEffortChanged;
     _reasoningEffortChangedHandlerOwner = pinToggleHandlerOwner;
+    _reasoningEffortUpdateOwner = null;
     try {
       final result = await _api.presentModelSelector(
         PlatformNativeSheetModelSelectorRequest(
@@ -185,6 +188,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           owner: pinToggleHandlerOwner,
           previousHandler: previousEffortHandler,
           previousOwner: previousEffortHandlerOwner,
+          previousUpdateOwner: previousEffortUpdateOwner,
         );
       }
       _logNativeSheetBridgeError(
@@ -206,6 +210,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           owner: pinToggleHandlerOwner,
           previousHandler: previousEffortHandler,
           previousOwner: previousEffortHandlerOwner,
+          previousUpdateOwner: previousEffortUpdateOwner,
         );
       }
       _logNativeSheetBridgeError(
@@ -227,6 +232,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         )) {
           _reasoningEffortChangedHandler = null;
           _reasoningEffortChangedHandlerOwner = null;
+          _reasoningEffortUpdateOwner = null;
         }
       }
     }
@@ -263,7 +269,10 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     final normalizedPresentationId = presentationId.trim();
     if (!_isIOS || normalizedPresentationId.isEmpty) return;
     final previousHandler = _reasoningEffortChangedHandler;
+    final previousUpdateOwner = _reasoningEffortUpdateOwner;
+    final updateOwner = Object();
     _reasoningEffortChangedHandler = onReasoningEffortChanged;
+    _reasoningEffortUpdateOwner = updateOwner;
     try {
       await _api.updateModelSelectorReasoningEffort(
         normalizedPresentationId,
@@ -272,8 +281,9 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         allowsCustom,
       );
     } catch (error, stackTrace) {
-      if (identical(_reasoningEffortChangedHandler, onReasoningEffortChanged)) {
+      if (identical(_reasoningEffortUpdateOwner, updateOwner)) {
         _reasoningEffortChangedHandler = previousHandler;
+        _reasoningEffortUpdateOwner = previousUpdateOwner;
       }
       _logNativeSheetBridgeError(
         'updateModelSelectorReasoningEffort',
@@ -300,10 +310,12 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     required Object owner,
     required Future<void> Function(String value)? previousHandler,
     required Object? previousOwner,
+    required Object? previousUpdateOwner,
   }) {
     if (!identical(_reasoningEffortChangedHandlerOwner, owner)) return;
     _reasoningEffortChangedHandler = previousHandler;
     _reasoningEffortChangedHandlerOwner = previousOwner;
+    _reasoningEffortUpdateOwner = previousUpdateOwner;
   }
 
   Future<String?> presentOptionsSelector({
