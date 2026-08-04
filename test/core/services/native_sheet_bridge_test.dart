@@ -485,7 +485,8 @@ void main() {
       final presentation = Completer<dynamic>();
       final firstUpdate = Completer<dynamic>();
       final initialChanges = <String>[];
-      final currentChanges = <String>[];
+      final olderChanges = <String>[];
+      final newerChanges = <String>[];
       var updateCalls = 0;
       messenger.setMockDecodedMessageHandler<Object?>(
         _presentModelSelectorChannel,
@@ -506,17 +507,13 @@ void main() {
         onReasoningEffortChanged: (value) async => initialChanges.add(value),
       );
       await Future<void>.delayed(Duration.zero);
-      Future<void> currentHandler(String value) async {
-        currentChanges.add(value);
-      }
-
       final older = NativeSheetBridge.instance
           .updateModelSelectorReasoningEffort(
             presentationId: 'presentation-current',
             value: 'vendor_ultra',
             options: const ['automatic', 'vendor_ultra'],
             allowsCustom: true,
-            onReasoningEffortChanged: currentHandler,
+            onReasoningEffortChanged: (value) async => olderChanges.add(value),
           );
       await Future<void>.delayed(Duration.zero);
       final newer = NativeSheetBridge.instance
@@ -525,7 +522,7 @@ void main() {
             value: 'vendor_ultra',
             options: const ['automatic', 'vendor_ultra'],
             allowsCustom: true,
-            onReasoningEffortChanged: currentHandler,
+            onReasoningEffortChanged: (value) async => newerChanges.add(value),
           );
       await Future<void>.delayed(Duration.zero);
       check(updateCalls).equals(1);
@@ -541,7 +538,8 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       check(initialChanges).isEmpty();
-      check(currentChanges).deepEquals(['vendor_ultra']);
+      check(olderChanges).isEmpty();
+      check(newerChanges).deepEquals(['vendor_ultra']);
       presentation.complete(wrapResponse(result: null));
       await presented;
     });
