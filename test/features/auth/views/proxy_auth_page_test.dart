@@ -628,6 +628,7 @@ void main() {
 
       final requirement = resolveProxyAuthJwtRequirement(
         ownsDocument: fence.ownsGeneration(staleGeneration),
+        isLiveDocument: true,
         hasPendingJwtWait: false,
         currentPageShouldWait: true,
       );
@@ -638,11 +639,23 @@ void main() {
     test('current document can publish a sticky JWT-wait requirement', () {
       final requirement = resolveProxyAuthJwtRequirement(
         ownsDocument: true,
+        isLiveDocument: true,
         hasPendingJwtWait: false,
         currentPageShouldWait: true,
       );
 
       expect(requirement, isTrue);
+    });
+
+    test('URL drift cannot publish a sticky JWT-wait requirement', () {
+      final requirement = resolveProxyAuthJwtRequirement(
+        ownsDocument: true,
+        isLiveDocument: false,
+        hasPendingJwtWait: false,
+        currentPageShouldWait: true,
+      );
+
+      expect(requirement, isNull);
     });
   });
 

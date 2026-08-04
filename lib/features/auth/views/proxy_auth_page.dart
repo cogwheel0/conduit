@@ -143,10 +143,11 @@ bool shouldRequireJwtForAutomaticCapture({
 @visibleForTesting
 bool? resolveProxyAuthJwtRequirement({
   required bool ownsDocument,
+  required bool isLiveDocument,
   required bool hasPendingJwtWait,
   required bool currentPageShouldWait,
 }) {
-  if (!ownsDocument) return null;
+  if (!ownsDocument || !isLiveDocument) return null;
   return shouldRequireJwtForAutomaticCapture(
     hasPendingJwtWait: hasPendingJwtWait,
     currentPageShouldWait: currentPageShouldWait,
@@ -707,7 +708,14 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     );
 
     final committedDocument = _documentFence.committedDocument;
-    if (_isOnTargetServer && committedDocument != null) {
+    if (committedDocument == null) return;
+    if (_isLoading || _error != null) {
+      setState(() {
+        _isLoading = false;
+        _error = null;
+      });
+    }
+    if (_isOnTargetServer) {
       await _checkIfOpenWebUI(committedDocument);
     }
   }
@@ -1117,8 +1125,11 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       path,
       document,
     );
+    final isLiveDocument =
+        await _documentState(document) == _ProxyAuthDocumentState.live;
     final shouldWaitForJwt = resolveProxyAuthJwtRequirement(
       ownsDocument: _ownsCaptureDocument(document),
+      isLiveDocument: isLiveDocument,
       hasPendingJwtWait: _automaticCaptureRequiresJwt,
       currentPageShouldWait: currentPageShouldWait,
     );
