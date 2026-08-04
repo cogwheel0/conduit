@@ -366,6 +366,27 @@ final class ProxyAuthDocumentFence {
   bool ownsDocument(int generation, String url) =>
       ownsGeneration(generation) && _documentKey == _key(url);
 
+  /// Commits the URL reported when the current main-frame navigation finishes.
+  ///
+  /// The callback URL must still match the WebView's current URL so a delayed
+  /// completion from an older navigation cannot take ownership of a newer one.
+  bool commitDocument({
+    required int generation,
+    required String callbackUrl,
+    required String currentUrl,
+  }) {
+    final callbackKey = _key(callbackUrl);
+    if (!ownsGeneration(generation) || callbackKey != _key(currentUrl)) {
+      return false;
+    }
+
+    // WKWebView does not emit another load-start callback for HTTP redirects.
+    // Adopt the final URL only after the finish callback and the live WebView
+    // agree, keeping delayed completions from older navigations fenced out.
+    _documentKey = callbackKey;
+    return true;
+  }
+
   static String _key(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return url;
@@ -513,10 +534,26 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     });
   }
 
-  Future<void> _onPageFinished(String url) async {
+  Future<void> _onPageFinished(
+    InAppWebViewController controller,
+    String url,
+  ) async {
     if (!mounted) return;
     final generation = _documentFence.generation;
-    if (!_ownsCaptureDocument(generation, url)) return;
+    final currentUrl = await controller.getUrl();
+    if (!mounted ||
+        currentUrl == null ||
+        !_documentFence.commitDocument(
+          generation: generation,
+          callbackUrl: url,
+          currentUrl: currentUrl.toString(),
+        )) {
+      DebugLogger.log(
+        'Ignoring stale proxy auth page completion',
+        scope: 'auth/proxy',
+      );
+      return;
+    }
     DebugLogger.auth(
       'Proxy auth page finished: ${webViewOriginForLog(url)}',
       scope: 'auth/proxy',
@@ -1226,7 +1263,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             if (urlText == null || urlText.isEmpty) {
               return;
             }
-            await _onPageFinished(urlText);
+            await _onPageFinished(controller, urlText);
           },
           onReceivedError: (controller, request, error) {
             _onWebResourceError(request, error);

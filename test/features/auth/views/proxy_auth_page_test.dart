@@ -39,6 +39,44 @@ void main() {
         fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
       ).isFalse();
     });
+
+    test('commits the final URL of an HTTP redirect without another start', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      final generation = fence.generation;
+
+      final committed = fence.commitDocument(
+        generation: generation,
+        callbackUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        currentUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+      );
+
+      check(committed).isTrue();
+      check(
+        fence.ownsDocument(
+          generation,
+          'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        ),
+      ).isTrue();
+    });
+
+    test('rejects a delayed completion after a newer navigation starts', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://auth.example/login');
+      fence.startNavigation('https://chat.example/auth');
+      final currentGeneration = fence.generation;
+
+      final committed = fence.commitDocument(
+        generation: currentGeneration,
+        callbackUrl: 'https://auth.example/login',
+        currentUrl: 'https://chat.example/auth',
+      );
+
+      check(committed).isFalse();
+      check(
+        fence.ownsDocument(currentGeneration, 'https://chat.example/auth'),
+      ).isTrue();
+    });
   });
 
   group('refreshProxyAuthWebView', () {
