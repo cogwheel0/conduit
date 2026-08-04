@@ -118,6 +118,28 @@ void main() {
     check(menuItems[1]['isDestructive']).equals(true);
   });
 
+  test('native toolbar action groups support one optical-sized menu', () {
+    final params = encodeConduitNativeToolbarActionGroupParams([
+      ConduitNativeToolbarAction(
+        iosSymbol: 'ellipsis',
+        accessibilityLabel: 'More',
+        symbolSize: kConduitNativeToolbarSymbolExtent,
+        menuItems: [
+          ConduitNativeToolbarMenuItem(
+            label: 'Delete',
+            isDestructive: true,
+            onSelected: () {},
+          ),
+        ],
+      ),
+    ]);
+    final actions = params['actions']! as List<Map<String, Object?>>;
+
+    check(actions).length.equals(1);
+    check(actions.single['iosSymbol']).equals('ellipsis');
+    check(actions.single['symbolSize']).equals(22.0);
+  });
+
   test('composer measurement style matches recording typography', () {
     final recordingStyle = ModernChatInput.debugComposerInputTextStyle(
       isRecording: true,

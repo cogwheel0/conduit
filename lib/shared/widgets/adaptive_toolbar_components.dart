@@ -507,6 +507,16 @@ final Map<IconData, String> _kConduitToolbarSfSymbolByIcon = {
 String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) =>
     iosSymbol ?? _kConduitToolbarSfSymbolByIcon[icon];
 
+/// Resolves SF Symbol point sizes by optical footprint rather than applying a
+/// single numeric size to every toolbar glyph.
+double conduitNativeToolbarSymbolExtentFor(String? iosSymbol) =>
+    switch (iosSymbol) {
+      'line.3.horizontal' ||
+      'chevron.left' => kConduitNativeSidebarSymbolExtent,
+      'eye' || 'eye.slash' => kConduitNativeVisibilitySymbolExtent,
+      _ => kConduitNativeToolbarSymbolExtent,
+    };
+
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Creates an adaptive toolbar icon button.
@@ -516,7 +526,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     this.iosSymbol,
     this.onPressed,
     this.iconColor,
-    this.iosSymbolSize = kConduitNativeToolbarSymbolExtent,
+    this.iosSymbolSize,
   });
 
   /// Icon shown inside the control.
@@ -532,7 +542,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   final Color? iconColor;
 
   /// Native SF Symbol point size on iOS 26+.
-  final double iosSymbolSize;
+  final double? iosSymbolSize;
 
   @override
   Widget build(BuildContext context) {
@@ -543,6 +553,8 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       icon,
       iosSymbol: iosSymbol,
     );
+    final nativeSymbolExtent =
+        iosSymbolSize ?? conduitNativeToolbarSymbolExtentFor(nativeSymbol);
 
     if (conduitUsesOpaqueGlassFallback()) {
       return SizedBox.square(
@@ -566,7 +578,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
               onPressed: onPressed,
               sfSymbol: SFSymbol(
                 nativeSymbol,
-                size: iosSymbolSize,
+                size: nativeSymbolExtent,
                 color: effectiveIconColor,
               ),
               style: AdaptiveButtonStyle.glass,
@@ -665,13 +677,10 @@ Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
   'symbolSize': kConduitNativeGroupedToolbarSymbolExtent,
 };
 
-/// A single native toolbar surface whose adjacent items share Liquid Glass.
-///
-/// This is intentionally used only for the two-action iOS 26 trailing group.
-/// Other action counts and platforms keep their existing Flutter controls.
+/// A native toolbar surface for one action or two adjacent shared actions.
 class ConduitNativeToolbarActionGroup extends StatefulWidget {
   const ConduitNativeToolbarActionGroup({super.key, required this.actions})
-    : assert(actions.length == 2);
+    : assert(actions.length == 1 || actions.length == 2);
 
   final List<ConduitNativeToolbarAction> actions;
 
@@ -690,6 +699,7 @@ class _ConduitNativeToolbarActionGroupState
       action.accessibilityLabel,
       action.enabled,
       action.tintColor?.toARGB32(),
+      action.symbolSize,
       for (final item in action.menuItems) ...[
         item.label,
         item.iosSymbol,
@@ -720,6 +730,7 @@ class _ConduitNativeToolbarActionGroupState
     switch (call.method) {
       case 'actionTapped':
         action.onPressed?.call();
+        return;
       case 'menuItemSelected':
         final itemIndex = arguments['itemIndex'];
         if (itemIndex is int &&
@@ -727,6 +738,7 @@ class _ConduitNativeToolbarActionGroupState
             itemIndex < action.menuItems.length) {
           action.menuItems[itemIndex].onSelected();
         }
+        return;
     }
   }
 
@@ -740,7 +752,9 @@ class _ConduitNativeToolbarActionGroupState
   @override
   Widget build(BuildContext context) {
     final controlExtent = conduitScaledControlExtent(context);
-    final width = (controlExtent * widget.actions.length) + Spacing.sm;
+    final width = widget.actions.length == 1
+        ? controlExtent
+        : (controlExtent * widget.actions.length) + Spacing.sm;
     final size = Size(width, controlExtent);
 
     return _hideNativeToolbarChromeWhileSheetCovered(
@@ -1238,10 +1252,52 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
     }
   }
 
+  List<ConduitNativeToolbarMenuItem>? _nativeMenuItems() {
+    final nativeItems = <ConduitNativeToolbarMenuItem>[];
+    for (final entry in items) {
+      if (entry is! AdaptivePopupMenuItem<T> ||
+          entry.value == null ||
+          entry.subtitle?.isNotEmpty == true ||
+          entry.imageBytes != null ||
+          (entry.icon != null && entry.icon is! String)) {
+        return null;
+      }
+      final value = entry.value as T;
+      nativeItems.add(
+        ConduitNativeToolbarMenuItem(
+          label: entry.label,
+          iosSymbol: entry.icon as String?,
+          isDestructive: entry.isDestructive,
+          enabled: entry.enabled,
+          onSelected: () => onSelected(value),
+        ),
+      );
+    }
+    return nativeItems.isEmpty ? null : nativeItems;
+  }
+
   @override
   Widget build(BuildContext context) {
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
+    final nativeMenuItems = conduitSupportsNativeGlass()
+        ? _nativeMenuItems()
+        : null;
+    if (nativeMenuItems != null) {
+      return ConduitNativeToolbarActionGroup(
+        actions: [
+          ConduitNativeToolbarAction(
+            iosSymbol: iosIcon,
+            accessibilityLabel: MaterialLocalizations.of(
+              context,
+            ).moreButtonTooltip,
+            menuItems: nativeMenuItems,
+            tintColor: tintColor,
+            symbolSize: conduitNativeToolbarSymbolExtentFor(iosIcon),
+          ),
+        ],
+      );
+    }
     if (conduitUsesOpaqueGlassFallback()) {
       return AdaptivePopupMenuButton.widget<T>(
         items: items,

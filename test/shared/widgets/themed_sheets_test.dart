@@ -58,6 +58,16 @@ void main() {
     check(conduitToolbarSfSymbolForIcon(Icons.delete)).isNull();
   });
 
+  test('toolbar symbols use optical sizes across shared app bars', () {
+    check(conduitNativeToolbarSymbolExtentFor('line.3.horizontal')).equals(20);
+    check(conduitNativeToolbarSymbolExtentFor('chevron.left')).equals(20);
+    check(conduitNativeToolbarSymbolExtentFor('eye')).equals(18);
+    check(conduitNativeToolbarSymbolExtentFor('eye.slash')).equals(18);
+    check(conduitNativeToolbarSymbolExtentFor('square.and.pencil')).equals(22);
+    check(conduitNativeToolbarSymbolExtentFor('person.2')).equals(22);
+    check(conduitNativeToolbarSymbolExtentFor(null)).equals(22);
+  });
+
   test('native model-selector labels remain on one line within their cap', () {
     const maxWidth = 198.0;
     final shortWidth = resolveConduitNativeModelSelectorWidth(
