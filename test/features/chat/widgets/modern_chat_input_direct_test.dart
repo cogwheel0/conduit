@@ -31,33 +31,23 @@ void main() {
     ).equals(true);
   });
 
-  test('iOS composer uses the native system edit menu when supported', () {
+  test('iOS composer uses the native system menu whenever supported', () {
     check(
       composerUsesNativeSystemSelectionMenu(
         isIOS: true,
         systemMenuSupported: true,
-        interceptsImagePaste: false,
       ),
     ).isTrue();
     check(
       composerUsesNativeSystemSelectionMenu(
         isIOS: true,
-        systemMenuSupported: true,
-        interceptsImagePaste: true,
-      ),
-    ).isFalse();
-    check(
-      composerUsesNativeSystemSelectionMenu(
-        isIOS: true,
         systemMenuSupported: false,
-        interceptsImagePaste: false,
       ),
     ).isFalse();
     check(
       composerUsesNativeSystemSelectionMenu(
         isIOS: false,
         systemMenuSupported: true,
-        interceptsImagePaste: false,
       ),
     ).isFalse();
   });

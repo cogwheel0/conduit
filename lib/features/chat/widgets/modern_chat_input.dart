@@ -70,17 +70,11 @@ bool composerCursorOpacityAnimates({required bool usesNativePlatformView}) =>
     !usesNativePlatformView;
 
 /// Whether the composer should delegate its edit menu to UIKit.
-///
-/// Image paste must keep the Flutter-rendered menu because its Paste button
-/// invokes [IosNativePasteService] directly. UIKit's system item invokes the
-/// text responder's native `paste:` action instead, bypassing that working
-/// composer path on iOS 26.
 @visibleForTesting
 bool composerUsesNativeSystemSelectionMenu({
   required bool isIOS,
   required bool systemMenuSupported,
-  required bool interceptsImagePaste,
-}) => isIOS && systemMenuSupported && !interceptsImagePaste;
+}) => isIOS && systemMenuSupported;
 
 /// Returns a stable UIKit edit-menu model for the composer.
 ///
@@ -832,14 +826,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     BuildContext context,
     EditableTextState editableTextState,
   ) {
-    final interceptsImagePaste =
-        widget.onPastedAttachments != null && _selectedModelAcceptsImageInput;
     final useSystemMenu = composerUsesNativeSystemSelectionMenu(
       isIOS: !kIsWeb && Platform.isIOS,
       systemMenuSupported: SystemContextMenu.isSupportedByField(
         editableTextState,
       ),
-      interceptsImagePaste: interceptsImagePaste,
     );
     if (useSystemMenu) {
       return SystemContextMenu.editableText(

@@ -1,7 +1,9 @@
 import Darwin
 import Flutter
 import Foundation
+import ImageIO
 import ObjectiveC.runtime
+import OSLog
 import UIKit
 import UniformTypeIdentifiers
 
@@ -145,8 +147,7 @@ final class NativePasteDeliveryStore {
     private let removeItemOverride: ((URL) -> Bool)?
 
     init(
-        rootURL: URL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(stagingDirectoryName, isDirectory: true),
+        rootURL: URL = NativePasteDeliveryStore.defaultRootURL,
         fileManager: FileManager = .default,
         directoryContentsForTesting: ((URL) -> [URL]?)? = nil,
         removeItemForTesting: ((URL) -> Bool)? = nil
@@ -155,6 +156,17 @@ final class NativePasteDeliveryStore {
         self.fileManager = fileManager
         self.directoryContentsOverride = directoryContentsForTesting
         self.removeItemOverride = removeItemForTesting
+    }
+
+    private static var defaultRootURL: URL {
+        let baseURL = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return baseURL.appendingPathComponent(
+            stagingDirectoryName,
+            isDirectory: true
+        )
     }
 
     static func canonicalDeliveryId(_ rawValue: String?) -> String? {
@@ -815,9 +827,144 @@ final class NativePasteStagingCoordinator {
     }
 }
 
+/// Lazy representation loaders for one pasteboard item.
+///
+/// Clipboard providers are not necessarily file-backed, so callers try data
+/// before the file-oriented fallbacks.
+struct NativePasteProviderRepresentations {
+    typealias DataLoader = (
+        _ completion: @escaping (Data?, Error?) -> Void
+    ) -> Void
+    typealias FileLoader = (
+        _ completion: @escaping (URL?, Error?) -> Void
+    ) -> Void
+    typealias InPlaceFileLoader = (
+        _ completion: @escaping (URL?, Bool, Error?) -> Void
+    ) -> Void
+
+    let loadData: DataLoader
+    let loadFile: FileLoader
+    let loadInPlaceFile: InPlaceFileLoader
+
+    init(
+        loadData: @escaping DataLoader,
+        loadFile: @escaping FileLoader,
+        loadInPlaceFile: @escaping InPlaceFileLoader
+    ) {
+        self.loadData = loadData
+        self.loadFile = loadFile
+        self.loadInPlaceFile = loadInPlaceFile
+    }
+
+    init(provider: NSItemProvider, typeIdentifier: String) {
+        loadData = { completion in
+            provider.loadDataRepresentation(
+                forTypeIdentifier: typeIdentifier,
+                completionHandler: completion
+            )
+        }
+        loadFile = { completion in
+            provider.loadFileRepresentation(
+                forTypeIdentifier: typeIdentifier,
+                completionHandler: completion
+            )
+        }
+        loadInPlaceFile = { completion in
+            provider.loadInPlaceFileRepresentation(
+                forTypeIdentifier: typeIdentifier,
+                completionHandler: completion
+            )
+        }
+    }
+}
+
+/// Resolves one image provider into app-owned staging.
+///
+/// Data is the canonical clipboard representation. File and in-place-file
+/// loading remain as compatibility fallbacks for document-backed providers.
+struct NativePasteProviderStager {
+    typealias StagedFile = (url: URL, byteCount: Int64)
+
+    let stageData: (Data) -> StagedFile?
+    let stageFile: (URL) -> StagedFile?
+    let stageInPlaceFile: (URL) -> StagedFile?
+
+    func stage(
+        representations: NativePasteProviderRepresentations,
+        maxBytes: Int64,
+        completion: @escaping (URL?, Int64) -> Void
+    ) {
+        representations.loadData { data, _ in
+            if let data, !data.isEmpty {
+                let byteCount = Int64(data.count)
+                guard byteCount <= maxBytes else {
+                    completion(nil, 0)
+                    return
+                }
+                if let staged = stageData(data) {
+                    completion(staged.url, staged.byteCount)
+                    return
+                }
+            }
+            stageFileRepresentation(
+                representations: representations,
+                completion: completion
+            )
+        }
+    }
+
+    private func stageFileRepresentation(
+        representations: NativePasteProviderRepresentations,
+        completion: @escaping (URL?, Int64) -> Void
+    ) {
+        representations.loadFile { sourceURL, _ in
+            if let sourceURL, let staged = stageFile(sourceURL) {
+                completion(staged.url, staged.byteCount)
+                return
+            }
+            representations.loadInPlaceFile { sourceURL, _, _ in
+                guard let sourceURL,
+                      let staged = stageInPlaceFile(sourceURL) else {
+                    completion(nil, 0)
+                    return
+                }
+                completion(staged.url, staged.byteCount)
+            }
+        }
+    }
+}
+
+struct NativePasteImageDataItem {
+    let data: Data
+    let mimeType: String
+    let fileExtension: String
+}
+
+private enum NativePasteImageSource {
+    case data(NativePasteImageDataItem)
+    case provider(NSItemProvider)
+}
+
+func nativePasteValidatedImageTypeIdentifier(
+    for data: Data,
+    advertisedIdentifier: String
+) -> String? {
+    guard UTType(advertisedIdentifier)?.conforms(to: .image) == true,
+          let source = CGImageSourceCreateWithData(data as CFData, nil),
+          CGImageSourceGetStatus(source) == .statusComplete,
+          let detectedIdentifier = CGImageSourceGetType(source) as String?
+    else { return nil }
+    return detectedIdentifier
+}
+
 /// Exposes native iOS paste events from Flutter's text input view to Dart.
 final class NativePasteBridge: NativePasteHostApi {
     static let shared = NativePasteBridge()
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "app.cogwheel.conduit",
+        category: "native-paste"
+    )
 
     private static let maxImageCount = 4
     private static let maxImageBytes: Int64 = 20 * 1024 * 1024
@@ -993,14 +1140,25 @@ final class NativePasteBridge: NativePasteHostApi {
         let deliveryCompletion = NativePasteDeliveryCompletion(
             completion: completion
         )
-        let providers = UIPasteboard.general.itemProviders.filter { provider in
-            Self.supportedTypes.contains { supportedType in
-                provider.hasItemConformingToTypeIdentifier(
-                    supportedType.type.identifier
-                )
+        let pasteboard = UIPasteboard.general
+        let directItems = Self.directImageDataItems(from: pasteboard)
+        let sources: [NativePasteImageSource]
+        if directItems.isEmpty {
+            sources = pasteboard.itemProviders.compactMap { provider in
+                guard Self.supportedTypes.contains(where: { supportedType in
+                    provider.hasItemConformingToTypeIdentifier(
+                        supportedType.type.identifier
+                    )
+                }) else { return nil }
+                return .provider(provider)
             }
+        } else {
+            sources = directItems.map(NativePasteImageSource.data)
         }
-        guard !providers.isEmpty else {
+        Self.logger.debug(
+            "Paste action found \(directItems.count) direct item(s) and \(sources.count - directItems.count) provider(s)"
+        )
+        guard !sources.isEmpty else {
             deliveryCompletion.resolve(false)
             return
         }
@@ -1017,10 +1175,13 @@ final class NativePasteBridge: NativePasteHostApi {
             }
             let store = deliveryStore
             let operationQueue = storageQueue
-            stageImageProviders(
-                providers,
+            stageImageSources(
+                sources,
                 deliveryId: deliveryId
             ) { [weak self] items, timedOut in
+                Self.logger.debug(
+                    "Paste staging finished with \(items.count) item(s); timedOut=\(timedOut)"
+                )
                 guard !items.isEmpty else {
                     if timedOut {
                         // `.reclaiming` stays durable until the coordinator's
@@ -1058,12 +1219,79 @@ final class NativePasteBridge: NativePasteHostApi {
                         delivery.acknowledgementTimedOut()
                     }
                     flutterApi.onPaste(payload: payload) { result in
-                        delivery.resolveFromDart(
-                            decision: Self.pasteDeliveryDecision(result)
+                        let decision = Self.pasteDeliveryDecision(result)
+                        let outcome: String
+                        switch decision {
+                        case .accepted:
+                            outcome = "accepted"
+                        case .rejected:
+                            outcome = "rejected"
+                        case .indeterminate:
+                            outcome = "indeterminate"
+                        }
+                        Self.logger.debug(
+                            "Dart paste acknowledgement: \(outcome, privacy: .public)"
                         )
+                        delivery.resolveFromDart(decision: decision)
                     }
                 }
             }
+        }
+    }
+
+    private static func directImageDataItems(
+        from pasteboard: UIPasteboard
+    ) -> [NativePasteImageDataItem] {
+        let itemCount = pasteboard.numberOfItems
+        guard itemCount > 0,
+              let advertisedTypes = pasteboard.types(
+                forItemSet: IndexSet(integersIn: 0..<itemCount)
+              ) else { return [] }
+
+        var results: [NativePasteImageDataItem] = []
+        var aggregateBytes: Int64 = 0
+        for (itemIndex, identifiers) in advertisedTypes.enumerated() {
+            if results.count >= maxImageCount { break }
+            var directItem: NativePasteImageDataItem?
+            for advertisedIdentifier in identifiers
+            where UTType(advertisedIdentifier)?.conforms(to: .image) == true {
+                guard let data = pasteboard.data(
+                    forPasteboardType: advertisedIdentifier,
+                    inItemSet: IndexSet(integer: itemIndex)
+                )?.first,
+                !data.isEmpty else { continue }
+
+                let byteCount = Int64(data.count)
+                guard byteCount <= maxImageBytes,
+                      aggregateBytes + byteCount <= maxAggregateBytes,
+                      let supportedType = supportedType(
+                        forImageData: data,
+                        advertisedIdentifier: advertisedIdentifier
+                      ) else { continue }
+                directItem = NativePasteImageDataItem(
+                    data: data,
+                    mimeType: supportedType.mimeType,
+                    fileExtension: supportedType.fileExtension
+                )
+                break
+            }
+            guard let directItem else { continue }
+            results.append(directItem)
+            aggregateBytes += Int64(directItem.data.count)
+        }
+        return results
+    }
+
+    private static func supportedType(
+        forImageData data: Data,
+        advertisedIdentifier: String
+    ) -> (type: UTType, mimeType: String, fileExtension: String)? {
+        guard let detectedIdentifier = nativePasteValidatedImageTypeIdentifier(
+            for: data,
+            advertisedIdentifier: advertisedIdentifier
+        ) else { return nil }
+        return supportedTypes.first {
+            $0.type.identifier == detectedIdentifier
         }
     }
 
@@ -1081,15 +1309,15 @@ final class NativePasteBridge: NativePasteHostApi {
     }
 
     @discardableResult
-    private func stageImageProviders(
-        _ providers: [NSItemProvider],
+    private func stageImageSources(
+        _ sources: [NativePasteImageSource],
         deliveryId: String,
         completion: @escaping ([PlatformNativePasteImageItem], Bool) -> Void
     ) -> NativePasteStagingCoordinator {
         let store = deliveryStore
         let operationQueue = storageQueue
         let coordinator = NativePasteStagingCoordinator(
-            providerCount: providers.count,
+            providerCount: sources.count,
             maxItemCount: Self.maxImageCount,
             maxItemBytes: Self.maxImageBytes,
             maxAggregateBytes: Self.maxAggregateBytes,
@@ -1124,7 +1352,27 @@ final class NativePasteBridge: NativePasteHostApi {
                 didStage(nil, 0)
                 return
             }
-            let provider = providers[index]
+            let source = sources[index]
+            if case .data(let dataItem) = source {
+                guard let staged = writeDataToStaging(
+                    data: dataItem.data,
+                    fileExtension: dataItem.fileExtension,
+                    deliveryId: deliveryId,
+                    maxBytes: maxBytes
+                ) else {
+                    didStage(nil, 0)
+                    return
+                }
+                didStage(PlatformNativePasteImageItem(
+                    mimeType: dataItem.mimeType,
+                    filePath: staged.url.path
+                ), staged.byteCount)
+                return
+            }
+            guard case .provider(let provider) = source else {
+                didStage(nil, 0)
+                return
+            }
             guard let supportedType = Self.supportedTypes.first(where: {
                 provider.hasItemConformingToTypeIdentifier($0.type.identifier)
             }) else {
@@ -1161,34 +1409,26 @@ final class NativePasteBridge: NativePasteHostApi {
         completion: @escaping (URL?, Int64) -> Void
     ) {
         let typeIdentifier = type.identifier
-        provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) {
-            [weak self] sourceURL, _ in
-            guard let self else {
-                completion(nil, 0)
-                return
-            }
-            if let sourceURL {
-                if let result = copyToStaging(
+        let stager = NativePasteProviderStager(
+            stageData: { [weak self] data in
+                self?.writeDataToStaging(
+                    data: data,
+                    fileExtension: fileExtension,
+                    deliveryId: deliveryId,
+                    maxBytes: maxBytes
+                )
+            },
+            stageFile: { [weak self] sourceURL in
+                self?.copyToStaging(
                     sourceURL: sourceURL,
                     fileExtension: fileExtension,
                     deliveryId: deliveryId,
                     maxBytes: maxBytes
-                ) {
-                    completion(result.url, result.byteCount)
-                } else {
-                    completion(nil, 0)
-                }
-                return
-            }
-
-            provider.loadInPlaceFileRepresentation(
-                forTypeIdentifier: typeIdentifier
-            ) { sourceURL, _, _ in
-                guard let sourceURL else {
-                    completion(nil, 0)
-                    return
-                }
-                let result = withCoordinatedNativePasteRead(
+                )
+            },
+            stageInPlaceFile: { [weak self] sourceURL in
+                guard let self else { return nil }
+                return withCoordinatedNativePasteRead(
                     at: sourceURL,
                     { coordinatedURL in
                         self.copyToStaging(
@@ -1199,12 +1439,42 @@ final class NativePasteBridge: NativePasteHostApi {
                         )
                     }
                 )
-                guard let result else {
-                    completion(nil, 0)
-                    return
-                }
-                completion(result.url, result.byteCount)
             }
+        )
+        stager.stage(
+            representations: NativePasteProviderRepresentations(
+                provider: provider,
+                typeIdentifier: typeIdentifier
+            ),
+            maxBytes: maxBytes,
+            completion: { stagedURL, byteCount in
+                Self.logger.debug(
+                    "Provider staging result: file=\(stagedURL != nil); bytes=\(byteCount)"
+                )
+                completion(stagedURL, byteCount)
+            }
+        )
+    }
+
+    private func writeDataToStaging(
+        data: Data,
+        fileExtension: String,
+        deliveryId: String,
+        maxBytes: Int64
+    ) -> (url: URL, byteCount: Int64)? {
+        let byteCount = Int64(data.count)
+        guard byteCount > 0,
+              byteCount <= maxBytes,
+              let destination = deliveryStore.stagingURL(
+                deliveryId: deliveryId,
+                fileExtension: fileExtension
+              ) else { return nil }
+        do {
+            try data.write(to: destination, options: .withoutOverwriting)
+            return (destination, byteCount)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            return nil
         }
     }
 
