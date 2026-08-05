@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/features/chatgpt/chatgpt_feature.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -20,6 +21,36 @@ void main() {
     expect(decoded?.profileId, 'profile-one');
     expect(decoded?.remoteModelId, 'org/model:版本');
   });
+
+  test(
+    'ChatGPT and user-configured Direct models keep separate identities',
+    () {
+      final registry = DirectModelRegistry();
+      final chatGpt = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: kChatGptAccountProfileId,
+          name: 'ChatGPT Account',
+          adapterKey: kChatGptAccountAdapterKey,
+          baseUrl: kChatGptAccountBaseUrl,
+        ),
+        [DirectRemoteModel(id: 'gpt-account-model')],
+      ).single;
+      final direct = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'custom-api',
+          name: 'Custom API',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: 'https://api.example/v1',
+        ),
+        [DirectRemoteModel(id: 'custom-model')],
+      ).single;
+
+      expect(isChatGptAccountModel(chatGpt), isTrue);
+      expect(isUserConfiguredDirectModel(chatGpt), isFalse);
+      expect(isChatGptAccountModel(direct), isFalse);
+      expect(isUserConfiguredDirectModel(direct), isTrue);
+    },
+  );
 
   test('remote models compare structurally, including capabilities', () {
     final first = DirectRemoteModel(

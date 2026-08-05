@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -11,6 +12,7 @@ const _authTokenKey = 'auth_token_v2';
 const _serverConfigsKey = 'server_configs_v2';
 const _hermesApiKey = 'hermes_api_key_v1';
 const _hermesSessionKey = 'hermes_session_key_v1';
+const _chatGptSnapshotKey = 'chatgpt_account_auth_snapshot_v1';
 
 void main() {
   late _FakeSecureStorage fake;
@@ -319,6 +321,46 @@ void main() {
     });
   });
 
+  group('ChatGPT account snapshot', () {
+    test('round-trips and deletes opaque snapshot bytes', () async {
+      await storage.saveChatGptAccountSnapshot(<int>[1, 2, 3]);
+
+      expect(await storage.getChatGptAccountSnapshot(), <int>[1, 2, 3]);
+
+      await storage.deleteChatGptAccountSnapshot();
+      expect(await storage.getChatGptAccountSnapshot(), isNull);
+    });
+
+    test('clearAll cannot be followed by a racing snapshot save', () async {
+      fake.chatGptWriteStarted = Completer<void>();
+      fake.chatGptWriteRelease = Completer<void>();
+      final save = storage.saveChatGptAccountSnapshot(<int>[4, 5, 6]);
+      await fake.chatGptWriteStarted!.future;
+
+      final clear = storage.clearAll();
+      fake.chatGptWriteRelease!.complete();
+
+      await save;
+      await clear;
+      expect(fake.store.containsKey(_chatGptSnapshotKey), isFalse);
+    });
+
+    test('clearAll rejects snapshot writes until deletion completes', () async {
+      fake.deleteAllStarted = Completer<void>();
+      fake.deleteAllRelease = Completer<void>();
+      final clear = storage.clearAll();
+      await fake.deleteAllStarted!.future;
+
+      await expectLater(
+        storage.saveChatGptAccountSnapshot(<int>[7, 8, 9]),
+        throwsStateError,
+      );
+      fake.deleteAllRelease!.complete();
+      await clear;
+      expect(fake.store.containsKey(_chatGptSnapshotKey), isFalse);
+    });
+  });
+
   group('clearAll', () {
     test(
       'clearAll removes stored data and propagates deleteAll errors',
@@ -366,6 +408,10 @@ class _FakeSecureStorage implements FlutterSecureStorage {
   final Set<String> failWritesFor = {};
   final Set<String> failDeletesFor = {};
   bool failDeleteAll = false;
+  Completer<void>? chatGptWriteStarted;
+  Completer<void>? chatGptWriteRelease;
+  Completer<void>? deleteAllStarted;
+  Completer<void>? deleteAllRelease;
 
   @override
   Future<String?> read({
@@ -405,6 +451,12 @@ class _FakeSecureStorage implements FlutterSecureStorage {
     if (failWritesFor.contains(key)) {
       throw StateError('write failed for $key');
     }
+    if (key == _chatGptSnapshotKey) {
+      if (chatGptWriteStarted?.isCompleted == false) {
+        chatGptWriteStarted!.complete();
+      }
+      await chatGptWriteRelease?.future;
+    }
 
     if (value == null) {
       store.remove(key);
@@ -440,6 +492,10 @@ class _FakeSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     operations.add('deleteAll');
+    if (deleteAllStarted?.isCompleted == false) {
+      deleteAllStarted!.complete();
+    }
+    await deleteAllRelease?.future;
     if (failDeleteAll) {
       throw StateError('deleteAll failed');
     }

@@ -35,12 +35,15 @@ Future<bool> completeOpenWebUiAuthentication({
 }
 
 /// Persists Open WebUI as primary unless it was added as an optional sync
-/// target for an existing direct-primary install.
+/// target for an existing local-chat-primary install.
 Future<void> persistOpenWebUiBackendPreference({
   required PreferredBackend current,
   required Future<void> Function(PreferredBackend backend) persist,
 }) async {
-  if (current == PreferredBackend.direct) return;
+  if (current == PreferredBackend.direct ||
+      current == PreferredBackend.chatgpt) {
+    return;
+  }
   await persist(PreferredBackend.owui);
 }
 

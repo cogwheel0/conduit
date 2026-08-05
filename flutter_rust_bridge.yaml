@@ -1,0 +1,5 @@
+# flutter_rust_bridge 2.12.0
+# upstream commit: 62b9330ed2f900535e34d8443ff82dc54070579a
+rust_input: crate::api
+rust_root: native/chatgpt_runtime/
+dart_output: lib/features/chatgpt/native_generated

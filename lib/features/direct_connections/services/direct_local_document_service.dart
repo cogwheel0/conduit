@@ -6,6 +6,22 @@ import '../../../core/services/local_document_extraction_service.dart';
 
 const String kDirectLocalDocumentAttachmentPrefix = 'direct-local:';
 const String kDirectOpenRouterPdfAttachmentPrefix = 'direct-openrouter-pdf:';
+const String kDirectChatGptAudioAttachmentPrefix = 'direct-chatgpt-audio:';
+const int kDirectMaxAudioBytes = 20 * 1024 * 1024;
+const int kDirectMaxAudioAttachments = 4;
+const int kDirectMaxAggregateAudioBytes = 40 * 1024 * 1024;
+const List<String> kDirectChatGptAudioPickerExtensions = <String>[
+  'aac',
+  'flac',
+  'm4a',
+  'mp3',
+  'mp4',
+  'mpeg',
+  'mpga',
+  'ogg',
+  'wav',
+  'webm',
+];
 const int kDirectMaxLocalDocuments = kLocalDocumentDefaultMaxFiles;
 const int kDirectMaxLocalDocumentBytes = kLocalDocumentDefaultMaxSourceBytes;
 const int kDirectMaxLocalDocumentCharacters =
@@ -18,6 +34,21 @@ bool isDirectLocalDocumentFileNameSupported(String name) =>
 
 bool isDirectOpenRouterPdfFileNameSupported(String name) =>
     name.trim().toLowerCase().endsWith('.pdf');
+
+String? directAudioMimeTypeForFileName(String name) {
+  final extension = name.trim().toLowerCase().split('.').last;
+  return switch (extension) {
+    'aac' => 'audio/aac',
+    'flac' => 'audio/flac',
+    'm4a' || 'mp4' => 'audio/mp4',
+    'mp3' || 'mpga' => 'audio/mpeg',
+    'mpeg' => 'audio/mpeg',
+    'ogg' => 'audio/ogg',
+    'wav' => 'audio/wav',
+    'webm' => 'audio/webm',
+    _ => null,
+  };
+}
 
 typedef DirectLocalDocumentLimits = LocalDocumentExtractionLimits;
 typedef DirectLocalDocumentSource = LocalDocumentSource;

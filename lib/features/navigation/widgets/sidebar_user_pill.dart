@@ -26,6 +26,8 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../chatgpt/chatgpt_feature.dart';
+import '../../chatgpt/chatgpt_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
@@ -184,9 +186,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       sidebarNativeProfilePresenterProvider,
     );
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final directPrimary =
-        ref.watch(preferredBackendProvider) == PreferredBackend.direct;
-    if (user == null && !hermesOnly && !directPrimary) {
+    final preferredBackend = ref.watch(preferredBackendProvider);
+    final directPrimary = preferredBackend == PreferredBackend.direct;
+    final chatGptPrimary = preferredBackend == PreferredBackend.chatgpt;
+    final chatGptIdentity = chatGptPrimary
+        ? ref.watch(chatGptConnectionProvider).value?.auth?.email
+        : null;
+    if (user == null && !hermesOnly && !directPrimary && !chatGptPrimary) {
       return const SizedBox.shrink();
     }
 
@@ -196,11 +202,15 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final directTitle = l10n.directConnectionsTitle;
     final displayName = hermesOnly
         ? 'Hermes Agent'
+        : chatGptPrimary && user == null
+        ? (chatGptIdentity ?? l10n.chatGptAccountTitle)
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
     final initial = hermesOnly
         ? 'HA'
+        : chatGptPrimary && user == null
+        ? 'CG'
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
         : displayName.isEmpty
@@ -283,6 +293,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     // account-specific sections (profile, memory, data connection, password,
     // sign-out) and instead surface a "Connect to Open WebUI" switch entry.
     final hermesOnly = ref.read(hermesOnlyModeProvider);
+    final chatGptPrimary =
+        ref.read(preferredBackendProvider) == PreferredBackend.chatgpt;
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
     final avatarBytes = _decodeDataImage(avatarUrl);
     final email = _extractEmail(user) ?? l10n.noEmailLabel;
@@ -316,10 +328,15 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             )
           : user == null
           ? NativeProfileSheetUser(
-              displayName: l10n.directConnectionsTitle,
-              email: l10n.directConnectionsSubtitle,
-              initials: l10n.directConnectionsTitle.characters.first
-                  .toUpperCase(),
+              displayName: chatGptPrimary
+                  ? l10n.chatGptAccountTitle
+                  : l10n.directConnectionsTitle,
+              email: chatGptPrimary
+                  ? l10n.chatGptAccountSubtitle
+                  : l10n.directConnectionsSubtitle,
+              initials: chatGptPrimary
+                  ? 'CG'
+                  : l10n.directConnectionsTitle.characters.first.toUpperCase(),
             )
           : NativeProfileSheetUser(
               displayName: displayName,
@@ -414,6 +431,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           actionId: NativeSheetRoutes.hermes,
           actionValue: true,
         ),
+        if (kChatGptAccountEnabled)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.chatGptAccount,
+            title: l10n.chatGptAccountTitle,
+            subtitle: l10n.chatGptAccountSubtitle,
+            sfSymbol: 'bubble.left.and.text.bubble.right',
+            dismissOnSelect: true,
+            actionId: NativeSheetRoutes.chatGptAccount,
+            actionValue: true,
+          ),
         buildDirectConnectionsNativeSheetItem(
           title: l10n.directConnectionsTitle,
           subtitle: l10n.directConnectionsSubtitle,

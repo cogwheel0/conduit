@@ -1046,9 +1046,13 @@ class MediaUploadController {
             filePath: filePath,
             fileName: fileName,
             isImage: isImage,
-            selectedModelSupportsImages: currentModel.isMultimodal == true,
+            selectedModelSupportsImages: directModelSupportsVision(
+              currentModel,
+            ),
             selectedModelSupportsOpenRouterPdf:
                 currentModel.capabilities?['pdf_input'] == true,
+            selectedModelSupportsAudio:
+                currentModel.capabilities?['audio_input'] == true,
             inflight: inflight,
           );
           _throwIfOperationNotActive(filePath, inflight);
@@ -1534,9 +1538,59 @@ class MediaUploadController {
     required bool isImage,
     required bool selectedModelSupportsImages,
     required bool selectedModelSupportsOpenRouterPdf,
+    required bool selectedModelSupportsAudio,
     required _InflightUpload inflight,
   }) async {
     if (!isImage) {
+      final audioMimeType = directAudioMimeTypeForFileName(fileName);
+      if (audioMimeType != null) {
+        if (!selectedModelSupportsAudio) {
+          throw const DirectChatInputException(
+            'This direct model does not support audio attachments.',
+          );
+        }
+        final file = File(filePath);
+        final stat = await file.stat();
+        _throwIfOperationNotActive(filePath, inflight);
+        if (stat.size <= 0 || stat.size > kDirectMaxAudioBytes) {
+          throw const DirectChatInputException(
+            'Audio attachments must be 20 MB or less.',
+          );
+        }
+        final attachments = _ref.read(attachedFilesProvider);
+        final audioBytesByPath = <String, int>{
+          for (final attachment in attachments)
+            if (attachment.isImage != true &&
+                attachment.status != FileUploadStatus.failed &&
+                directAudioMimeTypeForFileName(attachment.fileName) != null)
+              attachment.file.path: attachment.fileSize,
+          filePath: stat.size,
+        };
+        if (audioBytesByPath.length > kDirectMaxAudioAttachments) {
+          throw const DirectChatInputException(
+            'Direct chats support up to 4 audio attachments per message.',
+          );
+        }
+        final aggregateAudioBytes = audioBytesByPath.values.fold<int>(
+          0,
+          (total, bytes) => total + bytes,
+        );
+        if (aggregateAudioBytes > kDirectMaxAggregateAudioBytes) {
+          throw const DirectChatInputException(
+            'Audio attachments must be 40 MB or less in total.',
+          );
+        }
+        final opaqueId = _localDocumentOpaqueId(file, stat);
+        _updatePreparedDirectState(
+          filePath: filePath,
+          fileName: fileName,
+          fileSize: stat.size,
+          fileId: '$kDirectChatGptAudioAttachmentPrefix$opaqueId',
+          isImage: false,
+          inflight: inflight,
+        );
+        return;
+      }
       final isOpenRouterPdf =
           selectedModelSupportsOpenRouterPdf &&
           isDirectOpenRouterPdfFileNameSupported(fileName);

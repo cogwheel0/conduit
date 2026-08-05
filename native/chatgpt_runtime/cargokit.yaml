@@ -1,0 +1,7 @@
+cargo:
+  debug:
+    toolchain: 1.95.0
+  profile:
+    toolchain: 1.95.0
+  release:
+    toolchain: 1.95.0

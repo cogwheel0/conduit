@@ -1,0 +1,62 @@
+[package]
+name = "conduit_chatgpt_runtime"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[features]
+# This feature names the mobile capability/API boundary. The runtime talks to
+# the first-party ChatGPT endpoints through Codex's lower-level clients; it
+# does not embed the app-server or expose coding/workspace capabilities.
+default = ["mobile-chat"]
+mobile-chat = []
+
+[dependencies]
+flutter_rust_bridge = "=2.12.0"
+base64 = "0.22"
+codex-api = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
+codex-login = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
+codex-protocol = { git = "https://github.com/openai/codex", rev = "25af12f7e61572b0bc18ddb1008be543b91519b0" }
+futures = "0.3"
+http = "1"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+# The pinned Codex graph still enables reqwest's native-tls default through
+# sentry/oauth2. Mobile targets cannot discover a host OpenSSL installation
+# while cross-compiling, so build that transitive TLS backend from source until
+# upstream Codex offers dependency-level mobile feature gates.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+openssl-sys = { version = "0.9.117", features = ["vendored"] }
+
+[profile.release]
+lto = true
+opt-level = "z"
+codegen-units = 1
+strip = "symbols"
+
+# The pinned Codex workspace relies on these exact compatibility forks. Git
+# dependencies do not inherit the upstream workspace's root patch section.
+[patch.crates-io]
+pagable = { path = "../mobile_compat/pagable" }
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

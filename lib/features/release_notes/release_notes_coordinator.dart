@@ -160,6 +160,11 @@ class _ReleaseNotesCoordinatorState
       PreferredBackend.direct =>
         PreferencesStore.getBool(PreferenceKeys.directConnectionsConfigured) ==
             true,
+      PreferredBackend.chatgpt =>
+        PreferencesStore.getString(
+              PreferenceKeys.chatGptAccountFingerprint,
+            )?.isNotEmpty ==
+            true,
       PreferredBackend.hermes =>
         PreferencesStore.getBool(PreferenceKeys.hermesEnabled) == true,
       PreferredBackend.unset || PreferredBackend.owui => false,

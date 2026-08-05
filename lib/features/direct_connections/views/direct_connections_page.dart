@@ -18,6 +18,7 @@ import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
+import '../../chatgpt/chatgpt_feature.dart';
 
 const String openWebUiDirectConnectionSourceQueryValue = 'openwebui';
 
@@ -104,7 +105,6 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       effectiveDirectConnectionProfilesProvider,
     );
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
-
     return profiles.when(
       loading: () => _buildDirectConnectionsScaffold(
         context,
@@ -154,7 +154,10 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         onEditOpenWebUi: (id) => _openEditor(context, id, isOpenWebUi: true),
         onRetryOpenWebUi: () => unawaited(_refreshOpenWebUiConnections()),
         onFinishOnboarding:
-            (effectiveProfiles.value?.any((profile) => profile.isUsable) ??
+            (effectiveProfiles.value?.any(
+                  (profile) =>
+                      !isChatGptAccountProfile(profile) && profile.isUsable,
+                ) ??
                 false)
             ? () async {
                 await ref
@@ -277,7 +280,9 @@ class DirectConnectionsContent extends StatelessWidget {
       _DirectConnectionSection(
         title: l10n.deviceDirectConnectionsSectionTitle,
         description: l10n.deviceDirectConnectionsSectionDescription,
-        profiles: profiles,
+        profiles: profiles
+            .where((profile) => profile.adapterKey != kChatGptAccountAdapterKey)
+            .toList(growable: false),
         sourceLabel: l10n.deviceDirectConnectionSourceLabel,
         emptyTitle: l10n.directProfilesEmptyTitle,
         emptySubtitle: l10n.directProfilesEmptySubtitle,

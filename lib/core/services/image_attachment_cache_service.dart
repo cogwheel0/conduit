@@ -465,11 +465,98 @@ bool imageAttachmentUrlIsSvg(String url) {
 
 bool imageAttachmentBytesAreSvg(Uint8List bytes) {
   final checkLength = bytes.length < 1024 ? bytes.length : 1024;
-  final header = utf8.decode(
-    bytes.sublist(0, checkLength),
-    allowMalformed: true,
-  );
-  return header.toLowerCase().contains('<svg');
+  var header = utf8.decode(bytes.sublist(0, checkLength), allowMalformed: true);
+  header = header.trimLeft();
+  if (header.startsWith('\uFEFF')) {
+    header = header.substring(1).trimLeft();
+  }
+  final lowerHeader = header.toLowerCase();
+  var offset = 0;
+  var sawDoctype = false;
+  while (true) {
+    offset = _skipXmlWhitespace(lowerHeader, offset);
+    if (_startsSvgRootElement(lowerHeader, offset)) return true;
+
+    int? nextOffset;
+    if (lowerHeader.startsWith('<!--', offset)) {
+      final end = lowerHeader.indexOf('-->', offset + 4);
+      nextOffset = end < 0 ? null : end + 3;
+    } else if (lowerHeader.startsWith('<?', offset)) {
+      final end = lowerHeader.indexOf('?>', offset + 2);
+      nextOffset = end < 0 ? null : end + 2;
+    } else if (!sawDoctype && lowerHeader.startsWith('<!doctype', offset)) {
+      nextOffset = _xmlDoctypeEnd(lowerHeader, offset + 9);
+      sawDoctype = true;
+    } else {
+      return false;
+    }
+    if (nextOffset == null) return false;
+    offset = nextOffset;
+  }
+}
+
+int _skipXmlWhitespace(String value, int offset) {
+  while (offset < value.length) {
+    final codeUnit = value.codeUnitAt(offset);
+    if (codeUnit != 0x20 &&
+        codeUnit != 0x09 &&
+        codeUnit != 0x0a &&
+        codeUnit != 0x0d) {
+      break;
+    }
+    offset += 1;
+  }
+  return offset;
+}
+
+bool _startsSvgRootElement(String value, int offset) {
+  if (!value.startsWith('<svg', offset) || offset + 4 >= value.length) {
+    return false;
+  }
+  final boundary = value.codeUnitAt(offset + 4);
+  if (boundary == 0x3a) {
+    final localNameOffset = offset + 5;
+    const localName = 'svg';
+    final localNameEnd = localNameOffset + localName.length;
+    if (!value.startsWith(localName, localNameOffset) ||
+        localNameEnd >= value.length) {
+      return false;
+    }
+    return _isSvgRootNameBoundary(value.codeUnitAt(localNameEnd));
+  }
+  return _isSvgRootNameBoundary(boundary);
+}
+
+bool _isSvgRootNameBoundary(int boundary) {
+  return boundary == 0x3e ||
+      boundary == 0x2f ||
+      boundary == 0x20 ||
+      boundary == 0x09 ||
+      boundary == 0x0a ||
+      boundary == 0x0d;
+}
+
+int? _xmlDoctypeEnd(String value, int offset) {
+  if (_skipXmlWhitespace(value, offset) == offset) return null;
+  var bracketDepth = 0;
+  int? quote;
+  for (var index = offset; index < value.length; index += 1) {
+    final codeUnit = value.codeUnitAt(index);
+    if (quote != null) {
+      if (codeUnit == quote) quote = null;
+      continue;
+    }
+    if (codeUnit == 0x22 || codeUnit == 0x27) {
+      quote = codeUnit;
+    } else if (codeUnit == 0x5b) {
+      bracketDepth += 1;
+    } else if (codeUnit == 0x5d && bracketDepth > 0) {
+      bracketDepth -= 1;
+    } else if (codeUnit == 0x3e && bracketDepth == 0) {
+      return index + 1;
+    }
+  }
+  return null;
 }
 
 bool imageAttachmentContentIsRemote(String data) => data.startsWith('http');

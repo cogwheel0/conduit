@@ -1,2 +1,2 @@
-# Prefer published Cargokit artifacts over local Rust builds for iOS/macOS.
-use_precompiled_binaries: true
+# Build the in-repository ChatGPT Rust runtime locally for every target.
+use_precompiled_binaries: false

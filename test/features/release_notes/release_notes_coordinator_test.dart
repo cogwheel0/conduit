@@ -137,7 +137,11 @@ void main() {
     );
   });
 
-  for (final backend in [PreferredBackend.direct, PreferredBackend.hermes]) {
+  for (final backend in [
+    PreferredBackend.direct,
+    PreferredBackend.chatgpt,
+    PreferredBackend.hermes,
+  ]) {
     testWidgets('${backend.name} update shows without Open WebUI auth', (
       tester,
     ) async {
@@ -146,6 +150,8 @@ void main() {
         PreferenceKeys.preferredBackend: backend.name,
         if (backend == PreferredBackend.direct)
           PreferenceKeys.directConnectionsConfigured: true,
+        if (backend == PreferredBackend.chatgpt)
+          PreferenceKeys.chatGptAccountFingerprint: 'account-fingerprint',
         if (backend == PreferredBackend.hermes)
           PreferenceKeys.hermesEnabled: true,
       });

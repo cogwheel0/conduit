@@ -883,7 +883,10 @@ final hermesOnlyModeProvider = Provider<bool>((ref) {
   // With no OpenWebUI server, legacy Hermes-only installs may still have an
   // unset preference. A deliberate Direct primary must never inherit Hermes'
   // sidebar/profile presentation merely because Hermes is also configured.
-  if (preferredBackend == PreferredBackend.direct) return false;
+  if (preferredBackend == PreferredBackend.direct ||
+      preferredBackend == PreferredBackend.chatgpt) {
+    return false;
+  }
   final activeServer = ref.watch(activeServerProvider);
   if (activeServer.hasValue && activeServer.requireValue == null) return true;
   if (preferredBackend != PreferredBackend.hermes) {

@@ -382,6 +382,7 @@ void main() {
 
     expect(find.text('Choose how to connect'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
+    expect(find.text('ChatGPT account'), findsOneWidget);
     expect(find.text('Connect directly'), findsOneWidget);
     expect(find.text('Hermes Agent'), findsOneWidget);
     expect(find.byIcon(CupertinoIcons.link), findsOneWidget);
@@ -425,6 +426,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      await tester.scrollUntilVisible(find.text('Hermes Agent'), 200);
       await tester.tap(find.text('Hermes Agent'));
       await tester.pumpAndSettle();
 
@@ -481,6 +483,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      await tester.scrollUntilVisible(find.text('Connect directly'), 200);
       await tester.tap(find.text('Connect directly'));
       await tester.pumpAndSettle();
 

@@ -1168,6 +1168,9 @@ openai.ChatMessage _chatMessage(DirectChatMessage message) {
         DirectFilePart() => throw const FormatException(
           'File parts require the OpenRouter request shape.',
         ),
+        DirectAudioPart() => throw const FormatException(
+          'Audio parts are unsupported by OpenAI-compatible profiles.',
+        ),
       },
   ]);
 }
@@ -1199,6 +1202,9 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
             'type': 'file',
             'file': {'filename': part.filename, 'file_data': part.dataUrl},
           },
+          DirectAudioPart() => throw const FormatException(
+            'Audio parts are unsupported by OpenAI-compatible profiles.',
+          ),
         },
     ],
     if (message.annotations.isNotEmpty) 'annotations': message.annotations,
@@ -1306,12 +1312,20 @@ openai.MessageItem _responseMessage(DirectChatMessage message) {
           DirectFilePart() => throw const FormatException(
             'Responses API file parts are unsupported.',
           ),
+          DirectAudioPart() => throw const FormatException(
+            'Responses API audio parts are unsupported.',
+          ),
         },
     ],
   );
 }
 
 Iterable<DirectContentPart> _providerInputParts(DirectChatMessage message) {
+  if (message.parts.any((part) => part is DirectAudioPart)) {
+    throw const FormatException(
+      'Audio parts are unsupported by OpenAI-compatible adapters.',
+    );
+  }
   if (message.role == 'user') return message.parts;
   return message.parts.whereType<DirectTextPart>();
 }

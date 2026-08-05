@@ -101,7 +101,13 @@ Future<void> _configureUserAgent() async {
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
-    yield LicenseEntryWithLineBreaks(const ['Open WebUI icon'], notice);
+    yield LicenseEntryWithLineBreaks(const [
+      'Open WebUI icon',
+      'OpenAI Codex',
+      'Flutter Rust Bridge',
+      'Pagable',
+      'Cargokit',
+    ], notice);
   });
 }
 
@@ -438,6 +444,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           NavigationService.router.pushNamed<void>(
             request.routeName,
             extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == NativeSheetRoutes.chatGptAccount) {
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            RouteNames.chatGptAccount,
+            extra: const NativeSheetNavigationOrigin(),
           ),
         );
         return;

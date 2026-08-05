@@ -288,6 +288,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Connections'), findsOneWidget);
+    expect(find.text('ChatGPT account'), findsNothing);
     expect(find.text('Open WebUI history'), findsOneWidget);
     expect(find.text('Home Ollama'), findsOneWidget);
     expect(find.textContaining('http://192.168.1.5:11434'), findsOneWidget);

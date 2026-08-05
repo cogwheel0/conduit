@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:synchronized/synchronized.dart';
 import '../utils/debug_logger.dart';
 
 /// Secure credential storage with platform-specific options.
@@ -28,8 +29,85 @@ class SecureCredentialStorage {
       'direct_connection_profiles_v1';
   static const String _openWebUiDirectIdentityKey =
       'openwebui_direct_identity_key_v1';
+  static const String _chatGptAccountSnapshotKey =
+      'chatgpt_account_auth_snapshot_v1';
+  static final Lock _chatGptSnapshotLock = Lock();
+  static bool _chatGptSnapshotWritesBlocked = false;
   static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
   static bool _openWebUiDirectIdentityWritesBlocked = false;
+
+  /// Stores the opaque ChatGPT account snapshot produced by the native
+  /// runtime. The bytes are never interpreted by Dart or copied to prefs.
+  Future<void> saveChatGptAccountSnapshot(List<int> snapshot) {
+    if (snapshot.isEmpty) {
+      return Future<void>.error(
+        ArgumentError.value(snapshot.length, 'snapshot'),
+      );
+    }
+    return _withChatGptSnapshotAccess(() async {
+      final encoded = base64UrlEncode(snapshot);
+      await _secureStorage.write(
+        key: _chatGptAccountSnapshotKey,
+        value: encoded,
+      );
+      final verified = await _secureStorage.read(
+        key: _chatGptAccountSnapshotKey,
+      );
+      if (verified != encoded) {
+        throw StateError(
+          'ChatGPT credential persistence could not be verified.',
+        );
+      }
+    });
+  }
+
+  /// Reads the native runtime snapshot without logging or decoding its fields.
+  Future<List<int>?> getChatGptAccountSnapshot() {
+    return _withChatGptSnapshotAccess(() async {
+      final encoded = await _secureStorage.read(
+        key: _chatGptAccountSnapshotKey,
+      );
+      if (encoded == null) return null;
+      if (encoded.isEmpty) {
+        throw StateError('Stored ChatGPT credentials are corrupt.');
+      }
+      try {
+        return List<int>.unmodifiable(base64Url.decode(encoded));
+      } on FormatException {
+        throw StateError('Stored ChatGPT credentials are corrupt.');
+      }
+    });
+  }
+
+  Future<void> deleteChatGptAccountSnapshot() {
+    return _withChatGptSnapshotAccess(() async {
+      await _secureStorage.delete(key: _chatGptAccountSnapshotKey);
+      final verified = await _secureStorage.read(
+        key: _chatGptAccountSnapshotKey,
+      );
+      if (verified != null) {
+        throw StateError('ChatGPT credential removal could not be verified.');
+      }
+    });
+  }
+
+  Future<T> _withChatGptSnapshotAccess<T>(Future<T> Function() operation) {
+    if (_chatGptSnapshotWritesBlocked) {
+      return Future<T>.error(
+        StateError(
+          'ChatGPT credential changes are unavailable while signing out.',
+        ),
+      );
+    }
+    return _chatGptSnapshotLock.synchronized(() {
+      if (_chatGptSnapshotWritesBlocked) {
+        throw StateError(
+          'ChatGPT credential changes are unavailable while signing out.',
+        );
+      }
+      return operation();
+    });
+  }
 
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
@@ -416,7 +494,9 @@ class SecureCredentialStorage {
   Future<List<int>> getOrCreateOpenWebUiDirectIdentityKey() {
     if (_openWebUiDirectIdentityWritesBlocked) {
       return Future<List<int>>.error(
-        StateError('Direct identity changes are unavailable while signing out.'),
+        StateError(
+          'Direct identity changes are unavailable while signing out.',
+        ),
       );
     }
     final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
@@ -434,7 +514,9 @@ class SecureCredentialStorage {
   Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed() {
     if (_openWebUiDirectIdentityWritesBlocked) {
       return Future<List<int>>.error(
-        StateError('Direct identity changes are unavailable while signing out.'),
+        StateError(
+          'Direct identity changes are unavailable while signing out.',
+        ),
       );
     }
     return _loadOrCreateOpenWebUiDirectIdentityKey();
@@ -442,11 +524,16 @@ class SecureCredentialStorage {
 
   static Future<void> blockDirectIdentityWritesForAppDataClear() async {
     _openWebUiDirectIdentityWritesBlocked = true;
-    await _openWebUiDirectIdentityKeyQueue;
+    _chatGptSnapshotWritesBlocked = true;
+    await Future.wait<void>([
+      _openWebUiDirectIdentityKeyQueue,
+      _chatGptSnapshotLock.synchronized(() {}),
+    ]);
   }
 
   static void resumeDirectIdentityWritesAfterAppDataClear() {
     _openWebUiDirectIdentityWritesBlocked = false;
+    _chatGptSnapshotWritesBlocked = false;
   }
 
   Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKey() async {
@@ -543,8 +630,10 @@ class SecureCredentialStorage {
   /// Clear all secure data including credentials, tokens, and server configurations
   /// (which contain custom headers)
   Future<void> clearAll() async {
+    final snapshotWritesWereBlocked = _chatGptSnapshotWritesBlocked;
+    _chatGptSnapshotWritesBlocked = true;
     try {
-      await _secureStorage.deleteAll();
+      await _chatGptSnapshotLock.synchronized(_secureStorage.deleteAll);
       DebugLogger.storage(
         'clear-ok (all secure data including server configs with custom headers)',
         scope: 'credentials',
@@ -552,6 +641,10 @@ class SecureCredentialStorage {
     } catch (e) {
       DebugLogger.error('clear-failed', scope: 'credentials', error: e);
       rethrow;
+    } finally {
+      if (!snapshotWritesWereBlocked) {
+        _chatGptSnapshotWritesBlocked = false;
+      }
     }
   }
 

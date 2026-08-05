@@ -175,6 +175,7 @@ class Routes {
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
   static const String dataConnectionSettings = '/profile/data-connection';
+  static const String chatGptAccount = '/profile/chatgpt';
   static const String directConnections = '/profile/direct-connections';
   static const String directConnectionEditor =
       '/profile/direct-connections/:id';
@@ -211,6 +212,7 @@ class RouteNames {
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';
   static const String dataConnectionSettings = 'data-connection-settings';
+  static const String chatGptAccount = 'chatgpt-account';
   static const String directConnections = 'direct-connections';
   static const String directConnectionEditor = 'direct-connection-editor';
   static const String hermesSettings = 'hermes-settings';

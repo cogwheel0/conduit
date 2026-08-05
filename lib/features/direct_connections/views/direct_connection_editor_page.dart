@@ -18,6 +18,7 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
+import '../../chatgpt/chatgpt_feature.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
@@ -744,7 +745,10 @@ class _DirectConnectionEditorPageState
         return;
       }
       final hasAnotherUsable = currentProfiles.any(
-        (profile) => profile.id != saved.id && profile.isUsable,
+        (profile) =>
+            profile.id != saved.id &&
+            !isChatGptAccountProfile(profile) &&
+            profile.isUsable,
       );
       final preferredBackendController = ref.read(
         preferredBackendProvider.notifier,

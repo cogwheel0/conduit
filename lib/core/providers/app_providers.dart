@@ -46,6 +46,7 @@ import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/services/hermes_session_provenance.dart';
+import '../../features/chatgpt/chatgpt_feature.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
@@ -1722,6 +1723,7 @@ List<Model> appendHermesModelIfUsable(
 
 String _modelBackendForDiagnostics(Model? model) {
   if (model == null) return 'none';
+  if (isChatGptAccountModel(model)) return 'chatgpt';
   if (isLocallyMintedDirectModel(model)) return 'direct';
   if (isHermesModel(model)) return 'hermes';
   return 'openwebui';
@@ -2345,7 +2347,9 @@ class SelectedModel extends _$SelectedModel {
     });
     ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
       _accountlessBackendReconciliationPending =
-          next == PreferredBackend.direct || next == PreferredBackend.hermes;
+          next == PreferredBackend.chatgpt ||
+          next == PreferredBackend.direct ||
+          next == PreferredBackend.hermes;
       _schedulePrimaryAccountlessRestore();
     });
     ref.listen<bool>(
@@ -2391,6 +2395,7 @@ class SelectedModel extends _$SelectedModel {
     // accountless transport that the router has already admitted to chat.
     final preferredBackend = ref.read(preferredBackendProvider);
     if (preferredBackend != PreferredBackend.hermes &&
+        preferredBackend != PreferredBackend.chatgpt &&
         preferredBackend != PreferredBackend.direct) {
       return (shouldReconcile: false, model: null);
     }
@@ -2459,7 +2464,11 @@ class SelectedModel extends _$SelectedModel {
           ref.read(reviewerModeProvider) ||
           switch (preferredBackend) {
             PreferredBackend.direct =>
-              isLocallyMintedDirectModel(current) &&
+              isUserConfiguredDirectModel(current) &&
+                  ref.read(directModelRegistryProvider).resolve(current) !=
+                      null,
+            PreferredBackend.chatgpt =>
+              isChatGptAccountModel(current) &&
                   ref.read(directModelRegistryProvider).resolve(current) !=
                       null,
             PreferredBackend.hermes =>
@@ -4540,7 +4549,8 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
                 ? currentSelected
                 : hermesSyntheticModel())
           : null;
-    } else if (preferredBackend == PreferredBackend.direct) {
+    } else if (preferredBackend == PreferredBackend.direct ||
+        preferredBackend == PreferredBackend.chatgpt) {
       final discovery = await ref.read(directModelDiscoveryProvider.future);
       if (!ref.mounted) return null;
       final reviewerRedirect = reviewerRedirectAfterAwait();
@@ -4765,7 +4775,8 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
 
     // Onboarding into a direct backend should not be silently replaced by an
     // Open WebUI server default merely because both are configured.
-    if (preferredBackend == PreferredBackend.direct) {
+    if (preferredBackend == PreferredBackend.direct ||
+        preferredBackend == PreferredBackend.chatgpt) {
       final availableModels = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
       reviewerRedirect = reviewerRedirectAfterAwait();
@@ -4956,7 +4967,8 @@ Model? _modelForPreferredBackend(
 ) {
   return switch (preferredBackend) {
     PreferredBackend.direct =>
-      models.where(isLocallyMintedDirectModel).firstOrNull,
+      models.where(isUserConfiguredDirectModel).firstOrNull,
+    PreferredBackend.chatgpt => models.where(isChatGptAccountModel).firstOrNull,
     PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
     PreferredBackend.owui || PreferredBackend.unset => null,
   };
@@ -4992,13 +5004,16 @@ Model? _accountlessSelection({
       switch (preferredBackend) {
         PreferredBackend.owui ||
         PreferredBackend.unset => available.firstOrNull,
-        PreferredBackend.direct || PreferredBackend.hermes => null,
+        PreferredBackend.chatgpt ||
+        PreferredBackend.direct ||
+        PreferredBackend.hermes => null,
       };
 }
 
 bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>
     switch (preferredBackend) {
-      PreferredBackend.direct => isLocallyMintedDirectModel(model),
+      PreferredBackend.direct => isUserConfiguredDirectModel(model),
+      PreferredBackend.chatgpt => isChatGptAccountModel(model),
       PreferredBackend.hermes => isHermesModel(model),
       PreferredBackend.owui || PreferredBackend.unset =>
         isLocallyMintedDirectModel(model) || isHermesModel(model),
@@ -5018,6 +5033,7 @@ bool _shouldUseAccountlessModelSelection({
     AuthStatus.credentialError => true,
     AuthStatus.error || AuthStatus.initial || AuthStatus.loading =>
       preferredBackend == PreferredBackend.direct ||
+          preferredBackend == PreferredBackend.chatgpt ||
           preferredBackend == PreferredBackend.hermes ||
           !hasApiService,
     AuthStatus.authenticated => false,
@@ -6016,8 +6032,12 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
       ? null
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
   if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+    final isTrustedChatGpt =
+        directBinding?.adapterKey == kChatGptAccountAdapterKey &&
+        selectedModel.capabilities?['chatgptAccount'] == true;
     return directBinding?.source == DirectModelSource.device &&
-        selectedModel.capabilities?['openrouter'] == true &&
+        (selectedModel.capabilities?['openrouter'] == true ||
+            isTrustedChatGpt) &&
         selectedModel.capabilities?['image_generation'] == true;
   }
 
@@ -6055,8 +6075,11 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     final isTrustedOpenRouter =
         directBinding?.adapterKey == kOpenAiCompatibleAdapterKey &&
         selectedModel.capabilities?['openrouter'] == true;
+    final isTrustedChatGpt =
+        directBinding?.adapterKey == kChatGptAccountAdapterKey &&
+        selectedModel.capabilities?['chatgptAccount'] == true;
     return directBinding?.source == DirectModelSource.device &&
-        (isTrustedOllamaCloud || isTrustedOpenRouter) &&
+        (isTrustedOllamaCloud || isTrustedOpenRouter || isTrustedChatGpt) &&
         selectedModel.capabilities?['web_search'] == true;
   }
 

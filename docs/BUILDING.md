@@ -13,6 +13,7 @@ instead.
 | Flutter SDK | Recent stable, with Dart `3.9.2` or newer |
 | Android | Java 17, Android SDK (compile/target SDK 36), Android 7.0+ (API 24) at runtime |
 | iOS | Xcode with an iOS 16.0+ deployment target |
+| Rust | `rustup`, with the repository-pinned Rust 1.95.0 toolchain and mobile targets |
 | Backend | An Open WebUI instance, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
 
 ## Clone
@@ -54,6 +55,42 @@ new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
 
+The ChatGPT account transport is a thin in-process Rust static library built
+through Cargokit and Flutter Rust Bridge 2.12.0. That exact release maps to upstream
+commit `62b9330ed2f900535e34d8443ff82dc54070579a`; the Dart package, Rust crate,
+and generator are all locked at 2.12.0. The committed bridge output is
+regenerated with:
+
+```bash
+cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+flutter_rust_bridge_codegen generate
+cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml
+```
+
+Rust honors `rust-toolchain.toml`; `codex-app-server` is neither linked nor
+started. Flutter initializes the library only when ChatGPT is configured,
+selected, or has unfinished disconnect cleanup.
+
+### ChatGPT runtime boundary
+
+The runtime directly pins only `codex-api`, `codex-login`, and
+`codex-protocol` at Codex commit
+`25af12f7e61572b0bc18ddb1008be543b91519b0`. It uses the lower-level Models,
+Responses, Compact, Search, and Images HTTPS clients. Authentication is loaded
+into Codex's ephemeral credential store; Rust never creates `auth.json`.
+
+Conduit exposes 13 typed FRB v3 functions and exactly two model tools:
+`web.run` and `image_gen.imagegen`. There is no generic JSON-RPC bridge,
+arbitrary Dart-supplied tool, app-server/core dependency, filesystem or
+workspace API, rollout store, shell, MCP, approval, or patching surface.
+Provider events and tool JSON are handled exhaustively and fail closed; only
+sanitized chat events cross the bridge.
+
+`tool/audit_chatgpt_runtime_exposure.sh` enforces the bridge, endpoint, tool,
+credential, and fail-closed boundaries. It rejects V8/Deno and reports the
+accepted transitive Codex crates without failing the PR. Release-size limits
+continue to apply.
+
 Use `--delete-conflicting-outputs` when generated files fall out of sync:
 
 ```bash
@@ -67,12 +104,32 @@ flutter pub get
 dart run build_runner build
 flutter analyze
 flutter test
+cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml --all -- --check
+cargo clippy --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets
+bash tool/audit_chatgpt_runtime_exposure.sh
 ```
 
 `flutter analyze` and `flutter test` are the local gates before handing work
-off. GitHub Actions only runs localization validation (`.github/workflows/l10n.yml`)
-and releases (`.github/workflows/release.yml`). Nothing checks analyzer or test
-health on every push, so run them yourself.
+off. GitHub Actions also verifies the ChatGPT native runtime and its committed
+FRB bindings when that code changes.
+
+### ChatGPT account acceptance condition
+
+This PR is complete when a clean checkout can regenerate drift-free FRB
+bindings, pass the Rust, Flutter, exposure, and release-size gates, build
+release binaries for iOS and every Android ABI, authenticate a ChatGPT account,
+complete every supported chat operation, survive relaunch, and remove all
+account-owned data on explicit disconnect without affecting unrelated data.
+
+Dependency-level removal of reported transitive Codex crates is explicitly not
+part of this PR's acceptance condition. The exposure audit instead proves the
+fixed FRB v3 and endpoint allowlists, the two-tool boundary, exhaustive
+fail-closed protocol handling, and absence of V8/Deno. The PR remains draft
+until the real-device authentication, chat, lifecycle, compaction, and
+destructive-cleanup scenarios pass on both Android and iOS. Schema 10 is the
+first and final development schema for the transport; installations of the
+unmerged intermediate schema-10 build must clear app data or reinstall.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
@@ -81,11 +138,14 @@ mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
 
 ```bash
 # Android
-flutter build apk --release
+flutter build apk --release --split-per-abi --no-tree-shake-icons
 flutter build appbundle --release
 
 # iOS
-flutter build ios --release
+flutter build ios --release --no-codesign --no-tree-shake-icons
+
+# After both ChatGPT-enabled builds
+bash tool/audit_chatgpt_release_size.sh
 ```
 
 `scripts/release.sh` drives the tagged release flow used by the maintainer.
@@ -119,6 +179,7 @@ lib/
     auth/               server setup, login, SSO, proxy auth
     channels/           channel browsing and threaded messaging
     chat/               conversations, attachments, tools, streaming, voice call
+    chatgpt/            ChatGPT account runtime, authentication, and account UI
     direct_connections/ OpenAI-compatible, Ollama, and OpenRouter profiles
     hermes/             Hermes Agent transport, approvals, scheduled jobs
     navigation/         chat shell, drawer, adaptive navigation

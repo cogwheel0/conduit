@@ -1,0 +1,56 @@
+name: ChatGPT Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chatgpt-runtime.yml'
+      - 'flutter_rust_bridge.yaml'
+      - 'rust-toolchain.toml'
+      - 'native/**'
+      - 'rust_builder/**'
+      - 'lib/features/chatgpt/**'
+      - 'lib/features/direct_connections/models/direct_completion.dart'
+      - 'lib/features/direct_connections/services/direct_chat_bridge.dart'
+      - 'lib/features/chat/**'
+      - 'lib/core/database/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'tool/audit_chatgpt_runtime_exposure.sh'
+  push:
+    paths:
+      - '.github/workflows/chatgpt-runtime.yml'
+      - 'flutter_rust_bridge.yaml'
+      - 'rust-toolchain.toml'
+      - 'native/**'
+      - 'rust_builder/**'
+      - 'lib/features/chatgpt/**'
+      - 'lib/features/direct_connections/models/direct_completion.dart'
+      - 'lib/features/direct_connections/services/direct_chat_bridge.dart'
+      - 'lib/features/chat/**'
+      - 'lib/core/database/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'tool/audit_chatgpt_runtime_exposure.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: native/chatgpt_runtime
+      - run: cargo fmt --manifest-path native/chatgpt_runtime/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path native/chatgpt_runtime/Cargo.toml --locked --all-targets
+      - run: bash tool/audit_chatgpt_runtime_exposure.sh

@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../auth/auth_state_manager.dart';
+import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
 import '../providers/app_providers.dart';
 import '../providers/backend_mode_providers.dart';
 import '../../features/hermes/models/hermes_config.dart';
@@ -28,6 +30,9 @@ import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../features/channels/views/channel_page.dart';
+import '../../features/chatgpt/views/chatgpt_account_page.dart';
+import '../../features/chatgpt/chatgpt_feature.dart';
+import '../../features/chatgpt/chatgpt_providers.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
@@ -63,6 +68,7 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
       location == Routes.personalization ||
+      isChatGptAccountSetupLocation(location) ||
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
@@ -74,6 +80,12 @@ bool isDirectConnectionsLocation(String location) {
   return location == Routes.directConnections ||
       location.startsWith('${Routes.directConnections}/');
 }
+
+@visibleForTesting
+bool isChatGptAccountSetupLocation(
+  String location, {
+  bool enabled = kChatGptAccountEnabled,
+}) => enabled && location == Routes.chatGptAccount;
 
 /// App-local surfaces available when direct APIs are the primary backend.
 @visibleForTesting
@@ -89,6 +101,35 @@ String incompleteHermesDestination({
       ? Routes.splash
       : Routes.hermesSettings;
 }
+
+const _disconnectedChatGptConnection = AsyncData(
+  ChatGptConnectionState(status: ChatGptConnectionStatus.disconnected),
+);
+
+/// Keeps the native ChatGPT runtime cold until the account is selected or its
+/// fixed local profile exists. An interrupted disconnect is the sole safety
+/// exception so account-owned data cleanup still resumes on the next launch.
+@visibleForTesting
+final chatGptRoutingConnectionProvider =
+    Provider<AsyncValue<ChatGptConnectionState>>((ref) {
+      if (!kChatGptAccountEnabled) return _disconnectedChatGptConnection;
+
+      final preferredBackend = ref.watch(preferredBackendProvider);
+      final profiles = ref.watch(effectiveDirectConnectionProfilesProvider);
+      final configured =
+          profiles.value?.any(isCanonicalChatGptAccountProfile) ?? false;
+      final cleanupPending =
+          PreferencesStore.getString(
+            PreferenceKeys.chatGptDisconnectTombstone,
+          ) !=
+          null;
+      if (preferredBackend != PreferredBackend.chatgpt &&
+          !configured &&
+          !cleanupPending) {
+        return _disconnectedChatGptConnection;
+      }
+      return ref.watch(chatGptConnectionProvider);
+    });
 
 class RouterNotifier extends ChangeNotifier {
   RouterNotifier(this.ref) {
@@ -112,6 +153,11 @@ class RouterNotifier extends ChangeNotifier {
         effectiveDirectConnectionProfilesProvider,
         _onStateChanged,
       ),
+      if (kChatGptAccountEnabled)
+        ref.listen<AsyncValue<ChatGptConnectionState>>(
+          chatGptRoutingConnectionProvider,
+          _onStateChanged,
+        ),
     ];
   }
 
@@ -147,19 +193,36 @@ class RouterNotifier extends ChangeNotifier {
     final hermesUsable = hermesConfig.isUsable;
     final hermesSecretsLoading = ref.read(hermesSecretsLoadingProvider);
     final prefersHermes = preferredBackend == PreferredBackend.hermes;
+    final prefersChatGpt = preferredBackend == PreferredBackend.chatgpt;
     final prefersDirect = preferredBackend == PreferredBackend.direct;
     final directProfiles = ref.read(effectiveDirectConnectionProfilesProvider);
     final directProfilesLoading = directProfiles.isLoading;
     final directUsable =
         !directProfiles.isLoading &&
         !directProfiles.hasError &&
-        (directProfiles.value?.any((profile) => profile.isUsable) ?? false);
+        (directProfiles.value?.any(
+              (profile) =>
+                  !isChatGptAccountProfile(profile) && profile.isUsable,
+            ) ??
+            false);
+    final chatGptConnection = ref.read(chatGptRoutingConnectionProvider);
+    final chatGptLoading =
+        chatGptConnection.isLoading && !chatGptConnection.hasValue;
+    final chatGptUsable =
+        chatGptConnection.value?.status ==
+        ChatGptConnectionStatus.authenticated;
     final usesAccountlessPrimaryBackend =
-        (prefersDirect && directUsable) || (prefersHermes && hermesUsable);
+        (prefersChatGpt && chatGptUsable) ||
+        (prefersDirect && directUsable) ||
+        (prefersHermes && hermesUsable);
     final isLocalBackendSetup =
         location == Routes.backendChooser ||
+        isChatGptAccountSetupLocation(location) ||
         location == Routes.hermesSettings ||
         isDirectConnectionsLocation(location);
+    final chatGptSetupDestination = kChatGptAccountEnabled
+        ? '${Routes.chatGptAccount}?onboarding=true'
+        : Routes.backendChooser;
 
     // A stale optional Open WebUI credential must not block local-backend
     // recovery or an explicit authentication/recovery flow. Other backend
@@ -169,6 +232,7 @@ class RouterNotifier extends ChangeNotifier {
         .maybeWhen(data: (s) => s, orElse: () => null);
     if (!usesAccountlessPrimaryBackend &&
         !prefersDirect &&
+        !prefersChatGpt &&
         !(prefersHermes && hermesConfig.enabled) &&
         !isLocalBackendSetup &&
         !_isAuthLocation(location) &&
@@ -195,6 +259,12 @@ class RouterNotifier extends ChangeNotifier {
     if (activeServerAsync.isLoading) {
       // Avoid redirect loops: do not override explicit auth routes while loading
       if (_isAuthLocation(location)) return null;
+      if (prefersChatGpt && !chatGptUsable) {
+        final destination = chatGptLoading
+            ? Routes.splash
+            : chatGptSetupDestination;
+        return location == Uri.parse(destination).path ? null : destination;
+      }
       if (prefersDirect && !directUsable) {
         final destination = directProfilesLoading
             ? Routes.splash
@@ -219,6 +289,13 @@ class RouterNotifier extends ChangeNotifier {
     }
 
     if (activeServerAsync.hasError) {
+      if (prefersChatGpt && !chatGptUsable) {
+        if (_isAuthLocation(location)) return null;
+        final destination = chatGptLoading
+            ? Routes.splash
+            : chatGptSetupDestination;
+        return location == Uri.parse(destination).path ? null : destination;
+      }
       if (prefersDirect && !directUsable) {
         if (_isAuthLocation(location)) return null;
         final destination = directProfilesLoading
@@ -244,6 +321,15 @@ class RouterNotifier extends ChangeNotifier {
 
     final activeServer = activeServerAsync.asData?.value;
     final hasActiveServer = activeServer != null;
+    if (prefersChatGpt &&
+        !chatGptUsable &&
+        (!hasActiveServer || authState != AuthNavigationState.authenticated)) {
+      if (_isAuthLocation(location)) return null;
+      final destination = chatGptLoading
+          ? Routes.splash
+          : chatGptSetupDestination;
+      return location == Uri.parse(destination).path ? null : destination;
+    }
     // A preferred Direct backend is usable only while at least one validated,
     // enabled profile has resolved. With an authenticated OpenWebUI session we
     // can fall back to mixed mode; otherwise recover Direct setup instead of
@@ -625,6 +711,16 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         child: const NotificationSettingsPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.chatGptAccount,
+      name: RouteNames.chatGptAccount,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: ChatGptAccountPage(
+          isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+        ),
       ),
     ),
     GoRoute(
