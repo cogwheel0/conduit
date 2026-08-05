@@ -294,6 +294,7 @@
   "japanese": "日本語",
   "czech": "Čeština",
   "slovak": "Slovenčina",
+  "polish": "Polski",
   "deleteMessagesTitle": "메시지 삭제",
   "deleteMessagesMessage": "{count}개의 메시지를 삭제하시겠습니까?",
   "@deleteMessagesMessage": {

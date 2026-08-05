@@ -141,6 +141,7 @@
 		F1L10N102EE5500000000009 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F1L10N102EE550000000000A /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F1L10N102EE550000000000B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		F1L10N102EE550000000000C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		F1L10N202EE5500000000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		F1L10N202EE5500000000002 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
 		F1L10N202EE5500000000003 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -152,6 +153,7 @@
 		F1L10N202EE5500000000009 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		F1L10N202EE550000000000A /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		F1L10N202EE550000000000B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		F1L10N202EE550000000000C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -470,6 +472,7 @@
 				ko,
 				ja,
 				nl,
+				pl,
 				ru,
 				"zh-Hans",
 				"zh-Hant",
@@ -726,6 +729,7 @@
 				F1L10N102EE5500000000009 /* zh-Hans */,
 				F1L10N102EE550000000000A /* zh-Hant */,
 				F1L10N102EE550000000000B /* ja */,
+				F1L10N102EE550000000000C /* pl */,
 			);
 			name = InfoPlist.strings;
 			sourceTree = "<group>";
@@ -744,6 +748,7 @@
 				F1L10N202EE5500000000009 /* zh-Hans */,
 				F1L10N202EE550000000000A /* zh-Hant */,
 				F1L10N202EE550000000000B /* ja */,
+				F1L10N202EE550000000000C /* pl */,
 			);
 			name = Localizable.strings;
 			sourceTree = "<group>";

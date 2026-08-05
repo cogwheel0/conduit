@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "4.0.3",
+      "title": "Co nowego",
+      "intro": "Cześć! To największa aktualizacja od początku istnienia Conduit i bardzo się cieszę, że mogę się nią podzielić. Twoje czaty żyją teraz przede wszystkim na telefonie, a Conduit możesz używać całkowicie bez serwera.",
+      "bullets": [
+        {
+          "text": "Hermes Agent: połącz swój serwer, obserwuj działanie narzędzi, zatwierdzaj wrażliwe kroki i planuj agentów na później.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Połączenia bezpośrednie: rozmawiaj z usługami zgodnymi z OpenAI lub Ollama, w tym OpenRouter, LM Studio i Ollama Cloud.",
+          "icon": "direct"
+        },
+        {
+          "text": "Przemyślane detale: płynniejsze czaty i spokojniejsza nawigacja. Dziękujemy, że tu jesteś!",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}
