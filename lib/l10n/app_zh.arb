@@ -194,6 +194,7 @@
   "japanese": "日本語",
   "czech": "Čeština",
   "slovak": "Slovenčina",
+  "polish": "Polski",
   "deleteMessagesTitle": "删除消息",
   "deleteMessagesMessage": "删除 {count} 条消息？",
   "@deleteMessagesMessage": {

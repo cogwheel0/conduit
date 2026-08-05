@@ -168,7 +168,7 @@ settings navigation. Sections you don't have permission for simply don't appear.
 | Sharing | Share-sheet ingestion from other apps straight into a prompt |
 | Terminal | Interactive sessions over WebSocket with a file browser, shown only when your server exposes it |
 | Personalization | Light, dark, and system themes; five accent palettes; adaptive Material and Cupertino UI; haptics |
-| Languages | 13 locales: English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak |
+| Languages | 14 locales: English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak, Polish |
 
 Server-dependent features (channels, notes, web search, image generation,
 toggle filters, terminal) appear only when your deployment exposes them.
