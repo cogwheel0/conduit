@@ -39,6 +39,318 @@ void main() {
         fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
       ).isFalse();
     });
+
+    test('invalidated fence rejects a matching delayed completion', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      fence.invalidate();
+
+      final committed = fence.commitDocument(
+        document: document,
+        callbackUrl: 'https://chat.example/auth',
+        currentUrl: 'https://chat.example/auth',
+      );
+
+      check(committed).isFalse();
+      check(
+        fence.ownsDocument(document.generation, 'https://chat.example/auth'),
+      ).isFalse();
+    });
+
+    test('invalidated fence ignores navigation URL changes', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      fence.invalidate();
+
+      check(
+        fence.observeSameDocumentHistory(
+          document: document,
+          url: 'https://chat.example/chat/new',
+        ),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
+    test('commits the final URL of an HTTP redirect without another start', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      fence.markDocumentCommitted('https://chat.example/');
+      final initialDocument = fence.committedDocument!;
+      check(fence.markNavigationProvisional(initialDocument)).isTrue();
+      final pendingDocument = fence.activeDocument!;
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+          currentUrl: 'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        ),
+      ).isTrue();
+      final generation = fence.generation;
+
+      check(
+        fence.ownsDocument(
+          generation,
+          'https://auth.example/?rd=https%3A%2F%2Fchat.example%2F',
+        ),
+      ).isTrue();
+    });
+
+    test('load stop commits when no document-commit callback arrives', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      final pendingDocument = fence.activeDocument!;
+
+      check(fence.committedDocument).isNull();
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isTrue();
+      check(
+        fence.ownsLiveDocument(
+          fence.committedDocument!,
+          'https://chat.example/auth',
+        ),
+      ).isTrue();
+    });
+
+    test('load stop adopts a redirect without document callbacks', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      final pendingDocument = fence.activeDocument!;
+
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/login',
+          currentUrl: 'https://auth.example/login',
+        ),
+      ).isTrue();
+      final committedDocument = fence.committedDocument!;
+      check(
+        fence.ownsLiveDocument(committedDocument, 'https://auth.example/login'),
+      ).isTrue();
+      check(fence.ownsCommittedDocument(pendingDocument)).isFalse();
+    });
+
+    test('load stop fallback rejects a superseded navigation ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/old');
+      final oldDocument = fence.activeDocument!;
+
+      fence.startNavigation('https://chat.example/new');
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/old',
+          currentUrl: 'https://chat.example/old',
+        ),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
+    test('delayed commit callback cannot replace a newer navigation', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/old');
+
+      fence.startNavigation('https://chat.example/new');
+      final newDocument = fence.activeDocument!;
+
+      check(fence.markDocumentCommitted('https://chat.example/old')).isFalse();
+      check(fence.committedDocument).isNull();
+      check(
+        fence.ownsDocument(newDocument.generation, newDocument.url),
+      ).isTrue();
+    });
+
+    test('redirect commit waits for the load-stop fallback', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/');
+      final pendingDocument = fence.activeDocument!;
+
+      check(
+        fence.markDocumentCommitted('https://auth.example/login'),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+      check(
+        fence.commitDocument(
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/login',
+          currentUrl: 'https://auth.example/login',
+        ),
+      ).isTrue();
+      check(
+        fence.ownsLiveDocument(
+          fence.committedDocument!,
+          'https://auth.example/login',
+        ),
+      ).isTrue();
+    });
+
+    test('rejects a delayed completion after a newer navigation starts', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://auth.example/login');
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final currentGeneration = fence.generation;
+      final document = fence.committedDocument!;
+
+      final committed = fence.commitDocument(
+        document: document,
+        callbackUrl: 'https://auth.example/login',
+        currentUrl: 'https://chat.example/auth',
+      );
+
+      check(committed).isFalse();
+      check(
+        fence.ownsDocument(currentGeneration, 'https://chat.example/auth'),
+      ).isTrue();
+    });
+
+    test('rejects an old document ticket even when the URL is unchanged', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final currentDocument = fence.committedDocument!;
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isFalse();
+      check(
+        fence.commitDocument(
+          document: currentDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isTrue();
+    });
+
+    test('new navigation cannot finish before its document commits', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      fence.startNavigation('https://chat.example/auth');
+
+      check(
+        fence.commitDocument(
+          document: oldDocument,
+          callbackUrl: 'https://chat.example/auth',
+          currentUrl: 'https://chat.example/auth',
+        ),
+      ).isFalse();
+      check(fence.committedDocument).isNull();
+    });
+
+    test('committed ticket rejects full URL drift', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      check(
+        fence.ownsLiveDocument(document, 'https://chat.example/auth#ready'),
+      ).isFalse();
+      check(
+        fence.ownsLiveDocument(document, 'https://chat.example/chat/new'),
+      ).isFalse();
+    });
+
+    test('fragment-only history change advances the committed ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth#login');
+      fence.markDocumentCommitted('https://chat.example/auth#login');
+      final oldDocument = fence.committedDocument!;
+
+      check(
+        fence.observeSameDocumentHistory(
+          document: oldDocument,
+          url: 'https://chat.example/auth#ready',
+        ),
+      ).isTrue();
+      final currentDocument = fence.committedDocument!;
+
+      check(fence.ownsCommittedDocument(oldDocument)).isFalse();
+      check(
+        fence.ownsLiveDocument(
+          currentDocument,
+          'https://chat.example/auth#ready',
+        ),
+      ).isTrue();
+    });
+
+    test('same-document history change advances the committed ticket', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final oldDocument = fence.committedDocument!;
+
+      check(
+        fence.observeSameDocumentHistory(
+          document: oldDocument,
+          url: 'https://chat.example/chat/new',
+        ),
+      ).isTrue();
+      final currentDocument = fence.committedDocument!;
+
+      check(fence.ownsCommittedDocument(oldDocument)).isFalse();
+      check(
+        fence.ownsLiveDocument(
+          currentDocument,
+          'https://chat.example/chat/new',
+        ),
+      ).isTrue();
+    });
+
+    test('loading history update only makes the document provisional', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      fence.markDocumentCommitted('https://chat.example/auth');
+      final document = fence.committedDocument!;
+
+      check(fence.markNavigationProvisional(document)).isTrue();
+      check(fence.committedDocument).isNull();
+      check(
+        fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
+      ).isTrue();
+    });
+
+    test('stale history ticket cannot replace a newer navigation', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/old');
+      final oldDocument = fence.activeDocument!;
+
+      fence.startNavigation('https://chat.example/new');
+      final newDocument = fence.activeDocument!;
+
+      check(
+        fence.observeSameDocumentHistory(
+          document: oldDocument,
+          url: 'https://chat.example/old/history',
+        ),
+      ).isFalse();
+      check(
+        fence.ownsDocument(newDocument.generation, newDocument.url),
+      ).isTrue();
+    });
   });
 
   group('refreshProxyAuthWebView', () {
@@ -72,6 +384,46 @@ void main() {
 
       check(initializeCalls).equals(0);
       check(reloadedController).identicalTo(controller);
+    });
+  });
+
+  group('ProxyAuthHistoryUpdateQueue', () {
+    test('coalesces overlapping updates to the latest URL', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+
+      check(queue.enqueue('https://chat.example/second')).isFalse();
+      check(queue.enqueue('https://chat.example/final')).isFalse();
+      check(queue.takeLatest()).equals('https://chat.example/final');
+      check(queue.takeLatest()).isNull();
+      check(queue.restartAfterDrain()).isFalse();
+    });
+
+    test('restarts when an update arrives before drain cleanup', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+      check(queue.enqueue('https://chat.example/final')).isFalse();
+
+      check(queue.restartAfterDrain()).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/final');
+      check(queue.restartAfterDrain()).isFalse();
+    });
+
+    test('reset drops pending history work', () {
+      final queue = ProxyAuthHistoryUpdateQueue();
+
+      check(queue.enqueue('https://chat.example/first')).isTrue();
+      check(queue.takeLatest()).equals('https://chat.example/first');
+      check(queue.enqueue('https://chat.example/stale')).isFalse();
+
+      queue.reset();
+
+      check(queue.takeLatest()).isNull();
+      check(queue.restartAfterDrain()).isFalse();
     });
   });
 
@@ -126,6 +478,39 @@ void main() {
   });
 
   group('ProxyAuthCaptureQueue', () {
+    test('load-stop redirect adoption releases an old capture', () {
+      final fence = ProxyAuthDocumentFence();
+      final queue = ProxyAuthCaptureQueue();
+      fence.startNavigation('https://chat.example/');
+      final pendingDocument = fence.activeDocument!;
+      check(
+        queue.begin(
+          const ProxyAuthCaptureRequest.automatic(
+            shouldWaitForJwt: false,
+            path: '/',
+          ),
+        ),
+      ).isNotNull();
+
+      check(
+        commitProxyAuthLoadStopDocument(
+          fence: fence,
+          captureQueue: queue,
+          document: pendingDocument,
+          callbackUrl: 'https://auth.example/login',
+          currentUrl: 'https://auth.example/login',
+        ),
+      ).isTrue();
+      check(
+        queue.begin(
+          const ProxyAuthCaptureRequest.automatic(
+            shouldWaitForJwt: false,
+            path: '/login',
+          ),
+        ),
+      ).isNotNull();
+    });
+
     test('queues an automatic retry while a capture is in flight', () {
       final queue = ProxyAuthCaptureQueue();
       final request = const ProxyAuthCaptureRequest.automatic(
@@ -306,6 +691,7 @@ void main() {
 
       final requirement = resolveProxyAuthJwtRequirement(
         ownsDocument: fence.ownsGeneration(staleGeneration),
+        isLiveDocument: true,
         hasPendingJwtWait: false,
         currentPageShouldWait: true,
       );
@@ -316,11 +702,23 @@ void main() {
     test('current document can publish a sticky JWT-wait requirement', () {
       final requirement = resolveProxyAuthJwtRequirement(
         ownsDocument: true,
+        isLiveDocument: true,
         hasPendingJwtWait: false,
         currentPageShouldWait: true,
       );
 
       expect(requirement, isTrue);
+    });
+
+    test('URL drift cannot publish a sticky JWT-wait requirement', () {
+      final requirement = resolveProxyAuthJwtRequirement(
+        ownsDocument: true,
+        isLiveDocument: false,
+        hasPendingJwtWait: false,
+        currentPageShouldWait: true,
+      );
+
+      expect(requirement, isNull);
     });
   });
 
