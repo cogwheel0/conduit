@@ -36,18 +36,28 @@ void main() {
       composerUsesNativeSystemSelectionMenu(
         isIOS: true,
         systemMenuSupported: true,
+        interceptsImagePaste: false,
       ),
     ).isTrue();
     check(
       composerUsesNativeSystemSelectionMenu(
         isIOS: true,
+        systemMenuSupported: true,
+        interceptsImagePaste: true,
+      ),
+    ).isFalse();
+    check(
+      composerUsesNativeSystemSelectionMenu(
+        isIOS: true,
         systemMenuSupported: false,
+        interceptsImagePaste: false,
       ),
     ).isFalse();
     check(
       composerUsesNativeSystemSelectionMenu(
         isIOS: false,
         systemMenuSupported: true,
+        interceptsImagePaste: false,
       ),
     ).isFalse();
   });
