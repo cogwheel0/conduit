@@ -1,6 +1,7 @@
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,12 +69,11 @@ void main() {
       ),
     );
 
-    expect(
+    check(
       tester
           .widget<ConduitContextMenu>(find.byType(ConduitContextMenu))
           .presentation,
-      ConduitContextMenuPresentation.preview,
-    );
+    ).equals(ConduitContextMenuPresentation.preview);
 
     await tester.pumpWidget(
       _buildHarness(
@@ -85,12 +85,11 @@ void main() {
       ),
     );
 
-    expect(
+    check(
       tester
           .widget<ConduitContextMenu>(find.byType(ConduitContextMenu))
           .presentation,
-      ConduitContextMenuPresentation.popup,
-    );
+    ).equals(ConduitContextMenuPresentation.popup);
   });
 
   testWidgets('does not build lazy top widget before the menu opens', (

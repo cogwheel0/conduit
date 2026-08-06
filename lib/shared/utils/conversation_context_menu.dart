@@ -109,15 +109,17 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
   }
 
   Widget _buildAdaptivePopupMenu() {
+    final usesNativeSFSymbols = PlatformInfo.isIOS26OrHigher();
     return AdaptivePopupMenuButton.widget<int>(
       items: [
         for (var index = 0; index < widget.actions.length; index++)
           AdaptivePopupMenuItem<int>(
             value: index,
             label: widget.actions[index].label,
-            icon:
-                widget.actions[index].sfSymbol ??
-                widget.actions[index].cupertinoIcon,
+            icon: usesNativeSFSymbols
+                ? widget.actions[index].sfSymbol ??
+                      widget.actions[index].cupertinoIcon
+                : widget.actions[index].cupertinoIcon,
             isDestructive: widget.actions[index].destructive,
           ),
       ],

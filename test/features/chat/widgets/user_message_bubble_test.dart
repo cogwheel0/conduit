@@ -18,6 +18,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
+import 'package:checks/checks.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -51,18 +52,21 @@ void main() {
         return null;
       },
     );
-    final selectionArea = tester.state<SelectionAreaState>(
-      find.byType(SelectionArea),
-    );
-    final copyAction = selectionArea.selectableRegion.contextMenuButtonItems
-        .singleWhere((item) => item.type == ContextMenuButtonType.copy);
-    copyAction.onPressed!.call();
-    await tester.pump();
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      null,
-    );
-    return copiedText;
+    try {
+      final selectionArea = tester.state<SelectionAreaState>(
+        find.byType(SelectionArea),
+      );
+      final copyAction = selectionArea.selectableRegion.contextMenuButtonItems
+          .singleWhere((item) => item.type == ContextMenuButtonType.copy);
+      copyAction.onPressed!.call();
+      await tester.pump();
+      return copiedText;
+    } finally {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    }
   }
 
   Widget buildHarness(
@@ -111,16 +115,17 @@ void main() {
 
     expect(find.text('Sprint Plan'), findsOneWidget);
     expect(find.byIcon(Icons.sticky_note_2_outlined), findsOneWidget);
-    expect(find.byType(SelectionArea), findsNothing);
+    check(find.byType(SelectionArea).evaluate()).isEmpty();
 
     final attachmentMenu = tester.widget<ConduitContextMenu>(
       find.byType(ConduitContextMenu),
     );
-    expect(attachmentMenu.presentation, ConduitContextMenuPresentation.preview);
-    expect(
-      attachmentMenu.actions.map((action) => action.label),
-      orderedEquals(<String>['Edit', 'Copy', 'Delete']),
-    );
+    check(
+      attachmentMenu.presentation,
+    ).equals(ConduitContextMenuPresentation.preview);
+    check(
+      attachmentMenu.actions.map((action) => action.label).toList(),
+    ).deepEquals(<String>['Edit', 'Copy', 'Delete']);
   });
 
   testWidgets(
@@ -251,42 +256,38 @@ void main() {
           final contextMenu = tester.widget<ConduitContextMenu>(
             find.byType(ConduitContextMenu),
           );
-          expect(
+          check(
             contextMenu.presentation,
-            ConduitContextMenuPresentation.popup,
-          );
-          expect(
-            contextMenu.actions.map((action) => action.label),
-            orderedEquals(<String>['Edit', 'Copy', 'Select', 'Delete']),
-          );
+          ).equals(ConduitContextMenuPresentation.popup);
+          check(
+            contextMenu.actions.map((action) => action.label).toList(),
+          ).deepEquals(<String>['Edit', 'Copy', 'Select', 'Delete']);
 
           final selectionArea = tester.state<SelectionAreaState>(
             find.byType(SelectionArea),
           );
-          expect(
+          check(
             selectionArea.selectableRegion.contextMenuButtonItems.where(
               (item) => item.type == ContextMenuButtonType.copy,
             ),
-            isEmpty,
-          );
+          ).isEmpty();
 
           await tester.longPress(find.text(content));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 500));
 
-          expect(find.text('Select'), findsOneWidget);
-          expect(
+          check(find.text('Select').evaluate()).length.equals(1);
+          check(
             selectionArea.selectableRegion.contextMenuButtonItems.where(
               (item) => item.type == ContextMenuButtonType.copy,
             ),
-            isEmpty,
-          );
+          ).isEmpty();
 
           await tester.tap(find.text('Select'));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 500));
 
-          expect(await copySelectedText(tester), content);
+          check(await copySelectedText(tester)).equals(content);
         });
       },
     );
@@ -314,7 +315,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
 
-        expect(await copySelectedText(tester), 'alpha');
+        check(await copySelectedText(tester)).equals('alpha');
       });
     });
   }
@@ -375,7 +376,7 @@ void main() {
     );
     await contextMenu.actions.first.onSelected();
     await tester.pump();
-    expect(find.byType(SelectionArea), findsNothing);
+    check(find.byType(SelectionArea).evaluate()).isEmpty();
     await tester.enterText(find.byType(AdaptiveTextField), 'Edited prompt');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
