@@ -2579,6 +2579,8 @@ private final class ConduitNativeContextMenuAnchorFactory:
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     FlutterStandardMessageCodec.sharedInstance()
   }
+
+  deinit {}
 }
 
 /// Keeps UIKit's menu button out of the touch path and performs its primary

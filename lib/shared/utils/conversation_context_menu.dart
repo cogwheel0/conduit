@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -340,14 +342,11 @@ class _IOS26ConduitContextMenuState extends State<_IOS26ConduitContextMenu> {
   Widget build(BuildContext context) {
     final actions = widget.actions;
     final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-    final viewKey = ValueKey<Object>(
-      Object.hashAll(<Object?>[
+    final viewKey = ValueKey<String>(
+      jsonEncode(<Object?>[
         isDark,
-        for (final action in actions) ...<Object?>[
-          action.label,
-          action.sfSymbol,
-          action.destructive,
-        ],
+        for (final action in actions)
+          <Object?>[action.label, action.sfSymbol, action.destructive],
       ]),
     );
 
