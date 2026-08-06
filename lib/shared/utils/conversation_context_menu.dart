@@ -52,8 +52,10 @@ enum ConduitContextMenuPresentation {
 /// A long-press context menu widget with platform-specific presentation.
 ///
 /// The app keeps its own action model so call sites can share haptics and
-/// icons while the menu presentation follows the current platform. On iOS we
-/// keep the child size stable during preview because stock
+/// icons while the menu presentation follows the current platform. Popup
+/// menus stay in Flutter's gesture arena so gestures owned by the child, such
+/// as text selection on double tap, remain available. On iOS we keep the child
+/// size stable during preview because stock
 /// [CupertinoContextMenu] can assert when the child is laid out by flex-based
 /// parents.
 class ConduitContextMenu extends StatefulWidget {
@@ -69,7 +71,7 @@ class ConduitContextMenu extends StatefulWidget {
     required this.child,
     this.topWidgetBuilder,
     this.stabilizePreviewSize = true,
-    this.presentation = ConduitContextMenuPresentation.preview,
+    this.presentation = ConduitContextMenuPresentation.popup,
   });
 
   @override
@@ -77,7 +79,30 @@ class ConduitContextMenu extends StatefulWidget {
 }
 
 class _ConduitContextMenuState extends State<ConduitContextMenu> {
+  ContextMenuController? _activePopupController;
+  bool? _usesIOSPopupRoute;
   Size? _childSize;
+
+  @override
+  void didUpdateWidget(covariant ConduitContextMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.actions, widget.actions) ||
+        oldWidget.presentation != widget.presentation) {
+      _dismissPopup();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final usesIOSPopupRoute =
+        Theme.of(context).platform == TargetPlatform.iOS &&
+        widget.presentation == ConduitContextMenuPresentation.popup;
+    if (_usesIOSPopupRoute != null && _usesIOSPopupRoute != usesIOSPopupRoute) {
+      _dismissPopup();
+    }
+    _usesIOSPopupRoute = usesIOSPopupRoute;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,12 +110,12 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return widget.child;
     }
 
-    if (PlatformInfo.isIOS &&
-        widget.presentation == ConduitContextMenuPresentation.popup) {
-      return _buildAdaptivePopupMenu();
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    if (isIOS && widget.presentation == ConduitContextMenuPresentation.popup) {
+      return _buildAdaptivePopupMenu(context);
     }
 
-    if (PlatformInfo.isIOS) {
+    if (isIOS) {
       return _buildCupertinoContextMenu(context);
     }
 
@@ -108,30 +133,58 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
     );
   }
 
-  Widget _buildAdaptivePopupMenu() {
-    final usesNativeSFSymbols = PlatformInfo.isIOS26OrHigher();
-    return AdaptivePopupMenuButton.widget<int>(
-      items: [
-        for (var index = 0; index < widget.actions.length; index++)
-          AdaptivePopupMenuItem<int>(
-            value: index,
-            label: widget.actions[index].label,
-            icon: usesNativeSFSymbols
-                ? widget.actions[index].sfSymbol ??
-                      widget.actions[index].cupertinoIcon
-                : widget.actions[index].cupertinoIcon,
-            isDestructive: widget.actions[index].destructive,
-          ),
-      ],
-      onSelected: (_, entry) {
-        final index = entry.value;
-        if (index == null || index < 0 || index >= widget.actions.length) {
-          return;
-        }
-        Future.microtask(() => _invokeAction(widget.actions[index]));
-      },
-      triggerOnLongPress: true,
+  Widget _buildAdaptivePopupMenu(BuildContext context) {
+    return GestureDetector(
+      key: const ValueKey('conduit-context-menu-popup-gesture'),
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (details) =>
+          _showPopupMenu(context, details.globalPosition),
+      onSecondaryTapUp: (details) =>
+          _showPopupMenu(context, details.globalPosition),
       child: widget.child,
+    );
+  }
+
+  void _showPopupMenu(BuildContext context, Offset anchor) {
+    final actions = List<ConduitContextMenuAction>.of(widget.actions);
+    _dismissPopup();
+    late final ContextMenuController controller;
+    controller = ContextMenuController(
+      onRemove: () {
+        if (identical(_activePopupController, controller)) {
+          _activePopupController = null;
+        }
+      },
+    );
+    _activePopupController = controller;
+    controller.show(
+      context: context,
+      debugRequiredFor: widget,
+      contextMenuBuilder: (overlayContext) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: controller.remove,
+              ),
+            ),
+            AdaptiveTextSelectionToolbar(
+              anchors: TextSelectionToolbarAnchors(primaryAnchor: anchor),
+              children: [
+                for (final action in actions)
+                  CupertinoTextSelectionToolbarButton(
+                    onPressed: () {
+                      controller.remove();
+                      Future.microtask(() => _invokeAction(action));
+                    },
+                    child: _PopupMenuActionContent(action: action),
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -204,6 +257,48 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return;
     }
     _childSize = size;
+  }
+
+  void _dismissPopup() {
+    _activePopupController?.remove();
+  }
+
+  @override
+  void dispose() {
+    _dismissPopup();
+    _activePopupController = null;
+    super.dispose();
+  }
+}
+
+class _PopupMenuActionContent extends StatelessWidget {
+  const _PopupMenuActionContent({required this.action});
+
+  final ConduitContextMenuAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = action.destructive
+        ? CupertinoColors.systemRed.resolveFrom(context)
+        : CupertinoColors.label.resolveFrom(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(action.cupertinoIcon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          action.label,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            inherit: false,
+            color: color,
+            fontSize: 15,
+            letterSpacing: -0.15,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
   }
 }
 

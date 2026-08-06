@@ -122,7 +122,7 @@ void main() {
     );
     check(
       attachmentMenu.presentation,
-    ).equals(ConduitContextMenuPresentation.preview);
+    ).equals(ConduitContextMenuPresentation.popup);
     check(
       attachmentMenu.actions.map((action) => action.label).toList(),
     ).deepEquals(<String>['Edit', 'Copy', 'Delete']);
