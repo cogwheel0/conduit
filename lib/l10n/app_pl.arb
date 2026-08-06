@@ -405,7 +405,7 @@
   "@enterCredentials": {
     "description": "Instructional text on the sign-in screen."
   },
-  "credentials": "E-mail i hasło",
+  "credentials": "Dane logowania",
   "@credentials": {
     "description": "Authentication method label for username/password sign-in."
   },
@@ -4865,7 +4865,7 @@
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "Ten migawka wersji zostanie usunięta. Tej operacji nie można cofnąć.",
+  "workspacePromptHistoryDeleteConfirmMessage": "Ta wersja zostanie usunięta. Tej operacji nie można cofnąć.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
