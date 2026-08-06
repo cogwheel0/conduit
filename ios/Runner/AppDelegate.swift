@@ -2553,6 +2553,139 @@ private final class ConduitNativeToolbarActionGroupView:
   deinit {}
 }
 
+private final class ConduitNativeContextMenuAnchorFactory:
+  NSObject, FlutterPlatformViewFactory
+{
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    ConduitNativeContextMenuAnchorView(
+      frame: frame,
+      viewId: viewId,
+      arguments: args,
+      messenger: messenger
+    )
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+/// Keeps UIKit's menu button out of the touch path and performs its primary
+/// action when Flutter recognizes a long press. This preserves ordinary and
+/// double taps while still using the native iOS menu renderer.
+private final class ConduitNativeContextMenuAnchorView:
+  NSObject, FlutterPlatformView
+{
+  private let container: UIView
+  private let button: UIButton
+  private let channel: FlutterMethodChannel
+  private let labels: [String]
+  private let symbols: [String]
+  private let enabled: [Bool]
+  private let destructive: [Bool]
+
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    arguments: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    container = UIView(frame: frame)
+    button = UIButton(type: .system)
+    channel = FlutterMethodChannel(
+      name: "app.cogwheel.conduit/native_context_menu_anchor_\(viewId)",
+      binaryMessenger: messenger
+    )
+
+    let values = arguments as? [String: Any]
+    labels = values?["labels"] as? [String] ?? []
+    symbols = values?["sfSymbols"] as? [String] ?? []
+    enabled = Self.boolValues(values?["enabled"])
+    destructive = Self.boolValues(values?["isDestructive"])
+    super.init()
+
+    container.backgroundColor = .clear
+    container.isOpaque = false
+    container.isUserInteractionEnabled = false
+    container.accessibilityElementsHidden = true
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.backgroundColor = .clear
+    button.isAccessibilityElement = false
+    button.showsMenuAsPrimaryAction = true
+    button.preferredMenuElementOrder = .fixed
+    button.menu = makeMenu()
+    container.addSubview(button)
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      button.topAnchor.constraint(equalTo: container.topAnchor),
+      button.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "showMenu" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      if #available(iOS 17.4, *) {
+        self?.button.performPrimaryAction()
+      } else {
+        self?.button.sendActions(for: .primaryActionTriggered)
+      }
+      result(nil)
+    }
+  }
+
+  func view() -> UIView { container }
+
+  private func makeMenu() -> UIMenu {
+    let actions = labels.enumerated().map { index, label in
+      var attributes: UIMenuElement.Attributes = []
+      if index < enabled.count, !enabled[index] {
+        attributes.insert(.disabled)
+      }
+      if index < destructive.count, destructive[index] {
+        attributes.insert(.destructive)
+      }
+      let image = index < symbols.count && !symbols[index].isEmpty
+        ? UIImage(systemName: symbols[index])
+        : nil
+      return UIAction(
+        title: label,
+        image: image,
+        attributes: attributes
+      ) { [weak self] _ in
+        self?.channel.invokeMethod(
+          "itemSelected",
+          arguments: ["index": index]
+        )
+      }
+    }
+    return UIMenu(title: "", children: actions)
+  }
+
+  private static func boolValues(_ value: Any?) -> [Bool] {
+    if let values = value as? [Bool] {
+      return values
+    }
+    return (value as? [NSNumber] ?? []).map(\.boolValue)
+  }
+
+  deinit {
+    channel.setMethodCallHandler(nil)
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var backgroundStreamingHandler: BackgroundStreamingHandler?
@@ -2752,6 +2885,16 @@ private final class ConduitNativeToolbarActionGroupView:
           messenger: registrar.messenger()
         ),
         withId: "app.cogwheel.conduit/native_toolbar_action_group"
+      )
+    }
+    if let registrar = registrarForPlugin(
+      "ConduitNativeContextMenuAnchor"
+    ) {
+      registrar.register(
+        ConduitNativeContextMenuAnchorFactory(
+          messenger: registrar.messenger()
+        ),
+        withId: "app.cogwheel.conduit/native_context_menu_anchor"
       )
     }
   }

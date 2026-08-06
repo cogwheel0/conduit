@@ -11,6 +11,8 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -86,7 +88,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
   @override
   void didUpdateWidget(covariant ConduitContextMenu oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.actions, widget.actions) ||
+    if (!_hasEquivalentActionPresentation(oldWidget.actions, widget.actions) ||
         oldWidget.presentation != widget.presentation) {
       _dismissPopup();
     }
@@ -134,6 +136,14 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
   }
 
   Widget _buildAdaptivePopupMenu(BuildContext context) {
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return _IOS26ConduitContextMenu(
+        actions: widget.actions,
+        onSelected: _invokeAction,
+        child: widget.child,
+      );
+    }
+
     return GestureDetector(
       key: const ValueKey('conduit-context-menu-popup-gesture'),
       behavior: HitTestBehavior.opaque,
@@ -172,11 +182,20 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             AdaptiveTextSelectionToolbar(
               anchors: TextSelectionToolbarAnchors(primaryAnchor: anchor),
               children: [
-                for (final action in actions)
+                for (final (index, action) in actions.indexed)
                   CupertinoTextSelectionToolbarButton(
                     onPressed: () {
+                      final currentActions = widget.actions;
+                      if (!_hasEquivalentActionPresentation(
+                        actions,
+                        currentActions,
+                      )) {
+                        controller.remove();
+                        return;
+                      }
+                      final currentAction = currentActions[index];
                       controller.remove();
-                      Future.microtask(() => _invokeAction(action));
+                      Future.microtask(() => _invokeAction(currentAction));
                     },
                     child: _PopupMenuActionContent(action: action),
                   ),
@@ -269,6 +288,149 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
     _activePopupController = null;
     super.dispose();
   }
+}
+
+bool _hasEquivalentActionPresentation(
+  List<ConduitContextMenuAction> previous,
+  List<ConduitContextMenuAction> current,
+) {
+  if (previous.length != current.length) {
+    return false;
+  }
+  for (var index = 0; index < previous.length; index++) {
+    final oldAction = previous[index];
+    final newAction = current[index];
+    if (oldAction.label != newAction.label ||
+        oldAction.cupertinoIcon != newAction.cupertinoIcon ||
+        oldAction.sfSymbol != newAction.sfSymbol ||
+        oldAction.materialIcon != newAction.materialIcon ||
+        oldAction.destructive != newAction.destructive) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// Hosts a native iOS 26 [UIMenu] without hiding Flutter's selectable content
+/// from hit testing.
+///
+/// Flutter recognizes the long press and asks a transparent native anchor to
+/// present its [UIMenu], so regular and double taps remain available to the
+/// selectable child.
+class _IOS26ConduitContextMenu extends StatefulWidget {
+  const _IOS26ConduitContextMenu({
+    required this.actions,
+    required this.onSelected,
+    required this.child,
+  });
+
+  final List<ConduitContextMenuAction> actions;
+  final ValueChanged<ConduitContextMenuAction> onSelected;
+  final Widget child;
+
+  @override
+  State<_IOS26ConduitContextMenu> createState() =>
+      _IOS26ConduitContextMenuState();
+}
+
+class _IOS26ConduitContextMenuState extends State<_IOS26ConduitContextMenu> {
+  MethodChannel? _channel;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = widget.actions;
+    final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final viewKey = ValueKey<Object>(
+      Object.hashAll(<Object?>[
+        isDark,
+        for (final action in actions) ...<Object?>[
+          action.label,
+          action.sfSymbol,
+          action.destructive,
+        ],
+      ]),
+    );
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        GestureDetector(
+          key: const ValueKey('conduit-context-menu-popup-gesture'),
+          behavior: HitTestBehavior.opaque,
+          onLongPress: () {
+            _channel?.invokeMethod<void>('showMenu');
+          },
+          child: widget.child,
+        ),
+        Positioned.fill(
+          child: buildConduitIOS26PopupPlatformView(
+            key: viewKey,
+            creationParams: <String, Object?>{
+              'labels': [for (final action in actions) action.label],
+              'sfSymbols': [
+                for (final action in actions) action.sfSymbol ?? '',
+              ],
+              'enabled': [for (final _ in actions) true],
+              'isDestructive': [
+                for (final action in actions) action.destructive,
+              ],
+            },
+            onPlatformViewCreated: _handlePlatformViewCreated,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handlePlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    final channel = MethodChannel(
+      'app.cogwheel.conduit/native_context_menu_anchor_$id',
+    );
+    _channel = channel;
+    channel.setMethodCallHandler(_handleMethodCall);
+  }
+
+  Future<void> _handleMethodCall(MethodCall call) async {
+    if (call.method != 'itemSelected') {
+      return;
+    }
+    final arguments = call.arguments;
+    final index = arguments is Map
+        ? (arguments['index'] as num?)?.toInt()
+        : null;
+    if (index == null || index < 0 || index >= widget.actions.length) {
+      return;
+    }
+    widget.onSelected(widget.actions[index]);
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    _channel = null;
+    super.dispose();
+  }
+}
+
+/// Creates the native iOS 26 menu surface used by [ConduitContextMenu].
+///
+/// Exposed for the gesture regression test: accepting pointer events here
+/// removes the selectable child from Flutter's hit-test path.
+@visibleForTesting
+UiKitView buildConduitIOS26PopupPlatformView({
+  required Key key,
+  required Map<String, Object?> creationParams,
+  required PlatformViewCreatedCallback onPlatformViewCreated,
+}) {
+  return UiKitView(
+    key: key,
+    viewType: 'app.cogwheel.conduit/native_context_menu_anchor',
+    creationParams: creationParams,
+    creationParamsCodec: const StandardMessageCodec(),
+    onPlatformViewCreated: onPlatformViewCreated,
+    hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+  );
 }
 
 class _PopupMenuActionContent extends StatelessWidget {
