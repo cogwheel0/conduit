@@ -15,6 +15,7 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
@@ -81,6 +82,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   bool _isEditing = false;
   late final TextEditingController _editController;
   final FocusNode _editFocusNode = FocusNode();
+  final GlobalKey<SelectionAreaState> _textSelectionAreaKey =
+      GlobalKey<SelectionAreaState>();
   List<dynamic>? _lastPartitionedFiles;
   _UserFilePartitions? _lastFilePartitions;
 
@@ -721,7 +724,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     super.dispose();
   }
 
-  List<ConduitContextMenuAction> _buildMessageActions(BuildContext context) {
+  List<ConduitContextMenuAction> _buildMessageActions(
+    BuildContext context, {
+    bool includeSelect = false,
+  }) {
     // Don't show menu while editing - return empty list
     if (_isEditing) return [];
 
@@ -730,6 +736,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
+        sfSymbol: 'pencil',
         materialIcon: Icons.edit_outlined,
         label: l10n.edit,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -737,6 +744,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+        sfSymbol: 'doc.on.clipboard',
         materialIcon: Icons.content_copy,
         label: l10n.copy,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -746,8 +754,17 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
+      if (includeSelect)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.text_cursor,
+          sfSymbol: 'text.cursor',
+          materialIcon: Icons.select_all,
+          label: l10n.selectText,
+          onSelected: () async => _selectAllUserText(),
+        ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_outline,
         label: l10n.delete,
         destructive: true,
@@ -757,6 +774,15 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         },
       ),
     ];
+  }
+
+  void _selectAllUserText() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isEditing) return;
+      _textSelectionAreaKey.currentState?.selectableRegion.selectAll(
+        SelectionChangedCause.toolbar,
+      );
+    });
   }
 
   @override
@@ -788,12 +814,87 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
       bottomRight: Radius.circular(AppBorderRadius.md),
     );
-    final actions = _buildMessageActions(context);
+    final attachmentActions = _buildMessageActions(context);
+    final textActions = _buildMessageActions(context, includeSelect: true);
     final attachmentContent = hasFilesFromArray
         ? _buildUserFileImages(filePartitions!)
         : hasImages
         ? _buildUserAttachmentImages()
         : null;
+    final bubbleSurface = Container(
+      key: const Key('user-message-bubble-surface'),
+      padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
+      decoration: BoxDecoration(
+        color: theme.chatBubbleUser,
+        borderRadius: bubbleBorderRadius,
+        border: Border.all(color: bubbleBorderColor, width: BorderWidth.thin),
+      ),
+      child: _isEditing
+          ? Focus(
+              focusNode: _editFocusNode,
+              autofocus: true,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: inlineEditFill,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                  border: Border.all(
+                    color: theme.inputBorderFocused.withValues(alpha: 0.5),
+                    width: BorderWidth.thin,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.xs,
+                    vertical: Spacing.xxs,
+                  ),
+                  child: AdaptiveTextField(
+                    controller: _editController,
+                    maxLines: null,
+                    style: AppTypography.chatMessageStyle.copyWith(
+                      color: inlineEditTextColor,
+                    ),
+                    onSubmitted: (_) => _saveInlineEdit(),
+                    padding: EdgeInsets.zero,
+                    cupertinoDecoration: const BoxDecoration(),
+                    decoration: context.conduitInputStyles
+                        .borderless()
+                        .copyWith(
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                  ),
+                ),
+              ),
+            )
+          : Text(
+              widget.message.content,
+              style: AppTypography.chatMessageStyle.copyWith(
+                color: theme.chatBubbleUserText,
+              ),
+              softWrap: true,
+              textAlign: TextAlign.left,
+              textWidthBasis: TextWidthBasis.longestLine,
+              textHeightBehavior: const TextHeightBehavior(
+                applyHeightToFirstAscent: false,
+                applyHeightToLastDescent: false,
+                leadingDistribution: TextLeadingDistribution.even,
+              ),
+            ),
+    );
+    final textBubble = _isEditing
+        ? bubbleSurface
+        : DrawerOpenGestureExclusion(
+            child: SelectionArea(
+              key: _textSelectionAreaKey,
+              child: DrawerOpenGesturePriority(
+                child: ConduitContextMenu(
+                  actions: textActions,
+                  presentation: ConduitContextMenuPresentation.popup,
+                  child: bubbleSurface,
+                ),
+              ),
+            ),
+          );
 
     return Container(
       width: double.infinity,
@@ -804,7 +905,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Display images outside and above the text bubble (iMessage style)
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
-            ConduitContextMenu(actions: actions, child: attachmentContent),
+            ConduitContextMenu(
+              actions: attachmentActions,
+              child: attachmentContent,
+            ),
 
           // Display text bubble if there's text content
           if (hasText) const SizedBox(height: Spacing.xs),
@@ -815,76 +919,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                 Flexible(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
-                    child: ConduitContextMenu(
-                      actions: actions,
-                      child: Container(
-                        key: const Key('user-message-bubble-surface'),
-                        padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
-                        decoration: BoxDecoration(
-                          color: theme.chatBubbleUser,
-                          borderRadius: bubbleBorderRadius,
-                          border: Border.all(
-                            color: bubbleBorderColor,
-                            width: BorderWidth.thin,
-                          ),
-                        ),
-                        child: _isEditing
-                            ? Focus(
-                                focusNode: _editFocusNode,
-                                autofocus: true,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: inlineEditFill,
-                                    borderRadius: BorderRadius.circular(
-                                      AppBorderRadius.small,
-                                    ),
-                                    border: Border.all(
-                                      color: theme.inputBorderFocused
-                                          .withValues(alpha: 0.5),
-                                      width: BorderWidth.thin,
-                                    ),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: Spacing.xs,
-                                      vertical: Spacing.xxs,
-                                    ),
-                                    child: AdaptiveTextField(
-                                      controller: _editController,
-                                      maxLines: null,
-                                      style: AppTypography.chatMessageStyle
-                                          .copyWith(color: inlineEditTextColor),
-                                      onSubmitted: (_) => _saveInlineEdit(),
-                                      padding: EdgeInsets.zero,
-                                      cupertinoDecoration:
-                                          const BoxDecoration(),
-                                      decoration: context.conduitInputStyles
-                                          .borderless()
-                                          .copyWith(
-                                            isCollapsed: true,
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                widget.message.content,
-                                style: AppTypography.chatMessageStyle.copyWith(
-                                  color: theme.chatBubbleUserText,
-                                ),
-                                softWrap: true,
-                                textAlign: TextAlign.left,
-                                textWidthBasis: TextWidthBasis.longestLine,
-                                textHeightBehavior: const TextHeightBehavior(
-                                  applyHeightToFirstAscent: false,
-                                  applyHeightToLastDescent: false,
-                                  leadingDistribution:
-                                      TextLeadingDistribution.even,
-                                ),
-                              ),
-                      ),
-                    ),
+                    child: textBubble,
                   ),
                 ),
               ],
@@ -986,6 +1021,11 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
   void _startInlineEdit() {
     if (_isEditing) return;
+    final selectionArea = _textSelectionAreaKey.currentState;
+    if (selectionArea != null) {
+      selectionArea.selectableRegion.hideToolbar();
+      selectionArea.selectableRegion.clearSelection();
+    }
     setState(() {
       _isEditing = true;
       _editController.text = widget.message.content ?? '';

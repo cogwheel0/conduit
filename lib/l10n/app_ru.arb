@@ -230,6 +230,7 @@
   "imageGeneration": "Генерация изображений",
   "imageGenerationDescription": "Создавайте изображения из ваших запросов.",
   "copy": "Копировать",
+  "selectText": "Выбрать",
   "ttsListen": "Прослушать",
   "ttsStop": "Остановить",
   "edit": "Редактировать",

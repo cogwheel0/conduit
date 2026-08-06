@@ -230,6 +230,7 @@
   "imageGeneration": "图像生成",
   "imageGenerationDescription": "从您的提示创建图像。",
   "copy": "复制",
+  "selectText": "选择",
   "ttsListen": "收听",
   "ttsStop": "停止",
   "edit": "编辑",

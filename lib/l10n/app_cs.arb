@@ -992,6 +992,7 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "selectText": "Vybrat",
   "ttsListen": "Poslechnout",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"

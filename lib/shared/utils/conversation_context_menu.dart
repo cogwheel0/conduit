@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -11,6 +13,8 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,11 +43,23 @@ class ConduitContextMenuAction {
   });
 }
 
+/// Controls how a [ConduitContextMenu] is presented on platforms that support
+/// more than one native menu treatment.
+enum ConduitContextMenuPresentation {
+  /// A lifted preview with its actions alongside it.
+  preview,
+
+  /// A compact popup anchored to the pressed child.
+  popup,
+}
+
 /// A long-press context menu widget with platform-specific presentation.
 ///
 /// The app keeps its own action model so call sites can share haptics and
-/// icons while the menu presentation follows the current platform. On iOS we
-/// keep the child size stable during preview because stock
+/// icons while the menu presentation follows the current platform. Popup
+/// menus stay in Flutter's gesture arena so gestures owned by the child, such
+/// as text selection on double tap, remain available. On iOS we keep the child
+/// size stable during preview because stock
 /// [CupertinoContextMenu] can assert when the child is laid out by flex-based
 /// parents.
 class ConduitContextMenu extends StatefulWidget {
@@ -51,6 +67,7 @@ class ConduitContextMenu extends StatefulWidget {
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
   final bool stabilizePreviewSize;
+  final ConduitContextMenuPresentation presentation;
 
   const ConduitContextMenu({
     super.key,
@@ -58,6 +75,7 @@ class ConduitContextMenu extends StatefulWidget {
     required this.child,
     this.topWidgetBuilder,
     this.stabilizePreviewSize = true,
+    this.presentation = ConduitContextMenuPresentation.popup,
   });
 
   @override
@@ -65,7 +83,30 @@ class ConduitContextMenu extends StatefulWidget {
 }
 
 class _ConduitContextMenuState extends State<ConduitContextMenu> {
+  ContextMenuController? _activePopupController;
+  bool? _usesIOSPopupRoute;
   Size? _childSize;
+
+  @override
+  void didUpdateWidget(covariant ConduitContextMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_hasEquivalentActionPresentation(oldWidget.actions, widget.actions) ||
+        oldWidget.presentation != widget.presentation) {
+      _dismissPopup();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final usesIOSPopupRoute =
+        Theme.of(context).platform == TargetPlatform.iOS &&
+        widget.presentation == ConduitContextMenuPresentation.popup;
+    if (_usesIOSPopupRoute != null && _usesIOSPopupRoute != usesIOSPopupRoute) {
+      _dismissPopup();
+    }
+    _usesIOSPopupRoute = usesIOSPopupRoute;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +114,12 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return widget.child;
     }
 
-    if (PlatformInfo.isIOS) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    if (isIOS && widget.presentation == ConduitContextMenuPresentation.popup) {
+      return _buildAdaptivePopupMenu(context);
+    }
+
+    if (isIOS) {
       return _buildCupertinoContextMenu(context);
     }
 
@@ -84,15 +130,89 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             title: action.label,
             icon: action.materialIcon,
             isDestructive: action.destructive,
-            onPressed: () {
-              ConduitHaptics.selectionClick();
-              action.onBeforeClose?.call();
-              action.onSelected();
-            },
+            onPressed: () => _invokeAction(action),
           ),
       ],
       child: widget.child,
     );
+  }
+
+  Widget _buildAdaptivePopupMenu(BuildContext context) {
+    if (PlatformInfo.isIOS26OrHigher()) {
+      return _IOS26ConduitContextMenu(
+        actions: widget.actions,
+        onSelected: _invokeAction,
+        child: widget.child,
+      );
+    }
+
+    return GestureDetector(
+      key: const ValueKey('conduit-context-menu-popup-gesture'),
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (details) =>
+          _showPopupMenu(context, details.globalPosition),
+      onSecondaryTapUp: (details) =>
+          _showPopupMenu(context, details.globalPosition),
+      child: widget.child,
+    );
+  }
+
+  void _showPopupMenu(BuildContext context, Offset anchor) {
+    final actions = List<ConduitContextMenuAction>.of(widget.actions);
+    _dismissPopup();
+    late final ContextMenuController controller;
+    controller = ContextMenuController(
+      onRemove: () {
+        if (identical(_activePopupController, controller)) {
+          _activePopupController = null;
+        }
+      },
+    );
+    _activePopupController = controller;
+    controller.show(
+      context: context,
+      debugRequiredFor: widget,
+      contextMenuBuilder: (overlayContext) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: controller.remove,
+              ),
+            ),
+            AdaptiveTextSelectionToolbar(
+              anchors: TextSelectionToolbarAnchors(primaryAnchor: anchor),
+              children: [
+                for (final (index, action) in actions.indexed)
+                  CupertinoTextSelectionToolbarButton(
+                    onPressed: () {
+                      final currentActions = widget.actions;
+                      if (!_hasEquivalentActionPresentation(
+                        actions,
+                        currentActions,
+                      )) {
+                        controller.remove();
+                        return;
+                      }
+                      final currentAction = currentActions[index];
+                      controller.remove();
+                      Future.microtask(() => _invokeAction(currentAction));
+                    },
+                    child: _PopupMenuActionContent(action: action),
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _invokeAction(ConduitContextMenuAction action) {
+    ConduitHaptics.selectionClick();
+    action.onBeforeClose?.call();
+    action.onSelected();
   }
 
   Widget _buildCupertinoContextMenu(BuildContext context) {
@@ -105,9 +225,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             onPressed: () {
               Navigator.of(context, rootNavigator: true).pop();
               Future.microtask(() {
-                ConduitHaptics.selectionClick();
-                action.onBeforeClose?.call();
-                action.onSelected();
+                _invokeAction(action);
               });
             },
             child: Text(action.label),
@@ -160,6 +278,188 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return;
     }
     _childSize = size;
+  }
+
+  void _dismissPopup() {
+    _activePopupController?.remove();
+  }
+
+  @override
+  void dispose() {
+    _dismissPopup();
+    _activePopupController = null;
+    super.dispose();
+  }
+}
+
+bool _hasEquivalentActionPresentation(
+  List<ConduitContextMenuAction> previous,
+  List<ConduitContextMenuAction> current,
+) {
+  if (previous.length != current.length) {
+    return false;
+  }
+  for (var index = 0; index < previous.length; index++) {
+    final oldAction = previous[index];
+    final newAction = current[index];
+    if (oldAction.label != newAction.label ||
+        oldAction.cupertinoIcon != newAction.cupertinoIcon ||
+        oldAction.sfSymbol != newAction.sfSymbol ||
+        oldAction.materialIcon != newAction.materialIcon ||
+        oldAction.destructive != newAction.destructive) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// Hosts a native iOS 26 [UIMenu] without hiding Flutter's selectable content
+/// from hit testing.
+///
+/// Flutter recognizes the long press and asks a transparent native anchor to
+/// present its [UIMenu], so regular and double taps remain available to the
+/// selectable child.
+class _IOS26ConduitContextMenu extends StatefulWidget {
+  const _IOS26ConduitContextMenu({
+    required this.actions,
+    required this.onSelected,
+    required this.child,
+  });
+
+  final List<ConduitContextMenuAction> actions;
+  final ValueChanged<ConduitContextMenuAction> onSelected;
+  final Widget child;
+
+  @override
+  State<_IOS26ConduitContextMenu> createState() =>
+      _IOS26ConduitContextMenuState();
+}
+
+class _IOS26ConduitContextMenuState extends State<_IOS26ConduitContextMenu> {
+  MethodChannel? _channel;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = widget.actions;
+    final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final viewKey = ValueKey<String>(
+      jsonEncode(<Object?>[
+        isDark,
+        for (final action in actions)
+          <Object?>[action.label, action.sfSymbol, action.destructive],
+      ]),
+    );
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        GestureDetector(
+          key: const ValueKey('conduit-context-menu-popup-gesture'),
+          behavior: HitTestBehavior.opaque,
+          onLongPress: () {
+            _channel?.invokeMethod<void>('showMenu');
+          },
+          child: widget.child,
+        ),
+        Positioned.fill(
+          child: buildConduitIOS26PopupPlatformView(
+            key: viewKey,
+            creationParams: <String, Object?>{
+              'labels': [for (final action in actions) action.label],
+              'sfSymbols': [
+                for (final action in actions) action.sfSymbol ?? '',
+              ],
+              'enabled': [for (final _ in actions) true],
+              'isDestructive': [
+                for (final action in actions) action.destructive,
+              ],
+            },
+            onPlatformViewCreated: _handlePlatformViewCreated,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handlePlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    final channel = MethodChannel(
+      'app.cogwheel.conduit/native_context_menu_anchor_$id',
+    );
+    _channel = channel;
+    channel.setMethodCallHandler(_handleMethodCall);
+  }
+
+  Future<void> _handleMethodCall(MethodCall call) async {
+    if (call.method != 'itemSelected') {
+      return;
+    }
+    final arguments = call.arguments;
+    final index = arguments is Map
+        ? (arguments['index'] as num?)?.toInt()
+        : null;
+    if (index == null || index < 0 || index >= widget.actions.length) {
+      return;
+    }
+    widget.onSelected(widget.actions[index]);
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    _channel = null;
+    super.dispose();
+  }
+}
+
+/// Creates the native iOS 26 menu surface used by [ConduitContextMenu].
+///
+/// Exposed for the gesture regression test: accepting pointer events here
+/// removes the selectable child from Flutter's hit-test path.
+@visibleForTesting
+UiKitView buildConduitIOS26PopupPlatformView({
+  required Key key,
+  required Map<String, Object?> creationParams,
+  required PlatformViewCreatedCallback onPlatformViewCreated,
+}) {
+  return UiKitView(
+    key: key,
+    viewType: 'app.cogwheel.conduit/native_context_menu_anchor',
+    creationParams: creationParams,
+    creationParamsCodec: const StandardMessageCodec(),
+    onPlatformViewCreated: onPlatformViewCreated,
+    hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+  );
+}
+
+class _PopupMenuActionContent extends StatelessWidget {
+  const _PopupMenuActionContent({required this.action});
+
+  final ConduitContextMenuAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = action.destructive
+        ? CupertinoColors.systemRed.resolveFrom(context)
+        : CupertinoColors.label.resolveFrom(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(action.cupertinoIcon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          action.label,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            inherit: false,
+            color: color,
+            fontSize: 15,
+            letterSpacing: -0.15,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
   }
 }
 

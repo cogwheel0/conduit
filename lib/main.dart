@@ -4,6 +4,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter_driver/driver_extension.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -113,6 +114,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      GestureBinding.instance.resamplingEnabled = true;
       RasterMediaPolicy.configureGlobalImageCache();
       // Measure the complete Dart-side startup path, including the first plugin
       // calls. Package metadata is not required to paint the auth/theme shell;

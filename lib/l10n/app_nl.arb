@@ -230,6 +230,7 @@
   "imageGeneration": "Afbeeldingsgeneratie",
   "imageGenerationDescription": "Maak afbeeldingen van je prompts.",
   "copy": "Kopiëren",
+  "selectText": "Selecteren",
   "ttsListen": "Luisteren",
   "ttsStop": "Stoppen",
   "edit": "Bewerken",

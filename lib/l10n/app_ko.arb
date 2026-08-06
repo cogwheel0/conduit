@@ -331,6 +331,7 @@
   "imageGeneration": "이미지 생성",
   "imageGenerationDescription": "프롬프트에서 이미지를 생성합니다.",
   "copy": "복사",
+  "selectText": "선택",
   "ttsListen": "듣기",
   "ttsStop": "중지",
   "edit": "편집",

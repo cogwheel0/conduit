@@ -1181,6 +1181,10 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "selectText": "Select",
+  "@selectText": {
+    "description": "Action that selects the full text of a chat message."
+  },
   "ttsListen": "Listen",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
