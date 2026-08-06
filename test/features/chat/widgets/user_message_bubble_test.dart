@@ -19,12 +19,52 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
 import 'package:dio/dio.dart' show CancelToken;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 
 void main() {
+  Future<void> withTargetPlatform(
+    TargetPlatform platform,
+    Future<void> Function() body,
+  ) async {
+    debugDefaultTargetPlatformOverride = platform;
+    try {
+      await body();
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }
+
+  Future<String?> copySelectedText(WidgetTester tester) async {
+    String? copiedText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText =
+              (call.arguments as Map<dynamic, dynamic>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    final selectionArea = tester.state<SelectionAreaState>(
+      find.byType(SelectionArea),
+    );
+    final copyAction = selectionArea.selectableRegion.contextMenuButtonItems
+        .singleWhere((item) => item.type == ContextMenuButtonType.copy);
+    copyAction.onPressed!.call();
+    await tester.pump();
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    );
+    return copiedText;
+  }
+
   Widget buildHarness(
     ChatMessage message, {
     List<Override> overrides = const [],
@@ -71,6 +111,16 @@ void main() {
 
     expect(find.text('Sprint Plan'), findsOneWidget);
     expect(find.byIcon(Icons.sticky_note_2_outlined), findsOneWidget);
+    expect(find.byType(SelectionArea), findsNothing);
+
+    final attachmentMenu = tester.widget<ConduitContextMenu>(
+      find.byType(ConduitContextMenu),
+    );
+    expect(attachmentMenu.presentation, ConduitContextMenuPresentation.preview);
+    expect(
+      attachmentMenu.actions.map((action) => action.label),
+      orderedEquals(<String>['Edit', 'Copy', 'Delete']),
+    );
   });
 
   testWidgets(
@@ -179,6 +229,96 @@ void main() {
     expect(textWidget.textWidthBasis, TextWidthBasis.longestLine);
   });
 
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.iOS,
+    TargetPlatform.android,
+  ]) {
+    testWidgets(
+      'long press offers Select and selects the whole message on ${platform.name}',
+      (WidgetTester tester) async {
+        await withTargetPlatform(platform, () async {
+          const content = 'Select this entire user message';
+          final message = ChatMessage(
+            id: 'select-all-${platform.name}',
+            role: 'user',
+            content: content,
+            timestamp: DateTime.utc(2026, 8, 6, 10),
+          );
+
+          await tester.pumpWidget(buildHarness(message));
+          await tester.pump();
+
+          final contextMenu = tester.widget<ConduitContextMenu>(
+            find.byType(ConduitContextMenu),
+          );
+          expect(
+            contextMenu.presentation,
+            ConduitContextMenuPresentation.popup,
+          );
+          expect(
+            contextMenu.actions.map((action) => action.label),
+            orderedEquals(<String>['Edit', 'Copy', 'Select', 'Delete']),
+          );
+
+          final selectionArea = tester.state<SelectionAreaState>(
+            find.byType(SelectionArea),
+          );
+          expect(
+            selectionArea.selectableRegion.contextMenuButtonItems.where(
+              (item) => item.type == ContextMenuButtonType.copy,
+            ),
+            isEmpty,
+          );
+
+          await tester.longPress(find.text(content));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+
+          expect(find.text('Select'), findsOneWidget);
+          expect(
+            selectionArea.selectableRegion.contextMenuButtonItems.where(
+              (item) => item.type == ContextMenuButtonType.copy,
+            ),
+            isEmpty,
+          );
+
+          await tester.tap(find.text('Select'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+
+          expect(await copySelectedText(tester), content);
+        });
+      },
+    );
+
+    testWidgets('double tap selects one word on ${platform.name}', (
+      WidgetTester tester,
+    ) async {
+      await withTargetPlatform(platform, () async {
+        const content = 'alpha beta gamma';
+        final message = ChatMessage(
+          id: 'double-tap-${platform.name}',
+          role: 'user',
+          content: content,
+          timestamp: DateTime.utc(2026, 8, 6, 10),
+        );
+
+        await tester.pumpWidget(buildHarness(message));
+        await tester.pump();
+
+        final textRect = tester.getRect(find.text(content));
+        final alphaPosition = Offset(textRect.left + 10, textRect.center.dy);
+        await tester.tapAt(alphaPosition);
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tapAt(alphaPosition);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(await copySelectedText(tester), 'alpha');
+      });
+    });
+  }
+
   testWidgets('failed Hermes inline edit reports the error to the user', (
     WidgetTester tester,
   ) async {
@@ -235,6 +375,7 @@ void main() {
     );
     await contextMenu.actions.first.onSelected();
     await tester.pump();
+    expect(find.byType(SelectionArea), findsNothing);
     await tester.enterText(find.byType(AdaptiveTextField), 'Edited prompt');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();

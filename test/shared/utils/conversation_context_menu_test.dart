@@ -50,6 +50,49 @@ void main() {
     expect(find.byType(GestureDetector), findsOneWidget);
   });
 
+  testWidgets('defaults to preview presentation and accepts popup opt-in', (
+    tester,
+  ) async {
+    final actions = [
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+        materialIcon: Icons.copy,
+        label: 'Copy',
+        onSelected: () async {},
+      ),
+    ];
+
+    await tester.pumpWidget(
+      _buildHarness(
+        ConduitContextMenu(actions: actions, child: const Text('Preview')),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<ConduitContextMenu>(find.byType(ConduitContextMenu))
+          .presentation,
+      ConduitContextMenuPresentation.preview,
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(
+        ConduitContextMenu(
+          actions: actions,
+          presentation: ConduitContextMenuPresentation.popup,
+          child: const Text('Popup'),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<ConduitContextMenu>(find.byType(ConduitContextMenu))
+          .presentation,
+      ConduitContextMenuPresentation.popup,
+    );
+  });
+
   testWidgets('does not build lazy top widget before the menu opens', (
     tester,
   ) async {

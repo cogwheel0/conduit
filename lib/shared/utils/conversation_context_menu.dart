@@ -39,6 +39,16 @@ class ConduitContextMenuAction {
   });
 }
 
+/// Controls how a [ConduitContextMenu] is presented on platforms that support
+/// more than one native menu treatment.
+enum ConduitContextMenuPresentation {
+  /// A lifted preview with its actions alongside it.
+  preview,
+
+  /// A compact popup anchored to the pressed child.
+  popup,
+}
+
 /// A long-press context menu widget with platform-specific presentation.
 ///
 /// The app keeps its own action model so call sites can share haptics and
@@ -51,6 +61,7 @@ class ConduitContextMenu extends StatefulWidget {
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
   final bool stabilizePreviewSize;
+  final ConduitContextMenuPresentation presentation;
 
   const ConduitContextMenu({
     super.key,
@@ -58,6 +69,7 @@ class ConduitContextMenu extends StatefulWidget {
     required this.child,
     this.topWidgetBuilder,
     this.stabilizePreviewSize = true,
+    this.presentation = ConduitContextMenuPresentation.preview,
   });
 
   @override
@@ -73,6 +85,11 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
       return widget.child;
     }
 
+    if (PlatformInfo.isIOS &&
+        widget.presentation == ConduitContextMenuPresentation.popup) {
+      return _buildAdaptivePopupMenu();
+    }
+
     if (PlatformInfo.isIOS) {
       return _buildCupertinoContextMenu(context);
     }
@@ -84,15 +101,42 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             title: action.label,
             icon: action.materialIcon,
             isDestructive: action.destructive,
-            onPressed: () {
-              ConduitHaptics.selectionClick();
-              action.onBeforeClose?.call();
-              action.onSelected();
-            },
+            onPressed: () => _invokeAction(action),
           ),
       ],
       child: widget.child,
     );
+  }
+
+  Widget _buildAdaptivePopupMenu() {
+    return AdaptivePopupMenuButton.widget<int>(
+      items: [
+        for (var index = 0; index < widget.actions.length; index++)
+          AdaptivePopupMenuItem<int>(
+            value: index,
+            label: widget.actions[index].label,
+            icon:
+                widget.actions[index].sfSymbol ??
+                widget.actions[index].cupertinoIcon,
+            isDestructive: widget.actions[index].destructive,
+          ),
+      ],
+      onSelected: (_, entry) {
+        final index = entry.value;
+        if (index == null || index < 0 || index >= widget.actions.length) {
+          return;
+        }
+        Future.microtask(() => _invokeAction(widget.actions[index]));
+      },
+      triggerOnLongPress: true,
+      child: widget.child,
+    );
+  }
+
+  void _invokeAction(ConduitContextMenuAction action) {
+    ConduitHaptics.selectionClick();
+    action.onBeforeClose?.call();
+    action.onSelected();
   }
 
   Widget _buildCupertinoContextMenu(BuildContext context) {
@@ -105,9 +149,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             onPressed: () {
               Navigator.of(context, rootNavigator: true).pop();
               Future.microtask(() {
-                ConduitHaptics.selectionClick();
-                action.onBeforeClose?.call();
-                action.onSelected();
+                _invokeAction(action);
               });
             },
             child: Text(action.label),

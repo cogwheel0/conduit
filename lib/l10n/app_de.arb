@@ -232,6 +232,7 @@
   "imageGeneration": "Bildgenerierung",
   "imageGenerationDescription": "Bilder aus deinen Prompts erstellen.",
   "copy": "Kopieren",
+  "selectText": "Auswählen",
   "ttsListen": "Anhören",
   "ttsStop": "Stoppen",
   "edit": "Bearbeiten",

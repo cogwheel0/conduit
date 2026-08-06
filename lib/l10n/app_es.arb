@@ -230,6 +230,7 @@
   "imageGeneration": "Generación de imágenes",
   "imageGenerationDescription": "Crea imágenes a partir de tus prompts.",
   "copy": "Copiar",
+  "selectText": "Seleccionar",
   "ttsListen": "Escuchar",
   "ttsStop": "Detener",
   "edit": "Editar",

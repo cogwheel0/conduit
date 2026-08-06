@@ -992,6 +992,7 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "selectText": "選択",
   "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
