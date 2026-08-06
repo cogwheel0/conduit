@@ -13,7 +13,7 @@ void main() {
   group('Polish locale registration', () {
     test('pl is listed in the supported locales', () {
       final supported = AppLocalizations.supportedLocales;
-      check(supported).any((loc) => loc.languageCode == 'pl');
+      check(supported.map((loc) => loc.languageCode)).contains('pl');
     });
 
     test('device locales pl and pl_PL resolve to Polish without fallback', () {
@@ -49,7 +49,13 @@ void main() {
       final enMeta = _placeholdersByKey(en);
       final plMeta = _placeholdersByKey(pl);
       for (final entry in enMeta.entries) {
-        check(plMeta[entry.key]).deepEquals(entry.value);
+        final plPlaceholders = plMeta[entry.key];
+        check(plPlaceholders).isNotNull();
+        // Normalize to a sorted, comma-joined string: Dart List/Set equality
+        // is identity-based, and package:checks does not deep-compare here.
+        final plJoined = (plPlaceholders!.toList()..sort()).join(',');
+        final enJoined = (entry.value.toList()..sort()).join(',');
+        check(plJoined).equals(enJoined);
       }
     });
   });
@@ -116,8 +122,11 @@ void main() {
     });
 
     test('hermesSchedulesSummary and direct probes stay grammatical', () {
-      check(l10n.hermesSchedulesSummary(2, 3)).contains('3 harmonogramy');
-      check(l10n.hermesSchedulesSummary(2, 5)).contains('5 harmonogramów');
+      // active itself is a pluralized count: 1 aktywny / 2 aktywne / 5 aktywnych.
+      check(l10n.hermesSchedulesSummary(1, 1)).equals('1 aktywny · 1 harmonogram');
+      check(l10n.hermesSchedulesSummary(1, 5)).equals('1 aktywny · 5 harmonogramów');
+      check(l10n.hermesSchedulesSummary(2, 3)).equals('2 aktywne · 3 harmonogramy');
+      check(l10n.hermesSchedulesSummary(5, 22)).equals('5 aktywnych · 22 harmonogramy');
       check(l10n.directConnectionProbeConnectedModels(1))
           .contains('1 model');
       check(l10n.directConnectionProbeConnectedModels(3))

@@ -51,7 +51,7 @@
       }
     }
   },
-  "serverIncompatibleResolution": "Aby kontynuować, zaktualizuj wersję serwera do {maxVersion} lub starszej albo poczekaj na aktualizację aplikacji z obsługą nowszej wersji.",
+  "serverIncompatibleResolution": "Aby kontynuować, obniż wersję serwera do {maxVersion} lub starszej albo poczekaj na aktualizację aplikacji obsługującą nowszą wersję.",
   "@serverIncompatibleResolution": {
     "description": "Tells the user how to resolve an unsupported server version",
     "placeholders": {
@@ -405,7 +405,7 @@
   "@enterCredentials": {
     "description": "Instructional text on the sign-in screen."
   },
-  "credentials": "Hasło",
+  "credentials": "E-mail i hasło",
   "@credentials": {
     "description": "Authentication method label for username/password sign-in."
   },
@@ -851,7 +851,7 @@
   "@ok": {
     "description": "Generic OK button label."
   },
-  "previousLabel": "Poprzedni",
+  "previousLabel": "Poprzednia",
   "@previousLabel": {
     "description": "Label for navigating to the previous item."
   },
@@ -1548,11 +1548,11 @@
   "@appCustomization": {
     "description": "Title of the customization settings page."
   },
-  "appCustomizationSubtitle": "Motyw, język, głos i szybkie pigułki",
+  "appCustomizationSubtitle": "Motyw, język, głos i szybkie akcje",
   "@appCustomizationSubtitle": {
     "description": "Subtitle shown under App Customization tile and page header."
   },
-  "quickActionsDescription": "Szybkie pigułki na czacie",
+  "quickActionsDescription": "Szybkie akcje na czacie",
   "@quickActionsDescription": {
     "description": "Helper text explaining quick action pill selection in customization."
   },
@@ -1630,7 +1630,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Zawsze wysyłaj nagrania do serwera OpenWebUI w celu transkrypcji.",
+  "sttEngineServerDescription": "Zawsze wysyłaj nagrania do serwera Open WebUI w celu transkrypcji.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1714,7 +1714,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Zawsze pobieraj audio z serwera OpenWebUI.",
+  "ttsEngineServerDescription": "Zawsze pobieraj audio z serwera Open WebUI.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -2713,7 +2713,7 @@
   "@shareChatDescription": {
     "description": "Explains that a shared chat link is a snapshot."
   },
-  "shareChatExisting": "Udostępniałeś już ten czat.",
+  "shareChatExisting": "Ten czat ma już link do udostępniania.",
   "@shareChatExisting": {
     "description": "Explains that the chat already has an existing shared link."
   },
@@ -2769,11 +2769,11 @@
   "@folderSystemPrompts": {
     "description": "Title for the OpenWebUI folder-level system prompts list."
   },
-  "openWebuiModelSettings": "Ustawienia modeli OpenWebUI",
+  "openWebuiModelSettings": "Ustawienia modeli Open WebUI",
   "@openWebuiModelSettings": {
     "description": "Subtitle for model prompt settings before models load."
   },
-  "openWebuiFolderSettings": "Ustawienia folderów OpenWebUI",
+  "openWebuiFolderSettings": "Ustawienia folderów Open WebUI",
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
@@ -2797,7 +2797,7 @@
       }
     }
   },
-  "unableToLoadOpenWebuiSettings": "Nie można wczytać ustawień OpenWebUI.",
+  "unableToLoadOpenWebuiSettings": "Nie można wczytać ustawień Open WebUI.",
   "@unableToLoadOpenWebuiSettings": {
     "description": "Error shown when user settings cannot be loaded from OpenWebUI."
   },
@@ -2821,11 +2821,11 @@
   "@tapToLoadServerPromptSettings": {
     "description": "Subtitle for model rows whose prompt details are loaded on demand."
   },
-  "loadingFromOpenWebui": "Wczytywanie z OpenWebUI…",
+  "loadingFromOpenWebui": "Wczytywanie z Open WebUI…",
   "@loadingFromOpenWebui": {
     "description": "Loading subtitle for server-backed settings."
   },
-  "globalSystemPromptEditorDescription": "Zapisywane w ustawieniach użytkownika OpenWebUI i używane jako domyślny prompt systemowy czatu.",
+  "globalSystemPromptEditorDescription": "Zapisywane w ustawieniach użytkownika Open WebUI i używane jako domyślny prompt systemowy czatu.",
   "@globalSystemPromptEditorDescription": {
     "description": "Description in the global system prompt editor."
   },
@@ -2843,7 +2843,7 @@
       }
     }
   },
-  "modelSystemPromptEditorDescription": "Zapisywane w parametrze params.system modelu OpenWebUI.",
+  "modelSystemPromptEditorDescription": "Zapisywane w parametrze params.system modelu Open WebUI.",
   "@modelSystemPromptEditorDescription": {
     "description": "Description for editable model system prompts."
   },
@@ -2865,7 +2865,7 @@
       }
     }
   },
-  "folderSystemPromptEditorDescription": "Zapisywane w polu data.system_prompt folderu OpenWebUI.",
+  "folderSystemPromptEditorDescription": "Zapisywane w polu data.system_prompt folderu Open WebUI.",
   "@folderSystemPromptEditorDescription": {
     "description": "Description for folder system prompt editors."
   },
@@ -2909,7 +2909,7 @@
   "@yourSystemPrompt": {
     "description": "Label for the user's server-backed system prompt."
   },
-  "yourSystemPromptDescription": "Ustaw osobisty prompt systemowy, który OpenWebUI będzie stosować do Twoich czatów.",
+  "yourSystemPromptDescription": "Ustaw osobisty prompt systemowy, który Open WebUI będzie stosować do Twoich czatów.",
   "@yourSystemPromptDescription": {
     "description": "Helper text for editing the user's system prompt."
   },
@@ -5444,7 +5444,7 @@
   "@directConnectionDeleteTitle": {
     "description": "Title of the direct connection deletion confirmation dialog."
   },
-  "directConnectionDeleteMessage": "Spowoduje to usunięcie {name} i jej danych logowania z tego urządzenia.",
+  "directConnectionDeleteMessage": "Spowoduje to usunięcie połączenia „{name}” i zapisanych dla niego danych logowania z tego urządzenia.",
   "@directConnectionDeleteMessage": {
     "description": "Confirmation message shown before deleting a direct connection and its credentials.",
     "placeholders": {
@@ -5918,7 +5918,7 @@
   "@hermesNoSchedulesYet": {
     "description": "Status shown when no Hermes schedules exist."
   },
-  "hermesSchedulesSummary": "{active} aktywnych · {total, plural, one{{total} harmonogram} few{{total} harmonogramy} many{{total} harmonogramów} other{{total} harmonogramu}}",
+  "hermesSchedulesSummary": "{active, plural, one{{active} aktywny} few{{active} aktywne} many{{active} aktywnych} other{{active} aktywnych}} · {total, plural, one{{total} harmonogram} few{{total} harmonogramy} many{{total} harmonogramów} other{{total} harmonogramu}}",
   "@hermesSchedulesSummary": {
     "description": "Summary of active and total Hermes schedules.",
     "placeholders": {
