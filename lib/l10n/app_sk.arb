@@ -894,6 +894,10 @@
   "@slovak": {
     "description": "Language name: Slovak."
   },
+  "polish": "Poľština",
+  "@polish": {
+    "description": "Language name: Polish."
+  },
   "deleteMessagesTitle": "Odstrániť správy",
   "@deleteMessagesTitle": {
     "description": "Dialog title asking to confirm deletion of messages."
