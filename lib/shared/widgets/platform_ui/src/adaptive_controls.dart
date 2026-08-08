@@ -1044,16 +1044,10 @@ class AdaptivePopupMenuButton<T> {
             if (items[index] is AdaptivePopupMenuDivider)
               const SizedBox(height: 8)
             else
-              CupertinoActionSheetAction(
-                onPressed: (items[index] as AdaptivePopupMenuItem<T>).enabled
-                    ? () => Navigator.of(sheetContext).pop(index)
-                    : () {},
-                isDestructiveAction:
-                    (items[index] as AdaptivePopupMenuItem<T>).isDestructive,
-                child: _menuItemContent(
-                  items[index] as AdaptivePopupMenuItem<T>,
-                  material: false,
-                ),
+              _cupertinoActionSheetItem<T>(
+                sheetContext,
+                index,
+                items[index] as AdaptivePopupMenuItem<T>,
               ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -1066,6 +1060,30 @@ class AdaptivePopupMenuButton<T> {
       ),
     );
     if (selected != null) _dispatch<T>(items, selected, onSelected);
+  }
+
+  static Widget _cupertinoActionSheetItem<T>(
+    BuildContext sheetContext,
+    int index,
+    AdaptivePopupMenuItem<T> item,
+  ) {
+    final content = _menuItemContent(item, material: false);
+    if (item.enabled) {
+      return CupertinoActionSheetAction(
+        onPressed: () => Navigator.of(sheetContext).pop(index),
+        isDestructiveAction: item.isDestructive,
+        child: content,
+      );
+    }
+    return Semantics(
+      key: ValueKey<String>('disabled-cupertino-popup-item-$index'),
+      button: true,
+      enabled: false,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 56),
+        child: Center(child: Opacity(opacity: 0.35, child: content)),
+      ),
+    );
   }
 
   static Future<void> _showFlutterMenu<T>(

@@ -743,6 +743,39 @@ void main() {
     expect(native, isA<CNPopupMenuButton>());
     expect(rich, isNot(isA<CNPopupMenuButton>()));
   });
+
+  testWidgets('disabled Cupertino popup items are non-interactive', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: AdaptivePopupMenuButton.text<int>(
+            label: 'Menu',
+            items: const [
+              AdaptivePopupMenuItem<int>(label: 'Disabled', enabled: false),
+            ],
+            onSelected: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.widgetWithText(CupertinoActionSheetAction, 'Disabled'),
+      findsNothing,
+    );
+    final semantics = tester.widget<Semantics>(
+      find.byKey(const ValueKey<String>('disabled-cupertino-popup-item-0')),
+    );
+    expect(semantics.properties.enabled, isFalse);
+    expect(semantics.properties.onTap, isNull);
+  });
 }
 
 void _discardIndex(int _) {}
