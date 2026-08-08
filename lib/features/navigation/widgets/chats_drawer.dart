@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
@@ -434,9 +434,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   void _onSearchChanged() {
     _debounce?.cancel();
+    final query = _sidebarSearchController.text.trim();
+    if (query.isEmpty) {
+      if (mounted && _query.isNotEmpty) {
+        setState(() => _query = '');
+      }
+      return;
+    }
     _debounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
-      setState(() => _query = _sidebarSearchController.text.trim());
+      setState(() => _query = query);
     });
   }
 
@@ -604,20 +611,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ...ancestorHasMoreSiblings,
       hasMoreSiblings,
     ];
-    final slivers = <Widget>[
-      SliverPadding(
-        padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.md),
-        sliver: SliverToBoxAdapter(
-          child: _buildFolderHeader(
-            folder: folder,
-            allFolders: allFolders,
-            depth: depth,
-            hasMoreSiblings: hasMoreSiblings,
-            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
-          ),
-        ),
+    final folderHeaderSliver = SliverToBoxAdapter(
+      child: _buildFolderHeader(
+        folder: folder,
+        allFolders: allFolders,
+        depth: depth,
+        hasMoreSiblings: hasMoreSiblings,
+        ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       ),
-    ];
+    );
+    final slivers = <Widget>[folderHeaderSliver];
 
     final hasExpandableContent =
         childFolders.isNotEmpty || conversations.isNotEmpty || isFolderLoading;
@@ -654,12 +657,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     if (childFolders.isNotEmpty && hasTrailingChildContent) {
       slivers.add(
-        SliverPadding(
-          padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.md),
-          sliver: SliverToBoxAdapter(
-            child: FolderTreeIntergroupGap(
-              ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
-            ),
+        SliverToBoxAdapter(
+          child: FolderTreeIntergroupGap(
+            ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
           ),
         ),
       );
@@ -668,22 +668,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     if (isFolderLoading && conversations.isEmpty) {
       slivers.add(
         SliverPadding(
-          padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.md),
-          sliver: SliverPadding(
-            padding: EdgeInsets.only(
-              left:
-                  (nextAncestorHasMoreSiblings.length + 1) *
-                  FolderTreeHierarchyNode.segmentWidth,
-            ),
-            sliver: const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: Spacing.sm),
-                child: Center(
-                  child: SizedBox(
-                    width: IconSize.sm,
-                    height: IconSize.sm,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+          padding: EdgeInsets.only(
+            left:
+                (nextAncestorHasMoreSiblings.length + 1) *
+                FolderTreeHierarchyNode.segmentWidth,
+          ),
+          sliver: const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: Spacing.sm),
+              child: Center(
+                child: SizedBox(
+                  width: IconSize.sm,
+                  height: IconSize.sm,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
             ),
@@ -692,14 +689,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       );
     } else if (conversations.isNotEmpty) {
       slivers.add(
-        SliverPadding(
-          padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.md),
-          sliver: _conversationsSliver(
-            conversations,
-            ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
-            foldersEnabled: true,
-            folders: allFolders,
-          ),
+        _conversationsSliver(
+          conversations,
+          ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
+          foldersEnabled: true,
+          folders: allFolders,
         ),
       );
       if (!suppressTrailingConversationGap) {
@@ -1217,6 +1211,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
+                  key: const ValueKey<String>('folders-section-leading'),
                   _chatsDrawerDisclosureIcon(isExpanded),
                   color: theme.iconSecondary,
                   size: IconSize.listItem,
@@ -1236,13 +1231,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
         const Spacer(),
         IconButton(
-          visualDensity: VisualDensity.compact,
           tooltip: AppLocalizations.of(context)!.newFolder,
+          constraints: const BoxConstraints.tightFor(
+            width: TouchTarget.minimum,
+            height: TouchTarget.minimum,
+          ),
+          padding: const EdgeInsets.all(
+            (TouchTarget.minimum - IconSize.md) / 2,
+          ),
           icon: Icon(
             Platform.isIOS
                 ? CupertinoIcons.folder_badge_plus
                 : Icons.create_new_folder_outlined,
             color: theme.iconPrimary,
+            size: IconSize.md,
           ),
           onPressed: () =>
               CreateFolderDialog.show(context, ref, onError: _showDrawerError),
@@ -1269,12 +1271,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final expandedMap = ref.watch(expandedFoldersProvider);
         final isExpanded = expandedMap[folderId] ?? folder.isExpanded;
         final isCurrentFolder = NavigationService.currentFolderId == folderId;
-        final baseColor = isCurrentFolder
-            ? theme.navigationSelectedBackground
-            : theme.surfaceContainer;
-        final borderColor = isCurrentFolder
-            ? theme.navigationSelected.withValues(alpha: 0.7)
-            : theme.surfaceContainerHighest.withValues(alpha: 0.40);
 
         final rowContent = GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -1282,66 +1278,79 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           onTap: () => _openFolderPage(folderId),
           onLongPress: null, // Handled by ConduitContextMenu
           child: Container(
-            decoration: BoxDecoration(
-              color: baseColor,
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              border: Border.all(color: borderColor, width: BorderWidth.thin),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.xs,
+            key: ValueKey<String>('folder-surface-$folderId'),
+            margin: kConversationTileMargin,
+            child: ConversationTileSurface(
+              theme: theme,
+              selected: isCurrentFolder,
+              tintKey: ValueKey<String>('folder-active-tint-$folderId'),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: TouchTarget.listItem,
                 ),
-                child: Row(
-                  children: [
-                    FolderIconGlyph(
-                      iconAlias: folder.meta?['icon']?.toString(),
-                      isOpen: isExpanded,
-                      size: IconSize.listItem,
-                      color: theme.iconPrimary,
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.sidebarTitleStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: isCurrentFolder
-                              ? FontWeight.w600
-                              : FontWeight.w400,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.xxs,
+                  ),
+                  child: Row(
+                    children: [
+                      FolderIconGlyph(
+                        key: ValueKey<String>('folder-icon-$folderId'),
+                        iconAlias: folder.meta?['icon']?.toString(),
+                        isOpen: isExpanded,
+                        size: IconSize.listItem,
+                        color: isCurrentFolder
+                            ? theme.iconPrimary
+                            : theme.iconSecondary,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.sidebarTitleStyle.copyWith(
+                            color: isCurrentFolder
+                                ? theme.textPrimary
+                                : theme.textSecondary,
+                            fontWeight: isCurrentFolder
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            height: 1.4,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: IconButton(
-                        key: ValueKey<String>('folder-expand-$folderId'),
-                        iconSize: IconSize.xs,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        style: IconButton.styleFrom(
-                          shape: const CircleBorder(),
+                      const SizedBox(width: Spacing.sm),
+                      SizedBox(
+                        width: TouchTarget.minimum,
+                        height: TouchTarget.minimum,
+                        child: IconButton(
+                          key: ValueKey<String>('folder-expand-$folderId'),
+                          iconSize: IconSize.sm,
+                          padding: const EdgeInsets.all(
+                            (TouchTarget.minimum - IconSize.sm) / 2,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: TouchTarget.minimum,
+                            height: TouchTarget.minimum,
+                          ),
+                          style: IconButton.styleFrom(
+                            shape: const CircleBorder(),
+                          ),
+                          icon: Icon(
+                            _chatsDrawerDisclosureIcon(isExpanded),
+                            color: theme.iconSecondary,
+                            size: IconSize.sm,
+                          ),
+                          onPressed: () {
+                            ConduitHaptics.selectionClick();
+                            _setFolderExpanded(folderId, !isExpanded);
+                          },
                         ),
-                        icon: Icon(
-                          _chatsDrawerDisclosureIcon(isExpanded),
-                          color: theme.iconSecondary,
-                          size: IconSize.listItem,
-                        ),
-                        onPressed: () {
-                          ConduitHaptics.selectionClick();
-                          _setFolderExpanded(folderId, !isExpanded);
-                        },
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

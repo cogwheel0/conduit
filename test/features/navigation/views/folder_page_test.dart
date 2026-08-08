@@ -203,6 +203,33 @@ void main() {
       find.byKey(const ValueKey<String>('folder-page-overflow-button')),
       findsOneWidget,
     );
+    final appBar = tester.widget<AppBar>(find.byType(AppBar).first);
+    expect(appBar.centerTitle, isFalse);
+    expect(
+      find.descendant(
+        of: find.byWidget(appBar.title!),
+        matching: find.byKey(
+          const ValueKey<String>('folder-page-model-selector'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    final selector = find.byKey(
+      const ValueKey<String>('folder-page-model-selector'),
+    );
+    expect(
+      tester.getCenter(selector).dx,
+      lessThan(tester.getSize(find.byType(Scaffold).first).width / 2),
+    );
+    expect(
+      find.descendant(
+        of: find.byWidget(appBar.leading!),
+        matching: find.byKey(
+          const ValueKey<String>('folder-page-drawer-button'),
+        ),
+      ),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey<String>('folder-page-header')),
       findsOneWidget,

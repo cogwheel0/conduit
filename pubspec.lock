@@ -9,14 +9,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "99.0.0"
-  adaptive_platform_ui:
-    dependency: "direct main"
-    description:
-      name: adaptive_platform_ui
-      sha256: "43ab9f08b3fea200b5281720653603c0b689cdb8ae8969ed4c8e26c1c11e19a0"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.110"
   analysis_server_plugin:
     dependency: transitive
     description:
@@ -313,6 +305,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.9"
+  cupertino_native_better:
+    dependency: "direct main"
+    description:
+      name: cupertino_native_better
+      sha256: e9a09ec11f8fb62d04ca39fcfe1e6735945bd9ed5bf8990f6f494d64c3bc2127
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.5.4"
   dart_style:
     dependency: transitive
     description:

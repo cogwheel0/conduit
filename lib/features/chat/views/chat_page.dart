@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -2326,9 +2326,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
     const buttonSize = 40.0;
-    final iconSize = conduitSupportsNativeGlass()
-        ? kConduitNativeUtilitySymbolExtent
-        : IconSize.medium;
+    const iconSize = IconSize.large;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final style = usesOpaqueFallback
@@ -2338,11 +2336,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conduitSupportsNativeGlass()) {
       return AdaptiveButton.sfSymbol(
         onPressed: _userScrollToBottom,
-        sfSymbol: SFSymbol(
-          'chevron.down',
-          size: iconSize,
-          color: theme.textPrimary,
-        ),
+        sfSymbol: SFSymbol('chevron.down', color: theme.textPrimary),
         style: style,
         size: AdaptiveButtonSize.medium,
         minSize: const Size.square(buttonSize),
@@ -3529,20 +3523,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isLoadingConversation,
     required String modelLabel,
   }) {
-    final textScaler = MediaQuery.textScalerOf(context);
-    final controlExtent = conduitScaledControlExtent(context);
-    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
-    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
     final trailingActionCount = (showNewChatAction ? 1 : 0) + 1;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: trailingActionCount,
-      maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
+      maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
@@ -3551,11 +3541,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       selectedModel: selectedModel,
       isHermesOnly: ref.watch(hermesOnlyModeProvider),
     );
-    final leading = _buildNativeToolbarLeading(
+    final title = _buildChatToolbarTitle(
       context: context,
       isLoadingConversation: isLoadingConversation,
       modelLabel: modelLabel,
-      leadingGap: leadingGap,
       maxModelWidth: maxModelWidth,
       showModelDropdown: showModelDropdown,
     );
@@ -3572,7 +3561,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final useNativeActionGroup =
         Platform.isIOS &&
         conduitSupportsNativeGlass() &&
-        actionDescriptors.length == 2;
+        actionDescriptors.isNotEmpty &&
+        actionDescriptors.length <= 3;
     final cupertinoTrailing = useNativeActionGroup
         ? ConduitNativeToolbarActionGroup(
             actions: [
@@ -3580,75 +3570,36 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ],
           )
         : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);
-    final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
-      pillWidth: maxModelWidth,
-      leadingGap: leadingGap,
-      controlExtent: controlExtent,
-    );
-    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
-    final scaledLeading = ConduitSystemTextScaling(
-      textScaler: textScaler,
-      child: leading,
-    );
-    final scaledActions = [
-      for (final action in actionWidgets)
-        ConduitSystemTextScaling(textScaler: textScaler, child: action),
-    ];
-
-    return AdaptiveAppBar(
-      useNativeToolbar: false,
+    return buildConduitCenteredAdaptiveAppBar(
+      context: context,
       tintColor: tintColor,
-      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
-        textScaler: textScaler,
-        leading: leading,
-        trailing: cupertinoTrailing,
-        systemOverlayStyle: overlayStyle,
+      leading: ConduitAdaptiveAppBarIconButton(
+        key: const ValueKey('chat-sidebar-toggle'),
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        iosSymbol: 'line.3.horizontal',
+        onPressed: () => _toggleResponsiveDrawer(context),
+        iconColor: tintColor,
       ),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: Elevation.none,
-        scrolledUnderElevation: Elevation.none,
-        toolbarHeight: toolbarHeight,
-        systemOverlayStyle: overlayStyle,
-        centerTitle: false,
-        titleSpacing: Spacing.sm,
-        leadingWidth: leadingWidth,
-        leading: scaledLeading,
-        actions: scaledActions,
-      ),
+      title: title,
+      actions: actionWidgets,
+      cupertinoTrailing: cupertinoTrailing,
+      centerTitle: false,
     );
   }
 
-  Widget _buildNativeToolbarLeading({
+  Widget _buildChatToolbarTitle({
     required BuildContext context,
     required bool isLoadingConversation,
     required String modelLabel,
-    required double leadingGap,
     required double maxModelWidth,
     required bool showModelDropdown,
   }) {
-    return buildConduitAdaptiveToolbarLeadingRow(
-      children: [
-        ConduitAdaptiveAppBarIconButton(
-          key: const ValueKey('chat-sidebar-toggle'),
-          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          iosSymbol: 'line.3.horizontal',
-          iosSymbolSize: kConduitNativeSidebarSymbolExtent,
-          onPressed: () => _toggleResponsiveDrawer(context),
-          iconColor: context.conduitTheme.textPrimary,
-        ),
-        SizedBox(width: leadingGap),
-        ConduitAdaptiveAppBarModelSelector(
-          label: modelLabel,
-          maxWidth: maxModelWidth,
-          isLoading: isLoadingConversation,
-          showChevron: showModelDropdown,
-          onPressed: () => _openModelSelector(context),
-        ),
-      ],
+    return ConduitAdaptiveAppBarModelSelector(
+      label: modelLabel,
+      maxWidth: maxModelWidth,
+      isLoading: isLoadingConversation,
+      showChevron: showModelDropdown,
+      onPressed: () => _openModelSelector(context),
     );
   }
 
@@ -3701,7 +3652,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
-    double iosSymbolSize = kConduitNativeToolbarSymbolExtent,
   }) {
     final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
     assert(iosSymbol != null);
@@ -3709,7 +3659,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
-        iosSymbolSize: iosSymbolSize,
         iconColor: tintColor,
         onPressed: onPressed,
       ),
@@ -3717,7 +3666,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         iosSymbol: iosSymbol!,
         accessibilityLabel: accessibilityLabel,
         tintColor: tintColor,
-        symbolSize: iosSymbolSize,
         enabled: onPressed != null,
         onPressed: onPressed,
       ),
@@ -3752,7 +3700,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
       accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
       tintColor: isTemporary ? Colors.blue : tintColor,
-      iosSymbolSize: kConduitNativeVisibilitySymbolExtent,
       onPressed: () {
         ConduitHaptics.selectionClick();
         final current = ref.read(temporaryChatEnabledProvider);

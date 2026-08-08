@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,11 +29,9 @@ import 'sidebar_user_pill.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
 const double _kSidebarNavigationBarHeight = 56;
-const double _kSidebarNavigationBarIconSize = 22;
 const double _kSidebarSearchCloseActionReserve = 64;
 const double _kSidebarSearchFieldReserve = 96;
-const double _kSidebarNativeLeadingVerticalOffset = 3;
-// Mirrors adaptive_platform_ui's iPadOS window-control reservation.
+// Mirrors Conduit platform UI's iPadOS window-control reservation.
 const double _kSidebarWindowedLeadingInset = 62;
 const double _kSidebarNativeBottomBarContentHeight = 50;
 
@@ -174,10 +172,7 @@ class _HermesTabImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ImageIcon(
-      kHermesTabIcon,
-      size: _kSidebarNavigationBarIconSize,
-    );
+    return const ImageIcon(kHermesTabIcon, size: IconSize.tabBar);
   }
 }
 
@@ -228,7 +223,7 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
               color: selected
                   ? conduitTheme.buttonPrimary
                   : conduitTheme.textSecondary,
-              size: _kSidebarNavigationBarIconSize,
+              size: IconSize.tabBar,
             );
           }),
           labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((states) {
@@ -655,13 +650,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           final adaptiveAppBarLeading = useNativeIos26Chrome
               ? Padding(
                   padding: EdgeInsets.only(left: windowedLeadingInset),
-                  child: Transform.translate(
-                    offset: const Offset(
-                      0,
-                      _kSidebarNativeLeadingVerticalOffset,
-                    ),
-                    child: appBarLeading,
-                  ),
+                  child: appBarLeading,
                 )
               : appBarLeading;
 
@@ -679,14 +668,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
               actions: appBarActions,
-              minimizeBehavior: TabBarMinimizeBehavior.never,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBodyWithSyncProgress,
             );
           }
 
           return AdaptiveScaffold(
-            minimizeBehavior: TabBarMinimizeBehavior.never,
             appBar: AdaptiveAppBar(
               useNativeToolbar: true,
               leading: adaptiveAppBarLeading,

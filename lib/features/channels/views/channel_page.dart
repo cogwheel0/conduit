@@ -3,7 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1240,9 +1240,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     Channel? channel,
     AppLocalizations? l10n,
   ) {
-    final textScaler = MediaQuery.textScalerOf(context);
-    final controlExtent = conduitScaledControlExtent(context);
-    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final memberCount = channel?.userCount;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
@@ -1250,18 +1247,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
     final tintColor = theme.textPrimary;
-    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
-    final leading = buildConduitAdaptiveToolbarLeadingRow(
-      children: [
-        ConduitAdaptiveAppBarIconButton(
-          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          onPressed: _toggleDrawer,
-          iconColor: tintColor,
-        ),
-        const SizedBox(width: leadingGap),
-        _buildChannelTitlePill(context, channel, maxWidth: maxTitleWidth),
-      ],
-    );
     final menuItems = _buildChannelToolbarMenuItems(l10n);
     void onMenuSelected(String action) =>
         _handleChannelToolbarSelection(action, channel);
@@ -1276,7 +1261,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       accessibilityLabel:
           l10n?.more ?? MaterialLocalizations.of(context).moreButtonTooltip,
       tintColor: tintColor,
-      symbolSize: kConduitNativeToolbarSymbolExtent,
       items: menuItems,
       onSelected: onMenuSelected,
     );
@@ -1292,52 +1276,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               l10n?.channelMembersTitle(memberCount) ??
               'Members ($memberCount)',
           tintColor: tintColor,
-          symbolSize: kConduitNativeToolbarSymbolExtent,
           onPressed: _showMemberList,
         ),
       ?nativeMenuAction,
     ];
-    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
-
-    final scaledLeading = ConduitSystemTextScaling(
-      textScaler: textScaler,
-      child: leading,
-    );
-    final scaledActions = [
-      for (final action in actions)
-        ConduitSystemTextScaling(textScaler: textScaler, child: action),
-    ];
-
-    return AdaptiveAppBar(
-      useNativeToolbar: false,
+    return buildConduitCenteredAdaptiveAppBar(
+      context: context,
       tintColor: tintColor,
-      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
-        textScaler: textScaler,
-        leading: leading,
-        trailing: useNativeActionGroup
-            ? ConduitNativeToolbarActionGroup(actions: nativeActions)
-            : Row(mainAxisSize: MainAxisSize.min, children: actions),
-        systemOverlayStyle: overlayStyle,
+      leading: ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        iosSymbol: 'line.3.horizontal',
+        onPressed: _toggleDrawer,
+        iconColor: tintColor,
       ),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: Elevation.none,
-        scrolledUnderElevation: Elevation.none,
-        toolbarHeight: toolbarHeight,
-        systemOverlayStyle: overlayStyle,
-        centerTitle: false,
-        titleSpacing: Spacing.sm,
-        leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
-          pillWidth: maxTitleWidth,
-          leadingGap: leadingGap,
-          controlExtent: controlExtent,
-        ),
-        leading: scaledLeading,
-        actions: scaledActions,
-      ),
+      title: _buildChannelTitlePill(context, channel, maxWidth: maxTitleWidth),
+      actions: actions,
+      cupertinoTrailing: useNativeActionGroup
+          ? ConduitNativeToolbarActionGroup(actions: nativeActions)
+          : Row(mainAxisSize: MainAxisSize.min, children: actions),
     );
   }
 

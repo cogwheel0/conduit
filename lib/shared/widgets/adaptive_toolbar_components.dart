@@ -1,11 +1,8 @@
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show Factory;
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
@@ -17,19 +14,14 @@ import 'themed_sheets.dart';
 
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
+const double kConduitAdaptiveToolbarMaxModelSelectorWidth = 320;
+const double kConduitModelSelectorChevronExtent = 13;
 const double kConduitMaximumSystemControlScale = 1.5;
-const double kConduitNativeSidebarSymbolExtent = 20;
-const double kConduitNativeToolbarSymbolExtent = 22;
-const double kConduitNativeGroupedToolbarSymbolExtent = 22;
-const double kConduitNativeVisibilitySymbolExtent = 18;
-const double kConduitNativeUtilitySymbolExtent = 17;
-const double kConduitNativePrimarySymbolExtent = 17;
-const double kConduitNativeModelChevronExtent = 13;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
 const double _kConduitNativeModelChevronPadding = 6;
 const double _kConduitNativeModelChevronReservedWidth =
-    kConduitNativeModelChevronExtent + _kConduitNativeModelChevronPadding;
+    kConduitModelSelectorChevronExtent + _kConduitNativeModelChevronPadding;
 // Flutter and UIKit do not produce perfectly identical SF Pro advances. Keep
 // a small optical guard instead of letting UIButton wrap at the measured edge.
 const double _kConduitNativeModelTitleWrapGuard = 8;
@@ -37,7 +29,7 @@ const int kConduitNativeModelLabelMaxCodeUnits = 256;
 const int _kConduitNativeModelLabelPrefixCodeUnits = 160;
 const TextStyle _kConduitNativeModelTitleStyle = TextStyle(
   fontSize: 17,
-  fontWeight: FontWeight.w600,
+  fontWeight: FontWeight.w400,
 );
 
 /// Converts Dynamic Type into bounded control geometry.
@@ -63,8 +55,11 @@ double conduitScaledControlExtent(
   return baseExtent * conduitSystemControlScaleOf(context);
 }
 
-double conduitScaledIconExtent(BuildContext context, double baseExtent) {
-  return baseExtent * conduitSystemControlScaleOf(context);
+double conduitScaledIconExtent(BuildContext _, double baseExtent) {
+  // Touch targets may grow for Dynamic Type, but glyphs retain the platform's
+  // standard visual size. Scaling both made app-bar, tab, and composer icons
+  // compete with their labels at accessibility sizes.
+  return baseExtent;
 }
 
 double conduitAdaptiveToolbarHeightOf(BuildContext context) {
@@ -140,6 +135,7 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
     required this.leading,
     this.middle,
     this.trailing,
+    this.centerMiddle = true,
     this.systemOverlayStyle,
   });
 
@@ -147,6 +143,7 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
   final Widget leading;
   final Widget? middle;
   final Widget? trailing;
+  final bool centerMiddle;
   final SystemUiOverlayStyle? systemOverlayStyle;
 
   double get _controlScale => resolveConduitSystemControlScale(textScaler);
@@ -170,27 +167,24 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
         ),
         child: ConduitSystemTextScaling(
           textScaler: textScaler,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: leading,
-              ),
-              if (middle != null)
-                PositionedDirectional(
-                  start: (TouchTarget.minimum * _controlScale) + Spacing.sm,
-                  end: (TouchTarget.minimum * _controlScale) + Spacing.sm,
-                  top: 0,
-                  bottom: 0,
-                  child: Center(child: middle),
-                ),
-              if (trailing != null)
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: trailing,
-                ),
-            ],
+          child: NavigationToolbar(
+            centerMiddle: centerMiddle,
+            middleSpacing: Spacing.sm,
+            leading: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: 1,
+              child: leading,
+            ),
+            middle: middle == null
+                ? null
+                : Align(widthFactor: 1, child: middle),
+            trailing: trailing == null
+                ? null
+                : Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    widthFactor: 1,
+                    child: trailing,
+                  ),
           ),
         ),
       ),
@@ -216,95 +210,66 @@ Widget _hideNativeToolbarChromeWhileSheetCovered({
   );
 }
 
-/// Builds the shared adaptive toolbar shell used by chat-style pages.
-AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
+/// Builds the shared app bar used by chat-style routes.
+///
+/// [NavigationToolbar] applies the same collision-aware title placement to the
+/// Cupertino shell that Material's [AppBar] uses. Most page identities stay
+/// centered, while wide interactive titles such as model selectors can opt
+/// into the platform's leading title position.
+AdaptiveAppBar buildConduitCenteredAdaptiveAppBar({
+  required BuildContext context,
   required Color tintColor,
-  required Widget Function() buildLeading,
-  required List<AdaptiveAppBarAction> Function() buildActions,
-  double? leadingWidth,
+  required Widget leading,
+  required Widget title,
+  required List<Widget> actions,
+  Widget? cupertinoTrailing,
+  bool centerTitle = true,
 }) {
-  final leading = buildLeading();
-  final actions = buildActions();
-  final materialActions = _buildMaterialToolbarActions(
-    actions,
-    defaultTint: tintColor,
-  );
+  final textScaler = MediaQuery.textScalerOf(context);
+  final controlExtent = conduitScaledControlExtent(context);
+  final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
+  final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
+
+  Widget scaled(Widget child) =>
+      ConduitSystemTextScaling(textScaler: textScaler, child: child);
 
   return AdaptiveAppBar(
-    useNativeToolbar: Platform.isIOS || leadingWidth == null,
-    leading: leading,
+    useNativeToolbar: false,
     tintColor: tintColor,
-    actions: actions,
-    appBar: leadingWidth == null
-        ? null
-        : _buildMaterialToolbarAppBar(
-            leading: leading,
-            leadingWidth: leadingWidth,
-            actions: materialActions,
-          ),
-  );
-}
-
-PreferredSizeWidget _buildMaterialToolbarAppBar({
-  required Widget leading,
-  required double leadingWidth,
-  required List<Widget> actions,
-}) {
-  return AppBar(
-    automaticallyImplyLeading: false,
-    backgroundColor: Colors.transparent,
-    surfaceTintColor: Colors.transparent,
-    shadowColor: Colors.transparent,
-    elevation: Elevation.none,
-    scrolledUnderElevation: Elevation.none,
-    toolbarHeight: kTextTabBarHeight,
-    centerTitle: false,
-    titleSpacing: Spacing.sm,
-    leadingWidth: leadingWidth,
-    leading: leading,
-    actions: actions,
-  );
-}
-
-List<Widget> _buildMaterialToolbarActions(
-  List<AdaptiveAppBarAction> actions, {
-  required Color defaultTint,
-}) {
-  return buildConduitAdaptiveToolbarActionWidgets([
-    for (final action in actions)
-      _buildMaterialToolbarAction(action, defaultTint: defaultTint),
-  ]);
-}
-
-Widget _buildMaterialToolbarAction(
-  AdaptiveAppBarAction action, {
-  required Color defaultTint,
-}) {
-  final tintColor = action.tintColor ?? defaultTint;
-  if (action.title != null) {
-    return TextButton(
-      onPressed: action.onPressed,
-      style: TextButton.styleFrom(foregroundColor: tintColor),
-      child: Text(action.title!),
-    );
-  }
-
-  return ConduitAdaptiveAppBarIconButton(
-    icon: action.icon ?? Icons.circle,
-    iosSymbol: action.iosSymbol,
-    onPressed: action.onPressed,
-    iconColor: tintColor,
-  );
-}
-
-Widget buildConduitAdaptiveToolbarLeadingRow({required List<Widget> children}) {
-  if (Platform.isIOS) {
-    return Row(mainAxisSize: MainAxisSize.min, children: children);
-  }
-
-  return Padding(
-    padding: const EdgeInsets.only(left: Spacing.inputPadding),
-    child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+      textScaler: textScaler,
+      leading: leading,
+      middle: title,
+      centerMiddle: centerTitle,
+      trailing:
+          cupertinoTrailing ??
+          (actions.isEmpty
+              ? null
+              : Row(mainAxisSize: MainAxisSize.min, children: actions)),
+      systemOverlayStyle: overlayStyle,
+    ),
+    appBar: AppBar(
+      automaticallyImplyLeading: false,
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: Elevation.none,
+      scrolledUnderElevation: Elevation.none,
+      toolbarHeight: toolbarHeight,
+      systemOverlayStyle: overlayStyle,
+      centerTitle: centerTitle,
+      titleSpacing: Spacing.sm,
+      leadingWidth: controlExtent + Spacing.inputPadding,
+      leading: Padding(
+        padding: const EdgeInsetsDirectional.only(start: Spacing.inputPadding),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: scaled(leading),
+        ),
+      ),
+      title: scaled(title),
+      actions: [for (final action in actions) scaled(action)],
+    ),
   );
 }
 
@@ -372,18 +337,6 @@ Widget buildConduitAdaptiveToolbarPillSurface({
       child: sizedChild,
     ),
   );
-}
-
-double resolveConduitAdaptiveToolbarLeadingWidth({
-  required double pillWidth,
-  double leadingGap = kConduitAdaptiveToolbarLeadingGap,
-  double controlExtent = TouchTarget.minimum,
-}) {
-  return Spacing.inputPadding +
-      controlExtent +
-      leadingGap +
-      pillWidth +
-      Spacing.md;
 }
 
 /// Resolves a stable pill width inside a constrained toolbar slot.
@@ -507,16 +460,6 @@ final Map<IconData, String> _kConduitToolbarSfSymbolByIcon = {
 String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) =>
     iosSymbol ?? _kConduitToolbarSfSymbolByIcon[icon];
 
-/// Resolves SF Symbol point sizes by optical footprint rather than applying a
-/// single numeric size to every toolbar glyph.
-double conduitNativeToolbarSymbolExtentFor(String? iosSymbol) =>
-    switch (iosSymbol) {
-      'line.3.horizontal' ||
-      'chevron.left' => kConduitNativeSidebarSymbolExtent,
-      'eye' || 'eye.slash' => kConduitNativeVisibilitySymbolExtent,
-      _ => kConduitNativeToolbarSymbolExtent,
-    };
-
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Creates an adaptive toolbar icon button.
@@ -526,7 +469,6 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     this.iosSymbol,
     this.onPressed,
     this.iconColor,
-    this.iosSymbolSize,
   });
 
   /// Icon shown inside the control.
@@ -541,9 +483,6 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Optional icon tint.
   final Color? iconColor;
 
-  /// Native SF Symbol point size on iOS 26+.
-  final double? iosSymbolSize;
-
   @override
   Widget build(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
@@ -553,9 +492,6 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       icon,
       iosSymbol: iosSymbol,
     );
-    final nativeSymbolExtent =
-        iosSymbolSize ?? conduitNativeToolbarSymbolExtentFor(nativeSymbol);
-
     if (conduitUsesOpaqueGlassFallback()) {
       return SizedBox.square(
         dimension: controlExtent,
@@ -576,11 +512,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       child: conduitSupportsNativeGlass() && nativeSymbol != null
           ? AdaptiveButton.sfSymbol(
               onPressed: onPressed,
-              sfSymbol: SFSymbol(
-                nativeSymbol,
-                size: nativeSymbolExtent,
-                color: effectiveIconColor,
-              ),
+              sfSymbol: SFSymbol(nativeSymbol, color: effectiveIconColor),
               style: AdaptiveButtonStyle.glass,
               size: AdaptiveButtonSize.large,
               padding: EdgeInsets.zero,
@@ -631,7 +563,6 @@ class ConduitNativeToolbarAction {
     this.onPressed,
     this.menuItems = const <ConduitNativeToolbarMenuItem>[],
     this.tintColor,
-    this.symbolSize,
     this.enabled = true,
   }) : assert(onPressed != null || menuItems.length > 0 || !enabled);
 
@@ -640,7 +571,6 @@ class ConduitNativeToolbarAction {
   final VoidCallback? onPressed;
   final List<ConduitNativeToolbarMenuItem> menuItems;
   final Color? tintColor;
-  final double? symbolSize;
   final bool enabled;
 }
 
@@ -654,7 +584,6 @@ List<Map<String, Object?>> encodeConduitNativeToolbarActions(
       'accessibilityLabel': action.accessibilityLabel,
       'enabled': action.enabled,
       if (action.tintColor != null) 'tintColor': action.tintColor!.toARGB32(),
-      if (action.symbolSize != null) 'symbolSize': action.symbolSize,
       if (action.menuItems.isNotEmpty)
         'menuItems': <Map<String, Object?>>[
           for (final item in action.menuItems)
@@ -672,105 +601,212 @@ List<Map<String, Object?>> encodeConduitNativeToolbarActions(
 /// Builds the native creation payload with navigation-bar optical sizing.
 Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
   List<ConduitNativeToolbarAction> actions,
-) => <String, Object?>{
-  'actions': encodeConduitNativeToolbarActions(actions),
-  'symbolSize': kConduitNativeGroupedToolbarSymbolExtent,
-};
+) => <String, Object?>{'actions': encodeConduitNativeToolbarActions(actions)};
 
-/// A native toolbar surface for one to three adjacent shared actions.
-class ConduitNativeToolbarActionGroup extends StatefulWidget {
+/// A cupertino_native_better toolbar surface for adjacent shared actions.
+class ConduitNativeToolbarActionGroup extends StatelessWidget {
   const ConduitNativeToolbarActionGroup({super.key, required this.actions})
     : assert(actions.length >= 1 && actions.length <= 3);
 
   final List<ConduitNativeToolbarAction> actions;
 
   @override
-  State<ConduitNativeToolbarActionGroup> createState() =>
-      _ConduitNativeToolbarActionGroupState();
-}
-
-class _ConduitNativeToolbarActionGroupState
-    extends State<ConduitNativeToolbarActionGroup> {
-  MethodChannel? _channel;
-
-  Object get _configurationKey => Object.hashAll([
-    for (final action in widget.actions) ...[
-      action.iosSymbol,
-      action.accessibilityLabel,
-      action.enabled,
-      action.tintColor?.toARGB32(),
-      action.symbolSize,
-      for (final item in action.menuItems) ...[
-        item.label,
-        item.iosSymbol,
-        item.isDestructive,
-        item.isChecked,
-        item.enabled,
-      ],
-    ],
-  ]);
-
-  @override
-  void dispose() {
-    _channel?.setMethodCallHandler(null);
-    super.dispose();
-  }
-
-  Future<void> _handleMethodCall(MethodCall call) async {
-    final arguments = call.arguments;
-    if (arguments is! Map<Object?, Object?>) return;
-    final actionIndex = arguments['actionIndex'];
-    if (actionIndex is! int ||
-        actionIndex < 0 ||
-        actionIndex >= widget.actions.length) {
-      return;
-    }
-
-    final action = widget.actions[actionIndex];
-    switch (call.method) {
-      case 'actionTapped':
-        action.onPressed?.call();
-        return;
-      case 'menuItemSelected':
-        final itemIndex = arguments['itemIndex'];
-        if (itemIndex is int &&
-            itemIndex >= 0 &&
-            itemIndex < action.menuItems.length) {
-          action.menuItems[itemIndex].onSelected();
-        }
-        return;
-    }
-  }
-
-  void _onPlatformViewCreated(int id) {
-    _channel?.setMethodCallHandler(null);
-    _channel = MethodChannel(
-      'app.cogwheel.conduit/native_toolbar_action_group_$id',
-    )..setMethodCallHandler(_handleMethodCall);
-  }
-
-  @override
   Widget build(BuildContext context) {
+    if (actions.isEmpty || actions.length > 3) {
+      throw StateError(
+        'ConduitNativeToolbarActionGroup requires between 1 and 3 actions.',
+      );
+    }
     final controlExtent = conduitScaledControlExtent(context);
-    final width = widget.actions.length == 1
+    final width = actions.length == 1
         ? controlExtent
-        : (controlExtent * widget.actions.length) + Spacing.sm;
+        : (controlExtent * actions.length) +
+              (Spacing.sm * (actions.length - 1));
     final size = Size(width, controlExtent);
+    final hasRichMenu = actions.any(
+      (action) => !_canUseGroupedNativeAction(action),
+    );
+
+    Widget controls;
+    if (actions.length == 1) {
+      controls = _buildAction(actions.single, controlExtent);
+    } else if (!hasRichMenu) {
+      controls = _buildGlassGroup(actions, controlExtent);
+    } else {
+      controls = _buildMixedActionCluster(controlExtent);
+    }
 
     return _hideNativeToolbarChromeWhileSheetCovered(
       size: size,
-      child: SizedBox.fromSize(
-        size: size,
-        child: UiKitView(
-          key: ValueKey<Object>(_configurationKey),
-          viewType: 'app.cogwheel.conduit/native_toolbar_action_group',
-          creationParams: encodeConduitNativeToolbarActionGroupParams(
-            widget.actions,
+      child: SizedBox.fromSize(size: size, child: controls),
+    );
+  }
+
+  bool _canUseGroupedNativeAction(ConduitNativeToolbarAction action) {
+    if (action.menuItems.isEmpty) return true;
+
+    // CNButtonData.popup cannot represent checked, disabled, or destructive
+    // menu items, so preserve those states with the rich popup fallback.
+    return action.menuItems.every(
+      (item) => item.enabled && !item.isChecked && !item.isDestructive,
+    );
+  }
+
+  Widget _buildGlassGroup(
+    List<ConduitNativeToolbarAction> groupedActions,
+    double extent,
+  ) {
+    return Semantics(
+      container: true,
+      label: groupedActions
+          .map((action) => action.accessibilityLabel)
+          .join(', '),
+      child: CNGlassButtonGroup(
+        spacing: Spacing.sm,
+        spacingForGlass: 36,
+        buttons: [
+          for (final action in groupedActions)
+            if (action.menuItems.isEmpty)
+              CNButtonData.icon(
+                icon: CNSymbol(
+                  action.iosSymbol,
+                  size: kCupertinoNativeControlSymbolExtent,
+                ),
+                onPressed: action.onPressed,
+                enabled: action.enabled,
+                tint: action.tintColor,
+                config: _groupedButtonConfig(extent),
+              )
+            else
+              CNButtonData.popup(
+                icon: CNSymbol(
+                  action.iosSymbol,
+                  size: kCupertinoNativeControlSymbolExtent,
+                ),
+                popupItems: [
+                  for (final item in action.menuItems)
+                    CNButtonDataPopupItem(
+                      label: item.label,
+                      sfSymbol: item.iosSymbol,
+                    ),
+                ],
+                onMenuSelected: (index) {
+                  if (index >= 0 && index < action.menuItems.length) {
+                    action.menuItems[index].onSelected();
+                  }
+                },
+                enabled: action.enabled,
+                tint: action.tintColor,
+                config: _groupedButtonConfig(extent),
+              ),
+        ],
+      ),
+    );
+  }
+
+  CNButtonDataConfig _groupedButtonConfig(double extent) {
+    return CNButtonDataConfig(
+      width: extent,
+      minHeight: extent,
+      style: CNButtonStyle.glass,
+    );
+  }
+
+  Widget _buildMixedActionCluster(double extent) {
+    final children = <Widget>[];
+    var index = 0;
+    while (index < actions.length) {
+      final action = actions[index];
+      if (!_canUseGroupedNativeAction(action)) {
+        children.add(_buildAction(action, extent));
+        index += 1;
+        continue;
+      }
+
+      final run = <ConduitNativeToolbarAction>[];
+      while (index < actions.length &&
+          _canUseGroupedNativeAction(actions[index])) {
+        run.add(actions[index]);
+        index += 1;
+      }
+      children.add(
+        run.length > 1
+            ? _buildGlassGroup(run, extent)
+            : _buildAction(run.single, extent),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (
+          var childIndex = 0;
+          childIndex < children.length;
+          childIndex++
+        ) ...[
+          if (childIndex > 0) const SizedBox(width: Spacing.sm),
+          children[childIndex],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAction(ConduitNativeToolbarAction action, double extent) {
+    if (action.menuItems.isEmpty) {
+      return Semantics(
+        label: action.accessibilityLabel,
+        button: true,
+        enabled: action.enabled,
+        onTap: action.enabled ? action.onPressed : null,
+        child: CNButton.icon(
+          icon: CNSymbol(
+            action.iosSymbol,
+            size: kCupertinoNativeControlSymbolExtent,
           ),
-          creationParamsCodec: const StandardMessageCodec(),
-          onPlatformViewCreated: _onPlatformViewCreated,
-          hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+          onPressed: action.onPressed,
+          enabled: action.enabled,
+          tint: action.tintColor,
+          config: CNButtonConfig(
+            width: extent,
+            minHeight: extent,
+            padding: EdgeInsets.zero,
+            borderRadius: extent / 2,
+            style: CNButtonStyle.glass,
+          ),
         ),
+      );
+    }
+
+    return Semantics(
+      label: action.accessibilityLabel,
+      button: true,
+      enabled: action.enabled,
+      child: AdaptivePopupMenuButton.icon<int>(
+        icon: action.iosSymbol,
+        tint: action.tintColor,
+        size: extent,
+        enabled: action.enabled,
+        buttonStyle: PopupButtonStyle.glass,
+        items: [
+          for (var index = 0; index < action.menuItems.length; index++)
+            AdaptivePopupMenuItem<int>(
+              label: action.menuItems[index].label,
+              icon: action.menuItems[index].iosSymbol,
+              enabled: action.menuItems[index].enabled,
+              isDestructive: action.menuItems[index].isDestructive,
+              checked: action.menuItems[index].isChecked,
+              value: index,
+            ),
+        ],
+        onSelected: (index, entry) {
+          if (!action.enabled) return;
+          final selected = entry.value;
+          if (selected != null &&
+              selected >= 0 &&
+              selected < action.menuItems.length) {
+            action.menuItems[selected].onSelected();
+          }
+        },
       ),
     );
   }
@@ -955,9 +991,7 @@ String resolveConduitNativeModelSelectorLabel({
   );
 }
 
-/// Forces the package-owned platform view to be recreated when its foreground
-/// changes. adaptive_platform_ui 0.1.110 does not synchronize `textColor` from
-/// `didUpdateWidget`, so preserving the state would retain the previous theme.
+/// Creates a stable key for native model-selector appearance changes.
 ValueKey<Object> conduitNativeModelSelectorViewKey(
   Color foregroundColor, {
   double titleFontSize = 17,
@@ -974,20 +1008,18 @@ Map<String, Object?> encodeConduitNativeModelSelectorParams({
 }) => <String, Object?>{
   'label': label,
   'symbolName': symbolName,
-  'symbolSize': kConduitNativeModelChevronExtent,
   'symbolPadding': _kConduitNativeModelChevronPadding,
   'foregroundColor': foregroundColor.toARGB32(),
   'titleFontSize': titleFontSize,
   'enabled': enabled,
 };
 
-class _ConduitNativeModelSelectorButton extends StatefulWidget {
+class _ConduitNativeModelSelectorButton extends StatelessWidget {
   const _ConduitNativeModelSelectorButton({
     super.key,
     required this.label,
     required this.symbolName,
     required this.foregroundColor,
-    required this.titleFontSize,
     required this.enabled,
     required this.onPressed,
   });
@@ -995,61 +1027,33 @@ class _ConduitNativeModelSelectorButton extends StatefulWidget {
   final String label;
   final String? symbolName;
   final Color foregroundColor;
-  final double titleFontSize;
   final bool enabled;
   final VoidCallback onPressed;
 
   @override
-  State<_ConduitNativeModelSelectorButton> createState() =>
-      _ConduitNativeModelSelectorButtonState();
-}
-
-class _ConduitNativeModelSelectorButtonState
-    extends State<_ConduitNativeModelSelectorButton> {
-  MethodChannel? _channel;
-
-  void _handlePlatformViewCreated(int id) {
-    _channel?.setMethodCallHandler(null);
-    final channel = MethodChannel(
-      'app.cogwheel.conduit/native_model_selector_button_$id',
-    );
-    _channel = channel;
-    channel.setMethodCallHandler((call) async {
-      if (call.method == 'pressed' && widget.enabled) {
-        widget.onPressed();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _channel?.setMethodCallHandler(null);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return UiKitView(
-      key: ValueKey<Object>((
-        widget.label,
-        widget.symbolName,
-        widget.foregroundColor.toARGB32(),
-        widget.titleFontSize,
-        widget.enabled,
-      )),
-      viewType: 'app.cogwheel.conduit/native_model_selector_button',
-      creationParams: encodeConduitNativeModelSelectorParams(
-        label: widget.label,
-        symbolName: widget.symbolName,
-        foregroundColor: widget.foregroundColor,
-        titleFontSize: widget.titleFontSize,
-        enabled: widget.enabled,
+    return CNButton(
+      label: label,
+      icon: symbolName == null
+          ? null
+          : CNSymbol(
+              symbolName!,
+              size: kConduitModelSelectorChevronExtent,
+              color: foregroundColor,
+            ),
+      onPressed: enabled ? onPressed : null,
+      enabled: enabled,
+      config: CNButtonConfig(
+        minHeight: conduitScaledControlExtent(context),
+        shrinkWrap: false,
+        style: CNButtonStyle.glass,
+        imagePlacement: CNImagePlacement.trailing,
+        imagePadding: _kConduitNativeModelChevronPadding,
+        maxLines: 1,
+        labelColor: foregroundColor,
+        // UIKit's default body style supplies the standard iOS button
+        // metrics, optical sizing, and weight.
       ),
-      creationParamsCodec: const StandardMessageCodec(),
-      onPlatformViewCreated: _handlePlatformViewCreated,
-      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-        Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
-      },
     );
   }
 }
@@ -1093,16 +1097,23 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveTextStyle =
-        textStyle ?? conduitAdaptiveToolbarPillTextStyle(context);
+        textStyle ??
+        (PlatformInfo.isIOS
+                ? CupertinoTheme.of(context).textTheme.textStyle
+                : Theme.of(context).textTheme.titleMedium ??
+                      AppTypography.standard)
+            .copyWith(
+              color: context.conduitTheme.textPrimary,
+              fontWeight: FontWeight.w400,
+            );
     final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();
     }
     final controlExtent = conduitScaledControlExtent(context);
-    final chevronSize = conduitScaledIconExtent(
-      context,
-      Platform.isIOS ? IconSize.small : IconSize.medium,
-    );
+    final chevronSize = PlatformInfo.isIOS
+        ? kConduitModelSelectorChevronExtent
+        : IconSize.small;
     final usesNativeGlass = conduitSupportsNativeGlass();
     final textDirection = Directionality.of(context);
     final nativeTitleFontSize = resolveConduitNativeModelTitleFontSize(
@@ -1163,7 +1174,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                       if (showChevron) ...[
                         const SizedBox(width: Spacing.xs),
                         ConduitSystemAdaptiveIcon(
-                          Platform.isIOS
+                          PlatformInfo.isIOS
                               ? CupertinoIcons.chevron_down
                               : Icons.keyboard_arrow_down,
                           color: context.conduitTheme.iconSecondary,
@@ -1222,7 +1233,6 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                     showChevron: showChevron,
                   ),
                   foregroundColor: context.conduitTheme.textPrimary,
-                  titleFontSize: nativeTitleFontSize,
                   enabled: !isLoading && showChevron,
                   onPressed: onPressed,
                 ),
@@ -1279,7 +1289,6 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
               context,
             ).moreButtonTooltip,
             tintColor: tintColor,
-            symbolSize: conduitNativeToolbarSymbolExtentFor(iosIcon),
             items: items,
             onSelected: onSelected,
           )
@@ -1328,7 +1337,6 @@ ConduitNativeToolbarAction? buildConduitNativeToolbarMenuAction<T>({
   required String iosSymbol,
   required String accessibilityLabel,
   required Color tintColor,
-  required double symbolSize,
   required List<AdaptivePopupMenuEntry> items,
   required ValueChanged<T> onSelected,
 }) {
@@ -1347,6 +1355,7 @@ ConduitNativeToolbarAction? buildConduitNativeToolbarMenuAction<T>({
         label: entry.label,
         iosSymbol: entry.icon as String?,
         isDestructive: entry.isDestructive,
+        isChecked: entry.checked,
         enabled: entry.enabled,
         onSelected: () => onSelected(value),
       ),
@@ -1359,6 +1368,5 @@ ConduitNativeToolbarAction? buildConduitNativeToolbarMenuAction<T>({
     accessibilityLabel: accessibilityLabel,
     menuItems: nativeItems,
     tintColor: tintColor,
-    symbolSize: symbolSize,
   );
 }

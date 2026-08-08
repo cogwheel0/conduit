@@ -1,19 +1,24 @@
 import 'dart:convert';
+import 'dart:collection';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -30,8 +35,118 @@ import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 
+part 'sidebar_user_pill.g.dart';
+
 typedef SidebarNativeProfilePresenter =
     Future<bool> Function(NativeProfileSheetConfig config);
+
+const double _sidebarProfileAvatarSize = 36;
+const double _sidebarNativeProfileAvatarSize = 28;
+const int _sidebarAvatarMaximumSourceDimension = 8192;
+const int _sidebarAvatarMaximumSourcePixels = 32 * 1024 * 1024;
+const double _sidebarAvatarMaximumAspectRatio = 64;
+const int _sidebarAvatarMaximumDecodeDimension = 512;
+const int _sidebarAvatarMaximumEncodedBytes = 2 * 1024 * 1024;
+
+@visibleForTesting
+Future<Uint8List?> rasterizeSidebarNativeAvatar(
+  Uint8List bytes, {
+  required double devicePixelRatio,
+}) async {
+  if (bytes.isEmpty) return null;
+  final scale = devicePixelRatio.isFinite
+      ? devicePixelRatio.clamp(1.0, 4.0)
+      : 1.0;
+  final canvasPixels = (TouchTarget.minimum * scale).round();
+  final avatarPixels = (_sidebarNativeProfileAvatarSize * scale).round();
+  ui.ImmutableBuffer? buffer;
+  ui.ImageDescriptor? descriptor;
+  ui.Codec? codec;
+  ui.Image? source;
+  ui.Image? output;
+  try {
+    buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final sourceWidth = descriptor.width;
+    final sourceHeight = descriptor.height;
+    final shortestSide = sourceWidth < sourceHeight
+        ? sourceWidth
+        : sourceHeight;
+    final longestSide = sourceWidth > sourceHeight ? sourceWidth : sourceHeight;
+    final sourcePixels = sourceWidth * sourceHeight;
+    if (shortestSide <= 0 ||
+        longestSide > _sidebarAvatarMaximumSourceDimension ||
+        sourcePixels > _sidebarAvatarMaximumSourcePixels ||
+        longestSide / shortestSide > _sidebarAvatarMaximumAspectRatio) {
+      return null;
+    }
+
+    final decodeScale = longestSide > _sidebarAvatarMaximumDecodeDimension
+        ? _sidebarAvatarMaximumDecodeDimension / longestSide
+        : 1.0;
+    final targetWidth = (sourceWidth * decodeScale).round().clamp(
+      1,
+      sourceWidth,
+    );
+    final targetHeight = (sourceHeight * decodeScale).round().clamp(
+      1,
+      sourceHeight,
+    );
+    codec = await descriptor.instantiateCodec(
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
+    source = (await codec.getNextFrame()).image;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final sourceSide = source.width < source.height
+        ? source.width.toDouble()
+        : source.height.toDouble();
+    final sourceRect = ui.Rect.fromLTWH(
+      (source.width - sourceSide) / 2,
+      (source.height - sourceSide) / 2,
+      sourceSide,
+      sourceSide,
+    );
+    final inset = (canvasPixels - avatarPixels) / 2;
+    final destinationRect = ui.Rect.fromLTWH(
+      inset,
+      inset,
+      avatarPixels.toDouble(),
+      avatarPixels.toDouble(),
+    );
+    canvas.drawImageRect(
+      source,
+      sourceRect,
+      destinationRect,
+      ui.Paint()..filterQuality = ui.FilterQuality.high,
+    );
+    final picture = recorder.endRecording();
+    try {
+      output = await picture.toImage(canvasPixels, canvasPixels);
+    } finally {
+      picture.dispose();
+    }
+    final data = await output.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) return null;
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'Failed to rasterize native sidebar avatar',
+      error: error,
+      stackTrace: stackTrace,
+      scope: 'navigation/sidebar/native-avatar',
+    );
+    return null;
+  } finally {
+    output?.dispose();
+    source?.dispose();
+    codec?.dispose();
+    descriptor?.dispose();
+    buffer?.dispose();
+  }
+}
 
 @visibleForTesting
 NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
@@ -54,6 +169,52 @@ final sidebarNativeProfilePresenterProvider =
       if (!Platform.isIOS) return null;
       return NativeSheetBridge.instance.presentProfileMenu;
     });
+
+typedef SidebarNativeAvatarRequest = ({ApiService api, String avatarUrl});
+
+@immutable
+class SidebarNativeAvatarRasterRequest {
+  const SidebarNativeAvatarRasterRequest({
+    required this.cacheKey,
+    required this.bytes,
+    required this.devicePixelRatio,
+  });
+
+  final String cacheKey;
+  final Uint8List bytes;
+  final double devicePixelRatio;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SidebarNativeAvatarRasterRequest &&
+          cacheKey == other.cacheKey &&
+          devicePixelRatio == other.devicePixelRatio;
+
+  @override
+  int get hashCode => Object.hash(cacheKey, devicePixelRatio);
+}
+
+@riverpod
+Future<Uint8List?> sidebarNativeAvatarBytes(
+  Ref ref,
+  SidebarNativeAvatarRequest request,
+) => ref
+    .watch(nativeSheetAvatarBytesHydratorProvider)
+    .loadAvatarBytes(api: request.api, avatarUrl: request.avatarUrl);
+
+@riverpod
+Future<Uint8List?> sidebarNativeAvatarRaster(
+  Ref ref,
+  SidebarNativeAvatarRasterRequest request,
+) => rasterizeSidebarNativeAvatar(
+  request.bytes,
+  devicePixelRatio: request.devicePixelRatio,
+);
+
+final _sidebarHermesAvatarBytesProvider = FutureProvider<Uint8List?>((ref) {
+  return _loadHermesAvatarBytes();
+});
 
 /// Cached bytes of the Hermes agent icon, used as the native profile-sheet
 /// avatar in Hermes-only mode (loaded once, then reused).
@@ -131,30 +292,51 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   return l10n.searchConversations;
 }
 
-/// Builds a compact profile avatar without an iOS 26 child platform view.
+/// Builds one stable native glass avatar button on iOS 26 and Flutter
+/// platform-family fallbacks everywhere else.
 @visibleForTesting
 Widget buildSidebarProfileButton({
   required bool supportsNativeGlass,
   required VoidCallback onPressed,
   required AdaptiveButtonStyle fallbackStyle,
   Color? fallbackColor,
+  Uint8List? nativeAvatarBytes,
   required Widget child,
 }) {
   const buttonKey = ValueKey<String>('sidebar-profile-button');
 
   if (supportsNativeGlass) {
-    // AdaptiveButton.child expands to the native toolbar's full leading slot
-    // on iOS 26. Keep the custom avatar Flutter-owned so it remains a compact
-    // tap target and does not add another persistent platform glass surface.
-    return SizedBox.square(
-      dimension: TouchTarget.minimum,
-      child: CupertinoButton(
-        key: buttonKey,
-        onPressed: onPressed,
+    final avatarBytes = nativeAvatarBytes;
+    final nativeButton = CNButton.icon(
+      key: avatarBytes == null
+          ? const ValueKey<String>('sidebar-profile-native-placeholder')
+          : ObjectKey(avatarBytes),
+      icon: avatarBytes == null
+          ? CNSymbol(
+              'person.crop.circle.fill',
+              size: IconSize.large,
+              color: fallbackColor,
+            )
+          : null,
+      imageAsset: avatarBytes == null
+          ? null
+          : CNImageAsset(
+              '',
+              imageData: avatarBytes,
+              size: _sidebarNativeProfileAvatarSize,
+            ),
+      onPressed: onPressed,
+      config: const CNButtonConfig(
         padding: EdgeInsets.zero,
-        minimumSize: const Size.square(TouchTarget.minimum),
-        child: child,
+        minHeight: TouchTarget.minimum,
+        width: TouchTarget.minimum,
+        style: CNButtonStyle.glass,
       ),
+    );
+    return SizedBox.square(
+      key: buttonKey,
+      dimension: TouchTarget.minimum,
+      child: nativeButton,
     );
   }
 
@@ -174,8 +356,6 @@ Widget buildSidebarProfileButton({
 /// Profile button used as the sidebar adaptive app bar leading widget.
 class SidebarProfileAppBarLeading extends ConsumerWidget {
   const SidebarProfileAppBarLeading({super.key});
-
-  static const double _avatarSize = 36;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -214,12 +394,47 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final style = useOpaqueFallback
         ? AdaptiveButtonStyle.plain
         : AdaptiveButtonStyle.glass;
+    final inlineAvatarBytes = _decodeDataImage(avatarUrl);
+    final supportsNativeGlass = conduitSupportsNativeGlass();
+    final rawNativeAvatarBytes = !supportsNativeGlass
+        ? null
+        : hermesOnly
+        ? ref.watch(_sidebarHermesAvatarBytesProvider).asData?.value
+        : inlineAvatarBytes ??
+              (api == null || avatarUrl == null || avatarUrl.isEmpty
+                  ? null
+                  : ref
+                        .watch(
+                          sidebarNativeAvatarBytesProvider((
+                            api: api,
+                            avatarUrl: avatarUrl,
+                          )),
+                        )
+                        .asData
+                        ?.value);
+    final nativeAvatarBytes = rawNativeAvatarBytes == null
+        ? null
+        : ref
+              .watch(
+                sidebarNativeAvatarRasterProvider(
+                  SidebarNativeAvatarRasterRequest(
+                    cacheKey:
+                        '${avatarUrl ?? 'hermes'}:'
+                        '${rawNativeAvatarBytes.length}:'
+                        '${identityHashCode(rawNativeAvatarBytes)}',
+                    bytes: rawNativeAvatarBytes,
+                    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  ),
+                ),
+              )
+              .asData
+              ?.value;
 
     return Semantics(
       label: l10n.manage,
       button: true,
       child: buildSidebarProfileButton(
-        supportsNativeGlass: conduitSupportsNativeGlass(),
+        supportsNativeGlass: supportsNativeGlass,
         onPressed: () async {
           await Navigator.of(context).maybePop();
           if (!context.mounted) return;
@@ -256,10 +471,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         },
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
+        nativeAvatarBytes: nativeAvatarBytes,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
           child: UserAvatar(
-            size: _avatarSize,
+            size: _sidebarProfileAvatarSize,
             imageUrl: avatarUrl,
             fallbackText: initial,
           ),
@@ -600,14 +816,34 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     return host != null && host.isNotEmpty ? host : fallback;
   }
 
+  static final LinkedHashMap<String, Uint8List> _dataImageBytesCache =
+      LinkedHashMap<String, Uint8List>();
+
   Uint8List? _decodeDataImage(String? dataUrl) {
     if (dataUrl == null || !dataUrl.startsWith('data:image')) {
       return null;
     }
+    final cached = _dataImageBytesCache.remove(dataUrl);
+    if (cached != null) {
+      _dataImageBytesCache[dataUrl] = cached;
+      return cached;
+    }
     try {
       final commaIndex = dataUrl.indexOf(',');
       if (commaIndex == -1) return null;
-      return base64Decode(dataUrl.substring(commaIndex + 1));
+      final encodedLength = dataUrl.length - commaIndex - 1;
+      final maximumBase64Length =
+          ((_sidebarAvatarMaximumEncodedBytes + 2) ~/ 3) * 4;
+      if (encodedLength > maximumBase64Length) return null;
+      final decoded = base64Decode(dataUrl.substring(commaIndex + 1));
+      if (decoded.lengthInBytes > _sidebarAvatarMaximumEncodedBytes) {
+        return null;
+      }
+      _dataImageBytesCache[dataUrl] = decoded;
+      while (_dataImageBytesCache.length > 4) {
+        _dataImageBytesCache.remove(_dataImageBytesCache.keys.first);
+      }
+      return decoded;
     } catch (_) {
       return null;
     }
