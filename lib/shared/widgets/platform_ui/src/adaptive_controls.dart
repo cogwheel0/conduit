@@ -598,7 +598,8 @@ class AdaptiveSegmentedControl extends StatelessWidget {
         textColor == null &&
         selectedTextColor == null &&
         (nativeSymbols == null ||
-            nativeSymbols.every((symbol) => symbol != null));
+            (nativeSymbols.length == labels.length &&
+                nativeSymbols.every((symbol) => symbol != null)));
     if (PlatformUiCapabilities.usesNativeIOS26 && nativeCompatible) {
       return CNSegmentedControl(
         labels: labels,
@@ -618,9 +619,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
     final icons = sfSymbols;
     dynamic iconAt(int index) =>
         icons != null && index < icons.length ? icons[index] : null;
-    final count = icons == null || icons.isEmpty
-        ? labels.length
-        : (icons.length < labels.length ? icons.length : labels.length);
+    final count = labels.length;
     for (var index = 0; index < count; index++) {
       final icon = iconAt(index);
       final mappedIcon = fallbackIcon(icon);

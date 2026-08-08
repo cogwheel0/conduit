@@ -461,6 +461,21 @@ void main() {
     );
     expect(find.text('Chat'), findsOneWidget);
     expect(find.text('Document'), findsOneWidget);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AdaptiveSegmentedControl(
+            labels: ['Chat', 'Document'],
+            sfSymbols: ['bubble.left'],
+            selectedIndex: 0,
+            onValueChanged: _discardIndex,
+          ),
+        ),
+      ),
+    );
+    expect(find.byIcon(CupertinoIcons.chat_bubble), findsOneWidget);
+    expect(find.text('Document'), findsOneWidget);
   });
 
   testWidgets('Cupertino fields retain decoration prefix and suffix widgets', (
