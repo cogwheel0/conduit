@@ -331,6 +331,7 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
 
     return FormField<String>(
       key: _formFieldKey,
+      enabled: widget.enabled,
       initialValue: _initialValue,
       onSaved: widget.onSaved,
       onReset: _resetController,

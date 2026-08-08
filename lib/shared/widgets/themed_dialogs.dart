@@ -221,7 +221,8 @@ class ThemedDialogs {
 
     final nativeEditorPreservesInputConfiguration =
         keyboardType == null &&
-        textCapitalization == TextCapitalization.sentences;
+        textCapitalization == TextCapitalization.sentences &&
+        (maxLength == null || maxLength == TextField.noMaxLength);
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         nativeEditorPreservesInputConfiguration) {
       try {
