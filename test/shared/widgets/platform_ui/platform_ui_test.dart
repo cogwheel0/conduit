@@ -3,6 +3,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
+import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -406,12 +407,14 @@ void main() {
             value: 0.5,
             onChanged: (_) {},
             onChangeStart: (_) {},
+            divisions: 4,
           ),
         ),
       ),
     );
 
-    expect(find.byType(CupertinoSlider), findsOneWidget);
+    final slider = tester.widget<CupertinoSlider>(find.byType(CupertinoSlider));
+    expect(slider.divisions, 4);
     expect(find.byType(CNSlider), findsNothing);
   });
 
@@ -443,6 +446,71 @@ void main() {
     expect(find.byIcon(CupertinoIcons.chat_bubble), findsOneWidget);
     expect(find.byIcon(CupertinoIcons.doc_text), findsOneWidget);
     expect(find.text('bubble.left'), findsNothing);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AdaptiveSegmentedControl(
+            labels: ['Chat', 'Document'],
+            sfSymbols: [],
+            selectedIndex: 0,
+            onValueChanged: _discardIndex,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Chat'), findsOneWidget);
+    expect(find.text('Document'), findsOneWidget);
+  });
+
+  testWidgets('Cupertino fields retain decoration prefix and suffix widgets', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    const prefixKey = ValueKey<String>('cupertino-prefix');
+    const suffixKey = ValueKey<String>('cupertino-suffix');
+
+    await tester.pumpWidget(
+      const CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: AdaptiveTextField(
+            decoration: InputDecoration(
+              prefix: SizedBox(key: prefixKey),
+              suffix: SizedBox(key: suffixKey),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(prefixKey), findsOneWidget);
+    expect(find.byKey(suffixKey), findsOneWidget);
+  });
+
+  testWidgets('non-dismissible iOS 26 confirmations use Flutter fallback', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    await tester.pumpWidget(
+      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
+    );
+    final context = tester.element(find.byType(CupertinoPageScaffold));
+    final result = ThemedDialogs.confirm(
+      context,
+      title: 'Confirm',
+      message: 'Cannot dismiss',
+      barrierDismissible: false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await result, isFalse);
   });
 
   testWidgets('controlled Cupertino form fields track controller changes', (
@@ -661,3 +729,5 @@ void main() {
     expect(rich, isNot(isA<CNPopupMenuButton>()));
   });
 }
+
+void _discardIndex(int _) {}

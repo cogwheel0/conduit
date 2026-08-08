@@ -116,8 +116,14 @@ class AdaptiveTextField extends StatelessWidget {
       autofocus: autofocus,
       enabled: enabled,
       readOnly: readOnly,
-      prefix: prefix ?? _paddedIcon(prefixIcon ?? decoration?.prefixIcon),
-      suffix: suffix ?? _paddedIcon(suffixIcon ?? decoration?.suffixIcon),
+      prefix:
+          prefix ??
+          decoration?.prefix ??
+          _paddedIcon(prefixIcon ?? decoration?.prefixIcon),
+      suffix:
+          suffix ??
+          decoration?.suffix ??
+          _paddedIcon(suffixIcon ?? decoration?.suffixIcon),
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       onTap: onTap,
@@ -352,11 +358,13 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
             readOnly: widget.readOnly,
             prefix:
                 widget.prefix ??
+                widget.decoration?.prefix ??
                 AdaptiveTextField._paddedIcon(
                   widget.prefixIcon ?? widget.decoration?.prefixIcon,
                 ),
             suffix:
                 widget.suffix ??
+                widget.decoration?.suffix ??
                 AdaptiveTextField._paddedIcon(
                   widget.suffixIcon ?? widget.decoration?.suffixIcon,
                 ),

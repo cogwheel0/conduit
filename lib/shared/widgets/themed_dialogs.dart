@@ -70,7 +70,7 @@ class ThemedDialogs {
     final effectiveConfirmText = confirmText ?? l10n?.confirm ?? 'Confirm';
     final effectiveCancelText = cancelText ?? l10n?.cancel ?? 'Cancel';
 
-    if (PlatformUiCapabilities.usesNativeIOS26) {
+    if (PlatformUiCapabilities.usesNativeIOS26 && barrierDismissible) {
       try {
         final result = await NativeSheetBridge.instance.presentSheet(
           rethrowErrors: true,

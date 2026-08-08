@@ -532,6 +532,7 @@ class AdaptiveSlider extends StatelessWidget {
         onChangeEnd: onChangeEnd,
         activeColor: activeColor,
         thumbColor: thumbColor ?? CupertinoColors.white,
+        divisions: divisions,
       );
     }
     return Slider(
@@ -615,11 +616,13 @@ class AdaptiveSegmentedControl extends StatelessWidget {
 
     final children = <int, Widget>{};
     final icons = sfSymbols;
+    dynamic iconAt(int index) =>
+        icons != null && index < icons.length ? icons[index] : null;
     final count = icons == null || icons.isEmpty
         ? labels.length
         : (icons.length < labels.length ? icons.length : labels.length);
     for (var index = 0; index < count; index++) {
-      final icon = icons?[index];
+      final icon = iconAt(index);
       final mappedIcon = fallbackIcon(icon);
       children[index] = Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -659,12 +662,12 @@ class AdaptiveSegmentedControl extends StatelessWidget {
           for (var index = 0; index < count; index++)
             ButtonSegment<int>(
               value: index,
-              label: fallbackIcon(icons?[index]) == null
+              label: fallbackIcon(iconAt(index)) == null
                   ? Text(labels[index])
                   : null,
-              icon: fallbackIcon(icons?[index]) == null
+              icon: fallbackIcon(iconAt(index)) == null
                   ? null
-                  : Icon(fallbackIcon(icons?[index])!),
+                  : Icon(fallbackIcon(iconAt(index))!),
             ),
         ],
         selected: {selectedIndex},
