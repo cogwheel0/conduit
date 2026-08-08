@@ -21,6 +21,13 @@ IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
   'sparkles' => CupertinoIcons.sparkles,
   'folder' => CupertinoIcons.folder,
   'folder.fill' => CupertinoIcons.folder_fill,
+  'pin.fill' => CupertinoIcons.pin_fill,
+  'pin.slash' => CupertinoIcons.pin_slash,
+  'archivebox' => CupertinoIcons.archivebox,
+  'archivebox.fill' => CupertinoIcons.archivebox_fill,
+  'square.and.arrow.up' => CupertinoIcons.share,
+  'pencil' => CupertinoIcons.pencil,
+  'trash' => CupertinoIcons.delete,
   'chevron.down' => CupertinoIcons.chevron_down,
   'xmark' => CupertinoIcons.xmark,
   'plus' => CupertinoIcons.plus,
@@ -1143,6 +1150,11 @@ class AdaptivePopupMenuButton<T> {
     final color = item.isDestructive
         ? (material ? Colors.red : CupertinoColors.systemRed)
         : null;
+    final fallbackIcon = switch (item.icon) {
+      final IconData icon => icon,
+      final String symbol => cupertinoIconForSFSymbol(symbol),
+      _ => null,
+    };
     return Row(
       mainAxisSize: material ? MainAxisSize.max : MainAxisSize.min,
       mainAxisAlignment: material
@@ -1159,8 +1171,8 @@ class AdaptivePopupMenuButton<T> {
             ),
           ),
           const SizedBox(width: 10),
-        ] else if (item.icon is IconData) ...[
-          Icon(item.icon as IconData, size: 20, color: color),
+        ] else if (fallbackIcon != null) ...[
+          Icon(fallbackIcon, size: 20, color: color),
           const SizedBox(width: 10),
         ],
         if (item.checked) ...[

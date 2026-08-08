@@ -150,6 +150,7 @@ void main() {
           value: 'edit',
           label: 'Edit',
           icon: 'pencil',
+          checked: true,
         ),
         AdaptivePopupMenuItem<String>(
           value: 'delete',
@@ -166,6 +167,7 @@ void main() {
     check(
       action!.menuItems.map((item) => item.label),
     ).deepEquals(['Edit', 'Delete']);
+    check(action.menuItems[0].isChecked).isTrue();
     check(action.menuItems[1].enabled).isFalse();
     check(action.menuItems[1].isDestructive).isTrue();
     action.menuItems[0].onSelected();

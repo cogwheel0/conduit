@@ -776,6 +776,30 @@ void main() {
     expect(semantics.properties.enabled, isFalse);
     expect(semantics.properties.onTap, isNull);
   });
+
+  testWidgets('Flutter popup fallbacks map SF Symbol item icons', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdaptivePopupMenuButton.text<int>(
+            label: 'Menu',
+            items: const [
+              AdaptivePopupMenuItem<int>(label: 'Delete', icon: 'trash'),
+            ],
+            onSelected: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(CupertinoIcons.delete), findsOneWidget);
+  });
 }
 
 void _discardIndex(int _) {}

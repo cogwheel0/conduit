@@ -1355,6 +1355,7 @@ ConduitNativeToolbarAction? buildConduitNativeToolbarMenuAction<T>({
         label: entry.label,
         iosSymbol: entry.icon as String?,
         isDestructive: entry.isDestructive,
+        isChecked: entry.checked,
         enabled: entry.enabled,
         onSelected: () => onSelected(value),
       ),
