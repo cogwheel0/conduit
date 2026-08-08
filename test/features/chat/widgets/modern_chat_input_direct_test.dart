@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -15,6 +17,7 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1042,11 +1045,56 @@ void main() {
         matching: find.byType(AdaptiveButton),
       ),
     );
-    expect(overflowButton.sfSymbol?.size, IconSize.large);
+    expect(overflowButton.sfSymbol?.size, IconSize.medium);
     expect(
       tester.getSize(
         find.byKey(const ValueKey<String>('composer-expand-button')),
       ),
+      const Size.square(TouchTarget.minimum),
+    );
+  });
+
+  testWidgets('pre-iOS 26 composer uses 20pt Cupertino add and close glyphs', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final overflowButton = find.byKey(
+      const ValueKey<String>('composer-overflow-button'),
+    );
+    expect(
+      tester.widget<Icon>(find.byIcon(CupertinoIcons.add)).size,
+      IconSize.medium,
+    );
+    expect(
+      tester.getSize(overflowButton),
+      const Size.square(TouchTarget.minimum),
+    );
+
+    await tester.tap(overflowButton);
+    await tester.pump();
+
+    expect(
+      tester.widget<Icon>(find.byIcon(CupertinoIcons.xmark)).size,
+      IconSize.medium,
+    );
+    expect(
+      tester.getSize(overflowButton),
       const Size.square(TouchTarget.minimum),
     );
   });
@@ -1406,6 +1454,7 @@ void main() {
   });
 
   testWidgets('composer controls use the standard icon extent', (tester) async {
+    final semanticsHandle = tester.ensureSemantics();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -1446,6 +1495,13 @@ void main() {
       const ValueKey<String>('primary-btn-voice-call'),
     );
     expect(tester.getSize(voiceTarget), const Size.square(TouchTarget.minimum));
+    expect(
+      tester
+          .getSemantics(voiceTarget)
+          .getSemanticsData()
+          .hasAction(SemanticsAction.tap),
+      isTrue,
+    );
     final micGlyphRect = tester.getRect(find.byIcon(Icons.mic));
     final voiceVisualRect = tester.getRect(
       find.descendant(of: voiceTarget, matching: find.byType(AdaptiveButton)),
@@ -1473,6 +1529,7 @@ void main() {
       ),
       const Size.square(32),
     );
+    semanticsHandle.dispose();
   });
 
   testWidgets('overflow close control keeps its compact size when expanded', (

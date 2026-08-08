@@ -1096,7 +1096,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
     final bool hasText = text.trim().isNotEmpty;
-    final int lineCount = _composerTextLineCount(text);
+    final l10n = AppLocalizations.of(context)!;
+    final layoutText = text.isNotEmpty
+        ? text
+        : _isRecording
+        ? l10n.recordingAudio
+        : widget.placeholder ?? l10n.messageHintText;
+    final int lineCount = _composerTextLineCount(layoutText);
     final bool isMultiline = lineCount > 1;
     final bool showExpand = _shouldShowComposerExpandButton(lineCount);
     final PromptCommandMatch? match = _resolvePromptCommand(
@@ -3637,18 +3643,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? theme.textPrimary.withValues(alpha: Alpha.strong)
         : theme.textPrimary.withValues(alpha: Alpha.strong);
 
+    final isIOS = PlatformInfo.isIOS;
     final IconData overflowIcon;
     if (attachmentPanelVisible) {
-      overflowIcon = Platform.isIOS ? CupertinoIcons.xmark : Icons.close;
+      overflowIcon = isIOS ? CupertinoIcons.xmark : Icons.close;
     } else {
-      overflowIcon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
+      overflowIcon = isIOS ? CupertinoIcons.add : Icons.add;
     }
     // Material's add/close glyphs have a lighter, more compact drawn bound
     // than their Cupertino counterparts. Use the standard Material action
     // extent so they do not look undersized inside the shared 44pt target.
     final iconSize = conduitScaledIconExtent(
       context,
-      PlatformInfo.isIOS ? IconSize.large : _materialComposerOverflowIconExtent,
+      isIOS ? IconSize.medium : _materialComposerOverflowIconExtent,
     );
 
     return Focus(
@@ -4287,6 +4294,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       button: true,
       enabled: onPressed != null,
       label: semanticLabel,
+      onTap: onPressed,
       child: SizedBox.square(
         dimension: targetSize,
         child: Stack(

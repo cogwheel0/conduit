@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:collection';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -38,6 +39,11 @@ typedef SidebarNativeProfilePresenter =
 
 const double _sidebarProfileAvatarSize = 36;
 const double _sidebarNativeProfileAvatarSize = 28;
+const int _sidebarAvatarMaximumSourceDimension = 8192;
+const int _sidebarAvatarMaximumSourcePixels = 32 * 1024 * 1024;
+const double _sidebarAvatarMaximumAspectRatio = 64;
+const int _sidebarAvatarMaximumDecodeDimension = 512;
+const int _sidebarAvatarMaximumEncodedBytes = 2 * 1024 * 1024;
 
 @visibleForTesting
 Future<Uint8List?> rasterizeSidebarNativeAvatar(
@@ -50,15 +56,42 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
       : 1.0;
   final canvasPixels = (TouchTarget.minimum * scale).round();
   final avatarPixels = (_sidebarNativeProfileAvatarSize * scale).round();
+  ui.ImmutableBuffer? buffer;
+  ui.ImageDescriptor? descriptor;
   ui.Codec? codec;
   ui.Image? source;
   ui.Image? output;
   try {
-    codec = await ui.instantiateImageCodec(
-      bytes,
-      targetWidth: avatarPixels,
-      targetHeight: avatarPixels,
-      allowUpscaling: true,
+    buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final sourceWidth = descriptor.width;
+    final sourceHeight = descriptor.height;
+    final shortestSide = sourceWidth < sourceHeight
+        ? sourceWidth
+        : sourceHeight;
+    final longestSide = sourceWidth > sourceHeight ? sourceWidth : sourceHeight;
+    final sourcePixels = sourceWidth * sourceHeight;
+    if (shortestSide <= 0 ||
+        longestSide > _sidebarAvatarMaximumSourceDimension ||
+        sourcePixels > _sidebarAvatarMaximumSourcePixels ||
+        longestSide / shortestSide > _sidebarAvatarMaximumAspectRatio) {
+      return null;
+    }
+
+    final decodeScale = longestSide > _sidebarAvatarMaximumDecodeDimension
+        ? _sidebarAvatarMaximumDecodeDimension / longestSide
+        : 1.0;
+    final targetWidth = (sourceWidth * decodeScale).round().clamp(
+      1,
+      sourceWidth,
+    );
+    final targetHeight = (sourceHeight * decodeScale).round().clamp(
+      1,
+      sourceHeight,
+    );
+    codec = await descriptor.instantiateCodec(
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
     );
     source = (await codec.getNextFrame()).image;
 
@@ -86,7 +119,12 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
       destinationRect,
       ui.Paint()..filterQuality = ui.FilterQuality.high,
     );
-    output = await recorder.endRecording().toImage(canvasPixels, canvasPixels);
+    final picture = recorder.endRecording();
+    try {
+      output = await picture.toImage(canvasPixels, canvasPixels);
+    } finally {
+      picture.dispose();
+    }
     final data = await output.toByteData(format: ui.ImageByteFormat.png);
     if (data == null) return null;
     return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
@@ -102,6 +140,8 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
     output?.dispose();
     source?.dispose();
     codec?.dispose();
+    descriptor?.dispose();
+    buffer?.dispose();
   }
 }
 
@@ -128,10 +168,29 @@ final sidebarNativeProfilePresenterProvider =
     });
 
 typedef SidebarNativeAvatarRequest = ({ApiService api, String avatarUrl});
-typedef SidebarNativeAvatarRasterRequest = ({
-  Uint8List bytes,
-  double devicePixelRatio,
-});
+
+@immutable
+class SidebarNativeAvatarRasterRequest {
+  const SidebarNativeAvatarRasterRequest({
+    required this.cacheKey,
+    required this.bytes,
+    required this.devicePixelRatio,
+  });
+
+  final String cacheKey;
+  final Uint8List bytes;
+  final double devicePixelRatio;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SidebarNativeAvatarRasterRequest &&
+          cacheKey == other.cacheKey &&
+          devicePixelRatio == other.devicePixelRatio;
+
+  @override
+  int get hashCode => Object.hash(cacheKey, devicePixelRatio);
+}
 
 final sidebarNativeAvatarBytesProvider = FutureProvider.autoDispose
     .family<Uint8List?, SidebarNativeAvatarRequest>((ref, request) {
@@ -352,10 +411,15 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ? null
         : ref
               .watch(
-                sidebarNativeAvatarRasterProvider((
-                  bytes: rawNativeAvatarBytes,
-                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                )),
+                sidebarNativeAvatarRasterProvider(
+                  SidebarNativeAvatarRasterRequest(
+                    cacheKey:
+                        '${avatarUrl ?? 'hermes'}:'
+                        '${Object.hashAll(rawNativeAvatarBytes)}',
+                    bytes: rawNativeAvatarBytes,
+                    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  ),
+                ),
               )
               .asData
               ?.value;
@@ -746,14 +810,34 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     return host != null && host.isNotEmpty ? host : fallback;
   }
 
+  static final LinkedHashMap<String, Uint8List> _dataImageBytesCache =
+      LinkedHashMap<String, Uint8List>();
+
   Uint8List? _decodeDataImage(String? dataUrl) {
     if (dataUrl == null || !dataUrl.startsWith('data:image')) {
       return null;
     }
+    final cached = _dataImageBytesCache.remove(dataUrl);
+    if (cached != null) {
+      _dataImageBytesCache[dataUrl] = cached;
+      return cached;
+    }
     try {
       final commaIndex = dataUrl.indexOf(',');
       if (commaIndex == -1) return null;
-      return base64Decode(dataUrl.substring(commaIndex + 1));
+      final encodedLength = dataUrl.length - commaIndex - 1;
+      final maximumBase64Length =
+          ((_sidebarAvatarMaximumEncodedBytes + 2) ~/ 3) * 4;
+      if (encodedLength > maximumBase64Length) return null;
+      final decoded = base64Decode(dataUrl.substring(commaIndex + 1));
+      if (decoded.lengthInBytes > _sidebarAvatarMaximumEncodedBytes) {
+        return null;
+      }
+      _dataImageBytesCache[dataUrl] = decoded;
+      while (_dataImageBytesCache.length > 4) {
+        _dataImageBytesCache.remove(_dataImageBytesCache.keys.first);
+      }
+      return decoded;
     } catch (_) {
       return null;
     }

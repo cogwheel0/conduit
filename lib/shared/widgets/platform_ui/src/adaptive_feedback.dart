@@ -11,6 +11,8 @@ enum AdaptiveSnackBarType { info, success, warning, error }
 class AdaptiveSnackBar {
   AdaptiveSnackBar._();
 
+  static OverlayEntry? _activeIOSEntry;
+
   static void show(
     BuildContext context, {
     required String message,
@@ -64,6 +66,9 @@ class AdaptiveSnackBar {
     }
 
     final overlay = Overlay.of(context);
+    final previousEntry = _activeIOSEntry;
+    if (previousEntry?.mounted == true) previousEntry!.remove();
+    _activeIOSEntry = null;
     late final OverlayEntry entry;
     entry = OverlayEntry(
       builder: (context) => _IOSBanner(
@@ -74,9 +79,11 @@ class AdaptiveSnackBar {
         onActionPressed: onActionPressed,
         onDismiss: () {
           if (entry.mounted) entry.remove();
+          if (identical(_activeIOSEntry, entry)) _activeIOSEntry = null;
         },
       ),
     );
+    _activeIOSEntry = entry;
     overlay.insert(entry);
   }
 
@@ -135,49 +142,53 @@ class _IOSBannerState extends State<_IOSBanner> {
       AdaptiveSnackBarType.error => CupertinoColors.systemRed,
     };
     return Positioned(
-      top: MediaQuery.paddingOf(context).top + 8,
+      top: 8,
       left: 12,
       right: 12,
       child: SafeArea(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: CupertinoColors.secondarySystemBackground.resolveFrom(
-              context,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x26000000),
-                blurRadius: 18,
-                offset: Offset(0, 6),
+        bottom: false,
+        child: Semantics(
+          liveRegion: true,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: CupertinoColors.secondarySystemBackground.resolveFrom(
+                context,
               ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                Icon(CupertinoIcons.info_circle_fill, color: tint, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    widget.message,
-                    style: TextStyle(
-                      color: CupertinoColors.label.resolveFrom(context),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x26000000),
+                  blurRadius: 18,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(CupertinoIcons.info_circle_fill, color: tint, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: TextStyle(
+                        color: CupertinoColors.label.resolveFrom(context),
+                      ),
                     ),
                   ),
-                ),
-                if (widget.action != null)
-                  CupertinoButton(
-                    padding: const EdgeInsets.only(left: 10),
-                    minimumSize: const Size(36, 36),
-                    onPressed: () {
-                      widget.onActionPressed?.call();
-                      widget.onDismiss();
-                    },
-                    child: Text(widget.action!),
-                  ),
-              ],
+                  if (widget.action != null)
+                    CupertinoButton(
+                      padding: const EdgeInsets.only(left: 10),
+                      minimumSize: const Size(36, 36),
+                      onPressed: () {
+                        widget.onActionPressed?.call();
+                        widget.onDismiss();
+                      },
+                      child: Text(widget.action!),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -236,10 +247,6 @@ class AdaptiveAlertDialog {
     required String title,
     String? message,
     required List<AlertAction> actions,
-    dynamic icon,
-    double? iconSize,
-    Color? iconColor,
-    String? oneTimeCode,
   }) async {
     if (PlatformUiCapabilities.isIOS) {
       await showCupertinoDialog<void>(
@@ -275,6 +282,13 @@ class AdaptiveAlertDialog {
         actions: [
           for (final action in actions)
             TextButton(
+              style: action.style == AlertActionStyle.destructive
+                  ? TextButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        dialogContext,
+                      ).colorScheme.error,
+                    )
+                  : null,
               onPressed:
                   !action.enabled || action.style == AlertActionStyle.disabled
                   ? null
@@ -295,9 +309,6 @@ class AdaptiveAlertDialog {
     String? message,
     required List<AlertAction> actions,
     required AdaptiveAlertDialogInput input,
-    dynamic icon,
-    double? iconSize,
-    Color? iconColor,
   }) async {
     final controller = TextEditingController(text: input.initialValue);
     try {
@@ -323,13 +334,18 @@ class AdaptiveAlertDialog {
             actions: [
               for (final action in actions)
                 CupertinoDialogAction(
-                  onPressed: () {
-                    final isCancel = action.style == AlertActionStyle.cancel;
-                    Navigator.of(
-                      dialogContext,
-                    ).pop(isCancel ? null : controller.text);
-                    action.onPressed();
-                  },
+                  onPressed:
+                      !action.enabled ||
+                          action.style == AlertActionStyle.disabled
+                      ? null
+                      : () {
+                          final isCancel =
+                              action.style == AlertActionStyle.cancel;
+                          Navigator.of(
+                            dialogContext,
+                          ).pop(isCancel ? null : controller.text);
+                          action.onPressed();
+                        },
                   isDefaultAction: action.style == AlertActionStyle.primary,
                   isDestructiveAction:
                       action.style == AlertActionStyle.destructive,
@@ -354,14 +370,24 @@ class AdaptiveAlertDialog {
           actions: [
             for (final action in actions)
               TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop(
-                    action.style == AlertActionStyle.cancel
-                        ? null
-                        : controller.text,
-                  );
-                  action.onPressed();
-                },
+                style: action.style == AlertActionStyle.destructive
+                    ? TextButton.styleFrom(
+                        foregroundColor: Theme.of(
+                          dialogContext,
+                        ).colorScheme.error,
+                      )
+                    : null,
+                onPressed:
+                    !action.enabled || action.style == AlertActionStyle.disabled
+                    ? null
+                    : () {
+                        Navigator.of(dialogContext).pop(
+                          action.style == AlertActionStyle.cancel
+                              ? null
+                              : controller.text,
+                        );
+                        action.onPressed();
+                      },
                 child: Text(action.title),
               ),
           ],

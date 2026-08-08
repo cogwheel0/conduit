@@ -668,14 +668,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
               actions: appBarActions,
-              minimizeBehavior: TabBarMinimizeBehavior.never,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBodyWithSyncProgress,
             );
           }
 
           return AdaptiveScaffold(
-            minimizeBehavior: TabBarMinimizeBehavior.never,
             appBar: AdaptiveAppBar(
               useNativeToolbar: true,
               leading: adaptiveAppBarLeading,

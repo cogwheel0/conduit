@@ -133,7 +133,7 @@ void main() {
         avatarUrl: avatarUrl,
       );
 
-      expect(identical(first, second), isTrue);
+      check(identical(first, second)).isTrue();
       check(first!.toList()).deepEquals([4, 5, 6]);
       check(adapter.requestedUris).deepEquals([avatarUrl]);
     });

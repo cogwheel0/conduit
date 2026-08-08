@@ -162,12 +162,12 @@ void main() {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     await tester.pumpWidget(host());
-    expect(find.byType(CNButton), findsNothing);
+    expect(find.byType(LiquidGlassContainer), findsNothing);
 
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
     await tester.pumpWidget(host());
-    expect(find.byType(CNButton), findsNothing);
+    expect(find.byType(LiquidGlassContainer), findsNothing);
 
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     await tester.pumpWidget(host());
@@ -453,6 +453,226 @@ void main() {
 
     expect(find.byType(CupertinoSlider), findsOneWidget);
     expect(find.byType(CNSlider), findsNothing);
+  });
+
+  testWidgets('SF-symbol segments have valid Flutter fallbacks', (
+    tester,
+  ) async {
+    Widget host() => MaterialApp(
+      home: Scaffold(
+        body: AdaptiveSegmentedControl(
+          labels: const ['Chat', 'Document'],
+          sfSymbols: const ['bubble.left', 'doc.text'],
+          selectedIndex: 0,
+          onValueChanged: (_) {},
+        ),
+      ),
+    );
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    await tester.pumpWidget(host());
+    expect(find.byType(SegmentedButton<int>), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.chat_bubble), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.doc_text), findsOneWidget);
+    expect(find.text('bubble.left'), findsNothing);
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    await tester.pumpWidget(host());
+    expect(find.byType(CupertinoSlidingSegmentedControl<int>), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.chat_bubble), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.doc_text), findsOneWidget);
+    expect(find.text('bubble.left'), findsNothing);
+  });
+
+  testWidgets('controlled Cupertino form fields track controller changes', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    final controller = TextEditingController(text: 'initial');
+    addTearDown(controller.dispose);
+    final formKey = GlobalKey<FormState>();
+    String? saved;
+    late StateSetter setHostState;
+    var controlled = true;
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              setHostState = setState;
+              return Form(
+                key: formKey,
+                child: AdaptiveTextFormField(
+                  controller: controlled ? controller : null,
+                  onSaved: (value) => saved = value,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    formKey.currentState!.save();
+    expect(saved, 'initial');
+
+    controller.text = 'updated externally';
+    await tester.pump();
+    formKey.currentState!.save();
+    expect(saved, 'updated externally');
+
+    formKey.currentState!.reset();
+    await tester.pump();
+    expect(controller.text, 'initial');
+    formKey.currentState!.save();
+    expect(saved, 'initial');
+
+    controller.text = 'handoff value';
+    await tester.pump();
+    setHostState(() => controlled = false);
+    await tester.pump();
+    final field = tester.widget<CupertinoTextField>(
+      find.byType(CupertinoTextField),
+    );
+    expect(field.controller?.text, 'handoff value');
+    formKey.currentState!.save();
+    expect(saved, 'handoff value');
+  });
+
+  testWidgets('Material text fields retain adaptive decoration inputs', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    const prefixKey = ValueKey<String>('material-prefix');
+    const suffixKey = ValueKey<String>('material-suffix');
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AdaptiveTextField(
+            placeholder: 'Search',
+            prefixIcon: Icon(Icons.search, key: prefixKey),
+            suffixIcon: Icon(Icons.close, key: suffixKey),
+            padding: EdgeInsets.all(19),
+          ),
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.decoration?.hintText, 'Search');
+    expect(field.decoration?.prefixIcon?.key, prefixKey);
+    expect(field.decoration?.suffixIcon?.key, suffixKey);
+    expect(field.decoration?.contentPadding, const EdgeInsets.all(19));
+  });
+
+  testWidgets('button fallbacks preserve symbols and readable foregrounds', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: AdaptiveButton.sfSymbol(
+            onPressed: () {},
+            sfSymbol: const SFSymbol('magnifyingglass'),
+          ),
+        ),
+      ),
+    );
+    expect(find.byIcon(CupertinoIcons.search), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.circle_fill), findsNothing);
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    const background = Color(0xff0066cc);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: background),
+        ),
+        home: Scaffold(
+          body: AdaptiveButton(
+            onPressed: () {},
+            label: 'Continue',
+            color: background,
+          ),
+        ),
+      ),
+    );
+    final label = tester.widget<Text>(find.text('Continue'));
+    final foreground = label.style?.color;
+    expect(foreground, isNotNull);
+    final lighter =
+        foreground!.computeLuminance() > background.computeLuminance()
+        ? foreground.computeLuminance()
+        : background.computeLuminance();
+    final darker = foreground.computeLuminance() > background.computeLuminance()
+        ? background.computeLuminance()
+        : foreground.computeLuminance();
+    expect((lighter + 0.05) / (darker + 0.05), greaterThanOrEqualTo(4.5));
+  });
+
+  testWidgets('Cupertino app applies an explicit dark theme at its root', (
+    tester,
+  ) async {
+    final router = GoRouter(
+      routes: [GoRoute(path: '/', builder: (_, _) => const SizedBox.shrink())],
+    );
+    addTearDown(router.dispose);
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+
+    await tester.pumpWidget(
+      AdaptiveApp.router(
+        routerConfig: router,
+        themeMode: ThemeMode.dark,
+        cupertinoDarkTheme: const CupertinoThemeData(
+          brightness: Brightness.dark,
+        ),
+      ),
+    );
+
+    expect(
+      tester.widget<CupertinoApp>(find.byType(CupertinoApp)).theme?.brightness,
+      Brightness.dark,
+    );
+  });
+
+  testWidgets('input dialogs keep disabled actions non-interactive', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    await tester.pumpWidget(
+      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
+    );
+
+    final result = AdaptiveAlertDialog.inputShow(
+      context: tester.element(find.byType(CupertinoPageScaffold)),
+      title: 'Rename',
+      input: const AdaptiveAlertDialogInput(placeholder: 'Name'),
+      actions: [
+        AlertAction(title: 'Disabled', enabled: false, onPressed: () {}),
+        AlertAction(
+          title: 'Cancel',
+          style: AlertActionStyle.cancel,
+          onPressed: () {},
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+
+    final disabled = tester.widget<CupertinoDialogAction>(
+      find.widgetWithText(CupertinoDialogAction, 'Disabled'),
+    );
+    expect(disabled.onPressed, isNull);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await result, isNull);
   });
 
   test('popup adapter preserves rich values by selecting Flutter fallback', () {

@@ -1,7 +1,8 @@
-import 'dart:io' show Platform;
-
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/foundation.dart';
+
+import 'operating_system_version_stub.dart'
+    if (dart.library.io) 'operating_system_version_io.dart';
 
 /// Central capability gate for Conduit's platform UI compatibility layer.
 abstract final class PlatformUiCapabilities {
@@ -24,7 +25,7 @@ abstract final class PlatformUiCapabilities {
     if (!isIOS) return 0;
     final override = debugIOSMajorVersionOverride;
     if (override != null) return override;
-    return _parseIOSMajorVersion(Platform.operatingSystemVersion) ?? 0;
+    return _parseIOSMajorVersion(operatingSystemVersion) ?? 0;
   }
 
   /// True only when both Conduit's safe parser and the package agree.
@@ -78,7 +79,7 @@ abstract final class PlatformInfo {
   static bool get isWeb => kIsWeb;
   static int get iOSVersion => PlatformUiCapabilities.iOSMajorVersion;
   static bool isIOS26OrHigher() => PlatformUiCapabilities.usesNativeIOS26;
-  static bool isIOS18OrLower() => isIOS && iOSVersion > 0 && iOSVersion < 26;
+  static bool isBelowIOS26() => isIOS && iOSVersion > 0 && iOSVersion < 26;
   static bool isIOSVersionInRange(int min, int max) =>
       isIOS && iOSVersion >= min && iOSVersion <= max;
 }

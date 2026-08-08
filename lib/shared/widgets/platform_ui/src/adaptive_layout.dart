@@ -55,7 +55,7 @@ class AdaptiveAppBar {
   final bool useNativeToolbar;
   final Color? tintColor;
   final Widget? titleWidget;
-  final PreferredSizeWidget? cupertinoNavigationBar;
+  final ObstructingPreferredSizeWidget? cupertinoNavigationBar;
   final PreferredSizeWidget? appBar;
 
   AdaptiveAppBar copyWith({
@@ -66,7 +66,7 @@ class AdaptiveAppBar {
     bool? useNativeToolbar,
     Color? tintColor,
     Widget? titleWidget,
-    PreferredSizeWidget? cupertinoNavigationBar,
+    ObstructingPreferredSizeWidget? cupertinoNavigationBar,
     PreferredSizeWidget? appBar,
   }) {
     return AdaptiveAppBar(
@@ -124,8 +124,6 @@ class AdaptiveBottomNavigationBar {
   final Color? unselectedItemColor;
 }
 
-enum TabBarMinimizeBehavior { never, onScrollDown, onScrollUp, automatic }
-
 class AdaptiveScaffold extends StatelessWidget {
   const AdaptiveScaffold({
     super.key,
@@ -134,9 +132,6 @@ class AdaptiveScaffold extends StatelessWidget {
     this.body,
     this.resizeToAvoidBottomInset,
     this.floatingActionButton,
-    this.minimizeBehavior = TabBarMinimizeBehavior.automatic,
-    this.enableBlur = true,
-    this.enableToolbarGradient = true,
     this.extendBodyBehindAppBar = false,
     this.drawer,
     this.endDrawer,
@@ -146,7 +141,6 @@ class AdaptiveScaffold extends StatelessWidget {
     this.drawerEnableOpenDragGesture = true,
     this.endDrawerEnableOpenDragGesture = true,
     this.scaffoldKey,
-    this.useHeroBackButton = true,
     this.tabBarHidden = false,
   });
 
@@ -155,9 +149,6 @@ class AdaptiveScaffold extends StatelessWidget {
   final Widget? body;
   final bool? resizeToAvoidBottomInset;
   final Widget? floatingActionButton;
-  final TabBarMinimizeBehavior minimizeBehavior;
-  final bool enableBlur;
-  final bool enableToolbarGradient;
   final bool extendBodyBehindAppBar;
   final Widget? drawer;
   final Widget? endDrawer;
@@ -167,7 +158,6 @@ class AdaptiveScaffold extends StatelessWidget {
   final bool drawerEnableOpenDragGesture;
   final bool endDrawerEnableOpenDragGesture;
   final GlobalKey<ScaffoldState>? scaffoldKey;
-  final bool useHeroBackButton;
   final bool tabBarHidden;
 
   @override
@@ -287,6 +277,11 @@ class AdaptiveScaffold extends StatelessWidget {
   ) {
     final custom = appBar?.cupertinoNavigationBar;
     if (custom is ObstructingPreferredSizeWidget) return custom;
+    assert(
+      custom == null,
+      'AdaptiveAppBar.cupertinoNavigationBar must implement '
+      'ObstructingPreferredSizeWidget.',
+    );
     if (appBar == null) return null;
     final title =
         appBar!.titleWidget ??
@@ -350,9 +345,7 @@ class AdaptiveScaffold extends StatelessWidget {
         (appBar == null
             ? null
             : AppBar(
-                title:
-                    appBar!.titleWidget ??
-                    (appBar!.title == null ? null : Text(appBar!.title!)),
+                title: appBar!.titleWidget ?? _materialAppBarTitle(appBar!),
                 leading: appBar!.leading,
                 actions: actions
                     ?.map(
@@ -407,6 +400,20 @@ class AdaptiveScaffold extends StatelessWidget {
     );
   }
 
+  Widget? _materialAppBarTitle(AdaptiveAppBar bar) {
+    final title = bar.title;
+    if (title == null) return null;
+    if (bar.subtitle?.isNotEmpty != true) return Text(title);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title),
+        Text(bar.subtitle!, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
   CNTabBarItem _nativeTabItem(AdaptiveNavigationDestination item) {
     final icon = item.icon;
     final selected = item.selectedIcon;
@@ -445,7 +452,7 @@ class AdaptiveScaffold extends StatelessWidget {
     }
     if (value is String) {
       return Icon(
-        _cupertinoIconForSymbol(value),
+        cupertinoIconForSFSymbol(value) ?? CupertinoIcons.circle,
         size: kCupertinoNativeControlSymbolExtent,
       );
     }
@@ -458,20 +465,6 @@ class AdaptiveScaffold extends StatelessWidget {
     }
     return const Icon(Icons.circle, size: kCupertinoNativeControlSymbolExtent);
   }
-
-  IconData _cupertinoIconForSymbol(String symbol) => switch (symbol) {
-    'bubble.left' => CupertinoIcons.chat_bubble,
-    'bubble.left.fill' => CupertinoIcons.chat_bubble_fill,
-    'doc.text' => CupertinoIcons.doc_text,
-    'doc.text.fill' => CupertinoIcons.doc_text_fill,
-    'terminal' => CupertinoIcons.command,
-    'number' => CupertinoIcons.number,
-    'magnifyingglass' => CupertinoIcons.search,
-    'sparkles' => CupertinoIcons.sparkles,
-    'folder' => CupertinoIcons.folder,
-    'folder.fill' => CupertinoIcons.folder_fill,
-    _ => CupertinoIcons.circle,
-  };
 }
 
 class AdaptiveCard extends StatelessWidget {
@@ -741,15 +734,27 @@ class AdaptiveContextMenu extends StatelessWidget {
     }
     return GestureDetector(
       onLongPress: () async {
-        final renderBox = context.findRenderObject() as RenderBox;
-        final offset = renderBox.localToGlobal(Offset.zero);
+        final renderObject = context.findRenderObject();
+        final overlayObject = Overlay.of(context).context.findRenderObject();
+        if (renderObject is! RenderBox ||
+            overlayObject is! RenderBox ||
+            !renderObject.attached ||
+            !overlayObject.attached) {
+          return;
+        }
+        final topLeft = renderObject.localToGlobal(
+          Offset.zero,
+          ancestor: overlayObject,
+        );
+        final bottomRight = renderObject.localToGlobal(
+          renderObject.size.bottomRight(Offset.zero),
+          ancestor: overlayObject,
+        );
         final selected = await showMenu<int>(
           context: context,
-          position: RelativeRect.fromLTRB(
-            offset.dx,
-            offset.dy + renderBox.size.height,
-            offset.dx + renderBox.size.width,
-            offset.dy,
+          position: RelativeRect.fromRect(
+            Rect.fromPoints(topLeft, bottomRight),
+            Offset.zero & overlayObject.size,
           ),
           items: [
             for (var index = 0; index < actions.length; index++)
@@ -828,6 +833,14 @@ class AdaptiveExpansionTile extends StatefulWidget {
 
 class _AdaptiveExpansionTileState extends State<AdaptiveExpansionTile> {
   late bool _expanded = widget.initiallyExpanded;
+
+  @override
+  void didUpdateWidget(covariant AdaptiveExpansionTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initiallyExpanded != widget.initiallyExpanded) {
+      _expanded = widget.initiallyExpanded;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

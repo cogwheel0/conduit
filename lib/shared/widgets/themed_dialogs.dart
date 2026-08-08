@@ -219,7 +219,11 @@ class ThemedDialogs {
     final effectiveConfirmText = confirmText ?? l10n?.save ?? 'Save';
     final effectiveCancelText = cancelText ?? l10n?.cancel ?? 'Cancel';
 
-    if (PlatformUiCapabilities.usesNativeIOS26) {
+    final nativeEditorPreservesInputConfiguration =
+        keyboardType == null &&
+        textCapitalization == TextCapitalization.sentences;
+    if (PlatformUiCapabilities.usesNativeIOS26 &&
+        nativeEditorPreservesInputConfiguration) {
       try {
         final result = await NativeSheetBridge.instance.presentTextEditor(
           title: title,
@@ -234,7 +238,10 @@ class ThemedDialogs {
         if (result?.actionId != 'confirm') return null;
         final value = result?.values['text'];
         if (value is! String) return null;
-        final trimmed = value.trim();
+        final bounded = maxLength == null
+            ? value
+            : value.characters.take(maxLength).toString();
+        final trimmed = bounded.trim();
         if (trimmed.isEmpty) return null;
         if (initialValue != null && trimmed == initialValue.trim()) return null;
         return trimmed;

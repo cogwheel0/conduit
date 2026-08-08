@@ -16,7 +16,7 @@ import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 void main() {
   test('shared chrome uses the standard platform icon extent', () {
     check(IconSize.appBar).equals(24);
-    check(IconSize.tabBar).equals(24);
+    check(IconSize.tabBar).equals(20);
     check(IconSize.large).equals(24);
     check(const SFSymbol('circle').size).equals(20);
     check(kConduitModelSelectorChevronExtent).equals(13);

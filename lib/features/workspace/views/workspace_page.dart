@@ -220,9 +220,9 @@ class WorkspaceScaffold extends ConsumerWidget {
       );
     }
 
-    // iOS 26 native toolbars contribute their height to MediaQuery padding as
-    // of Conduit platform UI 0.1.110. Older Cupertino bars still need the
-    // explicit status-bar + navigation-bar offset used before that release.
+    // iOS 26 native toolbars contribute their height to MediaQuery padding.
+    // Older Cupertino bars still need the explicit status-bar + navigation-bar
+    // offset.
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     final usesNativeToolbarInset = isIos && PlatformInfo.isIOS26OrHigher();
     final topInset = isIos && !usesNativeToolbarInset
@@ -426,8 +426,6 @@ class _WorkspaceSectionMenu extends StatelessWidget {
     return ThemedSheets.hideNativeChromeWhileCovered(
       replacement: SizedBox.fromSize(size: menuSize),
       child: AdaptivePopupMenuButton.widget<WorkspaceSection>(
-        tint: context.conduitTheme.textPrimary,
-        buttonStyle: PopupButtonStyle.glass,
         child: SizedBox.fromSize(
           size: menuSize,
           child: Padding(

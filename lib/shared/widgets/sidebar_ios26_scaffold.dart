@@ -12,7 +12,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
     required this.body,
     this.leading,
     this.actions,
-    this.minimizeBehavior = TabBarMinimizeBehavior.never,
     this.showNativeView = true,
   });
 
@@ -20,7 +19,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
   final Widget body;
   final Widget? leading;
   final List<AdaptiveAppBarAction>? actions;
-  final TabBarMinimizeBehavior minimizeBehavior;
   final bool showNativeView;
 
   @override

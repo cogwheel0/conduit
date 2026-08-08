@@ -122,6 +122,7 @@ class AdaptiveApp extends StatelessWidget {
   final GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey;
 
   PlatformTarget get _platformTarget {
+    if (PlatformInfo.isWeb) return PlatformTarget.web;
     if (PlatformUiCapabilities.usesNativeIOS26) {
       return PlatformTarget.ios26Plus;
     }
@@ -131,6 +132,11 @@ class AdaptiveApp extends StatelessWidget {
           : PlatformTarget.ios;
     }
     if (PlatformUiCapabilities.isAndroid) return PlatformTarget.android;
+    if (PlatformInfo.isMacOS ||
+        PlatformInfo.isWindows ||
+        PlatformInfo.isLinux) {
+      return PlatformTarget.desktop;
+    }
     return PlatformTarget.other;
   }
 
@@ -140,7 +146,6 @@ class AdaptiveApp extends StatelessWidget {
       final data =
           material?.call(context, _platformTarget) ?? const MaterialAppData();
       return MaterialApp.router(
-        key: key,
         routerConfig: routerConfig,
         routeInformationProvider: routeInformationProvider,
         routeInformationParser: routeInformationParser,
@@ -188,6 +193,11 @@ class AdaptiveApp extends StatelessWidget {
           brightness: Brightness.dark,
           primaryColor: materialDarkTheme?.colorScheme.primary,
         );
+    final appBrightness = switch (themeMode) {
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.light => Brightness.light,
+      _ => View.of(context).platformDispatcher.platformBrightness,
+    };
 
     Widget effectiveBuilder(BuildContext context, Widget? child) {
       final brightness = switch (themeMode) {
@@ -207,11 +217,13 @@ class AdaptiveApp extends StatelessWidget {
           ),
         ),
       );
-      return builder?.call(context, themedChild) ?? themedChild;
+      final appChild = scaffoldMessengerKey == null
+          ? themedChild
+          : ScaffoldMessenger(key: scaffoldMessengerKey, child: themedChild);
+      return builder?.call(context, appChild) ?? appChild;
     }
 
     return CupertinoApp.router(
-      key: key,
       routerConfig: routerConfig,
       routeInformationProvider: routeInformationProvider,
       routeInformationParser: routeInformationParser,
@@ -221,7 +233,7 @@ class AdaptiveApp extends StatelessWidget {
       title: title,
       onGenerateTitle: onGenerateTitle,
       color: data.color,
-      theme: lightTheme,
+      theme: appBrightness == Brightness.dark ? darkTheme : lightTheme,
       locale: locale,
       localizationsDelegates: localizationsDelegates,
       localeListResolutionCallback: localeListResolutionCallback,

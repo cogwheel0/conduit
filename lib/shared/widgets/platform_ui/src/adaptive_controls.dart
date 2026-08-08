@@ -9,6 +9,26 @@ import 'platform_ui_capabilities.dart';
 /// Native SF Symbol extent for 44-point iOS toolbar and composer controls.
 const double kCupertinoNativeControlSymbolExtent = 20;
 
+/// Flutter icon fallback for the SF Symbols used by Conduit's adaptive UI.
+IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
+  'bubble.left' => CupertinoIcons.chat_bubble,
+  'bubble.left.fill' => CupertinoIcons.chat_bubble_fill,
+  'doc.text' => CupertinoIcons.doc_text,
+  'doc.text.fill' => CupertinoIcons.doc_text_fill,
+  'terminal' => CupertinoIcons.command,
+  'number' => CupertinoIcons.number,
+  'magnifyingglass' => CupertinoIcons.search,
+  'sparkles' => CupertinoIcons.sparkles,
+  'folder' => CupertinoIcons.folder,
+  'folder.fill' => CupertinoIcons.folder_fill,
+  'chevron.down' => CupertinoIcons.chevron_down,
+  'xmark' => CupertinoIcons.xmark,
+  'plus' => CupertinoIcons.plus,
+  'mic' => CupertinoIcons.mic,
+  'paperplane.fill' => CupertinoIcons.arrow_up_circle_fill,
+  _ => null,
+};
+
 class SFSymbol {
   const SFSymbol(
     this.name, {
@@ -207,7 +227,7 @@ class AdaptiveButton extends StatelessWidget {
   Widget _content({required Color fallbackColor, bool wrapCustomChild = true}) {
     if (sfSymbol case final symbol?) {
       return Icon(
-        CupertinoIcons.circle_fill,
+        cupertinoIconForSFSymbol(symbol.name) ?? CupertinoIcons.circle_fill,
         size: symbol.size,
         color: symbol.color ?? fallbackColor,
       );
@@ -227,16 +247,18 @@ class AdaptiveButton extends StatelessWidget {
 
   Widget _buildCupertino(BuildContext context) {
     final primary = color ?? CupertinoTheme.of(context).primaryColor;
+    final resolvedRadius = borderRadius ?? BorderRadius.circular(8);
     final foreground = switch (style) {
-      AdaptiveButtonStyle.filled ||
-      AdaptiveButtonStyle.gray ||
-      AdaptiveButtonStyle.bordered => textColor ?? CupertinoColors.white,
+      AdaptiveButtonStyle.filled => textColor ?? CupertinoColors.white,
+      AdaptiveButtonStyle.gray =>
+        textColor ?? CupertinoColors.label.resolveFrom(context),
       _ => textColor ?? primary,
     };
     final background = switch (style) {
-      AdaptiveButtonStyle.filled ||
-      AdaptiveButtonStyle.gray ||
-      AdaptiveButtonStyle.bordered => primary,
+      AdaptiveButtonStyle.filled => primary,
+      AdaptiveButtonStyle.gray =>
+        color ?? CupertinoColors.systemGrey5.resolveFrom(context),
+      AdaptiveButtonStyle.bordered => null,
       AdaptiveButtonStyle.tinted ||
       AdaptiveButtonStyle.glass ||
       AdaptiveButtonStyle.prominentGlass => primary.withValues(alpha: 0.15),
@@ -245,18 +267,43 @@ class AdaptiveButton extends StatelessWidget {
     final button = CupertinoButton(
       onPressed: enabled ? onPressed : null,
       padding: padding ?? _defaultPadding,
-      borderRadius: borderRadius ?? BorderRadius.circular(8),
+      borderRadius: resolvedRadius,
       color: background,
       minimumSize: minSize ?? Size(0, _defaultHeight),
       child: _content(fallbackColor: foreground),
     );
-    if (minSize == null) return button;
+    final borderSide = style == AdaptiveButtonStyle.bordered
+        ? BorderSide(color: primary)
+        : BorderSide.none;
+    final ShapeBorder shape = useSmoothRectangleBorder
+        ? ContinuousRectangleBorder(
+            borderRadius: resolvedRadius,
+            side: borderSide,
+          )
+        : RoundedRectangleBorder(
+            borderRadius: resolvedRadius,
+            side: borderSide,
+          );
+    Widget result = button;
+    if (style == AdaptiveButtonStyle.bordered) {
+      result = DecoratedBox(
+        decoration: ShapeDecoration(shape: shape),
+        child: result,
+      );
+    }
+    if (useSmoothRectangleBorder) {
+      result = ClipPath(
+        clipper: ShapeBorderClipper(shape: shape),
+        child: result,
+      );
+    }
+    if (minSize == null) return result;
     return ConstrainedBox(
       constraints: BoxConstraints(
         minWidth: minSize!.width,
         minHeight: minSize!.height,
       ),
-      child: button,
+      child: result,
     );
   }
 
@@ -277,14 +324,21 @@ class AdaptiveButton extends StatelessWidget {
 
   Widget _buildMaterial(BuildContext context) {
     final callback = enabled ? onPressed : null;
-    final content = _content(
-      fallbackColor:
-          textColor ?? color ?? Theme.of(context).colorScheme.primary,
+    final colorScheme = Theme.of(context).colorScheme;
+    final effectiveRadius = borderRadius ?? BorderRadius.circular(8);
+    final OutlinedBorder? shape = useSmoothRectangleBorder
+        ? ContinuousRectangleBorder(borderRadius: effectiveRadius)
+        : borderRadius == null
+        ? null
+        : RoundedRectangleBorder(borderRadius: effectiveRadius);
+    final primaryContent = _content(
+      fallbackColor: textColor ?? colorScheme.onPrimary,
       wrapCustomChild: false,
     );
-    final shape = borderRadius == null
-        ? null
-        : RoundedRectangleBorder(borderRadius: borderRadius!);
+    final accentContent = _content(
+      fallbackColor: textColor ?? color ?? colorScheme.primary,
+      wrapCustomChild: false,
+    );
     return switch (style) {
       AdaptiveButtonStyle.filled => ElevatedButton(
         onPressed: callback,
@@ -295,7 +349,7 @@ class AdaptiveButton extends StatelessWidget {
           minimumSize: minSize,
           shape: shape,
         ),
-        child: content,
+        child: primaryContent,
       ),
       AdaptiveButtonStyle.bordered => OutlinedButton(
         onPressed: callback,
@@ -306,7 +360,7 @@ class AdaptiveButton extends StatelessWidget {
           minimumSize: minSize,
           shape: shape,
         ),
-        child: content,
+        child: accentContent,
       ),
       AdaptiveButtonStyle.plain => TextButton(
         onPressed: callback,
@@ -317,7 +371,7 @@ class AdaptiveButton extends StatelessWidget {
           minimumSize: minSize,
           shape: shape,
         ),
-        child: content,
+        child: accentContent,
       ),
       _ => FilledButton.tonal(
         onPressed: callback,
@@ -328,7 +382,7 @@ class AdaptiveButton extends StatelessWidget {
           minimumSize: minSize,
           shape: shape,
         ),
-        child: content,
+        child: accentContent,
       ),
     };
   }
@@ -527,6 +581,12 @@ class AdaptiveSegmentedControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    IconData? fallbackIcon(dynamic icon) => switch (icon) {
+      final IconData value => value,
+      final String symbol => cupertinoIconForSFSymbol(symbol),
+      _ => null,
+    };
+
     final nativeSymbols = sfSymbols?.map<CNSymbol?>((symbol) {
       if (symbol is String) {
         return CNSymbol(symbol, size: iconSize ?? 20, color: iconColor);
@@ -558,12 +618,13 @@ class AdaptiveSegmentedControl extends StatelessWidget {
     final count = icons == null || icons.isEmpty ? labels.length : icons.length;
     for (var index = 0; index < count; index++) {
       final icon = icons?[index];
+      final mappedIcon = fallbackIcon(icon);
       children[index] = Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: icon is IconData
-            ? Icon(icon, size: iconSize ?? 20, color: iconColor)
+        child: mappedIcon != null
+            ? Icon(mappedIcon, size: iconSize ?? 20, color: iconColor)
             : Text(
-                icons == null || icons.isEmpty ? labels[index] : '$icon',
+                labels[index],
                 style: TextStyle(
                   color: index == selectedIndex ? selectedTextColor : textColor,
                 ),
@@ -596,12 +657,12 @@ class AdaptiveSegmentedControl extends StatelessWidget {
           for (var index = 0; index < count; index++)
             ButtonSegment<int>(
               value: index,
-              label: icons == null || icons.isEmpty
+              label: fallbackIcon(icons?[index]) == null
                   ? Text(labels[index])
                   : null,
-              icon: icons?[index] is IconData
-                  ? Icon(icons![index] as IconData)
-                  : null,
+              icon: fallbackIcon(icons?[index]) == null
+                  ? null
+                  : Icon(fallbackIcon(icons?[index])!),
             ),
         ],
         selected: {selectedIndex},
@@ -809,8 +870,6 @@ class AdaptivePopupMenuButton<T> {
     required List<AdaptivePopupMenuEntry> items,
     required void Function(int index, AdaptivePopupMenuItem<T> entry)
     onSelected,
-    Color? tint,
-    PopupButtonStyle buttonStyle = PopupButtonStyle.plain,
     bool triggerOnLongPress = false,
     VoidCallback? onTap,
     required Widget child,
@@ -865,7 +924,16 @@ class AdaptivePopupMenuButton<T> {
   }
 
   static CNButtonStyle _nativeButtonStyle(PopupButtonStyle style) =>
-      CNButtonStyle.values[style.index];
+      switch (style) {
+        PopupButtonStyle.plain => CNButtonStyle.plain,
+        PopupButtonStyle.gray => CNButtonStyle.gray,
+        PopupButtonStyle.tinted => CNButtonStyle.tinted,
+        PopupButtonStyle.bordered => CNButtonStyle.bordered,
+        PopupButtonStyle.borderedProminent => CNButtonStyle.borderedProminent,
+        PopupButtonStyle.filled => CNButtonStyle.filled,
+        PopupButtonStyle.glass => CNButtonStyle.glass,
+        PopupButtonStyle.prominentGlass => CNButtonStyle.prominentGlass,
+      };
 
   static void _dispatch<T>(
     List<AdaptivePopupMenuEntry> items,

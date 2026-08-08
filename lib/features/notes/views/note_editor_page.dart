@@ -2897,9 +2897,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   _generateTitle();
               }
             },
-            buttonStyle: conduitSupportsNativeGlass()
-                ? PopupButtonStyle.glass
-                : PopupButtonStyle.plain,
             child: IgnorePointer(child: button),
           ),
         ),

@@ -621,6 +621,11 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (actions.isEmpty || actions.length > 3) {
+      throw StateError(
+        'ConduitNativeToolbarActionGroup requires between 1 and 3 actions.',
+      );
+    }
     final controlExtent = conduitScaledControlExtent(context);
     final width = actions.length == 1
         ? controlExtent
@@ -664,45 +669,51 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
     List<ConduitNativeToolbarAction> groupedActions,
     double extent,
   ) {
-    return CNGlassButtonGroup(
-      spacing: Spacing.sm,
-      spacingForGlass: 36,
-      buttons: [
-        for (final action in groupedActions)
-          if (action.menuItems.isEmpty)
-            CNButtonData.icon(
-              icon: CNSymbol(
-                action.iosSymbol,
-                size: kCupertinoNativeControlSymbolExtent,
+    return Semantics(
+      container: true,
+      label: groupedActions
+          .map((action) => action.accessibilityLabel)
+          .join(', '),
+      child: CNGlassButtonGroup(
+        spacing: Spacing.sm,
+        spacingForGlass: 36,
+        buttons: [
+          for (final action in groupedActions)
+            if (action.menuItems.isEmpty)
+              CNButtonData.icon(
+                icon: CNSymbol(
+                  action.iosSymbol,
+                  size: kCupertinoNativeControlSymbolExtent,
+                ),
+                onPressed: action.onPressed,
+                enabled: action.enabled,
+                tint: action.tintColor,
+                config: _groupedButtonConfig(extent),
+              )
+            else
+              CNButtonData.popup(
+                icon: CNSymbol(
+                  action.iosSymbol,
+                  size: kCupertinoNativeControlSymbolExtent,
+                ),
+                popupItems: [
+                  for (final item in action.menuItems)
+                    CNButtonDataPopupItem(
+                      label: item.label,
+                      sfSymbol: item.iosSymbol,
+                    ),
+                ],
+                onMenuSelected: (index) {
+                  if (index >= 0 && index < action.menuItems.length) {
+                    action.menuItems[index].onSelected();
+                  }
+                },
+                enabled: action.enabled,
+                tint: action.tintColor,
+                config: _groupedButtonConfig(extent),
               ),
-              onPressed: action.onPressed,
-              enabled: action.enabled,
-              tint: action.tintColor,
-              config: _groupedButtonConfig(extent),
-            )
-          else
-            CNButtonData.popup(
-              icon: CNSymbol(
-                action.iosSymbol,
-                size: kCupertinoNativeControlSymbolExtent,
-              ),
-              popupItems: [
-                for (final item in action.menuItems)
-                  CNButtonDataPopupItem(
-                    label: item.label,
-                    sfSymbol: item.iosSymbol,
-                  ),
-              ],
-              onMenuSelected: (index) {
-                if (index >= 0 && index < action.menuItems.length) {
-                  action.menuItems[index].onSelected();
-                }
-              },
-              enabled: action.enabled,
-              tint: action.tintColor,
-              config: _groupedButtonConfig(extent),
-            ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -755,46 +766,59 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
 
   Widget _buildAction(ConduitNativeToolbarAction action, double extent) {
     if (action.menuItems.isEmpty) {
-      return CNButton.icon(
-        icon: CNSymbol(
-          action.iosSymbol,
-          size: kCupertinoNativeControlSymbolExtent,
-        ),
-        onPressed: action.onPressed,
+      return Semantics(
+        label: action.accessibilityLabel,
+        button: true,
         enabled: action.enabled,
-        tint: action.tintColor,
-        config: CNButtonConfig(
-          width: extent,
-          minHeight: extent,
-          padding: EdgeInsets.zero,
-          borderRadius: extent / 2,
-          style: CNButtonStyle.glass,
+        onTap: action.enabled ? action.onPressed : null,
+        child: CNButton.icon(
+          icon: CNSymbol(
+            action.iosSymbol,
+            size: kCupertinoNativeControlSymbolExtent,
+          ),
+          onPressed: action.onPressed,
+          enabled: action.enabled,
+          tint: action.tintColor,
+          config: CNButtonConfig(
+            width: extent,
+            minHeight: extent,
+            padding: EdgeInsets.zero,
+            borderRadius: extent / 2,
+            style: CNButtonStyle.glass,
+          ),
         ),
       );
     }
 
-    return AdaptivePopupMenuButton.icon<int>(
-      icon: action.iosSymbol,
-      tint: action.tintColor,
-      size: extent,
-      buttonStyle: PopupButtonStyle.glass,
-      items: [
-        for (var index = 0; index < action.menuItems.length; index++)
-          AdaptivePopupMenuItem<int>(
-            label: action.menuItems[index].label,
-            icon: action.menuItems[index].iosSymbol,
-            enabled: action.menuItems[index].enabled,
-            isDestructive: action.menuItems[index].isDestructive,
-            checked: action.menuItems[index].isChecked,
-            value: index,
-          ),
-      ],
-      onSelected: (index, entry) {
-        final selected = entry.value;
-        if (selected != null && selected < action.menuItems.length) {
-          action.menuItems[selected].onSelected();
-        }
-      },
+    return Semantics(
+      label: action.accessibilityLabel,
+      button: true,
+      enabled: action.enabled,
+      child: AdaptivePopupMenuButton.icon<int>(
+        icon: action.iosSymbol,
+        tint: action.tintColor,
+        size: extent,
+        buttonStyle: PopupButtonStyle.glass,
+        items: [
+          for (var index = 0; index < action.menuItems.length; index++)
+            AdaptivePopupMenuItem<int>(
+              label: action.menuItems[index].label,
+              icon: action.menuItems[index].iosSymbol,
+              enabled: action.menuItems[index].enabled,
+              isDestructive: action.menuItems[index].isDestructive,
+              checked: action.menuItems[index].isChecked,
+              value: index,
+            ),
+        ],
+        onSelected: (index, entry) {
+          final selected = entry.value;
+          if (selected != null &&
+              selected >= 0 &&
+              selected < action.menuItems.length) {
+            action.menuItems[selected].onSelected();
+          }
+        },
+      ),
     );
   }
 }

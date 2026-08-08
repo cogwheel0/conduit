@@ -2277,7 +2277,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           }
         }
       },
-      buttonStyle: PopupButtonStyle.plain,
       child: AdaptiveTooltip(
         message: l10n.more,
         waitDuration: const Duration(milliseconds: 600),

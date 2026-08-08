@@ -67,10 +67,19 @@ class AdaptiveTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!PlatformUiCapabilities.isIOS) {
+      final effectiveDecoration = (decoration ?? const InputDecoration())
+          .copyWith(
+            hintText: decoration?.hintText ?? placeholder,
+            prefix: prefix ?? decoration?.prefix,
+            suffix: suffix ?? decoration?.suffix,
+            prefixIcon: prefixIcon ?? decoration?.prefixIcon,
+            suffixIcon: suffixIcon ?? decoration?.suffixIcon,
+            contentPadding: padding ?? decoration?.contentPadding,
+          );
       return TextField(
         controller: controller,
         focusNode: focusNode,
-        decoration: decoration ?? InputDecoration(hintText: placeholder),
+        decoration: effectiveDecoration,
         keyboardType: keyboardType,
         textInputAction: textInputAction,
         textCapitalization: textCapitalization,
@@ -107,8 +116,8 @@ class AdaptiveTextField extends StatelessWidget {
       autofocus: autofocus,
       enabled: enabled,
       readOnly: readOnly,
-      prefix: prefix ?? _paddedIcon(prefixIcon, leading: true),
-      suffix: suffix ?? _paddedIcon(suffixIcon, leading: false),
+      prefix: prefix ?? _paddedIcon(prefixIcon),
+      suffix: suffix ?? _paddedIcon(suffixIcon),
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       onTap: onTap,
@@ -125,16 +134,16 @@ class AdaptiveTextField extends StatelessWidget {
     );
   }
 
-  static Widget? _paddedIcon(Widget? icon, {required bool leading}) {
+  static Widget? _paddedIcon(Widget? icon) {
     if (icon == null) return null;
     return Padding(
-      padding: EdgeInsets.only(left: leading ? 6 : 0, right: leading ? 6 : 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       child: icon,
     );
   }
 }
 
-class AdaptiveTextFormField extends StatelessWidget {
+class AdaptiveTextFormField extends StatefulWidget {
   const AdaptiveTextFormField({
     super.key,
     this.controller,
@@ -207,87 +216,164 @@ class AdaptiveTextFormField extends StatelessWidget {
   final Iterable<String>? autofillHints;
 
   @override
+  State<AdaptiveTextFormField> createState() => _AdaptiveTextFormFieldState();
+}
+
+class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
+  final _formFieldKey = GlobalKey<FormFieldState<String>>();
+  TextEditingController? _internalController;
+  late String _initialValue;
+
+  TextEditingController get _effectiveController =>
+      widget.controller ?? _internalController!;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialValue = widget.controller?.text ?? widget.initialValue ?? '';
+    if (widget.controller == null) {
+      _internalController = TextEditingController(text: _initialValue);
+    }
+    _effectiveController.addListener(_syncControllerValue);
+  }
+
+  @override
+  void didUpdateWidget(covariant AdaptiveTextFormField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.controller, widget.controller)) {
+      if (widget.controller == null &&
+          oldWidget.initialValue != widget.initialValue) {
+        _initialValue = widget.initialValue ?? '';
+      }
+      return;
+    }
+
+    final previousController = oldWidget.controller ?? _internalController!;
+    previousController.removeListener(_syncControllerValue);
+    final currentValue = _formFieldKey.currentState?.value ?? '';
+    if (widget.controller == null) {
+      _internalController = TextEditingController(text: currentValue);
+      _initialValue = widget.initialValue ?? currentValue;
+    } else {
+      _internalController?.dispose();
+      _internalController = null;
+      _initialValue = widget.controller!.text;
+    }
+    _effectiveController.addListener(_syncControllerValue);
+    _syncControllerValue();
+  }
+
+  @override
+  void dispose() {
+    _effectiveController.removeListener(_syncControllerValue);
+    _internalController?.dispose();
+    super.dispose();
+  }
+
+  void _syncControllerValue() {
+    final value = _effectiveController.text;
+    if (_formFieldKey.currentState?.value == value) return;
+    _formFieldKey.currentState?.didChange(value);
+  }
+
+  void _resetController() {
+    _effectiveController.value = TextEditingValue(
+      text: _initialValue,
+      selection: TextSelection.collapsed(offset: _initialValue.length),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!PlatformUiCapabilities.isIOS) {
       return TextFormField(
-        controller: controller,
-        focusNode: focusNode,
-        initialValue: controller == null ? initialValue : null,
-        decoration: decoration ?? InputDecoration(hintText: placeholder),
-        keyboardType: keyboardType,
-        textInputAction: textInputAction,
-        textCapitalization: textCapitalization,
-        style: style,
-        textAlign: textAlign,
-        maxLines: maxLines,
-        minLines: minLines,
-        maxLength: maxLength,
-        obscureText: obscureText,
-        autocorrect: autocorrect,
-        autofocus: autofocus,
-        enabled: enabled,
-        readOnly: readOnly,
-        onChanged: onChanged,
-        onFieldSubmitted: onSubmitted,
-        onTap: onTap,
-        onSaved: onSaved,
-        validator: validator,
-        inputFormatters: inputFormatters,
-        autovalidateMode: autovalidateMode,
-        onTapOutside: onTapOutside,
-        autofillHints: autofillHints,
+        controller: widget.controller,
+        focusNode: widget.focusNode,
+        initialValue: widget.controller == null ? widget.initialValue : null,
+        decoration: (widget.decoration ?? const InputDecoration()).copyWith(
+          hintText: widget.decoration?.hintText ?? widget.placeholder,
+          prefix: widget.prefix ?? widget.decoration?.prefix,
+          suffix: widget.suffix ?? widget.decoration?.suffix,
+          prefixIcon: widget.prefixIcon ?? widget.decoration?.prefixIcon,
+          suffixIcon: widget.suffixIcon ?? widget.decoration?.suffixIcon,
+          contentPadding: widget.padding ?? widget.decoration?.contentPadding,
+        ),
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
+        textCapitalization: widget.textCapitalization,
+        style: widget.style,
+        textAlign: widget.textAlign,
+        maxLines: widget.maxLines,
+        minLines: widget.minLines,
+        maxLength: widget.maxLength,
+        obscureText: widget.obscureText,
+        autocorrect: widget.autocorrect,
+        autofocus: widget.autofocus,
+        enabled: widget.enabled,
+        readOnly: widget.readOnly,
+        onChanged: widget.onChanged,
+        onFieldSubmitted: widget.onSubmitted,
+        onTap: widget.onTap,
+        onSaved: widget.onSaved,
+        validator: widget.validator,
+        inputFormatters: widget.inputFormatters,
+        autovalidateMode: widget.autovalidateMode,
+        onTapOutside: widget.onTapOutside,
+        autofillHints: widget.autofillHints,
       );
     }
 
     return FormField<String>(
-      initialValue: controller == null ? initialValue ?? '' : null,
-      onSaved: onSaved,
-      validator: validator,
-      autovalidateMode: autovalidateMode ?? AutovalidateMode.disabled,
+      key: _formFieldKey,
+      initialValue: _initialValue,
+      onSaved: widget.onSaved,
+      onReset: _resetController,
+      validator: widget.validator,
+      autovalidateMode: widget.autovalidateMode ?? AutovalidateMode.disabled,
       builder: (field) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CupertinoTextField(
-            controller: controller,
-            focusNode: focusNode,
-            placeholder: placeholder ?? decoration?.hintText,
-            keyboardType: keyboardType,
-            textInputAction: textInputAction,
-            textCapitalization: textCapitalization,
-            style: style,
-            textAlign: textAlign,
-            maxLines: maxLines,
-            minLines: minLines,
-            maxLength: maxLength,
-            obscureText: obscureText,
-            autocorrect: autocorrect,
-            autofocus: autofocus,
-            enabled: enabled,
-            readOnly: readOnly,
+            controller: _effectiveController,
+            focusNode: widget.focusNode,
+            placeholder: widget.placeholder ?? widget.decoration?.hintText,
+            keyboardType: widget.keyboardType,
+            textInputAction: widget.textInputAction,
+            textCapitalization: widget.textCapitalization,
+            style: widget.style,
+            textAlign: widget.textAlign,
+            maxLines: widget.maxLines,
+            minLines: widget.minLines,
+            maxLength: widget.maxLength,
+            obscureText: widget.obscureText,
+            autocorrect: widget.autocorrect,
+            autofocus: widget.autofocus,
+            enabled: widget.enabled,
+            readOnly: widget.readOnly,
             prefix:
-                prefix ??
-                AdaptiveTextField._paddedIcon(prefixIcon, leading: true),
+                widget.prefix ??
+                AdaptiveTextField._paddedIcon(widget.prefixIcon),
             suffix:
-                suffix ??
-                AdaptiveTextField._paddedIcon(suffixIcon, leading: false),
+                widget.suffix ??
+                AdaptiveTextField._paddedIcon(widget.suffixIcon),
             onChanged: (value) {
               field.didChange(value);
-              onChanged?.call(value);
+              widget.onChanged?.call(value);
             },
-            onSubmitted: onSubmitted,
-            onTap: onTap,
-            inputFormatters: inputFormatters,
-            padding: padding ?? const EdgeInsets.all(12),
+            onSubmitted: widget.onSubmitted,
+            onTap: widget.onTap,
+            inputFormatters: widget.inputFormatters,
+            padding: widget.padding ?? const EdgeInsets.all(12),
             decoration:
-                cupertinoDecoration ??
+                widget.cupertinoDecoration ??
                 BoxDecoration(
                   color: CupertinoColors.tertiarySystemBackground.resolveFrom(
                     context,
                   ),
                   borderRadius: BorderRadius.circular(8),
                 ),
-            onTapOutside: onTapOutside,
-            autofillHints: autofillHints,
+            onTapOutside: widget.onTapOutside,
+            autofillHints: widget.autofillHints,
           ),
           if (field.hasError)
             Padding(

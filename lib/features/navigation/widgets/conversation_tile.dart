@@ -53,7 +53,7 @@ class ConversationTileSurface extends StatelessWidget {
             // The outer tile preserves its historical 4pt trailing margin.
             // Compensate here so the painted tint has the same physical inset
             // on both sides without moving the row contents.
-            right: kConversationTileTintInset - Spacing.xs,
+            right: kConversationTileTintInset - kConversationTileMargin.right,
             child: DecoratedBox(
               key: tintKey,
               decoration: conduitConversationTileDecoration(
