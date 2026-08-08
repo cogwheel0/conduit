@@ -27,7 +27,9 @@ import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
+import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
@@ -1251,6 +1253,7 @@ void main() {
       title: 'Nested Chat',
       createdAt: timestamp,
       updatedAt: timestamp,
+      lastReadAt: timestamp,
       folderId: 'child-folder',
       messages: const [],
     );
@@ -1304,7 +1307,25 @@ void main() {
     );
 
     expect(childOffset.dx, greaterThan(parentOffset.dx));
-    expect(chatOffset.dx, greaterThanOrEqualTo(childOffset.dx));
+    expect(chatOffset.dx, greaterThan(childOffset.dx));
+
+    final parentIconLeft = tester
+        .getRect(
+          find.byKey(const ValueKey<String>('folder-icon-parent-folder')),
+        )
+        .left;
+    final childIconLeft = tester
+        .getRect(find.byKey(const ValueKey<String>('folder-icon-child-folder')))
+        .left;
+    final nestedChatTitleLeft = tester.getRect(chatFinder).left;
+    expect(
+      childIconLeft - parentIconLeft,
+      2 * FolderTreeHierarchyNode.segmentWidth,
+    );
+    expect(
+      nestedChatTitleLeft - parentIconLeft,
+      3 * FolderTreeHierarchyNode.segmentWidth,
+    );
   });
 
   testWidgets('folder rows no longer show inline new chat buttons', (
@@ -1398,6 +1419,138 @@ void main() {
 
     expect(NavigationService.currentRoute, '/folder/parent-folder');
     expect(find.text('Child Folder'), findsNothing);
+  });
+
+  testWidgets('folder rows match chat tile surfaces and active styling', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final surfaceFinder = find.byKey(
+      const ValueKey<String>('folder-surface-parent-folder'),
+    );
+    final theme = tester.element(surfaceFinder).conduitTheme;
+
+    expect(
+      tester.widget<Container>(surfaceFinder).margin,
+      kConversationTileMargin,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('folder-active-tint-parent-folder')),
+      findsNothing,
+    );
+    expect(
+      tester.widget<Text>(find.text('Parent Folder')).style?.color,
+      theme.textSecondary,
+    );
+    expect(
+      tester.widget<Text>(find.text('Parent Folder')).style?.fontWeight,
+      FontWeight.w400,
+    );
+
+    NavigationService.router.go('/folder/parent-folder');
+    await tester.pumpAndSettle();
+
+    final tint = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('folder-active-tint-parent-folder')),
+    );
+    final tintDecoration = tint.decoration as BoxDecoration;
+    expect(tintDecoration.border, isNull);
+    expect(
+      tintDecoration.color,
+      conduitConversationTileDecoration(theme, selected: true).color,
+    );
+    expect(
+      tintDecoration.borderRadius,
+      BorderRadius.circular(AppBorderRadius.card),
+    );
+    expect(
+      tester.widget<Text>(find.text('Parent Folder')).style?.color,
+      theme.textPrimary,
+    );
+    expect(
+      tester.widget<Text>(find.text('Parent Folder')).style?.fontWeight,
+      FontWeight.w600,
+    );
+  });
+
+  testWidgets('active top-level chat tint aligns with root folder gutters', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    final conversation = Conversation(
+      id: 'active-chat',
+      title: 'Active Chat',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messages: const [],
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [conversation],
+        activeConversation: conversation,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final chatRect = tester.getRect(
+      find.byKey(
+        ValueKey<String>('drawer-chat-${conversationScopedId(conversation)}'),
+      ),
+    );
+    final folderRect = tester.getRect(
+      find.byKey(const ValueKey<String>('folder-surface-parent-folder')),
+    );
+    final sectionLeadingLeft = tester
+        .getRect(find.byKey(const ValueKey<String>('folders-section-leading')))
+        .left;
+    final folderIconLeft = tester
+        .getRect(
+          find.byKey(const ValueKey<String>('folder-icon-parent-folder')),
+        )
+        .left;
+
+    expect(chatRect.left, 0);
+    expect(chatRect.left, folderRect.left);
+    expect(chatRect.right, folderRect.right);
+    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.md);
+    expect(tester.getTopLeft(find.text('Active Chat')).dx, sectionLeadingLeft);
+    expect(folderIconLeft, sectionLeadingLeft);
+
+    NavigationService.router.go('/folder/parent-folder');
+    await tester.pumpAndSettle();
+
+    final chatTintRect = tester.getRect(
+      find.byKey(const ValueKey<String>('conversation-tile-active-tint')),
+    );
+    final folderTintRect = tester.getRect(
+      find.byKey(const ValueKey<String>('folder-active-tint-parent-folder')),
+    );
+    final drawerRect = tester.getRect(find.byType(ChatsDrawer));
+    final leftTintInset = chatTintRect.left - drawerRect.left;
+    final rightTintInset = drawerRect.right - chatTintRect.right;
+    final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
+    expect(titleLeft - chatTintRect.left, Spacing.sm);
+    expect(chatTintRect.left, Spacing.sm);
+    expect(rightTintInset, leftTintInset);
+    expect(chatTintRect.left, folderTintRect.left);
+    expect(chatTintRect.right, folderTintRect.right);
   });
 
   testWidgets('tapping a folder arrow only expands inline contents', (

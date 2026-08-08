@@ -5,6 +5,69 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
+const EdgeInsets kConversationTileMargin = EdgeInsets.only(
+  right: Spacing.xs,
+  top: Spacing.xxs,
+  bottom: Spacing.xxs,
+);
+const double kConversationTileTintInset = Spacing.sm;
+
+BoxDecoration conduitConversationTileDecoration(
+  ConduitThemeExtension theme, {
+  required bool selected,
+}) {
+  final background = selected
+      ? Color.alphaBlend(
+          theme.buttonPrimary.withValues(alpha: 0.1),
+          theme.surfaceBackground,
+        )
+      : theme.surfaceBackground;
+
+  return BoxDecoration(
+    color: background,
+    borderRadius: BorderRadius.circular(AppBorderRadius.card),
+  );
+}
+
+class ConversationTileSurface extends StatelessWidget {
+  const ConversationTileSurface({
+    super.key,
+    required this.theme,
+    required this.selected,
+    required this.child,
+    this.tintKey,
+  });
+
+  final ConduitThemeExtension theme;
+  final bool selected;
+  final Widget child;
+  final Key? tintKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (selected)
+          Positioned.fill(
+            left: kConversationTileTintInset,
+            // The outer tile preserves its historical 4pt trailing margin.
+            // Compensate here so the painted tint has the same physical inset
+            // on both sides without moving the row contents.
+            right: kConversationTileTintInset - Spacing.xs,
+            child: DecoratedBox(
+              key: tintKey,
+              decoration: conduitConversationTileDecoration(
+                theme,
+                selected: true,
+              ),
+            ),
+          ),
+        child,
+      ],
+    );
+  }
+}
+
 /// Drag feedback widget shown while dragging a conversation tile.
 class ConversationDragFeedback extends StatelessWidget {
   /// The conversation title.
@@ -251,51 +314,37 @@ class ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.card);
-
-    // Match the chats drawer scroll surface (surfaceBackground), not
-    // sidebarTheme.background, so tiles align in light and dark.
-    final Color baseBackground = theme.surfaceBackground;
-
-    final Color background = selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            baseBackground,
-          )
-        : baseBackground;
 
     return Semantics(
       selected: selected,
       button: true,
       child: Container(
-        margin: const EdgeInsets.only(
-          left: 0,
-          right: Spacing.xs,
-          top: Spacing.xxs,
-          bottom: Spacing.xxs,
-        ),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: borderRadius,
-        ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: isLoading ? null : onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.sm,
+        margin: kConversationTileMargin,
+        child: ConversationTileSurface(
+          theme: theme,
+          selected: selected,
+          tintKey: const ValueKey<String>('conversation-tile-active-tint'),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: isLoading ? null : onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: TouchTarget.listItem,
               ),
-              child: ConversationTileContent(
-                title: title,
-                pinned: pinned,
-                selected: selected,
-                unread: unread,
-                isLoading: isLoading,
-                isGenerating: isGenerating,
-                badge: badge,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.sm,
+                ),
+                child: ConversationTileContent(
+                  title: title,
+                  pinned: pinned,
+                  selected: selected,
+                  unread: unread,
+                  isLoading: isLoading,
+                  isGenerating: isGenerating,
+                  badge: badge,
+                ),
               ),
             ),
           ),
