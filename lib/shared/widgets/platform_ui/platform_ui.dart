@@ -21,6 +21,7 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
         CNImageAsset,
         CNImagePlacement,
         CNPopupMenuButton,
+        CNPopupMenuItem,
         CNSegmentedControl,
         CNSheetGeometryProbe,
         CNSlider,

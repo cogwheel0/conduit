@@ -384,52 +384,12 @@ void main() {
     expect(find.byType(CNGlassButtonGroup), findsNothing);
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(CNPopupMenuButton), findsOneWidget);
-  });
-
-  testWidgets('chat-style destructive menus can remain in one glass group', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-    var selectionCount = 0;
-
-    await tester.pumpWidget(
-      CupertinoApp(
-        home: CupertinoPageScaffold(
-          child: ConduitNativeToolbarActionGroup(
-            groupDestructiveMenus: true,
-            actions: [
-              ConduitNativeToolbarAction(
-                iosSymbol: 'square.and.pencil',
-                accessibilityLabel: 'New chat',
-                onPressed: () {},
-              ),
-              ConduitNativeToolbarAction(
-                iosSymbol: 'ellipsis',
-                accessibilityLabel: 'More',
-                menuItems: [
-                  ConduitNativeToolbarMenuItem(
-                    label: 'Delete',
-                    iosSymbol: 'trash',
-                    isDestructive: true,
-                    onSelected: () => selectionCount += 1,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    final popup = tester.widget<CNPopupMenuButton>(
+      find.byType(CNPopupMenuButton),
     );
-
-    final group = tester.widget<CNGlassButtonGroup>(
-      find.byType(CNGlassButtonGroup),
-    );
-    expect(group.buttons, hasLength(2));
-    expect(group.buttons.last.isPopup, isTrue);
-    group.buttons.last.onMenuSelected!(0);
-    expect(selectionCount, 1);
+    final deleteItem = popup.items.single as CNPopupMenuItem;
+    expect(deleteItem.isDestructive, isTrue);
+    await tester.pump(const Duration(milliseconds: 500));
   });
 
   testWidgets('gesture-sensitive slider callbacks use the local fallback', (

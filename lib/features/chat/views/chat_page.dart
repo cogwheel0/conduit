@@ -3568,7 +3568,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             actions: [
               for (final action in actionDescriptors) action.nativeAction,
             ],
-            groupDestructiveMenus: true,
           )
         : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);
     return buildConduitCenteredAdaptiveAppBar(

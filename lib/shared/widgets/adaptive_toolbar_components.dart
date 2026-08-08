@@ -605,19 +605,10 @@ Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
 
 /// A cupertino_native_better toolbar surface for adjacent shared actions.
 class ConduitNativeToolbarActionGroup extends StatelessWidget {
-  const ConduitNativeToolbarActionGroup({
-    super.key,
-    required this.actions,
-    this.groupDestructiveMenus = false,
-  }) : assert(actions.length >= 1 && actions.length <= 3);
+  const ConduitNativeToolbarActionGroup({super.key, required this.actions})
+    : assert(actions.length >= 1 && actions.length <= 3);
 
   final List<ConduitNativeToolbarAction> actions;
-
-  /// Keeps menu triggers in the same native glass group when their only rich
-  /// attribute is a destructive item. The destructive callback and its
-  /// confirmation flow are preserved, although CNButtonData.popup does not
-  /// expose per-item destructive coloring in package 1.5.4.
-  final bool groupDestructiveMenus;
 
   @override
   Widget build(BuildContext context) {
@@ -654,14 +645,10 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
   bool _canUseGroupedNativeAction(ConduitNativeToolbarAction action) {
     if (action.menuItems.isEmpty) return true;
 
-    // CNButtonData.popup cannot represent checked or disabled menu items.
-    // Destructive chat actions may opt into the unified group because their
-    // callback still routes through Conduit's destructive confirmation flow.
+    // CNButtonData.popup cannot represent checked, disabled, or destructive
+    // menu items, so preserve those states with the rich popup fallback.
     return action.menuItems.every(
-      (item) =>
-          item.enabled &&
-          !item.isChecked &&
-          (groupDestructiveMenus || !item.isDestructive),
+      (item) => item.enabled && !item.isChecked && !item.isDestructive,
     );
   }
 
