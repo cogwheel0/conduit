@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -142,21 +142,15 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final tintColor = context.conduitTheme.textPrimary;
-    final textScaler = MediaQuery.textScalerOf(context);
-    final controlExtent = conduitScaledControlExtent(context);
-    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final hasOverflowMenu = folder != null;
-    const leadingGap = kConduitAdaptiveToolbarLeadingGap;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: hasOverflowMenu ? 3 : 2,
-      maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
+      maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
-    final leading = _buildFolderToolbarLeading(
+    final title = _buildFolderToolbarTitle(
       context: context,
       l10n: l10n,
-      tintColor: tintColor,
-      leadingGap: leadingGap,
       maxModelWidth: maxModelWidth,
     );
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
@@ -182,7 +176,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             iosSymbol: 'ellipsis',
             accessibilityLabel: l10n.more,
             tintColor: tintColor,
-            symbolSize: kConduitNativeToolbarSymbolExtent,
             items: menuItems,
             onSelected: onMenuSelected,
           );
@@ -191,14 +184,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         iosSymbol: isTemporary ? 'eye.slash' : 'eye',
         accessibilityLabel: l10n.temporaryChat,
         tintColor: isTemporary ? Colors.blue : tintColor,
-        symbolSize: kConduitNativeVisibilitySymbolExtent,
         onPressed: _toggleTemporaryChat,
       ),
       ConduitNativeToolbarAction(
         iosSymbol: 'square.and.pencil',
         accessibilityLabel: l10n.newChat,
         tintColor: tintColor,
-        symbolSize: kConduitNativeToolbarSymbolExtent,
         onPressed: _handleNewChat,
       ),
       ?nativeMenuAction,
@@ -207,77 +198,39 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         Platform.isIOS &&
         conduitSupportsNativeGlass() &&
         (folder == null || nativeMenuAction != null);
-    final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
-      pillWidth: maxModelWidth,
-      leadingGap: leadingGap,
-      controlExtent: controlExtent,
-    );
-    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
-    final scaledLeading = ConduitSystemTextScaling(
-      textScaler: textScaler,
-      child: leading,
-    );
-    final scaledActions = [
-      for (final action in actions)
-        ConduitSystemTextScaling(textScaler: textScaler, child: action),
-    ];
-
-    return AdaptiveAppBar(
-      useNativeToolbar: false,
+    return buildConduitCenteredAdaptiveAppBar(
+      context: context,
       tintColor: tintColor,
-      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
-        textScaler: textScaler,
-        leading: leading,
-        trailing: useNativeActionGroup
-            ? ConduitNativeToolbarActionGroup(actions: nativeActions)
-            : Row(mainAxisSize: MainAxisSize.min, children: actions),
-        systemOverlayStyle: overlayStyle,
+      leading: ConduitAdaptiveAppBarIconButton(
+        key: const ValueKey<String>('folder-page-drawer-button'),
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        iosSymbol: 'line.3.horizontal',
+        onPressed: _toggleDrawer,
+        iconColor: tintColor,
       ),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: Elevation.none,
-        scrolledUnderElevation: Elevation.none,
-        toolbarHeight: toolbarHeight,
-        systemOverlayStyle: overlayStyle,
-        centerTitle: false,
-        titleSpacing: Spacing.sm,
-        leadingWidth: leadingWidth,
-        leading: scaledLeading,
-        actions: scaledActions,
-      ),
+      title: title,
+      actions: actions,
+      cupertinoTrailing: useNativeActionGroup
+          ? ConduitNativeToolbarActionGroup(actions: nativeActions)
+          : Row(mainAxisSize: MainAxisSize.min, children: actions),
+      centerTitle: false,
     );
   }
 
-  Widget _buildFolderToolbarLeading({
+  Widget _buildFolderToolbarTitle({
     required BuildContext context,
     required AppLocalizations l10n,
-    required Color tintColor,
-    required double leadingGap,
     required double maxModelWidth,
   }) {
     final label = _formatModelDisplayName(
       ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
     );
 
-    return buildConduitAdaptiveToolbarLeadingRow(
-      children: [
-        ConduitAdaptiveAppBarIconButton(
-          key: const ValueKey<String>('folder-page-drawer-button'),
-          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          onPressed: _toggleDrawer,
-          iconColor: tintColor,
-        ),
-        SizedBox(width: leadingGap),
-        ConduitAdaptiveAppBarModelSelector(
-          key: const ValueKey<String>('folder-page-model-selector'),
-          label: label,
-          maxWidth: maxModelWidth,
-          onPressed: _showModelSelector,
-        ),
-      ],
+    return ConduitAdaptiveAppBarModelSelector(
+      key: const ValueKey<String>('folder-page-model-selector'),
+      label: label,
+      maxWidth: maxModelWidth,
+      onPressed: _showModelSelector,
     );
   }
 

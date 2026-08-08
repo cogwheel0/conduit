@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' show Tristate;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
@@ -54,13 +55,13 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/openwebui_storage_test_overrides.dart';
 
-/// Label within [NavigationBar] built by adaptive_platform_ui from
+/// Label within [NavigationBar] built by Conduit platform UI from
 /// [AdaptiveBottomNavigationBar.items].
 Finder _sidebarBottomNavTabLabel(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
 void main() {
-  testWidgets('native glass profile avatar stays compact and Flutter-owned', (
+  testWidgets('native glass profile avatar uses one compact native button', (
     tester,
   ) async {
     var presses = 0;
@@ -78,8 +79,10 @@ void main() {
         ),
       ),
     );
+    await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.byType(CupertinoButton), findsOneWidget);
+    expect(find.byType(CupertinoButton), findsNothing);
+    expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(AdaptiveButton), findsNothing);
     expect(tester.getSize(find.byKey(profileButtonKey)), const Size(44, 44));
     await tester.tap(find.byKey(profileButtonKey));
@@ -99,6 +102,37 @@ void main() {
     );
 
     expect(find.byType(AdaptiveButton), findsOneWidget);
+  });
+
+  test('native profile glass reuses cached avatar bytes', () {
+    final bytes = Uint8List.fromList(const [1, 2, 3]);
+    final target =
+        buildSidebarProfileButton(
+              supportsNativeGlass: true,
+              onPressed: () {},
+              fallbackStyle: AdaptiveButtonStyle.glass,
+              nativeAvatarBytes: bytes,
+              child: const SizedBox.square(dimension: 36),
+            )
+            as SizedBox;
+    final button = target.child! as CNButton;
+    final placeholderTarget =
+        buildSidebarProfileButton(
+              supportsNativeGlass: true,
+              onPressed: () {},
+              fallbackStyle: AdaptiveButtonStyle.glass,
+              child: const SizedBox.square(dimension: 36),
+            )
+            as SizedBox;
+    final placeholderButton = placeholderTarget.child! as CNButton;
+
+    expect(identical(button.imageAsset?.imageData, bytes), isTrue);
+    expect(button.imageAsset?.assetPath, isEmpty);
+    expect(button.imageAsset?.size, 28);
+    expect(button.config.minHeight, TouchTarget.minimum);
+    expect(button.config.width, TouchTarget.minimum);
+    expect(button.config.style, CNButtonStyle.glass);
+    expect(button.key, isNot(placeholderButton.key));
   });
 
   test('Hermes profile host fallback comes from localizations', () {
@@ -1388,6 +1422,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Child Folder'), findsNothing);
+
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('folder-expand-parent-folder')),
+      ),
+      const Size.square(TouchTarget.minimum),
+    );
+    expect(
+      tester.getSize(find.byTooltip(AppLocalizationsEn().newFolder)),
+      const Size.square(TouchTarget.minimum),
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('folder-expand-parent-folder')),

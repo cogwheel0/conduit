@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -15,7 +13,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -82,7 +80,6 @@ void main() {
       ConduitNativeToolbarAction(
         iosSymbol: 'square.and.pencil',
         accessibilityLabel: 'New Chat',
-        symbolSize: kConduitNativeVisibilitySymbolExtent,
         onPressed: () {},
       ),
       ConduitNativeToolbarAction(
@@ -106,10 +103,10 @@ void main() {
     final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
     final params = creationParams['actions']! as List<Map<String, Object?>>;
 
-    check(creationParams['symbolSize']).equals(22.0);
+    check(creationParams.containsKey('symbolSize')).isFalse();
     check(params.length).equals(2);
     check(params[0]['iosSymbol']).equals('square.and.pencil');
-    check(params[0]['symbolSize']).equals(18.0);
+    check(params[0].containsKey('symbolSize')).isFalse();
     check(params[1]['iosSymbol']).equals('ellipsis');
     final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
     check(
@@ -118,12 +115,11 @@ void main() {
     check(menuItems[1]['isDestructive']).equals(true);
   });
 
-  test('native toolbar action groups support one optical-sized menu', () {
+  test('native toolbar action groups leave glyph sizing to the package', () {
     final params = encodeConduitNativeToolbarActionGroupParams([
       ConduitNativeToolbarAction(
         iosSymbol: 'ellipsis',
         accessibilityLabel: 'More',
-        symbolSize: kConduitNativeToolbarSymbolExtent,
         menuItems: [
           ConduitNativeToolbarMenuItem(
             label: 'Delete',
@@ -137,7 +133,7 @@ void main() {
 
     check(actions).length.equals(1);
     check(actions.single['iosSymbol']).equals('ellipsis');
-    check(actions.single['symbolSize']).equals(22.0);
+    check(actions.single.containsKey('symbolSize')).isFalse();
   });
 
   test('native toolbar menu adapters preserve values, order, and state', () {
@@ -146,7 +142,6 @@ void main() {
       iosSymbol: 'ellipsis',
       accessibilityLabel: 'More',
       tintColor: Colors.black,
-      symbolSize: kConduitNativeToolbarSymbolExtent,
       items: const [
         AdaptivePopupMenuItem<String>(
           value: 'edit',
@@ -201,27 +196,6 @@ void main() {
     check(recordingStyle.fontStyle).equals(FontStyle.italic);
     check(idleStyle.fontWeight).equals(FontWeight.w400);
     check(idleStyle.fontStyle).equals(FontStyle.normal);
-  });
-
-  test('only Android enlarges the compact overflow add glyph', () {
-    check(
-      ModernChatInput.debugOverflowIconSize(
-        isAndroid: true,
-        attachmentPanelVisible: false,
-      ),
-    ).equals(28);
-    check(
-      ModernChatInput.debugOverflowIconSize(
-        isAndroid: false,
-        attachmentPanelVisible: false,
-      ),
-    ).equals(IconSize.large);
-    check(
-      ModernChatInput.debugOverflowIconSize(
-        isAndroid: true,
-        attachmentPanelVisible: true,
-      ),
-    ).equals(IconSize.large);
   });
 
   test('OpenWebUI explicit attachment capability denials fail closed', () {
@@ -934,7 +908,12 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
         ),
       ),
     );
@@ -967,6 +946,38 @@ void main() {
     expect(find.byKey(expandedInputKey), findsOneWidget);
     expect(find.byKey(expandedButtonsKey), findsOneWidget);
     expect(find.byKey(quickPillsKey), findsNothing);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('composer-expand-button')),
+      ),
+      const Size.square(TouchTarget.minimum),
+    );
+    final expandOpacity = tester.widget<AnimatedOpacity>(
+      find.ancestor(
+        of: find.byIcon(Icons.open_in_full),
+        matching: find.byType(AnimatedOpacity),
+      ),
+    );
+    expect(expandOpacity.opacity, 0);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.open_in_full)).size,
+      IconSize.small,
+    );
+
+    await tester.enterText(
+      find.byType(TextField),
+      'first line\nsecond line\nthird line\nfourth line',
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final fourLineExpandOpacity = tester.widget<AnimatedOpacity>(
+      find.ancestor(
+        of: find.byIcon(Icons.open_in_full),
+        matching: find.byType(AnimatedOpacity),
+      ),
+    );
+    expect(fourLineExpandOpacity.opacity, 1);
 
     final inputInsets = tester
         .widget<Padding>(find.byKey(expandedInputKey))
@@ -991,6 +1002,117 @@ void main() {
       tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
       isTrue,
     );
+  });
+
+  testWidgets('iOS 26 composer expand symbol keeps its compact optical size', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'first line\nsecond line\nthird line\nfourth line',
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final expandButton = tester.widget<AdaptiveButton>(
+      find.byKey(const ValueKey<String>('composer-expand-button')),
+    );
+    expect(expandButton.sfSymbol?.size, IconSize.small);
+    final overflowButton = tester.widget<AdaptiveButton>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('composer-overflow-button')),
+        matching: find.byType(AdaptiveButton),
+      ),
+    );
+    expect(overflowButton.sfSymbol?.size, IconSize.large);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('composer-expand-button')),
+      ),
+      const Size.square(TouchTarget.minimum),
+    );
+  });
+
+  testWidgets('accessibility text sizing uses the two-tier composer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('compact-composer-shell')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a wrapped empty-state placeholder expands the composer', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              placeholder: 'Ask Conduit about a detailed multilingual question',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('compact-composer-shell')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a visually wrapped second line expands the composer', (
@@ -1154,6 +1276,71 @@ void main() {
     expect(activePrimaryRect.left - fieldRect.right, Spacing.xs);
   });
 
+  testWidgets('composer action row stays anchored when it expands', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: _noop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), 'single line');
+    await tester.pump();
+    await tester.pump();
+
+    final compactPrimaryCenter = tester.getCenter(
+      find.byKey(const ValueKey('primary-btn-send')),
+    );
+    final compactOverflowCenter = tester.getCenter(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    final compactShellRect = tester.getRect(
+      find.byKey(const ValueKey('compact-composer-shell')),
+    );
+    final compactShellBottom = compactShellRect.bottom;
+
+    expect(compactShellRect.height, TouchTarget.minimum);
+    expect(compactPrimaryCenter.dy, compactShellRect.center.dy);
+    expect(compactOverflowCenter.dy, compactShellRect.center.dy);
+
+    await tester.enterText(find.byType(TextField), 'first line\nsecond line');
+    await tester.pump();
+    await tester.pump();
+
+    final expandedPrimaryCenter = tester.getCenter(
+      find.byKey(const ValueKey('primary-btn-send')),
+    );
+    final expandedOverflowCenter = tester.getCenter(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    final expandedShellBottom = tester
+        .getRect(find.byKey(const ValueKey('expanded-composer-shell')))
+        .bottom;
+
+    expect(expandedPrimaryCenter.dx, compactPrimaryCenter.dx);
+    expect(expandedOverflowCenter.dx, compactOverflowCenter.dx);
+    expect(
+      expandedShellBottom - expandedPrimaryCenter.dy,
+      compactShellBottom - compactPrimaryCenter.dy,
+    );
+    expect(
+      expandedShellBottom - expandedOverflowCenter.dy,
+      compactShellBottom - compactOverflowCenter.dy,
+    );
+  });
+
   testWidgets('secondary composer actions use plain icon buttons', (
     tester,
   ) async {
@@ -1196,18 +1383,29 @@ void main() {
     await tester.pump();
 
     expect(
-      tester
-          .widget<AdaptiveButton>(
-            find.byKey(const ValueKey('create-draft-note-button')),
-          )
-          .style,
+      actionButton(
+        find.byKey(const ValueKey('create-draft-note-button')),
+      ).style,
       AdaptiveButtonStyle.plain,
     );
+    final noteVisualRect = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('create-draft-note-button')),
+        matching: find.byType(AdaptiveButton),
+      ),
+    );
+    final noteGlyphRect = tester.getRect(find.byIcon(Icons.note_add_outlined));
+    final sendVisualRect = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('primary-btn-send')),
+        matching: find.byType(AdaptiveButton),
+      ),
+    );
+    expect(noteVisualRect.size, const Size.square(32));
+    expect(sendVisualRect.left - noteGlyphRect.right, 12);
   });
 
-  testWidgets('non-Android add icon matches the standard mic glyph', (
-    tester,
-  ) async {
+  testWidgets('composer controls use the standard icon extent', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -1221,6 +1419,7 @@ void main() {
             body: ModernChatInput(
               onSendMessage: (_) {},
               onFileAttachment: _noop,
+              onVoiceCall: () {},
             ),
           ),
         ),
@@ -1230,9 +1429,10 @@ void main() {
 
     final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
     final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
-    final expectedAddIconSize = Platform.isAndroid ? 28 : IconSize.large;
-    expect(addIcon.size, expectedAddIconSize);
+    final voiceIcon = tester.widget<Icon>(find.byIcon(Icons.graphic_eq));
+    expect(addIcon.size, 28);
     expect(micIcon.size, IconSize.large);
+    expect(voiceIcon.size, IconSize.medium);
 
     final addButton = find.byKey(
       const ValueKey<String>('composer-overflow-button'),
@@ -1241,6 +1441,38 @@ void main() {
       const ValueKey<String>('composer-dictation-start'),
     );
     expect(tester.getSize(addButton), tester.getSize(micButton));
+    expect(tester.getSize(addButton), const Size.square(TouchTarget.minimum));
+    final voiceTarget = find.byKey(
+      const ValueKey<String>('primary-btn-voice-call'),
+    );
+    expect(tester.getSize(voiceTarget), const Size.square(TouchTarget.minimum));
+    final micGlyphRect = tester.getRect(find.byIcon(Icons.mic));
+    final voiceVisualRect = tester.getRect(
+      find.descendant(of: voiceTarget, matching: find.byType(AdaptiveButton)),
+    );
+    expect(voiceVisualRect.left - micGlyphRect.right, 12);
+    expect(
+      tester.getSize(
+        find.descendant(of: voiceTarget, matching: find.byType(AdaptiveButton)),
+      ),
+      const Size.square(32),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Hello');
+    await tester.pump();
+
+    final sendIcon = tester.widget<Icon>(
+      find.byIcon(Icons.arrow_upward_rounded),
+    );
+    expect(sendIcon.size, IconSize.medium);
+    final sendTarget = find.byKey(const ValueKey('primary-btn-send'));
+    expect(tester.getSize(sendTarget), const Size.square(TouchTarget.minimum));
+    expect(
+      tester.getSize(
+        find.descendant(of: sendTarget, matching: find.byType(AdaptiveButton)),
+      ),
+      const Size.square(32),
+    );
   });
 
   testWidgets('overflow close control keeps its compact size when expanded', (
@@ -1275,6 +1507,7 @@ void main() {
     final compactCloseGlyphSize = tester
         .widget<Icon>(find.byIcon(Icons.close))
         .size;
+    expect(compactCloseGlyphSize, 28);
     expect(compactCloseControlSize, addControlSize);
 
     await tester.enterText(find.byType(TextField), 'first line\nsecond line');

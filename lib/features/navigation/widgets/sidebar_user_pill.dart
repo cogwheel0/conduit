@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -13,7 +14,9 @@ import '../../../core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -32,6 +35,75 @@ import '../providers/sidebar_providers.dart';
 
 typedef SidebarNativeProfilePresenter =
     Future<bool> Function(NativeProfileSheetConfig config);
+
+const double _sidebarProfileAvatarSize = 36;
+const double _sidebarNativeProfileAvatarSize = 28;
+
+@visibleForTesting
+Future<Uint8List?> rasterizeSidebarNativeAvatar(
+  Uint8List bytes, {
+  required double devicePixelRatio,
+}) async {
+  if (bytes.isEmpty) return null;
+  final scale = devicePixelRatio.isFinite
+      ? devicePixelRatio.clamp(1.0, 4.0)
+      : 1.0;
+  final canvasPixels = (TouchTarget.minimum * scale).round();
+  final avatarPixels = (_sidebarNativeProfileAvatarSize * scale).round();
+  ui.Codec? codec;
+  ui.Image? source;
+  ui.Image? output;
+  try {
+    codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: avatarPixels,
+      targetHeight: avatarPixels,
+      allowUpscaling: true,
+    );
+    source = (await codec.getNextFrame()).image;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final sourceSide = source.width < source.height
+        ? source.width.toDouble()
+        : source.height.toDouble();
+    final sourceRect = ui.Rect.fromLTWH(
+      (source.width - sourceSide) / 2,
+      (source.height - sourceSide) / 2,
+      sourceSide,
+      sourceSide,
+    );
+    final inset = (canvasPixels - avatarPixels) / 2;
+    final destinationRect = ui.Rect.fromLTWH(
+      inset,
+      inset,
+      avatarPixels.toDouble(),
+      avatarPixels.toDouble(),
+    );
+    canvas.drawImageRect(
+      source,
+      sourceRect,
+      destinationRect,
+      ui.Paint()..filterQuality = ui.FilterQuality.high,
+    );
+    output = await recorder.endRecording().toImage(canvasPixels, canvasPixels);
+    final data = await output.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) return null;
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'Failed to rasterize native sidebar avatar',
+      error: error,
+      stackTrace: stackTrace,
+      scope: 'navigation/sidebar/native-avatar',
+    );
+    return null;
+  } finally {
+    output?.dispose();
+    source?.dispose();
+    codec?.dispose();
+  }
+}
 
 @visibleForTesting
 NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
@@ -54,6 +126,31 @@ final sidebarNativeProfilePresenterProvider =
       if (!Platform.isIOS) return null;
       return NativeSheetBridge.instance.presentProfileMenu;
     });
+
+typedef SidebarNativeAvatarRequest = ({ApiService api, String avatarUrl});
+typedef SidebarNativeAvatarRasterRequest = ({
+  Uint8List bytes,
+  double devicePixelRatio,
+});
+
+final sidebarNativeAvatarBytesProvider = FutureProvider.autoDispose
+    .family<Uint8List?, SidebarNativeAvatarRequest>((ref, request) {
+      return ref
+          .watch(nativeSheetAvatarBytesHydratorProvider)
+          .loadAvatarBytes(api: request.api, avatarUrl: request.avatarUrl);
+    });
+
+final sidebarNativeAvatarRasterProvider = FutureProvider.autoDispose
+    .family<Uint8List?, SidebarNativeAvatarRasterRequest>((ref, request) {
+      return rasterizeSidebarNativeAvatar(
+        request.bytes,
+        devicePixelRatio: request.devicePixelRatio,
+      );
+    });
+
+final _sidebarHermesAvatarBytesProvider = FutureProvider<Uint8List?>((ref) {
+  return _loadHermesAvatarBytes();
+});
 
 /// Cached bytes of the Hermes agent icon, used as the native profile-sheet
 /// avatar in Hermes-only mode (loaded once, then reused).
@@ -131,30 +228,51 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   return l10n.searchConversations;
 }
 
-/// Builds a compact profile avatar without an iOS 26 child platform view.
+/// Builds one stable native glass avatar button on iOS 26 and Flutter
+/// platform-family fallbacks everywhere else.
 @visibleForTesting
 Widget buildSidebarProfileButton({
   required bool supportsNativeGlass,
   required VoidCallback onPressed,
   required AdaptiveButtonStyle fallbackStyle,
   Color? fallbackColor,
+  Uint8List? nativeAvatarBytes,
   required Widget child,
 }) {
   const buttonKey = ValueKey<String>('sidebar-profile-button');
 
   if (supportsNativeGlass) {
-    // AdaptiveButton.child expands to the native toolbar's full leading slot
-    // on iOS 26. Keep the custom avatar Flutter-owned so it remains a compact
-    // tap target and does not add another persistent platform glass surface.
-    return SizedBox.square(
-      dimension: TouchTarget.minimum,
-      child: CupertinoButton(
-        key: buttonKey,
-        onPressed: onPressed,
+    final avatarBytes = nativeAvatarBytes;
+    final nativeButton = CNButton.icon(
+      key: avatarBytes == null
+          ? const ValueKey<String>('sidebar-profile-native-placeholder')
+          : ObjectKey(avatarBytes),
+      icon: avatarBytes == null
+          ? CNSymbol(
+              'person.crop.circle.fill',
+              size: IconSize.large,
+              color: fallbackColor,
+            )
+          : null,
+      imageAsset: avatarBytes == null
+          ? null
+          : CNImageAsset(
+              '',
+              imageData: avatarBytes,
+              size: _sidebarNativeProfileAvatarSize,
+            ),
+      onPressed: onPressed,
+      config: const CNButtonConfig(
         padding: EdgeInsets.zero,
-        minimumSize: const Size.square(TouchTarget.minimum),
-        child: child,
+        minHeight: TouchTarget.minimum,
+        width: TouchTarget.minimum,
+        style: CNButtonStyle.glass,
       ),
+    );
+    return SizedBox.square(
+      key: buttonKey,
+      dimension: TouchTarget.minimum,
+      child: nativeButton,
     );
   }
 
@@ -174,8 +292,6 @@ Widget buildSidebarProfileButton({
 /// Profile button used as the sidebar adaptive app bar leading widget.
 class SidebarProfileAppBarLeading extends ConsumerWidget {
   const SidebarProfileAppBarLeading({super.key});
-
-  static const double _avatarSize = 36;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -214,12 +330,41 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final style = useOpaqueFallback
         ? AdaptiveButtonStyle.plain
         : AdaptiveButtonStyle.glass;
+    final inlineAvatarBytes = _decodeDataImage(avatarUrl);
+    final supportsNativeGlass = conduitSupportsNativeGlass();
+    final rawNativeAvatarBytes = !supportsNativeGlass
+        ? null
+        : hermesOnly
+        ? ref.watch(_sidebarHermesAvatarBytesProvider).asData?.value
+        : inlineAvatarBytes ??
+              (api == null || avatarUrl == null || avatarUrl.isEmpty
+                  ? null
+                  : ref
+                        .watch(
+                          sidebarNativeAvatarBytesProvider((
+                            api: api,
+                            avatarUrl: avatarUrl,
+                          )),
+                        )
+                        .asData
+                        ?.value);
+    final nativeAvatarBytes = rawNativeAvatarBytes == null
+        ? null
+        : ref
+              .watch(
+                sidebarNativeAvatarRasterProvider((
+                  bytes: rawNativeAvatarBytes,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                )),
+              )
+              .asData
+              ?.value;
 
     return Semantics(
       label: l10n.manage,
       button: true,
       child: buildSidebarProfileButton(
-        supportsNativeGlass: conduitSupportsNativeGlass(),
+        supportsNativeGlass: supportsNativeGlass,
         onPressed: () async {
           await Navigator.of(context).maybePop();
           if (!context.mounted) return;
@@ -256,10 +401,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         },
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
+        nativeAvatarBytes: nativeAvatarBytes,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
           child: UserAvatar(
-            size: _avatarSize,
+            size: _sidebarProfileAvatarSize,
             imageUrl: avatarUrl,
             fallbackText: initial,
           ),

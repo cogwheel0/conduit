@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/cupertino.dart';
@@ -1673,74 +1673,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
-    final textScaler = MediaQuery.textScalerOf(context);
-    final controlExtent = conduitScaledControlExtent(context);
-    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: 1,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
-    final leading = _buildNoteEditorLeading(
-      context,
-      maxTitleWidth: maxTitleWidth,
-    );
     final actions = _buildNoteEditorToolbarActionWidgets(context);
-    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
-    final scaledLeading = ConduitSystemTextScaling(
-      textScaler: textScaler,
-      child: leading,
-    );
-    final scaledActions = [
-      for (final action in actions)
-        ConduitSystemTextScaling(textScaler: textScaler, child: action),
-    ];
-
-    return AdaptiveAppBar(
-      useNativeToolbar: false,
+    return buildConduitCenteredAdaptiveAppBar(
+      context: context,
       tintColor: tintColor,
-      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
-        textScaler: textScaler,
-        leading: leading,
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
-        systemOverlayStyle: overlayStyle,
+      leading: ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        iosSymbol: 'line.3.horizontal',
+        onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
+        iconColor: tintColor,
       ),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: Elevation.none,
-        scrolledUnderElevation: Elevation.none,
-        toolbarHeight: toolbarHeight,
-        systemOverlayStyle: overlayStyle,
-        centerTitle: false,
-        titleSpacing: Spacing.sm,
-        leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
-          pillWidth: maxTitleWidth,
-          controlExtent: controlExtent,
-        ),
-        leading: scaledLeading,
-        actions: scaledActions,
-      ),
-    );
-  }
-
-  Widget _buildNoteEditorLeading(
-    BuildContext context, {
-    required double maxTitleWidth,
-  }) {
-    return buildConduitAdaptiveToolbarLeadingRow(
-      children: [
-        ConduitAdaptiveAppBarIconButton(
-          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
-          iconColor: context.conduitTheme.textPrimary,
-        ),
-        const SizedBox(width: kConduitAdaptiveToolbarLeadingGap),
-        _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
-      ],
+      title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
+      actions: actions,
     );
   }
 

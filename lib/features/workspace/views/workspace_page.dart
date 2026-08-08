@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -221,7 +221,7 @@ class WorkspaceScaffold extends ConsumerWidget {
     }
 
     // iOS 26 native toolbars contribute their height to MediaQuery padding as
-    // of adaptive_platform_ui 0.1.110. Older Cupertino bars still need the
+    // of Conduit platform UI 0.1.110. Older Cupertino bars still need the
     // explicit status-bar + navigation-bar offset used before that release.
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     final usesNativeToolbarInset = isIos && PlatformInfo.isIOS26OrHigher();

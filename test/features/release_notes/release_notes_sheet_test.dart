@@ -1,4 +1,4 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';

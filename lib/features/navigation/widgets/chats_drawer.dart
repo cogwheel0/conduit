@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
@@ -434,9 +434,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   void _onSearchChanged() {
     _debounce?.cancel();
+    final query = _sidebarSearchController.text.trim();
+    if (query.isEmpty) {
+      if (mounted && _query.isNotEmpty) {
+        setState(() => _query = '');
+      }
+      return;
+    }
     _debounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
-      setState(() => _query = _sidebarSearchController.text.trim());
+      setState(() => _query = query);
     });
   }
 
@@ -1236,13 +1243,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
         const Spacer(),
         IconButton(
-          visualDensity: VisualDensity.compact,
           tooltip: AppLocalizations.of(context)!.newFolder,
+          constraints: const BoxConstraints.tightFor(
+            width: TouchTarget.minimum,
+            height: TouchTarget.minimum,
+          ),
+          padding: const EdgeInsets.all(
+            (TouchTarget.minimum - IconSize.md) / 2,
+          ),
           icon: Icon(
             Platform.isIOS
                 ? CupertinoIcons.folder_badge_plus
                 : Icons.create_new_folder_outlined,
             color: theme.iconPrimary,
+            size: IconSize.md,
           ),
           onPressed: () =>
               CreateFolderDialog.show(context, ref, onError: _showDrawerError),
@@ -1320,20 +1334,25 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     ),
                     const SizedBox(width: Spacing.sm),
                     SizedBox(
-                      width: 22,
-                      height: 22,
+                      width: TouchTarget.minimum,
+                      height: TouchTarget.minimum,
                       child: IconButton(
                         key: ValueKey<String>('folder-expand-$folderId'),
-                        iconSize: IconSize.xs,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        iconSize: IconSize.sm,
+                        padding: const EdgeInsets.all(
+                          (TouchTarget.minimum - IconSize.sm) / 2,
+                        ),
+                        constraints: const BoxConstraints.tightFor(
+                          width: TouchTarget.minimum,
+                          height: TouchTarget.minimum,
+                        ),
                         style: IconButton.styleFrom(
                           shape: const CircleBorder(),
                         ),
                         icon: Icon(
                           _chatsDrawerDisclosureIcon(isExpanded),
                           color: theme.iconSecondary,
-                          size: IconSize.listItem,
+                          size: IconSize.sm,
                         ),
                         onPressed: () {
                           ConduitHaptics.selectionClick();

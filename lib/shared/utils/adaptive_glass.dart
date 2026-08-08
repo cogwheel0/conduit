@@ -1,7 +1,10 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 /// Whether Conduit can rely on native iOS Liquid Glass rendering.
 bool conduitSupportsNativeGlass({bool? isIOS, int? iosMajorVersion}) {
+  if (isIOS == null && iosMajorVersion == null) {
+    return PlatformUiCapabilities.usesNativeIOS26;
+  }
   final effectiveIsIOS = isIOS ?? PlatformInfo.isIOS;
   if (!effectiveIsIOS) {
     return false;
