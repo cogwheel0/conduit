@@ -785,6 +785,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
         icon: action.iosSymbol,
         tint: action.tintColor,
         size: extent,
+        enabled: action.enabled,
         buttonStyle: PopupButtonStyle.glass,
         items: [
           for (var index = 0; index < action.menuItems.length; index++)
@@ -798,6 +799,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
             ),
         ],
         onSelected: (index, entry) {
+          if (!action.enabled) return;
           final selected = entry.value;
           if (selected != null &&
               selected >= 0 &&

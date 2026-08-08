@@ -151,11 +151,12 @@ void main() {
       final hydration = NativeSheetAvatarBytesHydrator().loadAvatarBytes(
         api: api,
         avatarUrl: 'https://chat.example.test/avatar.png',
+        maxWait: const Duration(seconds: 5),
       );
       var completed = false;
       hydration.whenComplete(() => completed = true);
       await _waitForRequestCount(adapter, 1);
-      await Future<void>.delayed(const Duration(milliseconds: 800));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(completed, isFalse);
 
       adapter.requests.single.complete([7, 8, 9]);

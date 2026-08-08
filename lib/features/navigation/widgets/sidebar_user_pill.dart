@@ -10,6 +10,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
@@ -33,6 +34,8 @@ import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+
+part 'sidebar_user_pill.g.dart';
 
 typedef SidebarNativeProfilePresenter =
     Future<bool> Function(NativeProfileSheetConfig config);
@@ -192,20 +195,22 @@ class SidebarNativeAvatarRasterRequest {
   int get hashCode => Object.hash(cacheKey, devicePixelRatio);
 }
 
-final sidebarNativeAvatarBytesProvider = FutureProvider.autoDispose
-    .family<Uint8List?, SidebarNativeAvatarRequest>((ref, request) {
-      return ref
-          .watch(nativeSheetAvatarBytesHydratorProvider)
-          .loadAvatarBytes(api: request.api, avatarUrl: request.avatarUrl);
-    });
+@riverpod
+Future<Uint8List?> sidebarNativeAvatarBytes(
+  Ref ref,
+  SidebarNativeAvatarRequest request,
+) => ref
+    .watch(nativeSheetAvatarBytesHydratorProvider)
+    .loadAvatarBytes(api: request.api, avatarUrl: request.avatarUrl);
 
-final sidebarNativeAvatarRasterProvider = FutureProvider.autoDispose
-    .family<Uint8List?, SidebarNativeAvatarRasterRequest>((ref, request) {
-      return rasterizeSidebarNativeAvatar(
-        request.bytes,
-        devicePixelRatio: request.devicePixelRatio,
-      );
-    });
+@riverpod
+Future<Uint8List?> sidebarNativeAvatarRaster(
+  Ref ref,
+  SidebarNativeAvatarRasterRequest request,
+) => rasterizeSidebarNativeAvatar(
+  request.bytes,
+  devicePixelRatio: request.devicePixelRatio,
+);
 
 final _sidebarHermesAvatarBytesProvider = FutureProvider<Uint8List?>((ref) {
   return _loadHermesAvatarBytes();
@@ -415,7 +420,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                   SidebarNativeAvatarRasterRequest(
                     cacheKey:
                         '${avatarUrl ?? 'hermes'}:'
-                        '${Object.hashAll(rawNativeAvatarBytes)}',
+                        '${rawNativeAvatarBytes.length}:'
+                        '${identityHashCode(rawNativeAvatarBytes)}',
                     bytes: rawNativeAvatarBytes,
                     devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                   ),

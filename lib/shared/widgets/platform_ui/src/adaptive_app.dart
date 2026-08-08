@@ -66,7 +66,7 @@ enum PlatformTarget {
   android,
   ios,
   ios26Plus,
-  ios18OrLower,
+  iosBefore26,
   web,
   desktop,
   other,
@@ -128,7 +128,7 @@ class AdaptiveApp extends StatelessWidget {
     }
     if (PlatformUiCapabilities.isIOS) {
       return PlatformUiCapabilities.iOSMajorVersion > 0
-          ? PlatformTarget.ios18OrLower
+          ? PlatformTarget.iosBefore26
           : PlatformTarget.ios;
     }
     if (PlatformUiCapabilities.isAndroid) return PlatformTarget.android;
@@ -193,12 +193,6 @@ class AdaptiveApp extends StatelessWidget {
           brightness: Brightness.dark,
           primaryColor: materialDarkTheme?.colorScheme.primary,
         );
-    final appBrightness = switch (themeMode) {
-      ThemeMode.dark => Brightness.dark,
-      ThemeMode.light => Brightness.light,
-      _ => View.of(context).platformDispatcher.platformBrightness,
-    };
-
     Widget effectiveBuilder(BuildContext context, Widget? child) {
       final brightness = switch (themeMode) {
         ThemeMode.dark => Brightness.dark,
@@ -223,31 +217,80 @@ class AdaptiveApp extends StatelessWidget {
       return builder?.call(context, appChild) ?? appChild;
     }
 
-    return CupertinoApp.router(
-      routerConfig: routerConfig,
-      routeInformationProvider: routeInformationProvider,
-      routeInformationParser: routeInformationParser,
-      routerDelegate: routerDelegate,
-      backButtonDispatcher: backButtonDispatcher,
-      builder: effectiveBuilder,
-      title: title,
-      onGenerateTitle: onGenerateTitle,
-      color: data.color,
-      theme: appBrightness == Brightness.dark ? darkTheme : lightTheme,
-      locale: locale,
-      localizationsDelegates: localizationsDelegates,
-      localeListResolutionCallback: localeListResolutionCallback,
-      localeResolutionCallback: localeResolutionCallback,
-      supportedLocales: supportedLocales,
-      showPerformanceOverlay: data.showPerformanceOverlay,
-      checkerboardRasterCacheImages: data.checkerboardRasterCacheImages,
-      checkerboardOffscreenLayers: data.checkerboardOffscreenLayers,
-      showSemanticsDebugger: data.showSemanticsDebugger,
-      debugShowCheckedModeBanner: data.debugShowCheckedModeBanner,
-      shortcuts: data.shortcuts,
-      actions: data.actions,
-      restorationScopeId: data.restorationScopeId,
-      scrollBehavior: data.scrollBehavior,
+    return _PlatformBrightnessBuilder(
+      themeMode: themeMode ?? ThemeMode.system,
+      builder: (appBrightness) => CupertinoApp.router(
+        routerConfig: routerConfig,
+        routeInformationProvider: routeInformationProvider,
+        routeInformationParser: routeInformationParser,
+        routerDelegate: routerDelegate,
+        backButtonDispatcher: backButtonDispatcher,
+        builder: effectiveBuilder,
+        title: title,
+        onGenerateTitle: onGenerateTitle,
+        color: data.color,
+        theme: appBrightness == Brightness.dark ? darkTheme : lightTheme,
+        locale: locale,
+        localizationsDelegates: localizationsDelegates,
+        localeListResolutionCallback: localeListResolutionCallback,
+        localeResolutionCallback: localeResolutionCallback,
+        supportedLocales: supportedLocales,
+        showPerformanceOverlay: data.showPerformanceOverlay,
+        checkerboardRasterCacheImages: data.checkerboardRasterCacheImages,
+        checkerboardOffscreenLayers: data.checkerboardOffscreenLayers,
+        showSemanticsDebugger: data.showSemanticsDebugger,
+        debugShowCheckedModeBanner: data.debugShowCheckedModeBanner,
+        shortcuts: data.shortcuts,
+        actions: data.actions,
+        restorationScopeId: data.restorationScopeId,
+        scrollBehavior: data.scrollBehavior,
+      ),
     );
+  }
+}
+
+class _PlatformBrightnessBuilder extends StatefulWidget {
+  const _PlatformBrightnessBuilder({
+    required this.themeMode,
+    required this.builder,
+  });
+
+  final ThemeMode themeMode;
+  final Widget Function(Brightness brightness) builder;
+
+  @override
+  State<_PlatformBrightnessBuilder> createState() =>
+      _PlatformBrightnessBuilderState();
+}
+
+class _PlatformBrightnessBuilderState extends State<_PlatformBrightnessBuilder>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (widget.themeMode == ThemeMode.system) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = switch (widget.themeMode) {
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.light => Brightness.light,
+      ThemeMode.system => View.of(
+        context,
+      ).platformDispatcher.platformBrightness,
+    };
+    return widget.builder(brightness);
   }
 }

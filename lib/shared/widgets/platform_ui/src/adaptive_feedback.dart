@@ -141,6 +141,13 @@ class _IOSBannerState extends State<_IOSBanner> {
       AdaptiveSnackBarType.warning => CupertinoColors.systemOrange,
       AdaptiveSnackBarType.error => CupertinoColors.systemRed,
     };
+    final icon = switch (widget.type) {
+      AdaptiveSnackBarType.info => CupertinoIcons.info_circle_fill,
+      AdaptiveSnackBarType.success => CupertinoIcons.check_mark_circled_solid,
+      AdaptiveSnackBarType.warning =>
+        CupertinoIcons.exclamationmark_triangle_fill,
+      AdaptiveSnackBarType.error => CupertinoIcons.xmark_circle_fill,
+    };
     return Positioned(
       top: 8,
       left: 12,
@@ -167,7 +174,7 @@ class _IOSBannerState extends State<_IOSBanner> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  Icon(CupertinoIcons.info_circle_fill, color: tint, size: 20),
+                  Icon(icon, color: tint, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -318,6 +325,7 @@ class AdaptiveAlertDialog {
           builder: (dialogContext) => CupertinoAlertDialog(
             title: Text(title),
             content: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (message != null) Text(message),
                 const SizedBox(height: 10),

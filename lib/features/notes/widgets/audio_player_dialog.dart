@@ -471,7 +471,12 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                   thumbColor: Colors.orange,
                   overlayColor: Colors.orange.withValues(alpha: 0.2),
                 ),
-                child: AdaptiveSlider(value: progress, onChanged: _seekTo),
+                child: AdaptiveSlider(
+                  value: progress,
+                  onChanged: _seekTo,
+                  activeColor: Colors.orange,
+                  thumbColor: Colors.orange,
+                ),
               ),
 
               // Time display

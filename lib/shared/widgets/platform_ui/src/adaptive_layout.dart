@@ -276,12 +276,7 @@ class AdaptiveScaffold extends StatelessWidget {
     BuildContext context,
   ) {
     final custom = appBar?.cupertinoNavigationBar;
-    if (custom is ObstructingPreferredSizeWidget) return custom;
-    assert(
-      custom == null,
-      'AdaptiveAppBar.cupertinoNavigationBar must implement '
-      'ObstructingPreferredSizeWidget.',
-    );
+    if (custom != null) return custom;
     if (appBar == null) return null;
     final title =
         appBar!.titleWidget ??

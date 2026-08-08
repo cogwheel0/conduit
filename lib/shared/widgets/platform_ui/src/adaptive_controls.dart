@@ -615,7 +615,9 @@ class AdaptiveSegmentedControl extends StatelessWidget {
 
     final children = <int, Widget>{};
     final icons = sfSymbols;
-    final count = icons == null || icons.isEmpty ? labels.length : icons.length;
+    final count = icons == null || icons.isEmpty
+        ? labels.length
+        : (icons.length < labels.length ? icons.length : labels.length);
     for (var index = 0; index < count; index++) {
       final icon = icons?[index];
       final mappedIcon = fallbackIcon(icon);
@@ -715,6 +717,7 @@ class AdaptiveCheckbox extends StatelessWidget {
     return Semantics(
       checked: value,
       enabled: onChanged != null,
+      button: true,
       child: GestureDetector(
         onTap: onChanged == null
             ? null
@@ -724,32 +727,37 @@ class AdaptiveCheckbox extends StatelessWidget {
                   value == false ? true : (value == true ? null : false),
                 );
               },
-        child: AnimatedContainer(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 120),
-          width: 22,
-          height: 22,
-          decoration: BoxDecoration(
-            color: selected
-                ? activeColor ?? CupertinoTheme.of(context).primaryColor
-                : CupertinoColors.systemBackground.resolveFrom(context),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: selected
-                  ? Colors.transparent
-                  : CupertinoColors.systemGrey3.resolveFrom(context),
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(
+            child: AnimatedContainer(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 120),
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: selected
+                    ? activeColor ?? CupertinoTheme.of(context).primaryColor
+                    : CupertinoColors.systemBackground.resolveFrom(context),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: selected
+                      ? Colors.transparent
+                      : CupertinoColors.systemGrey3.resolveFrom(context),
+                ),
+              ),
+              child: selected
+                  ? Icon(
+                      value == null
+                          ? CupertinoIcons.minus
+                          : CupertinoIcons.check_mark,
+                      size: 16,
+                      color: checkColor ?? CupertinoColors.white,
+                    )
+                  : null,
             ),
           ),
-          child: selected
-              ? Icon(
-                  value == null
-                      ? CupertinoIcons.minus
-                      : CupertinoIcons.check_mark,
-                  size: 16,
-                  color: checkColor ?? CupertinoColors.white,
-                )
-              : null,
         ),
       ),
     );
@@ -841,28 +849,36 @@ class AdaptivePopupMenuButton<T> {
     onSelected,
     Color? tint,
     double size = 44,
+    bool enabled = true,
     PopupButtonStyle buttonStyle = PopupButtonStyle.glass,
   }) {
+    late final Widget button;
     if (_canUseNative<T>(items) && (icon is String || icon is IconData)) {
-      return CNPopupMenuButton.icon(
+      button = CNPopupMenuButton.icon(
         key: key,
         buttonIcon: icon is String ? CNSymbol(icon) : null,
         buttonCustomIcon: icon is IconData ? icon : null,
         items: _nativeItems<T>(items),
-        onSelected: (index) => _dispatch<T>(items, index, onSelected),
+        onSelected: (index) {
+          if (enabled) _dispatch<T>(items, index, onSelected);
+        },
         tint: tint,
         size: size,
         buttonStyle: _nativeButtonStyle(buttonStyle),
       );
+    } else {
+      button = _flutterMenu<T>(
+        key: key,
+        icon: icon,
+        items: items,
+        onSelected: (index, entry) {
+          if (enabled) onSelected(index, entry);
+        },
+        tint: tint,
+        height: size,
+      );
     }
-    return _flutterMenu<T>(
-      key: key,
-      icon: icon,
-      items: items,
-      onSelected: onSelected,
-      tint: tint,
-      height: size,
-    );
+    return IgnorePointer(ignoring: !enabled, child: button);
   }
 
   static Widget widget<T>({
@@ -880,7 +896,10 @@ class AdaptivePopupMenuButton<T> {
         behavior: HitTestBehavior.opaque,
         onTap: triggerOnLongPress
             ? onTap
-            : () => _showFlutterMenu<T>(context, null, items, onSelected),
+            : () {
+                onTap?.call();
+                _showFlutterMenu<T>(context, null, items, onSelected);
+              },
         onLongPress: triggerOnLongPress
             ? () => _showFlutterMenu<T>(context, null, items, onSelected)
             : null,

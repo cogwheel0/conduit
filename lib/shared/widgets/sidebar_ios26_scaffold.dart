@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 
 import 'adaptive_toolbar_components.dart';
 
+const double _nativeTabBarPlaceholderHeight = 50;
+
 /// iOS 26 sidebar shell backed by cupertino_native_better chrome.
 class SidebarIos26Scaffold extends StatelessWidget {
   const SidebarIos26Scaffold({
@@ -84,9 +86,12 @@ class SidebarIos26Scaffold extends StatelessWidget {
                       tint:
                           navigation.selectedItemColor ??
                           CupertinoTheme.of(context).primaryColor,
-                      iconSize: IconSize.tabBar,
+                      iconSize: kCupertinoNativeControlSymbolExtent,
                     )
-                  : SizedBox(height: safePadding.bottom + 50),
+                  : SizedBox(
+                      height:
+                          safePadding.bottom + _nativeTabBarPlaceholderHeight,
+                    ),
             ),
         ],
       ),

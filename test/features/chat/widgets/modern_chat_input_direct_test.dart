@@ -1455,81 +1455,96 @@ void main() {
 
   testWidgets('composer controls use the standard icon extent', (tester) async {
     final semanticsHandle = tester.ensureSemantics();
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          apiServiceProvider.overrideWithValue(null),
-          voiceInputAvailableProvider.overrideWith((_) async => true),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: ModernChatInput(
-              onSendMessage: (_) {},
-              onFileAttachment: _noop,
-              onVoiceCall: () {},
+    try {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiServiceProvider.overrideWithValue(null),
+            voiceInputAvailableProvider.overrideWith((_) async => true),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ModernChatInput(
+                onSendMessage: (_) {},
+                onFileAttachment: _noop,
+                onVoiceCall: () {},
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
-    final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
-    final voiceIcon = tester.widget<Icon>(find.byIcon(Icons.graphic_eq));
-    expect(addIcon.size, 28);
-    expect(micIcon.size, IconSize.large);
-    expect(voiceIcon.size, IconSize.medium);
+      final addIcon = tester.widget<Icon>(find.byIcon(Icons.add));
+      final micIcon = tester.widget<Icon>(find.byIcon(Icons.mic));
+      final voiceIcon = tester.widget<Icon>(find.byIcon(Icons.graphic_eq));
+      expect(addIcon.size, 28);
+      expect(micIcon.size, IconSize.large);
+      expect(voiceIcon.size, IconSize.medium);
 
-    final addButton = find.byKey(
-      const ValueKey<String>('composer-overflow-button'),
-    );
-    final micButton = find.byKey(
-      const ValueKey<String>('composer-dictation-start'),
-    );
-    expect(tester.getSize(addButton), tester.getSize(micButton));
-    expect(tester.getSize(addButton), const Size.square(TouchTarget.minimum));
-    final voiceTarget = find.byKey(
-      const ValueKey<String>('primary-btn-voice-call'),
-    );
-    expect(tester.getSize(voiceTarget), const Size.square(TouchTarget.minimum));
-    expect(
-      tester
-          .getSemantics(voiceTarget)
-          .getSemanticsData()
-          .hasAction(SemanticsAction.tap),
-      isTrue,
-    );
-    final micGlyphRect = tester.getRect(find.byIcon(Icons.mic));
-    final voiceVisualRect = tester.getRect(
-      find.descendant(of: voiceTarget, matching: find.byType(AdaptiveButton)),
-    );
-    expect(voiceVisualRect.left - micGlyphRect.right, 12);
-    expect(
-      tester.getSize(
+      final addButton = find.byKey(
+        const ValueKey<String>('composer-overflow-button'),
+      );
+      final micButton = find.byKey(
+        const ValueKey<String>('composer-dictation-start'),
+      );
+      expect(tester.getSize(addButton), tester.getSize(micButton));
+      expect(tester.getSize(addButton), const Size.square(TouchTarget.minimum));
+      final voiceTarget = find.byKey(
+        const ValueKey<String>('primary-btn-voice-call'),
+      );
+      expect(
+        tester.getSize(voiceTarget),
+        const Size.square(TouchTarget.minimum),
+      );
+      expect(
+        tester
+            .getSemantics(voiceTarget)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+      final micGlyphRect = tester.getRect(find.byIcon(Icons.mic));
+      final voiceVisualRect = tester.getRect(
         find.descendant(of: voiceTarget, matching: find.byType(AdaptiveButton)),
-      ),
-      const Size.square(32),
-    );
+      );
+      expect(voiceVisualRect.left - micGlyphRect.right, 12);
+      expect(
+        tester.getSize(
+          find.descendant(
+            of: voiceTarget,
+            matching: find.byType(AdaptiveButton),
+          ),
+        ),
+        const Size.square(32),
+      );
 
-    await tester.enterText(find.byType(TextField), 'Hello');
-    await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Hello');
+      await tester.pump();
 
-    final sendIcon = tester.widget<Icon>(
-      find.byIcon(Icons.arrow_upward_rounded),
-    );
-    expect(sendIcon.size, IconSize.medium);
-    final sendTarget = find.byKey(const ValueKey('primary-btn-send'));
-    expect(tester.getSize(sendTarget), const Size.square(TouchTarget.minimum));
-    expect(
-      tester.getSize(
-        find.descendant(of: sendTarget, matching: find.byType(AdaptiveButton)),
-      ),
-      const Size.square(32),
-    );
-    semanticsHandle.dispose();
+      final sendIcon = tester.widget<Icon>(
+        find.byIcon(Icons.arrow_upward_rounded),
+      );
+      expect(sendIcon.size, IconSize.medium);
+      final sendTarget = find.byKey(const ValueKey('primary-btn-send'));
+      expect(
+        tester.getSize(sendTarget),
+        const Size.square(TouchTarget.minimum),
+      );
+      expect(
+        tester.getSize(
+          find.descendant(
+            of: sendTarget,
+            matching: find.byType(AdaptiveButton),
+          ),
+        ),
+        const Size.square(32),
+      );
+    } finally {
+      semanticsHandle.dispose();
+    }
   });
 
   testWidgets('overflow close control keeps its compact size when expanded', (

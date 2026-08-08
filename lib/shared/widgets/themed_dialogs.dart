@@ -238,7 +238,7 @@ class ThemedDialogs {
         if (result?.actionId != 'confirm') return null;
         final value = result?.values['text'];
         if (value is! String) return null;
-        final bounded = maxLength == null
+        final bounded = maxLength == null || maxLength == TextField.noMaxLength
             ? value
             : value.characters.take(maxLength).toString();
         final trimmed = bounded.trim();

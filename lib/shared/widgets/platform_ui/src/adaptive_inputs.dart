@@ -116,8 +116,8 @@ class AdaptiveTextField extends StatelessWidget {
       autofocus: autofocus,
       enabled: enabled,
       readOnly: readOnly,
-      prefix: prefix ?? _paddedIcon(prefixIcon),
-      suffix: suffix ?? _paddedIcon(suffixIcon),
+      prefix: prefix ?? _paddedIcon(prefixIcon ?? decoration?.prefixIcon),
+      suffix: suffix ?? _paddedIcon(suffixIcon ?? decoration?.suffixIcon),
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       onTap: onTap,
@@ -287,9 +287,9 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
   Widget build(BuildContext context) {
     if (!PlatformUiCapabilities.isIOS) {
       return TextFormField(
-        controller: widget.controller,
+        key: _formFieldKey,
+        controller: _effectiveController,
         focusNode: widget.focusNode,
-        initialValue: widget.controller == null ? widget.initialValue : null,
         decoration: (widget.decoration ?? const InputDecoration()).copyWith(
           hintText: widget.decoration?.hintText ?? widget.placeholder,
           prefix: widget.prefix ?? widget.decoration?.prefix,
@@ -352,10 +352,14 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
             readOnly: widget.readOnly,
             prefix:
                 widget.prefix ??
-                AdaptiveTextField._paddedIcon(widget.prefixIcon),
+                AdaptiveTextField._paddedIcon(
+                  widget.prefixIcon ?? widget.decoration?.prefixIcon,
+                ),
             suffix:
                 widget.suffix ??
-                AdaptiveTextField._paddedIcon(widget.suffixIcon),
+                AdaptiveTextField._paddedIcon(
+                  widget.suffixIcon ?? widget.decoration?.suffixIcon,
+                ),
             onChanged: (value) {
               field.didChange(value);
               widget.onChanged?.call(value);

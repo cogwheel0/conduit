@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,16 +14,16 @@ void main() {
         source,
         devicePixelRatio: 3,
       );
-      expect(raster, isNotNull);
+      check(raster).isNotNull();
 
       final codec = await ui.instantiateImageCodec(raster!);
       final frame = await codec.getNextFrame();
       final image = frame.image;
-      expect(image.width, 132);
-      expect(image.height, 132);
+      check(image.width).equals(132);
+      check(image.height).equals(132);
 
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      expect(data, isNotNull);
+      check(data).isNotNull();
       final pixels = data!.buffer.asUint8List(
         data.offsetInBytes,
         data.lengthInBytes,
@@ -40,10 +41,10 @@ void main() {
           if (y > maxY) maxY = y;
         }
       }
-      expect(maxX - minX + 1, 84);
-      expect(maxY - minY + 1, 84);
-      expect(minX, 24);
-      expect(minY, 24);
+      check(maxX - minX + 1).equals(84);
+      check(maxY - minY + 1).equals(84);
+      check(minX).equals(24);
+      check(minY).equals(24);
 
       image.dispose();
       codec.dispose();
@@ -58,12 +59,12 @@ void main() {
         source,
         devicePixelRatio: 1,
       );
-      expect(raster, isNotNull);
+      check(raster).isNotNull();
 
       final codec = await ui.instantiateImageCodec(raster!);
       final image = (await codec.getNextFrame()).image;
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      expect(data, isNotNull);
+      check(data).isNotNull();
       final pixels = data!.buffer.asUint8List(
         data.offsetInBytes,
         data.lengthInBytes,
@@ -83,8 +84,8 @@ void main() {
       // A centered square crop contains only the green middle two columns.
       for (final x in [10, 22, 33]) {
         final pixel = pixelAt(x, 22);
-        expect(pixel.g, greaterThan(pixel.r));
-        expect(pixel.g, greaterThan(pixel.b));
+        check(pixel.g).isGreaterThan(pixel.r);
+        check(pixel.g).isGreaterThan(pixel.b);
       }
 
       image.dispose();
@@ -109,8 +110,8 @@ void main() {
       devicePixelRatio: 3,
     );
 
-    expect(rebuilt, first);
-    expect(changed, isNot(first));
+    check(rebuilt).equals(first);
+    check(changed == first).isFalse();
   });
 }
 
