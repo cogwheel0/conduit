@@ -3029,19 +3029,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       showCompactComposer ? compactRadius : expandedRadius,
     );
 
-    final List<Widget> composerChildren = <Widget>[
-      if (_shouldShowPromptOverlay)
-        Padding(
-          key: const ValueKey('prompt-overlay'),
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.sm,
-            0,
-            Spacing.sm,
-            Spacing.xs,
+    late final Widget shellContent;
+    Widget? compactPromptOverlay;
+
+    if (!showCompactComposer) {
+      final List<Widget> composerChildren = <Widget>[
+        if (_shouldShowPromptOverlay)
+          Padding(
+            key: const ValueKey('prompt-overlay'),
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.sm,
+              0,
+              Spacing.sm,
+              Spacing.xs,
+            ),
+            child: _buildActiveOverlay(),
           ),
-          child: _buildActiveOverlay(),
-        ),
-      if (!showCompactComposer) ...[
         Padding(
           key: const ValueKey('composer-expanded-input'),
           padding: const EdgeInsets.fromLTRB(
@@ -3144,15 +3147,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ],
           ),
         ),
-      ],
-    ];
+      ];
 
-    late final Widget shellContent;
-    Widget? compactPromptOverlay;
-
-    // Compact mode keeps every action inside one full-width shell. Matching
-    // control sizes and insets make the resting row mirror the focused shell.
-    if (showCompactComposer) {
+      // Multiline and quick-pill states use the full two-tier shell.
+      shellContent = KeyedSubtree(
+        key: const ValueKey('expanded-composer-shell'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4,
+          ),
+          // Keep text-entry height changes direct. AnimatedSize here runs on
+          // each new or removed line, making the composer trail the user's
+          // typing and repeatedly relaying out the chat viewport.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: RepaintBoundary(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: composerChildren,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      // Compact mode keeps every action inside one full-width shell. Matching
+      // control sizes and insets make the resting row mirror the focused shell.
       final textFieldContent = Container(
         key: const ValueKey('compact-composer-content'),
         height: conduitScaledControlExtent(
@@ -3239,28 +3259,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               child: _buildActiveOverlay(),
             )
           : null;
-    } else {
-      // Multiline and quick-pill states use the full two-tier shell.
-      shellContent = KeyedSubtree(
-        key: const ValueKey('expanded-composer-shell'),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.4,
-          ),
-          // Keep text-entry height changes direct. AnimatedSize here runs on
-          // each new or removed line, making the composer trail the user's
-          // typing and repeatedly relaying out the chat viewport.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
-            ),
-          ),
-        ),
-      );
     }
 
     // Keep the native backdrop in one stable element slot when the composer

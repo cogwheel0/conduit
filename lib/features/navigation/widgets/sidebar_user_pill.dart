@@ -116,12 +116,15 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
       avatarPixels.toDouble(),
       avatarPixels.toDouble(),
     );
+    canvas.save();
+    canvas.clipPath(ui.Path()..addOval(destinationRect));
     canvas.drawImageRect(
       source,
       sourceRect,
       destinationRect,
       ui.Paint()..filterQuality = ui.FilterQuality.high,
     );
+    canvas.restore();
     final picture = recorder.endRecording();
     try {
       output = await picture.toImage(canvasPixels, canvasPixels);
