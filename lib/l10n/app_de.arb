@@ -977,6 +977,15 @@
   },
   "sidebarNotesTab": "Notizen",
   "sidebarChannelsTab": "Kanäle",
+  "sidebarResizeHandle": "Breite der Seitenleiste ändern",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Doppeltippen, um die Breite der Seitenleiste zurückzusetzen",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} Punkte",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "Seitenleiste schließen",
   "terminalSelectServer": "Terminal-Server auswählen",
   "@terminalSelectServer": {

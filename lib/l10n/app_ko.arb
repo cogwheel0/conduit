@@ -753,6 +753,15 @@
   },
   "sidebarNotesTab": "노트",
   "sidebarChannelsTab": "채널",
+  "sidebarResizeHandle": "사이드바 크기 조절",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "사이드바 너비를 재설정하려면 두 번 탭하세요",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width}포인트",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "사이드바 닫기",
   "terminalSelectServer": "터미널 서버 선택",
   "@terminalSelectServer": {

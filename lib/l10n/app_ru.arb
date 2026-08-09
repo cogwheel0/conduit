@@ -975,6 +975,15 @@
   },
   "sidebarNotesTab": "Заметки",
   "sidebarChannelsTab": "Каналы",
+  "sidebarResizeHandle": "Изменить ширину боковой панели",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Дважды нажмите, чтобы сбросить ширину боковой панели",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} пт",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "Закрыть боковую панель",
   "terminalSelectServer": "Выберите сервер терминала",
   "@terminalSelectServer": {

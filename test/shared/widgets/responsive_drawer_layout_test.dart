@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:checks/checks.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 
 const _mobileSize = Size(390, 844);
 const _tabletSize = Size(1024, 1366);
@@ -97,9 +100,15 @@ Widget _buildHarness({
   VoidCallback? onOpenStart,
   bool tabletDismissible = true,
   bool tabletInitiallyDocked = true,
+  double tabletDrawerWidth = 320,
+  bool tabletResizable = false,
+  ValueChanged<double>? onTabletDrawerWidthChanged,
+  TextDirection textDirection = TextDirection.ltr,
+  double? layoutWidth,
 }) {
-  return MaterialApp(
-    home: MediaQuery(
+  final content = Directionality(
+    textDirection: textDirection,
+    child: MediaQuery(
       data: MediaQueryData(size: size),
       child: ResponsiveDrawerLayout(
         key: layoutKey,
@@ -107,6 +116,12 @@ Widget _buildHarness({
         onOpenStart: onOpenStart,
         tabletDismissible: tabletDismissible,
         tabletInitiallyDocked: tabletInitiallyDocked,
+        tabletDrawerWidth: tabletDrawerWidth,
+        tabletResizable: tabletResizable,
+        onTabletDrawerWidthChanged: onTabletDrawerWidthChanged,
+        tabletResizeSemanticsLabel: 'Resize sidebar',
+        tabletResizeSemanticsHint: 'Double tap to reset',
+        tabletResizeSemanticsValueBuilder: (width) => '${width.round()} points',
         drawer:
             drawer ??
             const ColoredBox(
@@ -122,6 +137,12 @@ Widget _buildHarness({
               child: SizedBox.expand(),
             ),
       ),
+    ),
+  );
+  return MaterialApp(
+    home: Align(
+      alignment: Alignment.topLeft,
+      child: SizedBox(width: layoutWidth, child: content),
     ),
   );
 }
@@ -277,6 +298,330 @@ void main() {
     layoutKey.currentState!.open();
     await tester.pumpAndSettle();
     check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+  });
+
+  testWidgets('tablet divider tracks drag and commits only when released', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+    expect(handle, findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      320,
+    );
+
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(100, 0));
+    await tester.pump();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      closeTo(420, 0.1),
+    );
+    expect(committedWidths, isEmpty);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(committedWidths, [closeTo(420, 0.1)]);
+  });
+
+  testWidgets(
+    'tablet preferred width clamps without overwriting and restores',
+    (tester) async {
+      final committedWidths = <double>[];
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _tabletSize,
+          tabletResizable: true,
+          onTabletDrawerWidthChanged: committedWidths.add,
+        ),
+      );
+      final handle = find.byKey(
+        const ValueKey<String>('tablet-sidebar-resize-handle'),
+      );
+      final resizeGesture = await tester.startGesture(tester.getCenter(handle));
+      await resizeGesture.moveBy(const Offset(160, 0));
+      await tester.pump();
+      await resizeGesture.up();
+      await tester.pumpAndSettle();
+      expect(committedWidths, [480]);
+
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _tabletSize,
+          layoutWidth: 700,
+          tabletResizable: true,
+          onTabletDrawerWidthChanged: committedWidths.add,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+        closeTo(380, 0.1),
+      );
+      expect(committedWidths, [480]);
+
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _tabletSize,
+          layoutWidth: 600,
+          tabletResizable: true,
+          onTabletDrawerWidthChanged: committedWidths.add,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+        320,
+      );
+      expect(committedWidths, [480]);
+
+      await tester.pumpWidget(
+        _buildHarness(
+          size: _tabletSize,
+          tabletResizable: true,
+          onTabletDrawerWidthChanged: committedWidths.add,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+        closeTo(480, 0.1),
+      );
+      expect(committedWidths, [480]);
+    },
+  );
+
+  testWidgets('tablet divider cancel restores the uncommitted width', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+    final panel = find.byKey(const ValueKey<String>('tablet-drawer-panel'));
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(100, 0));
+    await tester.pump();
+    expect(tester.getSize(panel).width, closeTo(420, 0.1));
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(panel).width, 320);
+    expect(committedWidths, isEmpty);
+  });
+
+  testWidgets('tablet divider remains anchored after clamped overshoot', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _buildHarness(size: _tabletSize, tabletResizable: true),
+    );
+    final panel = find.byKey(const ValueKey<String>('tablet-drawer-panel'));
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(300, 0));
+    await tester.pump();
+    expect(tester.getSize(panel).width, 480);
+    await gesture.moveBy(const Offset(-100, 0));
+    await tester.pump();
+    expect(tester.getSize(panel).width, 480);
+    await gesture.moveBy(const Offset(-50, 0));
+    await tester.pump();
+    expect(tester.getSize(panel).width, 470);
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('tablet divider double tap resets width to 320', (tester) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletDrawerWidth: 440,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+    await tester.tap(handle);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(handle);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      closeTo(320, 0.1),
+    );
+    expect(committedWidths, [320]);
+  });
+
+  testWidgets('tablet divider reset is inert at the default width', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+    await tester.tap(handle);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(handle);
+    await tester.pumpAndSettle();
+
+    expect(committedWidths, isEmpty);
+  });
+
+  testWidgets('tablet divider follows the trailing edge in RTL', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        textDirection: TextDirection.rtl,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    final panel = find.byKey(const ValueKey<String>('tablet-drawer-panel'));
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+    final layoutWidth = tester
+        .getSize(find.byType(ResponsiveDrawerLayout))
+        .width;
+    expect(tester.getTopRight(panel).dx, layoutWidth);
+    expect(tester.getCenter(handle).dx, closeTo(layoutWidth - 320, 0.1));
+
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(-100, 0));
+    await tester.pump();
+    expect(tester.getSize(panel).width, closeTo(420, 0.1));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(committedWidths, [closeTo(420, 0.1)]);
+  });
+
+  testWidgets('tablet divider mirrors keyboard increments in RTL', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        textDirection: TextDirection.rtl,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      340,
+    );
+    expect(committedWidths, [340]);
+  });
+
+  testWidgets('tablet divider exposes boundary and adjustable semantics', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _buildHarness(size: _tabletSize, tabletResizable: true),
+    );
+    final semanticsHandle = tester.ensureSemantics();
+    try {
+      final panel = tester.widget<AnimatedContainer>(
+        find.byKey(const ValueKey<String>('tablet-drawer-panel')),
+      );
+      final decoration = panel.decoration! as BoxDecoration;
+      final border = decoration.border! as BorderDirectional;
+      expect(border.end.width, BorderWidth.thin);
+
+      final node = tester.getSemantics(
+        find.byKey(const ValueKey<String>('tablet-sidebar-resize-handle')),
+      );
+      expect(node.label, 'Resize sidebar');
+      expect(node.value, '320 points');
+      expect(node.increasedValue, '340 points');
+      expect(node.decreasedValue, '300 points');
+      expect(
+        node.getSemanticsData().hasAction(SemanticsAction.increase),
+        isTrue,
+      );
+      expect(
+        node.getSemanticsData().hasAction(SemanticsAction.decrease),
+        isTrue,
+      );
+    } finally {
+      semanticsHandle.dispose();
+    }
+  });
+
+  testWidgets('tablet divider supports keyboard width increments', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      340,
+    );
+    expect(committedWidths, [340]);
   });
 
   testWidgets('dismissed tablet drawer releases chrome after closing', (

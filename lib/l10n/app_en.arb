@@ -2439,6 +2439,15 @@
     "description": "Accessibility label for sidebar progress while sync finalization runs"
   },
   "sidebarChannelsTab": "Channels",
+  "sidebarResizeHandle": "Resize sidebar",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Double tap to reset the sidebar width",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} points",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },

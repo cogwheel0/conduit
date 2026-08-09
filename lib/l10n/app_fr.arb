@@ -975,6 +975,15 @@
   },
   "sidebarNotesTab": "Notes",
   "sidebarChannelsTab": "Canaux",
+  "sidebarResizeHandle": "Redimensionner la barre latérale",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Touchez deux fois pour réinitialiser sa largeur",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} points",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "Fermer la barre latérale",
   "terminalSelectServer": "Sélectionner un serveur de terminal",
   "@terminalSelectServer": {

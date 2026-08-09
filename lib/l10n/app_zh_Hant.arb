@@ -975,6 +975,15 @@
   },
   "sidebarNotesTab": "筆記",
   "sidebarChannelsTab": "頻道",
+  "sidebarResizeHandle": "調整側邊欄寬度",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "點兩下以重設側邊欄寬度",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} 點",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "關閉側邊欄",
   "terminalSelectServer": "選擇終端機伺服器",
   "@terminalSelectServer": {

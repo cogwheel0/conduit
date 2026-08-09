@@ -2200,6 +2200,15 @@
     "description": "Label for the Notes tab in the sidebar"
   },
   "sidebarChannelsTab": "Kanály",
+  "sidebarResizeHandle": "Změnit šířku postranního panelu",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Dvojitým klepnutím obnovíte šířku postranního panelu",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} bodů",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },

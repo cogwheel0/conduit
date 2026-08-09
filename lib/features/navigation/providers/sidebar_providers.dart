@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
+import '../../../core/utils/debug_logger.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
 
 part 'sidebar_providers.g.dart';
 
@@ -22,6 +26,42 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     state = index.clamp(0, 4);
     PreferencesStore.put(PreferenceKeys.sidebarActiveTab, state);
   }
+}
+
+/// Preferred width for the persistent tablet sidebar.
+///
+/// Responsive layout constraints can temporarily display a narrower value
+/// without overwriting this preference, so rotation and split-view changes are
+/// reversible.
+@Riverpod(keepAlive: true)
+class SidebarTabletWidth extends _$SidebarTabletWidth {
+  @override
+  double build() => _clamp(
+    PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth)?.toDouble() ??
+        defaultSidebarTabletWidth,
+  );
+
+  double _clamp(double width) => width
+      .clamp(minimumSidebarTabletWidth, maximumSidebarTabletWidth)
+      .toDouble();
+
+  void setWidth(double width) {
+    state = _clamp(width);
+    unawaited(
+      PreferencesStore.put(PreferenceKeys.sidebarTabletWidth, state).catchError(
+        (Object error, StackTrace stackTrace) {
+          DebugLogger.error(
+            'tablet-width-write-failed',
+            scope: 'navigation/sidebar',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        },
+      ),
+    );
+  }
+
+  void reset() => setWidth(defaultSidebarTabletWidth);
 }
 
 /// Whether the sidebar header search field is expanded (full bar vs icon + avatar).

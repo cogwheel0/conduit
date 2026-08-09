@@ -975,6 +975,15 @@
   },
   "sidebarNotesTab": "笔记",
   "sidebarChannelsTab": "频道",
+  "sidebarResizeHandle": "调整侧边栏宽度",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "轻点两下以重置侧边栏宽度",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} 点",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "closeSidebar": "关闭侧边栏",
   "terminalSelectServer": "选择终端服务器",
   "@terminalSelectServer": {

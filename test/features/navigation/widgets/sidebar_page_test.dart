@@ -47,6 +47,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -387,6 +388,84 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('persistent tablet uses grouped vertical navigation', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesEnabled: true,
+        persistentTabletSidebar: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final navigation = find.byKey(
+      const ValueKey<String>('sidebar-tablet-navigation'),
+    );
+    expect(navigation, findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    for (final label in ['Chats', 'Hermes', 'Notes', 'Terminal', 'Channels']) {
+      expect(
+        find.descendant(of: navigation, matching: find.text(label)),
+        findsOneWidget,
+      );
+    }
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controllers.activeTabNotifier.currentValue, 2);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.selected == true,
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _layerRootFinder(_SidebarTabLayer.notes),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is ExcludeSemantics && !widget.excluding,
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('persistent tablet navigation remains usable at 2x text', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesEnabled: true,
+        persistentTabletSidebar: true,
+        textScale: 2,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
+      findsOneWidget,
+    );
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
+    );
+    await tester.pumpAndSettle();
+    expect(controllers.activeTabNotifier.currentValue, 2);
   });
 
   testWidgets('Hermes bottom tab follows dark navigation icon colors', (
@@ -2047,6 +2126,8 @@ Widget _buildSidebarHarness({
   Conversation? activeConversation,
   ThemeData? theme,
   SyncStatus? syncStatus,
+  bool persistentTabletSidebar = false,
+  double textScale = 1,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -2184,6 +2265,15 @@ Widget _buildSidebarHarness({
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: PersistentTabletSidebarScope(
+          active: persistentTabletSidebar,
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
     ),
   );
 }

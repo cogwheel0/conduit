@@ -3,10 +3,15 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/platform_service.dart';
+import '../../core/services/settings_service.dart';
 import '../../features/chat/providers/chat_providers.dart';
+import '../../features/navigation/providers/sidebar_providers.dart';
 import '../../features/navigation/widgets/sidebar_page.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
 import 'responsive_drawer_layout.dart';
+import 'sidebar_layout_constants.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -24,8 +29,9 @@ class DrawerShellPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final size = MediaQuery.of(context).size;
-    final isTablet = size.shortestSide >= 600;
+    final isTablet = usesPersistentTabletSidebar(context);
+    final tabletWidth = ref.watch(sidebarTabletWidthProvider);
+    final localizations = AppLocalizations.of(context)!;
     final scrim = Platform.isIOS
         ? context.colorTokens.scrimMedium
         : context.colorTokens.scrimStrong;
@@ -40,7 +46,22 @@ class DrawerShellPage extends ConsumerWidget {
       mobileBottomDragGestureExclusion: isTablet
           ? 0.0
           : sidebarBottomBarGestureExclusionHeight(context),
-      tabletDrawerWidth: 320.0,
+      tabletDrawerWidth: tabletWidth,
+      tabletDrawerMinWidth: minimumSidebarTabletWidth,
+      tabletDrawerMaxWidth: maximumSidebarTabletWidth,
+      tabletMinimumContentWidth: defaultSidebarTabletWidth,
+      tabletResizable: isTablet,
+      tabletResizeSemanticsLabel: localizations.sidebarResizeHandle,
+      tabletResizeSemanticsHint: localizations.sidebarResizeResetHint,
+      tabletResizeSemanticsValueBuilder: (width) =>
+          localizations.sidebarWidthValue(width.round()),
+      onTabletDrawerWidthChanged: (width) {
+        ref.read(sidebarTabletWidthProvider.notifier).setWidth(width);
+        PlatformService.hapticFeedbackWithSettings(
+          type: HapticType.selection,
+          hapticEnabled: ref.read(hapticEnabledProvider),
+        );
+      },
       onOpenStart: () {
         // Suppress composer auto-focus when drawer opens on mobile
         try {
