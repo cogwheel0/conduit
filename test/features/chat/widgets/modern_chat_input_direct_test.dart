@@ -952,21 +952,8 @@ void main() {
     expect(find.byKey(expandedButtonsKey), findsOneWidget);
     expect(find.byKey(quickPillsKey), findsNothing);
     expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('composer-expand-button')),
-      ),
-      const Size.square(TouchTarget.minimum),
-    );
-    final expandOpacity = tester.widget<AnimatedOpacity>(
-      find.ancestor(
-        of: find.byIcon(Icons.open_in_full),
-        matching: find.byType(AnimatedOpacity),
-      ),
-    );
-    expect(expandOpacity.opacity, 0);
-    expect(
-      tester.widget<Icon>(find.byIcon(Icons.open_in_full)).size,
-      IconSize.small,
+      find.byKey(const ValueKey<String>('composer-expand-button')),
+      findsNothing,
     );
 
     await tester.enterText(
@@ -976,13 +963,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    final fourLineExpandOpacity = tester.widget<AnimatedOpacity>(
-      find.ancestor(
-        of: find.byIcon(Icons.open_in_full),
-        matching: find.byType(AnimatedOpacity),
-      ),
+    expect(
+      find.byKey(const ValueKey<String>('composer-expand-button')),
+      findsOneWidget,
     );
-    expect(fourLineExpandOpacity.opacity, 1);
 
     final inputInsets = tester
         .widget<Padding>(find.byKey(expandedInputKey))
@@ -1009,7 +993,7 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 composer expand symbol keeps its compact optical size', (
+  testWidgets('iOS 26 plain composer actions stay Flutter-rendered', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -1040,23 +1024,149 @@ void main() {
     final expandButton = tester.widget<AdaptiveButton>(
       find.byKey(const ValueKey<String>('composer-expand-button')),
     );
-    expect(expandButton.sfSymbol?.size, IconSize.small);
+    expect(expandButton.sfSymbol, isNull);
+    expect(
+      tester
+          .widget<ConduitSystemAdaptiveIcon>(
+            find.descendant(
+              of: find.byKey(const ValueKey<String>('composer-expand-button')),
+              matching: find.byType(ConduitSystemAdaptiveIcon),
+            ),
+          )
+          .size,
+      IconSize.medium,
+    );
     final overflowButton = tester.widget<AdaptiveButton>(
       find.descendant(
         of: find.byKey(const ValueKey<String>('composer-overflow-button')),
         matching: find.byType(AdaptiveButton),
       ),
     );
-    expect(overflowButton.sfSymbol?.size, IconSize.medium);
+    expect(overflowButton.sfSymbol, isNull);
+    expect(
+      tester
+          .widget<ConduitSystemAdaptiveIcon>(
+            find.descendant(
+              of: find.byKey(
+                const ValueKey<String>('composer-overflow-button'),
+              ),
+              matching: find.byType(ConduitSystemAdaptiveIcon),
+            ),
+          )
+          .size,
+      IconSize.large,
+    );
     expect(
       tester.getSize(
         find.byKey(const ValueKey<String>('composer-expand-button')),
       ),
       const Size.square(TouchTarget.minimum),
     );
+    final expandRect = tester.getRect(
+      find.byKey(const ValueKey<String>('composer-expand-button')),
+    );
+    final inputRect = tester.getRect(
+      find.byKey(const ValueKey<String>('composer-expanded-input')),
+    );
+    final textFieldRect = tester.getRect(find.byType(TextField));
+    expect(
+      find.byKey(const ValueKey<String>('composer-expand-row')),
+      findsNothing,
+    );
+    expect(expandRect.top, inputRect.top + Spacing.sm);
+    expect(
+      textFieldRect.right + Spacing.xs,
+      lessThanOrEqualTo(expandRect.left),
+    );
   });
 
-  testWidgets('pre-iOS 26 composer uses 20pt Cupertino add and close glyphs', (
+  testWidgets('iOS 26 composer preserves native surfaces across layout swaps', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final shellElement = tester.element(
+      find.byKey(const ValueKey<String>('composer-native-shell')),
+    );
+    final backdropElement = tester.element(
+      find.byKey(const ValueKey<String>('composer-native-glass-backdrop')),
+    );
+
+    await tester.enterText(
+      find.byType(TextField),
+      'first line\nsecond line\nthird line\nfourth line',
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      tester.element(
+        find.byKey(const ValueKey<String>('composer-native-shell')),
+      ),
+      same(shellElement),
+    );
+    expect(
+      tester.element(
+        find.byKey(const ValueKey<String>('composer-native-glass-backdrop')),
+      ),
+      same(backdropElement),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('expanded-composer-shell')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('iOS 26 native primary control ignores unrelated rebuilds', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '/');
+    await tester.pump();
+
+    Finder nativePrimary() => find.descendant(
+      of: find.byKey(const ValueKey<String>('primary-btn-send')),
+      matching: find.byType(AdaptiveButton),
+    );
+
+    final nativeButton = tester.widget<AdaptiveButton>(nativePrimary());
+    await tester.enterText(find.byType(TextField), '/a');
+    await tester.pump();
+
+    expect(tester.widget<AdaptiveButton>(nativePrimary()), same(nativeButton));
+  });
+
+  testWidgets('pre-iOS 26 composer uses 24pt Cupertino add and close glyphs', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -1081,7 +1191,7 @@ void main() {
     );
     expect(
       tester.widget<Icon>(find.byIcon(CupertinoIcons.add)).size,
-      IconSize.medium,
+      IconSize.large,
     );
     expect(
       tester.getSize(overflowButton),
@@ -1093,7 +1203,7 @@ void main() {
 
     expect(
       tester.widget<Icon>(find.byIcon(CupertinoIcons.xmark)).size,
-      IconSize.medium,
+      IconSize.large,
     );
     expect(
       tester.getSize(overflowButton),

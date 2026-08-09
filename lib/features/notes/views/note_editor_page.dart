@@ -1673,12 +1673,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
+    final l10n = AppLocalizations.of(context)!;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: 1,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
-    final actions = _buildNoteEditorToolbarActionWidgets(context);
+    final menuItems = _buildNoteEditorToolbarMenuItems(l10n);
+    final actions = _buildNoteEditorToolbarActionWidgets(context, menuItems);
+    final nativeMenuAction = buildConduitNativeToolbarMenuAction<String>(
+      iosSymbol: 'ellipsis',
+      accessibilityLabel: MaterialLocalizations.of(context).moreButtonTooltip,
+      tintColor: tintColor,
+      items: menuItems,
+      onSelected: _handleEditorToolbarMenuSelection,
+    );
+    final useNativeActionGroup =
+        Platform.isIOS &&
+        conduitSupportsNativeGlass() &&
+        nativeMenuAction != null;
 
     return buildConduitCenteredAdaptiveAppBar(
       context: context,
@@ -1691,15 +1704,61 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ),
       title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
       actions: actions,
+      cupertinoTrailing: useNativeActionGroup
+          ? ConduitNativeToolbarActionGroup(actions: [nativeMenuAction])
+          : Row(mainAxisSize: MainAxisSize.min, children: actions),
+      centerTitle: false,
     );
   }
 
-  List<Widget> _buildNoteEditorToolbarActionWidgets(BuildContext context) {
+  List<AdaptivePopupMenuEntry> _buildNoteEditorToolbarMenuItems(
+    AppLocalizations l10n,
+  ) {
+    return [
+      AdaptivePopupMenuItem<String>(
+        value: 'generate',
+        label: l10n.generateTitle,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'sparkles',
+          materialIcon: Icons.auto_awesome,
+        ),
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'copy',
+        label: l10n.copy,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'doc.on.doc',
+          materialIcon: Icons.copy_outlined,
+        ),
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'pin',
+        label: _note?.isPinned == true ? l10n.unpin : l10n.pin,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: _note?.isPinned == true ? 'pin.slash' : 'pin',
+          materialIcon: Icons.push_pin_outlined,
+        ),
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'delete',
+        label: l10n.delete,
+        isDestructive: true,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'trash',
+          materialIcon: Icons.delete_outline,
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildNoteEditorToolbarActionWidgets(
+    BuildContext context,
+    List<AdaptivePopupMenuEntry> menuItems,
+  ) {
     return buildConduitAdaptiveToolbarActionWidgets([
-      _NoteEditorToolbarPopupButton(
-        l10n: AppLocalizations.of(context)!,
-        isPinned: _note?.isPinned == true,
+      ConduitAdaptiveToolbarOverflowButton<String>(
         tintColor: context.conduitTheme.textPrimary,
+        items: menuItems,
         onSelected: _handleEditorToolbarMenuSelection,
       ),
     ]);
@@ -1731,7 +1790,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }) {
     final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final titleTextStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final titleTextStyle = conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final controlExtent = conduitScaledControlExtent(context);
     final titleLabel = _isGeneratingTitle
         ? l10n.generatingTitle
@@ -3020,65 +3079,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _NoteEditorToolbarPopupButton extends StatelessWidget {
-  const _NoteEditorToolbarPopupButton({
-    required this.l10n,
-    required this.isPinned,
-    required this.tintColor,
-    required this.onSelected,
-  });
-
-  final AppLocalizations l10n;
-  final bool isPinned;
-  final Color tintColor;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConduitAdaptiveToolbarOverflowButton<String>(
-      tintColor: tintColor,
-      items: [
-        AdaptivePopupMenuItem<String>(
-          value: 'generate',
-          label: l10n.generateTitle,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'sparkles',
-            materialIcon: Icons.auto_awesome,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'copy',
-          label: l10n.copy,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'doc.on.doc',
-            materialIcon: Icons.copy_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'pin',
-          label: isPinned ? l10n.unpin : l10n.pin,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: isPinned ? 'pin.slash' : 'pin',
-            materialIcon: isPinned
-                ? Icons.push_pin_outlined
-                : Icons.push_pin_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'delete',
-          label: l10n.delete,
-          isDestructive: true,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'trash',
-            materialIcon: Icons.delete_outline,
-          ),
-        ),
-      ],
-      onSelected: onSelected,
     );
   }
 }

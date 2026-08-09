@@ -313,6 +313,7 @@ void main() {
       find.byType(CNGlassButtonGroup),
     );
     expect(group.buttons, hasLength(2));
+    expect(group.buttons.first.icon?.size, kCupertinoNativeControlSymbolExtent);
     expect(group.buttons.last.isPopup, isTrue);
     group.buttons.last.onMenuSelected!(0);
     expect(selectionCount, 1);
@@ -345,14 +346,41 @@ void main() {
     expect(button.config.minHeight, TouchTarget.minimum);
     expect(button.config.padding, EdgeInsets.zero);
     expect(button.config.borderRadius, TouchTarget.minimum / 2);
+    expect(button.icon?.size, kConduitNativeSingleActionSymbolExtent);
   });
 
-  testWidgets('rich iOS 26 toolbar menus retain the native popup adapter', (
+  testWidgets('Flutter-owned iOS 26 toolbar titles use native glass', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: Center(
+            child: buildConduitAdaptiveToolbarPillSurface(
+              width: 160,
+              child: const Text('Channel title'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(AdaptiveGlassBackdrop), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
+  });
+
+  testWidgets('destructive iOS 26 toolbar menus stay in the glass group', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    var deleteCount = 0;
 
     await tester.pumpWidget(
       CupertinoApp(
@@ -372,7 +400,7 @@ void main() {
                     label: 'Delete',
                     iosSymbol: 'trash',
                     isDestructive: true,
-                    onSelected: () {},
+                    onSelected: () => deleteCount += 1,
                   ),
                 ],
               ),
@@ -382,14 +410,13 @@ void main() {
       ),
     );
 
-    expect(find.byType(CNGlassButtonGroup), findsNothing);
-    expect(find.byType(CNButton), findsOneWidget);
-    expect(find.byType(CNPopupMenuButton), findsOneWidget);
-    final popup = tester.widget<CNPopupMenuButton>(
-      find.byType(CNPopupMenuButton),
+    final group = tester.widget<CNGlassButtonGroup>(
+      find.byType(CNGlassButtonGroup),
     );
-    final deleteItem = popup.items.single as CNPopupMenuItem;
-    expect(deleteItem.isDestructive, isTrue);
+    expect(group.buttons, hasLength(2));
+    expect(group.buttons.last.isPopup, isTrue);
+    group.buttons.last.onMenuSelected!(0);
+    expect(deleteCount, 1);
     await tester.pump(const Duration(milliseconds: 500));
   });
 

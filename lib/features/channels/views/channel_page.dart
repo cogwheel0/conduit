@@ -363,7 +363,6 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   /// with file, photo, and camera actions.
   Widget _buildAttachmentButton(double size, {String? parentMessageId}) {
     final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
 
     return AdaptivePopupMenuButton.widget<String>(
       items: [
@@ -387,18 +386,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         entry.value as String,
         parentMessageId: parentMessageId,
       ),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: theme.surfaceContainerHighest,
-          border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
-        ),
+      child: SizedBox.square(
+        dimension: size,
         child: Icon(
           Platform.isIOS ? CupertinoIcons.add : Icons.add,
           size: IconSize.large,
-          color: theme.textPrimary.withValues(alpha: Alpha.strong),
+          color: context.conduitTheme.textPrimary.withValues(
+            alpha: Alpha.strong,
+          ),
         ),
       ),
     );
@@ -1129,7 +1124,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     required double maxWidth,
   }) {
     final label = channel?.name ?? '';
-    final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final textStyle = conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
     final leadingIcon = channel?.isPrivate == true
@@ -1294,6 +1289,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       cupertinoTrailing: useNativeActionGroup
           ? ConduitNativeToolbarActionGroup(actions: nativeActions)
           : Row(mainAxisSize: MainAxisSize.min, children: actions),
+      centerTitle: false,
     );
   }
 

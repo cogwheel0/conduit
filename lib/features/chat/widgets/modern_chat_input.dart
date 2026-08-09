@@ -324,6 +324,8 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
     );
 
 const double _maxCompactComposerControlScale = 1.25;
+const double _composerExpandIconExtent = IconSize.medium;
+const double _cupertinoComposerOverflowIconExtent = IconSize.large;
 const double _materialComposerOverflowIconExtent = 28;
 
 typedef _ComposerTypography = ({
@@ -350,6 +352,74 @@ typedef _ComposerLineMeasurement = ({
 });
 
 typedef _CompactComposerControls = ({bool showLeading, bool showMic});
+
+/// Keeps a native composer button's platform-view widget stable while only
+/// unrelated composer state changes. The callback deliberately dereferences
+/// the latest widget so a new closure does not force UIKit reconfiguration.
+class _StableNativeComposerIconButton extends StatefulWidget {
+  const _StableNativeComposerIconButton({
+    super.key,
+    required this.onPressed,
+    required this.enabled,
+    required this.symbol,
+    required this.style,
+    required this.color,
+    required this.size,
+    required this.dimension,
+  });
+
+  final VoidCallback? onPressed;
+  final bool enabled;
+  final SFSymbol symbol;
+  final AdaptiveButtonStyle style;
+  final Color color;
+  final AdaptiveButtonSize size;
+  final double dimension;
+
+  @override
+  State<_StableNativeComposerIconButton> createState() =>
+      _StableNativeComposerIconButtonState();
+}
+
+class _StableNativeComposerIconButtonState
+    extends State<_StableNativeComposerIconButton> {
+  late Widget _nativeControl = _buildNativeControl();
+
+  @override
+  void didUpdateWidget(covariant _StableNativeComposerIconButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled != widget.enabled ||
+        oldWidget.symbol.name != widget.symbol.name ||
+        oldWidget.symbol.size != widget.symbol.size ||
+        oldWidget.symbol.color != widget.symbol.color ||
+        oldWidget.style != widget.style ||
+        oldWidget.color != widget.color ||
+        oldWidget.size != widget.size ||
+        oldWidget.dimension != widget.dimension) {
+      _nativeControl = _buildNativeControl();
+    }
+  }
+
+  void _handlePressed() => widget.onPressed?.call();
+
+  Widget _buildNativeControl() {
+    return AdaptiveButton.sfSymbol(
+      onPressed: _handlePressed,
+      enabled: widget.enabled,
+      sfSymbol: widget.symbol,
+      style: widget.style,
+      color: widget.color,
+      size: widget.size,
+      minSize: Size.square(widget.dimension),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(widget.dimension),
+      useSmoothRectangleBorder: false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => _nativeControl;
+}
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
@@ -382,6 +452,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   _ComposerLayoutMetrics? _pendingComposerLayoutMetrics;
   bool _composerLayoutMeasurementScheduled = false;
   _ComposerLineMeasurement? _composerLineMeasurement;
+  BorderRadius? _cachedComposerGlassRadius;
+  Widget? _cachedComposerGlassBackdrop;
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -2978,43 +3050,34 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Spacing.sm,
           ),
           child: Stack(
-            clipBehavior: Clip.none,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: _buildComposerTextField(
-                      brightness: brightness,
-                      sendOnEnter: sendOnEnter,
-                      voiceAvailable: voiceAvailable,
-                      isGenerating: isGenerating,
-                      allUploadsComplete: allUploadsComplete,
-                      placeholderBase: placeholderBase,
-                      placeholderFocused: placeholderFocused,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.sm,
-                        vertical: Spacing.xs,
-                      ),
-                      isActive: isActive,
-                    ),
+              Padding(
+                padding: EdgeInsetsDirectional.only(
+                  end: _showExpandButton && !_expandModalOpen
+                      ? conduitScaledControlExtent(context) + Spacing.xs
+                      : 0,
+                ),
+                child: _buildComposerTextField(
+                  brightness: brightness,
+                  sendOnEnter: sendOnEnter,
+                  voiceAvailable: voiceAvailable,
+                  isGenerating: isGenerating,
+                  allUploadsComplete: allUploadsComplete,
+                  placeholderBase: placeholderBase,
+                  placeholderFocused: placeholderFocused,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: Spacing.xs,
                   ),
-                ],
-              ),
-              Positioned(
-                top: Spacing.xs,
-                right: Spacing.xs,
-                child: AnimatedOpacity(
-                  opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
-                  duration: context.motionDuration(
-                    const Duration(milliseconds: 160),
-                  ),
-                  child: IgnorePointer(
-                    ignoring: !_showExpandButton || _expandModalOpen,
-                    child: _buildExpandButton(_showExpandTextModal),
-                  ),
+                  isActive: isActive,
                 ),
               ),
+              if (_showExpandButton && !_expandModalOpen)
+                PositionedDirectional(
+                  top: 0,
+                  end: 0,
+                  child: _buildExpandButton(_showExpandTextModal),
+                ),
             ],
           ),
         ),
@@ -3082,6 +3145,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       ],
     ];
+
+    late final Widget shellContent;
+    Widget? compactPromptOverlay;
 
     // Compact mode keeps every action inside one full-width shell. Matching
     // control sizes and insets make the resting row mirror the focused shell.
@@ -3158,84 +3224,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
               ],
             ),
-            Positioned(
-              top: Spacing.xs,
-              right: 0,
-              child: AnimatedOpacity(
-                opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
-                duration: context.motionDuration(
-                  const Duration(milliseconds: 160),
-                ),
-                child: IgnorePointer(
-                  ignoring: !_showExpandButton || _expandModalOpen,
-                  child: _buildExpandButton(_showExpandTextModal),
-                ),
-              ),
-            ),
           ],
         ),
       );
 
-      final Widget textFieldShell = _buildComposerShell(
+      shellContent = KeyedSubtree(
         key: const ValueKey('compact-composer-shell'),
-        borderRadius: shellRadius,
-        isRecording: _isRecording,
         child: textFieldContent,
       );
-
-      final bottomPadding = _composerBottomPadding(context);
-      final composer = Padding(
-        padding: EdgeInsets.fromLTRB(
-          Spacing.screenPadding,
-          0,
-          Spacing.screenPadding,
-          bottomPadding,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Show prompt overlay above the compact input row when active
-            if (_shouldShowPromptOverlay)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.xs),
-                child: _buildActiveOverlay(),
+      compactPromptOverlay = _shouldShowPromptOverlay
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: _buildActiveOverlay(),
+            )
+          : null;
+    } else {
+      // Multiline and quick-pill states use the full two-tier shell.
+      shellContent = KeyedSubtree(
+        key: const ValueKey('expanded-composer-shell'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4,
+          ),
+          // Keep text-entry height changes direct. AnimatedSize here runs on
+          // each new or removed line, making the composer trail the user's
+          // typing and repeatedly relaying out the chat viewport.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: RepaintBoundary(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: composerChildren,
               ),
-            _wrapIosSurfaceShadow(textFieldShell, borderRadius: shellRadius),
-          ],
-        ),
-      );
-      return _wrapWithComposerLineMeasurement(
-        compactControls: compactControls,
-        child: _wrapWithFallbackAttachmentPanel(
-          composer: composer,
-          localAttachmentsOnly: isHermesComposer,
-          attachmentAvailability: attachmentAvailability,
+            ),
+          ),
         ),
       );
     }
 
-    // Multiline and quick-pill states use the full two-tier shell.
-    final shellContent = ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.4,
-      ),
-      // Keep text-entry height changes direct. AnimatedSize here runs on each
-      // new or removed line, making the composer trail the user's typing and
-      // repeatedly relaying out the chat viewport.
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        child: RepaintBoundary(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: composerChildren,
-          ),
-        ),
-      ),
-    );
-
+    // Keep the native backdrop in one stable element slot when the composer
+    // crosses between compact and expanded layouts. Replacing the platform
+    // view here forces UIKit to allocate a fresh IOSurface for the same glass
+    // material, which is substantially more expensive than swapping only the
+    // Flutter-owned foreground content.
     final Widget shell = _wrapIosSurfaceShadow(
       _buildComposerShell(
-        key: const ValueKey('expanded-composer-shell'),
+        key: const ValueKey('composer-native-shell'),
         borderRadius: shellRadius,
         isRecording: _isRecording,
         child: shellContent,
@@ -3252,7 +3286,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         Spacing.screenPadding,
         bottomPadding,
       ),
-      child: shell,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [?compactPromptOverlay, shell],
+      ),
     );
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
@@ -3655,7 +3692,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // extent so they do not look undersized inside the shared 44pt target.
     final iconSize = conduitScaledIconExtent(
       context,
-      isIOS ? IconSize.medium : _materialComposerOverflowIconExtent,
+      isIOS
+          ? _cupertinoComposerOverflowIconExtent
+          : _materialComposerOverflowIconExtent,
     );
 
     return Focus(
@@ -3689,7 +3728,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget _buildExpandButton(VoidCallback onTap) {
     final l10n = AppLocalizations.of(context)!;
     final buttonSize = conduitScaledControlExtent(context);
-    final iconSize = conduitScaledIconExtent(context, IconSize.small);
+    final iconSize = conduitScaledIconExtent(
+      context,
+      _composerExpandIconExtent,
+    );
     final iconColor = context.conduitTheme.textSecondary.withValues(alpha: 0.7);
     return AdaptiveTooltip(
       message: l10n.edit,
@@ -4161,7 +4203,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // iOS glass buttons are UIKit platform views. Remove them while another
     // route covers the composer so their compositor layer cannot bleed
     // through an opaque Flutter modal sheet.
-    if (conduitSupportsNativeGlass() && !_isRouteVisible) {
+    if (conduitSupportsNativeGlass() && !forcePlain && !_isRouteVisible) {
       return SizedBox.square(dimension: size);
     }
 
@@ -4189,7 +4231,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? androidBackgroundColor
         : effectiveColor;
 
-    if (conduitSupportsNativeGlass()) {
+    // A visually plain action gains no glass material from a UIKit platform
+    // view. Keep those controls in Flutter so the plus/close, expand, and note
+    // actions do not each allocate and composite their own IOSurface.
+    if (conduitSupportsNativeGlass() && !forcePlain) {
       // Loading indicators are transient Flutter content. Keeping them out of
       // child-mode avoids creating another persistent platform view.
       if (iosSymbol == null) {
@@ -4222,11 +4267,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
       final nativeButton = SizedBox.square(
         dimension: effectiveVisualSize,
-        child: AdaptiveButton.sfSymbol(
+        child: _StableNativeComposerIconButton(
           key: keyBelongsToOuterTarget ? null : key,
           onPressed: onPressed,
           enabled: onPressed != null,
-          sfSymbol: SFSymbol(
+          symbol: SFSymbol(
             iosSymbol,
             size: iosSymbolSize ?? kCupertinoNativeControlSymbolExtent,
             color: iosSymbolColor,
@@ -4234,10 +4279,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           style: buttonStyle,
           color: buttonColor,
           size: adaptiveSize,
-          minSize: Size.square(effectiveVisualSize),
-          padding: EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(effectiveVisualSize),
-          useSmoothRectangleBorder: false,
+          dimension: effectiveVisualSize,
         ),
       );
       return _wrapComposerVisualControl(
@@ -4337,9 +4379,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         fit: StackFit.passthrough,
         children: [
           Positioned.fill(
-            child: IgnorePointer(
-              child: AdaptiveGlassBackdrop(borderRadius: borderRadius),
-            ),
+            child: IgnorePointer(child: _composerGlassBackdrop(borderRadius)),
           ),
           Positioned.fill(
             child: IgnorePointer(
@@ -4388,6 +4428,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: child,
     );
+  }
+
+  Widget _composerGlassBackdrop(BorderRadius borderRadius) {
+    final cached = _cachedComposerGlassBackdrop;
+    if (cached != null && _cachedComposerGlassRadius == borderRadius) {
+      return cached;
+    }
+
+    final backdrop = AdaptiveGlassBackdrop(
+      key: const ValueKey('composer-native-glass-backdrop'),
+      borderRadius: borderRadius,
+    );
+    _cachedComposerGlassRadius = borderRadius;
+    _cachedComposerGlassBackdrop = backdrop;
+    return backdrop;
   }
 
   double _composerBottomPadding(BuildContext context) {

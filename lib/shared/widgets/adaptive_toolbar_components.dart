@@ -16,6 +16,7 @@ const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitAdaptiveToolbarMaxModelSelectorWidth = 320;
 const double kConduitModelSelectorChevronExtent = 13;
+const double kConduitNativeSingleActionSymbolExtent = 18;
 const double kConduitMaximumSystemControlScale = 1.5;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
@@ -301,6 +302,16 @@ TextStyle conduitAdaptiveToolbarPillTextStyle(BuildContext context) {
   );
 }
 
+TextStyle conduitAdaptiveToolbarLeadingTitleTextStyle(BuildContext context) {
+  return (PlatformInfo.isIOS
+          ? CupertinoTheme.of(context).textTheme.textStyle
+          : Theme.of(context).textTheme.titleMedium ?? AppTypography.standard)
+      .copyWith(
+        color: context.conduitTheme.textPrimary,
+        fontWeight: FontWeight.w400,
+      );
+}
+
 Widget buildConduitAdaptiveToolbarPillSurface({
   required double width,
   required Widget child,
@@ -325,16 +336,40 @@ Widget buildConduitAdaptiveToolbarPillSurface({
     );
   }
 
+  final borderRadius = BorderRadius.circular(height / 2);
+  Widget content = sizedChild;
+  if (onPressed != null) {
+    content = CupertinoButton(
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      minimumSize: Size(width, height),
+      borderRadius: borderRadius,
+      child: sizedChild,
+    );
+    if (semanticLabel != null) {
+      content = Semantics(
+        label: semanticLabel,
+        button: true,
+        child: ExcludeSemantics(child: content),
+      );
+    }
+  }
+
   return _hideNativeToolbarChromeWhileSheetCovered(
     size: Size(width, height),
-    child: AdaptiveButton.child(
-      onPressed: onPressed ?? () {},
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.large,
-      padding: EdgeInsets.zero,
-      minSize: Size(width, height),
-      useSmoothRectangleBorder: false,
-      child: sizedChild,
+    child: SizedBox(
+      width: width,
+      height: height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AdaptiveGlassBackdrop(
+            borderRadius: borderRadius,
+            autoHideOnModal: false,
+          ),
+          content,
+        ],
+      ),
     ),
   );
 }
@@ -512,7 +547,11 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       child: conduitSupportsNativeGlass() && nativeSymbol != null
           ? AdaptiveButton.sfSymbol(
               onPressed: onPressed,
-              sfSymbol: SFSymbol(nativeSymbol, color: effectiveIconColor),
+              sfSymbol: SFSymbol(
+                nativeSymbol,
+                size: kConduitNativeSingleActionSymbolExtent,
+                color: effectiveIconColor,
+              ),
               style: AdaptiveButtonStyle.glass,
               size: AdaptiveButtonSize.large,
               padding: EdgeInsets.zero,
@@ -645,11 +684,12 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
   bool _canUseGroupedNativeAction(ConduitNativeToolbarAction action) {
     if (action.menuItems.isEmpty) return true;
 
-    // CNButtonData.popup cannot represent checked, disabled, or destructive
-    // menu items, so preserve those states with the rich popup fallback.
-    return action.menuItems.every(
-      (item) => item.enabled && !item.isChecked && !item.isDestructive,
-    );
+    // CNButtonData.popup cannot represent checked or disabled menu items, so
+    // preserve those states with the rich popup fallback. Destructive actions
+    // stay in the group because their callbacks still retain the app-owned
+    // confirmation flow, even though the grouped package API cannot tint an
+    // individual popup row red.
+    return action.menuItems.every((item) => item.enabled && !item.isChecked);
   }
 
   Widget _buildGlassGroup(
@@ -761,7 +801,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
         child: CNButton.icon(
           icon: CNSymbol(
             action.iosSymbol,
-            size: kCupertinoNativeControlSymbolExtent,
+            size: kConduitNativeSingleActionSymbolExtent,
           ),
           onPressed: action.onPressed,
           enabled: action.enabled,
@@ -783,6 +823,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
       enabled: action.enabled,
       child: AdaptivePopupMenuButton.icon<int>(
         icon: action.iosSymbol,
+        iconSize: kConduitNativeSingleActionSymbolExtent,
         tint: action.tintColor,
         size: extent,
         enabled: action.enabled,
@@ -1097,15 +1138,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveTextStyle =
-        textStyle ??
-        (PlatformInfo.isIOS
-                ? CupertinoTheme.of(context).textTheme.textStyle
-                : Theme.of(context).textTheme.titleMedium ??
-                      AppTypography.standard)
-            .copyWith(
-              color: context.conduitTheme.textPrimary,
-              fontWeight: FontWeight.w400,
-            );
+        textStyle ?? conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();

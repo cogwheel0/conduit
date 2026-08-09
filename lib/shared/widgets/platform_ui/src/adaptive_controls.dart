@@ -858,6 +858,7 @@ class AdaptivePopupMenuButton<T> {
     onSelected,
     Color? tint,
     double size = 44,
+    double? iconSize,
     bool enabled = true,
     PopupButtonStyle buttonStyle = PopupButtonStyle.glass,
   }) {
@@ -865,7 +866,11 @@ class AdaptivePopupMenuButton<T> {
     if (_canUseNative<T>(items) && (icon is String || icon is IconData)) {
       button = CNPopupMenuButton.icon(
         key: key,
-        buttonIcon: icon is String ? CNSymbol(icon) : null,
+        buttonIcon: icon is String
+            ? iconSize == null
+                  ? CNSymbol(icon)
+                  : CNSymbol(icon, size: iconSize)
+            : null,
         buttonCustomIcon: icon is IconData ? icon : null,
         items: _nativeItems<T>(items),
         onSelected: (index) {
