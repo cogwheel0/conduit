@@ -11,7 +11,7 @@ import 'package:conduit/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/features/hermes/widgets/hermes_jobs_sheet.dart';
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

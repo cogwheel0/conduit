@@ -67,6 +67,23 @@ class NativeSheetAvatarBytesHydrator {
   static const int _maxAvatarBytes = 1024 * 1024;
   static const Duration _defaultHydrationBudget = Duration(milliseconds: 750);
 
+  /// Loads one native-control avatar through the same session-scoped,
+  /// bounded cache used by native sheets.
+  Future<Uint8List?> loadAvatarBytes({
+    required ApiService api,
+    required String avatarUrl,
+    Duration? maxWait,
+  }) async {
+    final normalizedUrl = avatarUrl.trim();
+    if (normalizedUrl.isEmpty || normalizedUrl.startsWith('data:image')) {
+      return null;
+    }
+    final load = _loadAvatarBytes(api, normalizedUrl);
+    return maxWait == null
+        ? load
+        : load.timeout(maxWait, onTimeout: () => null);
+  }
+
   /// Removes same-server URLs that native URLSession cannot load with Dart's
   /// custom TLS identity/trust configuration. The original options remain the
   /// source for Dart-side hydration; native receives initials until bytes are

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2277,7 +2277,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           }
         }
       },
-      buttonStyle: PopupButtonStyle.plain,
       child: AdaptiveTooltip(
         message: l10n.more,
         waitDuration: const Duration(milliseconds: 600),

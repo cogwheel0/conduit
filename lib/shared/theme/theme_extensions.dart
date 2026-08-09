@@ -1571,7 +1571,7 @@ class IconSize {
   static const double bottomSheet = 24.0;
   static const double dialog = 24.0;
   static const double snackbar = 20.0;
-  static const double tabBar = 24.0;
+  static const double tabBar = 20.0;
   static const double appBar = 24.0;
   static const double listItem = 20.0;
   static const double formField = 20.0;

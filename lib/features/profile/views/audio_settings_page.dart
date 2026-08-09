@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';

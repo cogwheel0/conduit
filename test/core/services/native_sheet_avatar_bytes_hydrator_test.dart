@@ -110,6 +110,59 @@ void main() {
       check(adapter.requestedUris).isEmpty();
     });
 
+    test('native controls reuse one cached avatar request', () async {
+      final adapter = _BytesAdapter([4, 5, 6]);
+      final api = _buildApi(
+        const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://chat.example.test',
+        ),
+        adapter,
+      );
+      final hydrator = NativeSheetAvatarBytesHydrator();
+      const avatarUrl =
+          'https://chat.example.test/api/v1/users/profile/image?id=user';
+
+      final first = await hydrator.loadAvatarBytes(
+        api: api,
+        avatarUrl: avatarUrl,
+      );
+      final second = await hydrator.loadAvatarBytes(
+        api: api,
+        avatarUrl: avatarUrl,
+      );
+
+      check(identical(first, second)).isTrue();
+      check(first!.toList()).deepEquals([4, 5, 6]);
+      check(adapter.requestedUris).deepEquals([avatarUrl]);
+    });
+
+    test('persistent native controls wait for a delayed avatar', () async {
+      final adapter = _ControlledAdapter();
+      final api = _buildApi(
+        const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://chat.example.test',
+        ),
+        adapter,
+      );
+      final hydration = NativeSheetAvatarBytesHydrator().loadAvatarBytes(
+        api: api,
+        avatarUrl: 'https://chat.example.test/avatar.png',
+        maxWait: const Duration(seconds: 5),
+      );
+      var completed = false;
+      hydration.whenComplete(() => completed = true);
+      await _waitForRequestCount(adapter, 1);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(completed, isFalse);
+
+      adapter.requests.single.complete([7, 8, 9]);
+      check((await hydration)!.toList()).deepEquals([7, 8, 9]);
+    });
+
     test('rejects oversized custom-TLS avatar responses', () async {
       final adapter = _BytesAdapter(List<int>.filled(1024 * 1024 + 1, 7));
       final api = _buildApi(

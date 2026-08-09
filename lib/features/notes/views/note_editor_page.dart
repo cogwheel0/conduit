@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, Platform;
 
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/cupertino.dart';
@@ -1673,83 +1673,92 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
-    final textScaler = MediaQuery.textScalerOf(context);
-    final controlExtent = conduitScaledControlExtent(context);
-    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
+    final l10n = AppLocalizations.of(context)!;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: 1,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
-    final leading = _buildNoteEditorLeading(
-      context,
-      maxTitleWidth: maxTitleWidth,
-    );
-    final actions = _buildNoteEditorToolbarActionWidgets(context);
-    final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
-
-    final scaledLeading = ConduitSystemTextScaling(
-      textScaler: textScaler,
-      child: leading,
-    );
-    final scaledActions = [
-      for (final action in actions)
-        ConduitSystemTextScaling(textScaler: textScaler, child: action),
-    ];
-
-    return AdaptiveAppBar(
-      useNativeToolbar: false,
+    final menuItems = _buildNoteEditorToolbarMenuItems(l10n);
+    final actions = _buildNoteEditorToolbarActionWidgets(context, menuItems);
+    final nativeMenuAction = buildConduitNativeToolbarMenuAction<String>(
+      iosSymbol: 'ellipsis',
+      accessibilityLabel: MaterialLocalizations.of(context).moreButtonTooltip,
       tintColor: tintColor,
-      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
-        textScaler: textScaler,
-        leading: leading,
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
-        systemOverlayStyle: overlayStyle,
+      items: menuItems,
+      onSelected: _handleEditorToolbarMenuSelection,
+    );
+    final useNativeActionGroup =
+        Platform.isIOS &&
+        conduitSupportsNativeGlass() &&
+        nativeMenuAction != null;
+
+    return buildConduitCenteredAdaptiveAppBar(
+      context: context,
+      tintColor: tintColor,
+      leading: ConduitAdaptiveAppBarIconButton(
+        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
+        iosSymbol: 'line.3.horizontal',
+        onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
+        iconColor: tintColor,
       ),
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: Elevation.none,
-        scrolledUnderElevation: Elevation.none,
-        toolbarHeight: toolbarHeight,
-        systemOverlayStyle: overlayStyle,
-        centerTitle: false,
-        titleSpacing: Spacing.sm,
-        leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
-          pillWidth: maxTitleWidth,
-          controlExtent: controlExtent,
-        ),
-        leading: scaledLeading,
-        actions: scaledActions,
-      ),
+      title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
+      actions: actions,
+      cupertinoTrailing: useNativeActionGroup
+          ? ConduitNativeToolbarActionGroup(actions: [nativeMenuAction])
+          : Row(mainAxisSize: MainAxisSize.min, children: actions),
+      centerTitle: false,
     );
   }
 
-  Widget _buildNoteEditorLeading(
-    BuildContext context, {
-    required double maxTitleWidth,
-  }) {
-    return buildConduitAdaptiveToolbarLeadingRow(
-      children: [
-        ConduitAdaptiveAppBarIconButton(
-          icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-          onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
-          iconColor: context.conduitTheme.textPrimary,
+  List<AdaptivePopupMenuEntry> _buildNoteEditorToolbarMenuItems(
+    AppLocalizations l10n,
+  ) {
+    return [
+      AdaptivePopupMenuItem<String>(
+        value: 'generate',
+        label: l10n.generateTitle,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'sparkles',
+          materialIcon: Icons.auto_awesome,
         ),
-        const SizedBox(width: kConduitAdaptiveToolbarLeadingGap),
-        _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
-      ],
-    );
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'copy',
+        label: l10n.copy,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'doc.on.doc',
+          materialIcon: Icons.copy_outlined,
+        ),
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'pin',
+        label: _note?.isPinned == true ? l10n.unpin : l10n.pin,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: _note?.isPinned == true ? 'pin.slash' : 'pin',
+          materialIcon: Icons.push_pin_outlined,
+        ),
+      ),
+      AdaptivePopupMenuItem<String>(
+        value: 'delete',
+        label: l10n.delete,
+        isDestructive: true,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'trash',
+          materialIcon: Icons.delete_outline,
+        ),
+      ),
+    ];
   }
 
-  List<Widget> _buildNoteEditorToolbarActionWidgets(BuildContext context) {
+  List<Widget> _buildNoteEditorToolbarActionWidgets(
+    BuildContext context,
+    List<AdaptivePopupMenuEntry> menuItems,
+  ) {
     return buildConduitAdaptiveToolbarActionWidgets([
-      _NoteEditorToolbarPopupButton(
-        l10n: AppLocalizations.of(context)!,
-        isPinned: _note?.isPinned == true,
+      ConduitAdaptiveToolbarOverflowButton<String>(
         tintColor: context.conduitTheme.textPrimary,
+        items: menuItems,
         onSelected: _handleEditorToolbarMenuSelection,
       ),
     ]);
@@ -1781,7 +1790,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }) {
     final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final titleTextStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final titleTextStyle = conduitAdaptiveToolbarLeadingTitleTextStyle(context);
     final controlExtent = conduitScaledControlExtent(context);
     final titleLabel = _isGeneratingTitle
         ? l10n.generatingTitle
@@ -2947,9 +2956,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   _generateTitle();
               }
             },
-            buttonStyle: conduitSupportsNativeGlass()
-                ? PopupButtonStyle.glass
-                : PopupButtonStyle.plain,
             child: IgnorePointer(child: button),
           ),
         ),
@@ -3073,65 +3079,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _NoteEditorToolbarPopupButton extends StatelessWidget {
-  const _NoteEditorToolbarPopupButton({
-    required this.l10n,
-    required this.isPinned,
-    required this.tintColor,
-    required this.onSelected,
-  });
-
-  final AppLocalizations l10n;
-  final bool isPinned;
-  final Color tintColor;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConduitAdaptiveToolbarOverflowButton<String>(
-      tintColor: tintColor,
-      items: [
-        AdaptivePopupMenuItem<String>(
-          value: 'generate',
-          label: l10n.generateTitle,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'sparkles',
-            materialIcon: Icons.auto_awesome,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'copy',
-          label: l10n.copy,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'doc.on.doc',
-            materialIcon: Icons.copy_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'pin',
-          label: isPinned ? l10n.unpin : l10n.pin,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: isPinned ? 'pin.slash' : 'pin',
-            materialIcon: isPinned
-                ? Icons.push_pin_outlined
-                : Icons.push_pin_outlined,
-          ),
-        ),
-        AdaptivePopupMenuItem<String>(
-          value: 'delete',
-          label: l10n.delete,
-          isDestructive: true,
-          icon: conduitAdaptivePopupMenuIcon(
-            iosSymbol: 'trash',
-            materialIcon: Icons.delete_outline,
-          ),
-        ),
-      ],
-      onSelected: onSelected,
     );
   }
 }

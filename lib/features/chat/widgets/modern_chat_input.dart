@@ -1,4 +1,4 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
@@ -311,15 +311,6 @@ class ModernChatInput extends ConsumerStatefulWidget {
   static TextStyle debugComposerInputTextStyle({required bool isRecording}) =>
       _composerInputTextStyle(isRecording);
 
-  @visibleForTesting
-  static double debugOverflowIconSize({
-    required bool isAndroid,
-    required bool attachmentPanelVisible,
-  }) => _overflowIconSize(
-    isAndroid: isAndroid,
-    attachmentPanelVisible: attachmentPanelVisible,
-  );
-
   @override
   ConsumerState<ModernChatInput> createState() => _ModernChatInputState();
 }
@@ -332,14 +323,10 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
       fontStyle: isRecording ? FontStyle.italic : FontStyle.normal,
     );
 
-const double _androidOverflowAddIconSize = 28;
-
-double _overflowIconSize({
-  required bool isAndroid,
-  required bool attachmentPanelVisible,
-}) => isAndroid && !attachmentPanelVisible
-    ? _androidOverflowAddIconSize
-    : IconSize.large;
+const double _maxCompactComposerControlScale = 1.25;
+const double _composerExpandIconExtent = IconSize.medium;
+const double _cupertinoComposerOverflowIconExtent = IconSize.large;
+const double _materialComposerOverflowIconExtent = 28;
 
 typedef _ComposerTypography = ({
   ui.TextDirection direction,
@@ -361,10 +348,78 @@ typedef _ComposerLayoutMetrics = ({
 typedef _ComposerLineMeasurement = ({
   String text,
   _ComposerLayoutMetrics layout,
-  bool isMultiline,
+  int lineCount,
 });
 
 typedef _CompactComposerControls = ({bool showLeading, bool showMic});
+
+/// Keeps a native composer button's platform-view widget stable while only
+/// unrelated composer state changes. The callback deliberately dereferences
+/// the latest widget so a new closure does not force UIKit reconfiguration.
+class _StableNativeComposerIconButton extends StatefulWidget {
+  const _StableNativeComposerIconButton({
+    super.key,
+    required this.onPressed,
+    required this.enabled,
+    required this.symbol,
+    required this.style,
+    required this.color,
+    required this.size,
+    required this.dimension,
+  });
+
+  final VoidCallback? onPressed;
+  final bool enabled;
+  final SFSymbol symbol;
+  final AdaptiveButtonStyle style;
+  final Color color;
+  final AdaptiveButtonSize size;
+  final double dimension;
+
+  @override
+  State<_StableNativeComposerIconButton> createState() =>
+      _StableNativeComposerIconButtonState();
+}
+
+class _StableNativeComposerIconButtonState
+    extends State<_StableNativeComposerIconButton> {
+  late Widget _nativeControl = _buildNativeControl();
+
+  @override
+  void didUpdateWidget(covariant _StableNativeComposerIconButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled != widget.enabled ||
+        oldWidget.symbol.name != widget.symbol.name ||
+        oldWidget.symbol.size != widget.symbol.size ||
+        oldWidget.symbol.color != widget.symbol.color ||
+        oldWidget.style != widget.style ||
+        oldWidget.color != widget.color ||
+        oldWidget.size != widget.size ||
+        oldWidget.dimension != widget.dimension) {
+      _nativeControl = _buildNativeControl();
+    }
+  }
+
+  void _handlePressed() => widget.onPressed?.call();
+
+  Widget _buildNativeControl() {
+    return AdaptiveButton.sfSymbol(
+      onPressed: _handlePressed,
+      enabled: widget.enabled,
+      sfSymbol: widget.symbol,
+      style: widget.style,
+      color: widget.color,
+      size: widget.size,
+      minSize: Size.square(widget.dimension),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(widget.dimension),
+      useSmoothRectangleBorder: false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => _nativeControl;
+}
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
     with TickerProviderStateMixin {
@@ -373,7 +428,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   static const double _composerRadius = AppBorderRadius.card;
   static const double _composerHorizontalInset = Spacing.sm;
-  static const double _composerControlSize = 36;
+  static const double _composerControlSize = TouchTarget.minimum;
+  static const double _composerPrimaryVisualSize = 32;
+  static const double _composerActionRowBottomInset = 0;
+  static const double _composerTrailingAccessoryInset =
+      Spacing.xs + Spacing.xxs;
   static int _nextGeneratedInsertionTargetId = 0;
 
   final MentionTextEditingController _controller =
@@ -393,6 +452,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   _ComposerLayoutMetrics? _pendingComposerLayoutMetrics;
   bool _composerLayoutMeasurementScheduled = false;
   _ComposerLineMeasurement? _composerLineMeasurement;
+  BorderRadius? _cachedComposerGlassRadius;
+  Widget? _cachedComposerGlassBackdrop;
   bool _pendingFocus = false;
   bool _isRecording = false;
   bool _hasText = false; // track locally without rebuilding on each keystroke
@@ -994,8 +1055,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  bool _shouldShowComposerExpandButton(String text, bool isMultiline) =>
-      isMultiline && (text.split('\n').length >= 4 || text.length > 160);
+  bool _shouldShowComposerExpandButton(int lineCount) => lineCount >= 4;
 
   _CompactComposerControls _compactComposerControls({
     required bool showOverflowButton,
@@ -1042,8 +1102,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _recomputeComposerLineState() {
     final text = _controller.text;
-    final isMultiline = _composerTextUsesMultipleLines(text);
-    final showExpand = _shouldShowComposerExpandButton(text, isMultiline);
+    final l10n = AppLocalizations.of(context)!;
+    final layoutText = text.isNotEmpty
+        ? text
+        : _isRecording
+        ? l10n.recordingAudio
+        : widget.placeholder ?? l10n.messageHintText;
+    final lineCount = _composerTextLineCount(layoutText);
+    final isMultiline = lineCount > 1;
+    final showExpand = _shouldShowComposerExpandButton(lineCount);
     if (isMultiline == _isMultiline && showExpand == _showExpandButton) {
       return;
     }
@@ -1054,9 +1121,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
-  bool _composerTextUsesMultipleLines(String text) {
-    if (text.contains('\n')) return true;
-    if (text.isEmpty || _compactTextFieldWidth <= 0) return false;
+  int _composerTextLineCount(String text) {
+    if (text.isEmpty) return 0;
+    if (_compactTextFieldWidth <= 0) return text.split('\n').length;
 
     final typography = _composerTypography(context);
     final layout = (
@@ -1068,7 +1135,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
     final cached = _composerLineMeasurement;
     if (cached != null && cached.text == text && cached.layout == layout) {
-      return cached.isMultiline;
+      return cached.lineCount;
     }
 
     final painter = TextPainter(
@@ -1076,18 +1143,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       textDirection: typography.direction,
       textScaler: typography.textScaler,
       locale: typography.locale,
-      maxLines: 2,
+      maxLines: 4,
     );
     try {
       painter.layout(maxWidth: _compactTextFieldWidth);
-      final isMultiline =
-          painter.didExceedMaxLines || painter.computeLineMetrics().length > 1;
+      final lineCount = painter.didExceedMaxLines
+          ? 4
+          : painter.computeLineMetrics().length;
       _composerLineMeasurement = (
         text: text,
         layout: layout,
-        isMultiline: isMultiline,
+        lineCount: lineCount,
       );
-      return isMultiline;
+      return lineCount;
     } finally {
       painter.dispose();
     }
@@ -1100,10 +1168,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final String text = _controller.text;
     final TextSelection selection = _controller.selection;
     final bool hasText = text.trim().isNotEmpty;
-    final bool isMultiline = _composerTextUsesMultipleLines(text);
-    // Show the expand button when content is tall enough
-    // (~4 lines: 3+ explicit newlines or ~160 wrapped chars).
-    final bool showExpand = _shouldShowComposerExpandButton(text, isMultiline);
+    final l10n = AppLocalizations.of(context)!;
+    final layoutText = text.isNotEmpty
+        ? text
+        : _isRecording
+        ? l10n.recordingAudio
+        : widget.placeholder ?? l10n.messageHintText;
+    final int lineCount = _composerTextLineCount(layoutText);
+    final bool isMultiline = lineCount > 1;
+    final bool showExpand = _shouldShowComposerExpandButton(lineCount);
     final PromptCommandMatch? match = _resolvePromptCommand(
       text,
       selection,
@@ -2931,13 +3004,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Keep focused single-line input compact. Move to the two-tier shell only
     // when the text becomes multiline or selected quick pills need a row.
-    final bool showCompactComposer = quickPills.isEmpty && !_isMultiline;
+    // At accessibility text sizes, keeping the growing controls and editable
+    // text in one row can leave too little width for even the placeholder.
+    // Use the existing two-tier layout so Dynamic Type remains uncapped and
+    // every control keeps its full touch target.
+    final bool showCompactComposer =
+        conduitSystemControlScaleOf(context) <=
+            _maxCompactComposerControlScale &&
+        quickPills.isEmpty &&
+        !_isMultiline;
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
         notesEnabled &&
         _hasText &&
         !isGenerating &&
         !_isRecording;
+    final bool showInlineMicAction =
+        !_isRecording && !_hasText && voiceAvailable && !isGenerating;
 
     const double compactRadius = AppBorderRadius.round;
     const double expandedRadius = _composerRadius;
@@ -2967,43 +3050,34 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Spacing.sm,
           ),
           child: Stack(
-            clipBehavior: Clip.none,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: _buildComposerTextField(
-                      brightness: brightness,
-                      sendOnEnter: sendOnEnter,
-                      voiceAvailable: voiceAvailable,
-                      isGenerating: isGenerating,
-                      allUploadsComplete: allUploadsComplete,
-                      placeholderBase: placeholderBase,
-                      placeholderFocused: placeholderFocused,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: Spacing.sm,
-                        vertical: Spacing.xs,
-                      ),
-                      isActive: isActive,
-                    ),
+              Padding(
+                padding: EdgeInsetsDirectional.only(
+                  end: _showExpandButton && !_expandModalOpen
+                      ? conduitScaledControlExtent(context) + Spacing.xs
+                      : 0,
+                ),
+                child: _buildComposerTextField(
+                  brightness: brightness,
+                  sendOnEnter: sendOnEnter,
+                  voiceAvailable: voiceAvailable,
+                  isGenerating: isGenerating,
+                  allUploadsComplete: allUploadsComplete,
+                  placeholderBase: placeholderBase,
+                  placeholderFocused: placeholderFocused,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: Spacing.xs,
                   ),
-                ],
-              ),
-              Positioned(
-                top: Spacing.xs,
-                right: Spacing.xs,
-                child: AnimatedOpacity(
-                  opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
-                  duration: context.motionDuration(
-                    const Duration(milliseconds: 160),
-                  ),
-                  child: IgnorePointer(
-                    ignoring: !_showExpandButton || _expandModalOpen,
-                    child: _buildExpandButton(_showExpandTextModal),
-                  ),
+                  isActive: isActive,
                 ),
               ),
+              if (_showExpandButton && !_expandModalOpen)
+                PositionedDirectional(
+                  top: 0,
+                  end: 0,
+                  child: _buildExpandButton(_showExpandTextModal),
+                ),
             ],
           ),
         ),
@@ -3013,7 +3087,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             _composerHorizontalInset,
             0,
             _composerHorizontalInset,
-            Spacing.sm,
+            _composerActionRowBottomInset,
           ),
           child: Row(
             children: [
@@ -3051,14 +3125,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 const SizedBox(width: Spacing.xs),
                 _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
               ],
-              if (!_isRecording &&
-                  !_hasText &&
-                  voiceAvailable &&
-                  !isGenerating) ...[
+              if (showInlineMicAction) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildInlineMicAction(voiceAvailable),
               ],
-              const SizedBox(width: Spacing.xs),
+              if (!showCreateDraftNoteAction && !showInlineMicAction)
+                const SizedBox(width: Spacing.xs),
               _buildPrimaryButton(
                 _hasText,
                 isGenerating,
@@ -3074,18 +3146,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ],
     ];
 
+    late final Widget shellContent;
+    Widget? compactPromptOverlay;
+
     // Compact mode keeps every action inside one full-width shell. Matching
     // control sizes and insets make the resting row mirror the focused shell.
     if (showCompactComposer) {
       final textFieldContent = Container(
         key: const ValueKey('compact-composer-content'),
+        height: conduitScaledControlExtent(
+          context,
+          baseExtent: _composerControlSize,
+        ),
         padding: const EdgeInsets.fromLTRB(
           _composerHorizontalInset,
           0,
           _composerHorizontalInset,
-          0,
+          _composerActionRowBottomInset,
         ),
-        constraints: const BoxConstraints(minHeight: TouchTarget.input),
         alignment: Alignment.center,
         child: Stack(
           clipBehavior: Clip.none,
@@ -3121,25 +3199,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 if (compactControls.showMic) ...[
                   const SizedBox(width: Spacing.xs),
-                  Platform.isAndroid
-                      ? Transform.translate(
-                          offset: const Offset(Spacing.xxs, 0),
-                          child: _buildInlineMicAction(
-                            voiceAvailable,
-                            size: _composerControlSize,
-                          ),
-                        )
-                      : SizedBox(
-                          height: conduitScaledControlExtent(
-                            context,
-                            baseExtent: _composerControlSize,
-                          ),
-                          child: Center(
-                            child: _buildInlineMicAction(voiceAvailable),
-                          ),
-                        ),
+                  SizedBox(
+                    height: conduitScaledControlExtent(
+                      context,
+                      baseExtent: _composerControlSize,
+                    ),
+                    child: Center(
+                      child: _buildInlineMicAction(
+                        voiceAvailable,
+                        size: _composerControlSize,
+                      ),
+                    ),
+                  ),
                 ],
-                const SizedBox(width: Spacing.xs),
+                if (!compactControls.showMic) const SizedBox(width: Spacing.xs),
                 _buildPrimaryButton(
                   _hasText,
                   isGenerating,
@@ -3151,85 +3224,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
               ],
             ),
-            Positioned(
-              top: Spacing.xs,
-              right: 0,
-              child: AnimatedOpacity(
-                opacity: (_showExpandButton && !_expandModalOpen) ? 1.0 : 0.0,
-                duration: context.motionDuration(
-                  const Duration(milliseconds: 160),
-                ),
-                child: IgnorePointer(
-                  ignoring: !_showExpandButton || _expandModalOpen,
-                  child: _buildExpandButton(_showExpandTextModal),
-                ),
-              ),
-            ),
           ],
         ),
       );
 
-      final Widget textFieldShell = _buildComposerShell(
+      shellContent = KeyedSubtree(
         key: const ValueKey('compact-composer-shell'),
-        borderRadius: shellRadius,
-        useSmoothRectangleBorder: false,
-        isRecording: _isRecording,
         child: textFieldContent,
       );
-
-      final bottomPadding = _composerBottomPadding(context);
-      final composer = Padding(
-        padding: EdgeInsets.fromLTRB(
-          Spacing.screenPadding,
-          0,
-          Spacing.screenPadding,
-          bottomPadding,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Show prompt overlay above the compact input row when active
-            if (_shouldShowPromptOverlay)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.xs),
-                child: _buildActiveOverlay(),
+      compactPromptOverlay = _shouldShowPromptOverlay
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: _buildActiveOverlay(),
+            )
+          : null;
+    } else {
+      // Multiline and quick-pill states use the full two-tier shell.
+      shellContent = KeyedSubtree(
+        key: const ValueKey('expanded-composer-shell'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4,
+          ),
+          // Keep text-entry height changes direct. AnimatedSize here runs on
+          // each new or removed line, making the composer trail the user's
+          // typing and repeatedly relaying out the chat viewport.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: RepaintBoundary(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: composerChildren,
               ),
-            _wrapIosSurfaceShadow(textFieldShell, borderRadius: shellRadius),
-          ],
-        ),
-      );
-      return _wrapWithComposerLineMeasurement(
-        compactControls: compactControls,
-        child: _wrapWithFallbackAttachmentPanel(
-          composer: composer,
-          localAttachmentsOnly: isHermesComposer,
-          attachmentAvailability: attachmentAvailability,
+            ),
+          ),
         ),
       );
     }
 
-    // Multiline and quick-pill states use the full two-tier shell.
-    final shellContent = ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.4,
-      ),
-      // Keep text-entry height changes direct. AnimatedSize here runs on each
-      // new or removed line, making the composer trail the user's typing and
-      // repeatedly relaying out the chat viewport.
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        child: RepaintBoundary(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: composerChildren,
-          ),
-        ),
-      ),
-    );
-
+    // Keep the native backdrop in one stable element slot when the composer
+    // crosses between compact and expanded layouts. Replacing the platform
+    // view here forces UIKit to allocate a fresh IOSurface for the same glass
+    // material, which is substantially more expensive than swapping only the
+    // Flutter-owned foreground content.
     final Widget shell = _wrapIosSurfaceShadow(
       _buildComposerShell(
-        key: const ValueKey('expanded-composer-shell'),
+        key: const ValueKey('composer-native-shell'),
         borderRadius: shellRadius,
         isRecording: _isRecording,
         child: shellContent,
@@ -3246,7 +3286,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         Spacing.screenPadding,
         bottomPadding,
       ),
-      child: shell,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [?compactPromptOverlay, shell],
+      ),
     );
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
@@ -3637,20 +3680,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? theme.textPrimary.withValues(alpha: Alpha.strong)
         : theme.textPrimary.withValues(alpha: Alpha.strong);
 
+    final isIOS = PlatformInfo.isIOS;
     final IconData overflowIcon;
     if (attachmentPanelVisible) {
-      overflowIcon = Platform.isIOS ? CupertinoIcons.xmark : Icons.close;
+      overflowIcon = isIOS ? CupertinoIcons.xmark : Icons.close;
     } else {
-      overflowIcon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
+      overflowIcon = isIOS ? CupertinoIcons.add : Icons.add;
     }
-    // Material's add glyph occupies less of its nominal square than the mic
-    // glyph. Compensate optically without changing the shared touch target.
+    // Material's add/close glyphs have a lighter, more compact drawn bound
+    // than their Cupertino counterparts. Use the standard Material action
+    // extent so they do not look undersized inside the shared 44pt target.
     final iconSize = conduitScaledIconExtent(
       context,
-      _overflowIconSize(
-        isAndroid: Platform.isAndroid,
-        attachmentPanelVisible: attachmentPanelVisible,
-      ),
+      isIOS
+          ? _cupertinoComposerOverflowIconExtent
+          : _materialComposerOverflowIconExtent,
     );
 
     return Focus(
@@ -3669,7 +3713,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           size: buttonSize,
           forcePlain: true,
           iosSymbol: attachmentPanelVisible ? 'xmark' : 'plus',
-          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
+          iosSymbolSize: iconSize,
           iosSymbolColor: iconColor,
           child: ConduitSystemAdaptiveIcon(
             overflowIcon,
@@ -3682,16 +3726,29 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildExpandButton(VoidCallback onTap) {
-    final iconSize = conduitScaledIconExtent(context, IconSize.large);
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.xs),
+    final l10n = AppLocalizations.of(context)!;
+    final buttonSize = conduitScaledControlExtent(context);
+    final iconSize = conduitScaledIconExtent(
+      context,
+      _composerExpandIconExtent,
+    );
+    final iconColor = context.conduitTheme.textSecondary.withValues(alpha: 0.7);
+    return AdaptiveTooltip(
+      message: l10n.edit,
+      child: _buildComposerIconButton(
+        key: const ValueKey<String>('composer-expand-button'),
+        onPressed: onTap,
+        size: buttonSize,
+        forcePlain: true,
+        iosSymbol: 'arrow.up.left.and.arrow.down.right',
+        iosSymbolSize: iconSize,
+        iosSymbolColor: iconColor,
         child: ConduitSystemAdaptiveIcon(
-          Icons.open_in_full,
+          Platform.isIOS
+              ? CupertinoIcons.arrow_up_left_arrow_down_right
+              : Icons.open_in_full,
           size: iconSize,
-          color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
+          color: iconColor,
         ),
       ),
     );
@@ -3704,10 +3761,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       baseExtent: baseSize,
     );
-    final iconSize = conduitScaledIconExtent(
-      context,
-      baseSize <= 36 ? IconSize.medium : IconSize.large,
-    );
+    final iconSize = conduitScaledIconExtent(context, IconSize.medium);
     final background = theme.surfaceContainerHighest.withValues(alpha: 0.96);
     final border = theme.cardBorder.withValues(alpha: 0.75);
 
@@ -3804,7 +3858,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         onTap: onPressed,
         child: SizedBox.square(
           dimension: buttonSize,
-          child: Center(child: icon),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(
+                end: _composerTrailingAccessoryInset,
+              ),
+              child: icon,
+            ),
+          ),
         ),
       ),
     );
@@ -3817,7 +3879,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       baseExtent: _composerControlSize,
     );
-    final iconSize = conduitScaledIconExtent(context, IconSize.large);
+    final iconSize = conduitScaledIconExtent(context, IconSize.medium);
+    final visualSize = conduitScaledControlExtent(
+      context,
+      baseExtent: _composerPrimaryVisualSize,
+    );
     final iconColor = enabled
         ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
         : context.conduitTheme.textSecondary.withValues(alpha: Alpha.disabled);
@@ -3828,9 +3894,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         key: const ValueKey('create-draft-note-button'),
         onPressed: enabled ? _createNoteFromDraft : null,
         size: buttonSize,
+        visualSize: visualSize,
+        visualAlignment: AlignmentDirectional.centerEnd,
         forcePlain: true,
         iosSymbol: isLoading ? null : 'doc.text',
-        iosSymbolSize: kConduitNativeUtilitySymbolExtent,
         iosSymbolColor: iconColor,
         child: isLoading
             ? SizedBox(
@@ -3865,14 +3932,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       baseExtent: dense ? _composerControlSize : TouchTarget.minimum,
     );
-    final largeIconSize = conduitScaledIconExtent(context, IconSize.large);
+    final double primaryVisualSize = conduitScaledControlExtent(
+      context,
+      baseExtent: _composerPrimaryVisualSize,
+    );
+    // Cupertino's arrow and waveform symbols have a larger optical footprint.
+    // Material's corresponding glyphs need the regular action extent to read
+    // clearly inside the same 32pt visual button.
     final primaryIconSize = conduitScaledIconExtent(
       context,
-      dense ? IconSize.large : IconSize.xl,
+      Platform.isIOS ? IconSize.small : IconSize.medium,
     );
-    final nativePrimaryIconSize = dense
-        ? kConduitNativeUtilitySymbolExtent
-        : kConduitNativePrimarySymbolExtent;
 
     // Don't allow sending until all uploads are complete
     final enabled =
@@ -3889,9 +3959,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             stopGeneration();
           },
           size: buttonSize,
+          visualSize: primaryVisualSize,
+          semanticLabel: AppLocalizations.of(context)!.stopGenerating,
+          iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: 'stop.fill',
-          iosSymbolSize: nativePrimaryIconSize,
           iosSymbolColor: context.conduitTheme.buttonPrimaryText,
           child: ConduitSystemAdaptiveIcon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
@@ -3917,16 +3989,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : null;
       final sendChild = hasUploadsInProgress
           ? SizedBox(
-              width: largeIconSize,
-              height: largeIconSize,
+              width: primaryIconSize,
+              height: primaryIconSize,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
                 color: context.conduitTheme.textSecondary,
               ),
             )
           : ConduitSystemAdaptiveIcon(
-              CupertinoIcons.arrow_up,
-              size: largeIconSize,
+              Platform.isIOS
+                  ? CupertinoIcons.arrow_up
+                  : Icons.arrow_upward_rounded,
+              size: primaryIconSize,
               color: enabled
                   ? context.conduitTheme.buttonPrimaryText
                   : context.conduitTheme.textPrimary.withValues(
@@ -3941,9 +4015,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           key: const ValueKey('primary-btn-send'),
           onPressed: onPressed,
           size: buttonSize,
+          visualSize: primaryVisualSize,
+          semanticLabel: enabled
+              ? AppLocalizations.of(context)!.sendMessage
+              : AppLocalizations.of(context)!.send,
+          iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: hasUploadsInProgress ? null : 'arrow.up',
-          iosSymbolSize: kConduitNativeUtilitySymbolExtent,
           iosSymbolColor: enabled
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(
@@ -3969,9 +4047,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 }
               : null,
           size: buttonSize,
+          visualSize: primaryVisualSize,
+          semanticLabel: AppLocalizations.of(context)!.voiceCallTitle,
+          iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: 'waveform',
-          iosSymbolSize: nativePrimaryIconSize,
           iosSymbolColor: enabledVoiceCall
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(
@@ -3995,15 +4075,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       key: const ValueKey('primary-btn-send-muted'),
       onPressed: null,
       size: buttonSize,
+      visualSize: primaryVisualSize,
+      semanticLabel: AppLocalizations.of(context)!.send,
+      iosSymbolSize: primaryIconSize,
       isProminent: false,
       iosSymbol: 'arrow.up',
-      iosSymbolSize: kConduitNativeUtilitySymbolExtent,
       iosSymbolColor: context.conduitTheme.textPrimary.withValues(
         alpha: Alpha.disabled,
       ),
       child: ConduitSystemAdaptiveIcon(
-        CupertinoIcons.arrow_up,
-        size: largeIconSize,
+        Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward_rounded,
+        size: primaryIconSize,
         color: context.conduitTheme.textPrimary.withValues(
           alpha: Alpha.disabled,
         ),
@@ -4064,15 +4146,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             children: [
               iconUrl != null && iconUrl.isNotEmpty
                   ? ModelAvatar(
-                      size: dense ? IconSize.small : IconSize.small + 1,
+                      size: IconSize.chip,
                       imageUrl: iconUrl,
                       label: label,
                     )
-                  : Icon(
-                      icon,
-                      size: dense ? IconSize.small : IconSize.small + 1,
-                      color: iconColor,
-                    ),
+                  : Icon(icon, size: IconSize.chip, color: iconColor),
               SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
               AnimatedDefaultTextStyle(
                 duration: context.motionDuration(
@@ -4106,12 +4184,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required VoidCallback? onPressed,
     required Widget child,
     required double size,
+    double? visualSize,
+    AlignmentGeometry visualAlignment = Alignment.center,
+    String? semanticLabel,
+    double? iosSymbolSize,
     bool isProminent = false,
     bool androidShowBackground = false,
     bool forcePlain = false,
     Color? color,
     String? iosSymbol,
-    double? iosSymbolSize,
     Color? iosSymbolColor,
   }) {
     final theme = context.conduitTheme;
@@ -4122,9 +4203,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // iOS glass buttons are UIKit platform views. Remove them while another
     // route covers the composer so their compositor layer cannot bleed
     // through an opaque Flutter modal sheet.
-    if (conduitSupportsNativeGlass() && !_isRouteVisible) {
+    if (conduitSupportsNativeGlass() && !forcePlain && !_isRouteVisible) {
       return SizedBox.square(dimension: size);
     }
+
+    final effectiveVisualSize = (visualSize ?? size)
+        .clamp(0.0, size)
+        .toDouble();
+    final keyBelongsToOuterTarget = effectiveVisualSize < size;
 
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final buttonStyle = forcePlain
@@ -4145,16 +4231,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? androidBackgroundColor
         : effectiveColor;
 
-    if (conduitSupportsNativeGlass()) {
+    // A visually plain action gains no glass material from a UIKit platform
+    // view. Keep those controls in Flutter so the plus/close, expand, and note
+    // actions do not each allocate and composite their own IOSurface.
+    if (conduitSupportsNativeGlass() && !forcePlain) {
       // Loading indicators are transient Flutter content. Keeping them out of
       // child-mode avoids creating another persistent platform view.
       if (iosSymbol == null) {
-        return Semantics(
-          key: key,
+        final loadingButton = Semantics(
+          key: keyBelongsToOuterTarget ? null : key,
           button: true,
           enabled: onPressed != null,
           child: SizedBox.square(
-            dimension: size,
+            dimension: effectiveVisualSize,
             child: isProminent
                 ? DecoratedBox(
                     decoration: BoxDecoration(
@@ -4166,43 +4255,104 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 : Center(child: child),
           ),
         );
-      }
-      return SizedBox.square(
-        dimension: size,
-        child: AdaptiveButton.sfSymbol(
+        return _wrapComposerVisualControl(
           key: key,
           onPressed: onPressed,
+          semanticLabel: semanticLabel,
+          targetSize: size,
+          visualSize: effectiveVisualSize,
+          visualAlignment: visualAlignment,
+          control: loadingButton,
+        );
+      }
+      final nativeButton = SizedBox.square(
+        dimension: effectiveVisualSize,
+        child: _StableNativeComposerIconButton(
+          key: keyBelongsToOuterTarget ? null : key,
+          onPressed: onPressed,
           enabled: onPressed != null,
-          sfSymbol: SFSymbol(
+          symbol: SFSymbol(
             iosSymbol,
-            size: iosSymbolSize ?? kConduitNativeUtilitySymbolExtent,
+            size: iosSymbolSize ?? kCupertinoNativeControlSymbolExtent,
             color: iosSymbolColor,
           ),
           style: buttonStyle,
           color: buttonColor,
           size: adaptiveSize,
-          minSize: Size.square(size),
-          padding: EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(size),
-          useSmoothRectangleBorder: false,
+          dimension: effectiveVisualSize,
         ),
+      );
+      return _wrapComposerVisualControl(
+        key: key,
+        onPressed: onPressed,
+        semanticLabel: semanticLabel,
+        targetSize: size,
+        visualSize: effectiveVisualSize,
+        visualAlignment: visualAlignment,
+        control: nativeButton,
       );
     }
 
-    return SizedBox.square(
-      dimension: size,
+    final fallbackButton = SizedBox.square(
+      dimension: effectiveVisualSize,
       child: AdaptiveButton.child(
-        key: key,
+        key: keyBelongsToOuterTarget ? null : key,
         onPressed: onPressed,
         enabled: onPressed != null,
         style: buttonStyle,
         color: buttonColor,
         size: adaptiveSize,
-        minSize: Size.square(size),
+        minSize: Size.square(effectiveVisualSize),
         padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(size),
+        borderRadius: BorderRadius.circular(effectiveVisualSize),
         useSmoothRectangleBorder: false,
         child: child,
+      ),
+    );
+    return _wrapComposerVisualControl(
+      key: key,
+      onPressed: onPressed,
+      semanticLabel: semanticLabel,
+      targetSize: size,
+      visualSize: effectiveVisualSize,
+      visualAlignment: visualAlignment,
+      control: fallbackButton,
+    );
+  }
+
+  Widget _wrapComposerVisualControl({
+    required Key? key,
+    required VoidCallback? onPressed,
+    required String? semanticLabel,
+    required double targetSize,
+    required double visualSize,
+    required AlignmentGeometry visualAlignment,
+    required Widget control,
+  }) {
+    if (visualSize >= targetSize) return control;
+
+    return Semantics(
+      key: key,
+      button: true,
+      enabled: onPressed != null,
+      label: semanticLabel,
+      onTap: onPressed,
+      child: SizedBox.square(
+        dimension: targetSize,
+        child: Stack(
+          alignment: visualAlignment,
+          children: [
+            Positioned.fill(
+              child: ExcludeSemantics(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onPressed,
+                ),
+              ),
+            ),
+            ExcludeSemantics(child: control),
+          ],
+        ),
       ),
     );
   }
@@ -4214,7 +4364,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     Key? key,
     required Widget child,
     required BorderRadius borderRadius,
-    bool useSmoothRectangleBorder = true,
     bool isRecording = false,
   }) {
     final theme = context.conduitTheme;
@@ -4230,17 +4379,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         fit: StackFit.passthrough,
         children: [
           Positioned.fill(
-            child: IgnorePointer(
-              child: AdaptiveButton.child(
-                onPressed: () {},
-                style: AdaptiveButtonStyle.glass,
-                size: AdaptiveButtonSize.large,
-                padding: EdgeInsets.zero,
-                borderRadius: borderRadius,
-                useSmoothRectangleBorder: useSmoothRectangleBorder,
-                child: const SizedBox.expand(),
-              ),
-            ),
+            child: IgnorePointer(child: _composerGlassBackdrop(borderRadius)),
           ),
           Positioned.fill(
             child: IgnorePointer(
@@ -4275,6 +4414,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ? recordingSurfaceColor
             : theme.surfaceContainerHighest,
         borderRadius: borderRadius,
+      ),
+      // Paint the state border over the surface instead of letting
+      // BoxDecoration contribute its width to the child's layout. This keeps
+      // the compact composer at the same 44pt control extent and prevents the
+      // thicker recording border from shifting its contents.
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
         border: Border.all(
           color: isRecording ? recordingBorderColor : theme.cardBorder,
           width: isRecording ? BorderWidth.thin * 1.5 : BorderWidth.thin,
@@ -4282,6 +4428,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: child,
     );
+  }
+
+  Widget _composerGlassBackdrop(BorderRadius borderRadius) {
+    final cached = _cachedComposerGlassBackdrop;
+    if (cached != null && _cachedComposerGlassRadius == borderRadius) {
+      return cached;
+    }
+
+    final backdrop = AdaptiveGlassBackdrop(
+      key: const ValueKey('composer-native-glass-backdrop'),
+      borderRadius: borderRadius,
+    );
+    _cachedComposerGlassRadius = borderRadius;
+    _cachedComposerGlassBackdrop = backdrop;
+    return backdrop;
   }
 
   double _composerBottomPadding(BuildContext context) {

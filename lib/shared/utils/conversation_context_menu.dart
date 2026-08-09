@@ -1,4 +1,4 @@
-import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';

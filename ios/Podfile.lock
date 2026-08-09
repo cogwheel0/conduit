@@ -1,11 +1,15 @@
 PODS:
-  - adaptive_platform_ui (0.1.0):
-    - Flutter
   - audio_session (0.0.1):
     - Flutter
+  - CocoaLumberjack (3.9.1):
+    - CocoaLumberjack/Core (= 3.9.1)
+  - CocoaLumberjack/Core (3.9.1)
   - connectivity_plus (0.0.1):
     - Flutter
   - CryptoSwift (1.8.4)
+  - cupertino_native_better (0.0.1):
+    - Flutter
+    - SVGKit (~> 3.0)
   - file_picker (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -86,6 +90,8 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
+  - SVGKit (3.0.0):
+    - CocoaLumberjack (~> 3.0)
   - swift-collections (1.1.1):
     - swift-collections/BitCollections (= 1.1.1)
     - swift-collections/DequeModule (= 1.1.1)
@@ -114,9 +120,9 @@ PODS:
     - FlutterMacOS
 
 DEPENDENCIES:
-  - adaptive_platform_ui (from `.symlinks/plugins/adaptive_platform_ui/ios`)
   - audio_session (from `.symlinks/plugins/audio_session/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
+  - cupertino_native_better (from `.symlinks/plugins/cupertino_native_better/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/darwin`)
   - Flutter (from `Flutter`)
   - flutter_callkit_incoming (from `.symlinks/plugins/flutter_callkit_incoming/ios`)
@@ -145,6 +151,7 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
+    - CocoaLumberjack
     - CryptoSwift
     - InternalCollectionsUtilities
     - libwebp
@@ -152,15 +159,16 @@ SPEC REPOS:
     - onnxruntime-objc
     - SDWebImage
     - SDWebImageWebPCoder
+    - SVGKit
     - swift-collections
 
 EXTERNAL SOURCES:
-  adaptive_platform_ui:
-    :path: ".symlinks/plugins/adaptive_platform_ui/ios"
   audio_session:
     :path: ".symlinks/plugins/audio_session/ios"
   connectivity_plus:
     :path: ".symlinks/plugins/connectivity_plus/ios"
+  cupertino_native_better:
+    :path: ".symlinks/plugins/cupertino_native_better/ios"
   file_picker:
     :path: ".symlinks/plugins/file_picker/darwin"
   Flutter:
@@ -213,10 +221,11 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/webview_flutter_wkwebview/darwin"
 
 SPEC CHECKSUMS:
-  adaptive_platform_ui: cd3c5a2997126f138a1e7f12e8376d3ca3fdbfad
   audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
+  CocoaLumberjack: e4ba3b414dfca8c1916c6303d37f63b3a95134c6
   connectivity_plus: cb623214f4e1f6ef8fe7403d580fdad517d2f7dd
   CryptoSwift: e64e11850ede528a02a0f3e768cec8e9d92ecb90
+  cupertino_native_better: 48a6a9cd45efc9ea9e1eec30755b5a8ebe92f1f2
   file_picker: 70164d9778c42c47218d6cd79ce435de0856b11a
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_callkit_incoming: a143995975818a3717524decd3566d5ca7a8c608
@@ -244,6 +253,7 @@ SPEC CHECKSUMS:
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
+  SVGKit: 1ad7513f8c74d9652f94ed64ddecda1a23864dea
   swift-collections: ba248ecaf44ef500b27d5cf94d304218c89892ff
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
   vad: 7934867589afe53567f492df66fb1615f2185822

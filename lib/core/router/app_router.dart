@@ -27,6 +27,7 @@ import '../../shared/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
+import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/about_page.dart';
@@ -686,7 +687,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     redirect: notifier.redirect,
     routes: appRoutes,
-    observers: [NavigationLoggingObserver()],
+    observers: [
+      NavigationLoggingObserver(),
+      if (PlatformUiCapabilities.usesNativeIOS26) CNTabBarRouteObserver(),
+    ],
     errorBuilder: (context, state) {
       final l10n = AppLocalizations.of(context);
       final message =
