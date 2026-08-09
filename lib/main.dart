@@ -250,6 +250,8 @@ void main() {
       // install its method-channel handler before frame-scheduled startup work.
       providerContainer.read(carPlayCoordinatorProvider);
 
+      installConduitErrorWidgetBuilder();
+
       runApp(
         UncontrolledProviderScope(
           container: providerContainer,

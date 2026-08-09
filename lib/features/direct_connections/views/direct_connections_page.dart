@@ -13,7 +13,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
-import '../../profile/widgets/customization_tile.dart';
+import '../../auth/widgets/connection_setup_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
@@ -221,46 +221,58 @@ class DirectConnectionsContent extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final content = <Widget>[
-      Text(
-        l10n.directConnectionsCombinedDescription,
-        style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
+      ConnectionIdentityHeader(
+        mark: ConnectionMark(
+          child: Icon(
+            context.usesCupertinoChrome
+                ? CupertinoIcons.link
+                : Icons.link_rounded,
+            color: theme.buttonPrimary,
+            size: IconSize.medium,
+          ),
+        ),
+        title: l10n.directConnectionsTitle,
+        subtitle: l10n.directConnectionsCombinedDescription,
       ),
-      const SizedBox(height: Spacing.lg),
+      const SizedBox(height: Spacing.xl),
       if (showHistorySync) ...[
-        ConduitCard(
-          onTap: () => onSyncChanged(!syncWithOpenWebUi),
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.syncDirectHistory,
-                      style: theme.bodyMedium?.copyWith(
-                        color: theme.textPrimary,
-                        fontWeight: FontWeight.w600,
+        ConnectionSection(
+          title: l10n.syncDirectHistory,
+          child: InkWell(
+            onTap: () => onSyncChanged(!syncWithOpenWebUi),
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.syncDirectHistory,
+                        style: theme.bodyMedium?.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: Spacing.xxs),
-                    Text(
-                      syncWithOpenWebUi
-                          ? l10n.syncDirectHistorySubtitle
-                          : l10n.directHistoryLocalOnlySubtitle,
-                      style: theme.bodySmall?.copyWith(
-                        color: theme.textSecondary,
+                      const SizedBox(height: Spacing.xxs),
+                      Text(
+                        syncWithOpenWebUi
+                            ? l10n.syncDirectHistorySubtitle
+                            : l10n.directHistoryLocalOnlySubtitle,
+                        style: theme.bodySmall?.copyWith(
+                          color: theme.textSecondary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: Spacing.md),
-              AdaptiveSwitch(
-                value: syncWithOpenWebUi,
-                onChanged: onSyncChanged,
-              ),
-            ],
+                const SizedBox(width: Spacing.md),
+                AdaptiveSwitch(
+                  value: syncWithOpenWebUi,
+                  onChanged: onSyncChanged,
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: Spacing.lg),
@@ -400,15 +412,18 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
             _OpenWebUiDirectConnectionsError(onRetry: onRetry),
           ],
         ] else ...[
-          for (var index = 0; index < records.length; index++) ...[
-            _DirectConnectionTile(
-              profile: records[index].profile,
-              sourceLabel: l10n.openWebUiDirectConnectionSourceLabel,
-              isCompatible: records[index].isCompatible,
-              onTap: () => onEdit(records[index].profile.id),
-            ),
-            if (index != records.length - 1) const SizedBox(height: Spacing.md),
-          ],
+          _DirectConnectionListSurface(
+            children: [
+              for (var index = 0; index < records.length; index++)
+                _DirectConnectionTile(
+                  profile: records[index].profile,
+                  sourceLabel: l10n.openWebUiDirectConnectionSourceLabel,
+                  isCompatible: records[index].isCompatible,
+                  showDivider: index != records.length - 1,
+                  onTap: () => onEdit(records[index].profile.id),
+                ),
+            ],
+          ),
           if (connections.hasError) ...[
             const SizedBox(height: Spacing.sm),
             _OpenWebUiDirectConnectionsError(onRetry: onRetry),
@@ -458,15 +473,17 @@ class _DirectConnectionSection extends StatelessWidget {
             onAdd: onAdd,
           )
         else
-          for (var index = 0; index < profiles.length; index++) ...[
-            _DirectConnectionTile(
-              profile: profiles[index],
-              sourceLabel: sourceLabel,
-              onTap: () => onEdit(profiles[index].id),
-            ),
-            if (index != profiles.length - 1)
-              const SizedBox(height: Spacing.md),
-          ],
+          _DirectConnectionListSurface(
+            children: [
+              for (var index = 0; index < profiles.length; index++)
+                _DirectConnectionTile(
+                  profile: profiles[index],
+                  sourceLabel: sourceLabel,
+                  showDivider: index != profiles.length - 1,
+                  onTap: () => onEdit(profiles[index].id),
+                ),
+            ],
+          ),
       ],
     );
   }
@@ -579,8 +596,13 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    return ConduitCard(
+    return Container(
       padding: const EdgeInsets.all(Spacing.lg),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -596,7 +618,6 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
           const SizedBox(height: Spacing.md),
           ConduitButton(
             text: l10n.addDirectConnection,
-            isFullWidth: true,
             useNativeLabel: true,
             onPressed: onAdd,
           ),
@@ -612,12 +633,14 @@ class _DirectConnectionTile extends StatelessWidget {
     required this.sourceLabel,
     required this.onTap,
     this.isCompatible = true,
+    this.showDivider = false,
   });
 
   final DirectConnectionProfile profile;
   final String sourceLabel;
   final bool isCompatible;
   final VoidCallback onTap;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
@@ -631,40 +654,66 @@ class _DirectConnectionTile extends StatelessWidget {
         ? l10n.enabledLabel
         : l10n.disabledLabel;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useInlineSource = constraints.maxWidth < 340;
-        return CustomizationTile(
-          leading: SettingsIconBadge(
-            icon: isOllama
-                ? UiUtils.platformIcon(
-                    ios: CupertinoIcons.desktopcomputer,
-                    android: Icons.computer_outlined,
-                  )
-                : UiUtils.platformIcon(
-                    ios: CupertinoIcons.cloud,
-                    android: Icons.cloud_outlined,
-                  ),
-            color: profile.enabled && isCompatible
-                ? theme.buttonPrimary
-                : theme.iconSecondary,
+    return ConnectionChoiceRow(
+      leading: SettingsIconBadge(
+        icon: isOllama
+            ? UiUtils.platformIcon(
+                ios: CupertinoIcons.desktopcomputer,
+                android: Icons.computer_outlined,
+              )
+            : UiUtils.platformIcon(
+                ios: CupertinoIcons.cloud,
+                android: Icons.cloud_outlined,
+              ),
+        color: profile.enabled && isCompatible
+            ? theme.buttonPrimary
+            : theme.iconSecondary,
+      ),
+      title: profile.name,
+      subtitle: '$provider · $status\n${profile.baseUrl}',
+      selected: false,
+      showSelectionIndicator: false,
+      showDivider: showDivider,
+      trailing: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            sourceLabel,
+            style: theme.bodySmall?.copyWith(color: theme.textTertiary),
           ),
-          title: profile.name,
-          subtitle: useInlineSource
-              ? '$sourceLabel · $status\n${profile.baseUrl}'
-              : '$provider · $status\n${profile.baseUrl}',
-          subtitleMaxLines: 3,
-          subtitleTrailing: useInlineSource
-              ? null
-              : ConduitBadge(
-                  text: sourceLabel,
-                  isCompact: true,
-                  backgroundColor: theme.buttonPrimary.withValues(alpha: 0.08),
-                  textColor: theme.buttonPrimary,
-                ),
-          onTap: onTap,
-        );
-      },
+          const SizedBox(height: Spacing.xs),
+          Icon(
+            context.usesCupertinoChrome
+                ? CupertinoIcons.chevron_forward
+                : Icons.chevron_right,
+            color: theme.iconSecondary,
+            size: IconSize.small,
+          ),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _DirectConnectionListSurface extends StatelessWidget {
+  const _DirectConnectionListSurface({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+      decoration: BoxDecoration(
+        color: theme.surfaceContainer.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
     );
   }
 }

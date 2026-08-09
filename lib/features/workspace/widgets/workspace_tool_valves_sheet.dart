@@ -180,7 +180,10 @@ class _WorkspaceToolValvesSheetState
           Row(
             children: [
               Expanded(
-                child: Text(l10n.workspaceToolValvesTitle, style: theme.headingSmall),
+                child: Text(
+                  l10n.workspaceToolValvesTitle,
+                  style: theme.headingSmall,
+                ),
               ),
               SheetCloseButton(
                 tooltip: l10n.close,

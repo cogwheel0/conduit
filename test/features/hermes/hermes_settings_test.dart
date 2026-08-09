@@ -90,4 +90,57 @@ void main() {
     check(result.error).isNull();
     check(calls).deepEquals(['enable', 'session-key', 'select-hermes']);
   });
+
+  test(
+    'failed onboarding probe performs no persistence or activation',
+    () async {
+      final calls = <String>[];
+
+      final result = await connectHermesOnboarding(
+        probe: () async {
+          calls.add('probe');
+          return false;
+        },
+        persist: () async {
+          calls.add('persist');
+          return true;
+        },
+        enable: () async => calls.add('enable'),
+        ensureSessionKey: () async => calls.add('session-key'),
+        selectHermes: () async => calls.add('select-hermes'),
+      );
+
+      check(
+        result.outcome,
+      ).equals(HermesConnectionOnboardingOutcome.unreachable);
+      check(calls).deepEquals(['probe']);
+    },
+  );
+
+  test('successful onboarding preserves probe-to-selection ordering', () async {
+    final calls = <String>[];
+
+    final result = await connectHermesOnboarding(
+      probe: () async {
+        calls.add('probe');
+        return true;
+      },
+      persist: () async {
+        calls.add('persist');
+        return true;
+      },
+      enable: () async => calls.add('enable'),
+      ensureSessionKey: () async => calls.add('session-key'),
+      selectHermes: () async => calls.add('select-hermes'),
+    );
+
+    check(result.outcome).equals(HermesConnectionOnboardingOutcome.success);
+    check(calls).deepEquals([
+      'probe',
+      'persist',
+      'enable',
+      'session-key',
+      'select-hermes',
+    ]);
+  });
 }

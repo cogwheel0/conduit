@@ -287,8 +287,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Direct Connections'), findsOneWidget);
-    expect(find.text('Open WebUI history'), findsOneWidget);
+    expect(find.text('Direct Connections'), findsAtLeastNWidgets(1));
+    expect(find.text('Open WebUI history'), findsAtLeastNWidgets(1));
     expect(find.text('Home Ollama'), findsOneWidget);
     expect(find.textContaining('http://192.168.1.5:11434'), findsOneWidget);
     expect(find.text('Add connection'), findsOneWidget);
@@ -638,6 +638,70 @@ void main() {
     );
   });
 
+  testWidgets('onboarding does not save an unreachable direct provider', (
+    tester,
+  ) async {
+    final controller = _OnboardingDirectProfiles(
+      const DirectConnectionProbe(
+        reachable: false,
+        message: 'Provider unavailable',
+      ),
+    );
+    final router = _directOnboardingRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(() => controller),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _submitDirectOnboarding(tester);
+
+    expect(controller.probeCalls, 1);
+    expect(controller.upsertCalls, 0);
+    expect(router.routeInformationProvider.value.uri.path, '/editor/new');
+    expect(find.text('Provider unavailable'), findsOneWidget);
+  });
+
+  testWidgets('onboarding saves a reachable provider before the overview', (
+    tester,
+  ) async {
+    final controller = _OnboardingDirectProfiles(
+      const DirectConnectionProbe(reachable: true),
+    );
+    final router = _directOnboardingRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(() => controller),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _submitDirectOnboarding(tester);
+
+    expect(controller.probeCalls, 1);
+    expect(controller.upsertCalls, 1);
+    expect(controller.lastUpsert?.apiKey, 'test-secret');
+    expect(router.routeInformationProvider.value.uri.path, '/overview');
+    expect(find.text('Connection overview'), findsOneWidget);
+  });
+
   testWidgets('a new server draft is revoked when the account changes', (
     tester,
   ) async {
@@ -921,6 +985,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _expandDirectAdvancedSettings(tester);
       final apiVersionField = find.byKey(
         const ValueKey<String>('direct-api-version-field'),
       );
@@ -937,6 +1002,11 @@ void main() {
       expect(
         tester.widget<AccessibleFormField>(apiVersionField).controller!.text,
         '2026-07-15',
+      );
+      await tester.scrollUntilVisible(
+        find.text('Save'),
+        500,
+        scrollable: find.byType(Scrollable).first,
       );
       final save = tester.widget<ConduitButton>(
         find.byWidgetPredicate(
@@ -1033,6 +1103,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _expandDirectAdvancedSettings(tester);
       final apiVersionField = find.byKey(
         const ValueKey<String>('direct-api-version-field'),
       );
@@ -1046,6 +1117,11 @@ void main() {
       remoteController.setSnapshot(editedElsewhere);
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Save'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
       final save = tester.widget<ConduitButton>(
         find.byWidgetPredicate(
           (widget) => widget is ConduitButton && widget.text == 'Save',
@@ -1121,6 +1197,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _expandDirectAdvancedSettings(tester);
       final container = ProviderScope.containerOf(
         tester.element(find.byType(DirectConnectionEditorPage)),
       );
@@ -1133,6 +1210,11 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.enterText(apiVersionField, '2026-07-15');
+      await tester.scrollUntilVisible(
+        find.text('Save'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
       final save = tester.widget<ConduitButton>(
         find.byWidgetPredicate(
           (widget) => widget is ConduitButton && widget.text == 'Save',
@@ -1656,8 +1738,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, -420));
-    await tester.pumpAndSettle();
+    await _expandDirectAdvancedSettings(tester);
 
     final selector = tester
         .widget<AdaptiveSegmentedSelector<DirectOpenAiApiMode>>(
@@ -1702,16 +1783,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final providerSelector = tester.widget<DropdownButtonFormField<String>>(
-      find.descendant(
-        of: find.byKey(
-          const ValueKey<String>('direct-provider-preset-selector'),
-        ),
-        matching: find.byType(DropdownButtonFormField<String>),
-      ),
-    );
-    providerSelector.onChanged?.call('openrouter');
-    await tester.pump();
+    await tester.tap(find.text('OpenRouter'));
+    await tester.pumpAndSettle();
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
     await tester.pumpAndSettle();
 
@@ -1836,10 +1909,15 @@ void main() {
           ),
         );
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('direct-connection-name-field')),
-      'Stale rename',
+    final nameField = find.byKey(
+      const ValueKey<String>('direct-connection-name-field'),
     );
+    await tester.scrollUntilVisible(
+      nameField,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(nameField, 'Stale rename');
     await tester.scrollUntilVisible(
       find.text('Save'),
       500,
@@ -2149,6 +2227,49 @@ void main() {
   );
 }
 
+Future<void> _expandDirectAdvancedSettings(WidgetTester tester) async {
+  final toggle = find.byKey(
+    const ValueKey<String>('direct-advanced-settings-toggle'),
+  );
+  await tester.scrollUntilVisible(
+    toggle,
+    400,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.tap(toggle);
+  await tester.pumpAndSettle();
+}
+
+GoRouter _directOnboardingRouter() => GoRouter(
+  initialLocation: '/editor/new?onboarding=true',
+  routes: [
+    GoRoute(
+      path: '/editor/:id',
+      name: RouteNames.directConnectionEditor,
+      builder: (_, state) => DirectConnectionEditorPage(
+        profileId: state.pathParameters['id']!,
+        isOnboarding: true,
+      ),
+    ),
+    GoRoute(
+      path: '/overview',
+      name: RouteNames.directConnections,
+      builder: (_, _) => const Scaffold(body: Text('Connection overview')),
+    ),
+  ],
+);
+
+Future<void> _submitDirectOnboarding(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('direct-api-key-field')),
+    'test-secret',
+  );
+  await tester.tap(
+    find.byKey(const ValueKey<String>('direct-editor-save-button')),
+  );
+  await tester.pumpAndSettle();
+}
+
 void _noop() {}
 
 final class _StaticOpenWebUiConnections
@@ -2248,6 +2369,36 @@ final class _StaticDirectProfiles extends DirectConnectionProfilesController {
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
     probeCalls++;
     return const DirectConnectionProbe(reachable: true);
+  }
+}
+
+final class _OnboardingDirectProfiles
+    extends DirectConnectionProfilesController {
+  _OnboardingDirectProfiles(this.result);
+
+  final DirectConnectionProbe result;
+  int probeCalls = 0;
+  int upsertCalls = 0;
+  DirectConnectionProfile? lastUpsert;
+
+  @override
+  Future<List<DirectConnectionProfile>> build() async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    probeCalls++;
+    return result;
+  }
+
+  @override
+  Future<void> upsert(
+    DirectConnectionProfile profile, {
+    DirectConnectionProfile? expectedPrevious,
+    bool secretsConfirmedForNewOrigin = false,
+  }) async {
+    upsertCalls++;
+    lastUpsert = profile;
+    state = AsyncData([profile]);
   }
 }
 

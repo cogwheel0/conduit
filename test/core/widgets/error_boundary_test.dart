@@ -73,5 +73,26 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;
     });
+
+    testWidgets('global builder renders a friendly nonblank fallback', (
+      tester,
+    ) async {
+      installConduitErrorWidgetBuilder();
+      final fallback = ErrorWidget.builder(
+        FlutterErrorDetails(exception: StateError('debug failure')),
+      );
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(home: Scaffold(body: fallback)),
+        ),
+      );
+
+      expect(find.byType(ConduitFriendlyErrorView), findsOneWidget);
+      expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
+      expect(find.textContaining('Something went wrong'), findsOneWidget);
+      expect(find.textContaining('debug failure'), findsOneWidget);
+    });
   });
 }

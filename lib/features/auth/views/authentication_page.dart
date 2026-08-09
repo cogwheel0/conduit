@@ -10,6 +10,8 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/platform_service.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -18,8 +20,8 @@ import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../core/auth/webview_cookie_helper.dart' show isWebViewSupported;
-import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../widgets/adaptive_auth_scaffold.dart';
+import '../widgets/connection_setup_components.dart';
 
 /// Authentication mode options
 enum AuthMode {
@@ -27,6 +29,21 @@ enum AuthMode {
   token, // JWT token
   sso, // OAuth/OIDC via WebView
   ldap, // LDAP username/password
+}
+
+@immutable
+class _AuthMethodPresentation {
+  const _AuthMethodPresentation({
+    required this.mode,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final AuthMode mode;
+  final String title;
+  final String subtitle;
+  final IconData icon;
 }
 
 @visibleForTesting
@@ -107,6 +124,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
 
+  ConnectionAttemptState get _attemptState {
+    final l10n = AppLocalizations.of(context)!;
+    if (_isSigningIn) {
+      return ConnectionAttemptState.connecting(l10n.signingIn);
+    }
+    final error = _loginError;
+    if (error != null) return ConnectionAttemptState.failed(error);
+    return const ConnectionAttemptState.idle();
+  }
+
   /// Whether the server has OAuth/SSO providers configured.
   bool get _hasSsoEnabled =>
       widget.backendConfig?.hasSsoEnabled == true && isWebViewSupported;
@@ -122,11 +149,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   OAuthProviders get _oauthProviders =>
       widget.backendConfig?.oauthProviders ?? const OAuthProviders();
 
-  /// Available auth modes for the segmented control.
+  /// Available sign-in methods for this server.
   List<AuthMode> get _availableAuthModes {
     final modes = <AuthMode>[];
     if (_hasLoginFormEnabled) modes.add(AuthMode.credentials);
-    if (isWebViewSupported && !_hasSsoEnabled) modes.add(AuthMode.sso);
+    if (isWebViewSupported) modes.add(AuthMode.sso);
     if (_hasLdapEnabled) modes.add(AuthMode.ldap);
     modes.add(AuthMode.token);
     return modes;
@@ -150,12 +177,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   @override
   void initState() {
     super.initState();
+    for (final controller in [
+      _usernameController,
+      _passwordController,
+      _apiKeyController,
+      _ldapUsernameController,
+      _ldapPasswordController,
+    ]) {
+      controller.addListener(_resetTransientLogin);
+    }
     _setDefaultAuthMode();
     _loadSavedCredentials();
     // Check for auth errors (e.g., forced logout due to API key)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAuthStateError();
     });
+  }
+
+  void _resetTransientLogin() {
+    if (!mounted || _isSigningIn || _loginError == null) return;
+    setState(() => _loginError = null);
   }
 
   /// Set the default auth mode based on what the server supports.
@@ -266,6 +307,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         throw Exception(authState.error ?? l10n.loginFailed);
       }
 
+      PlatformService.hapticFeedbackWithSettings(
+        type: HapticType.success,
+        hapticEnabled: ref.read(hapticEnabledProvider),
+      );
+
       // Success - navigation will be handled by auth state change
     } catch (e) {
       // Don't clear server config on auth failure - user should be able to retry
@@ -274,6 +320,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       setState(() {
         _loginError = _formatLoginError(e.toString());
       });
+      PlatformService.hapticFeedbackWithSettings(
+        type: HapticType.error,
+        hapticEnabled: ref.read(hapticEnabledProvider),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -378,11 +428,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildHeader(),
-              if (_availableAuthModes.length > 1) ...[
-                const SizedBox(height: Spacing.xl),
-                _buildAuthModeSelector(),
-              ],
-              const SizedBox(height: Spacing.lg),
+              const SizedBox(height: Spacing.xl),
+              _buildAuthMethodSection(),
+              const SizedBox(height: Spacing.xl),
               _buildAuthForm(),
             ],
           ),
@@ -392,82 +440,118 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildHeader() {
-    final theme = context.conduitTheme;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          AppLocalizations.of(context)!.signInServerDescription,
-          style: theme.bodyMedium?.copyWith(
-            color: theme.textSecondary,
-            height: 1.4,
+        ConnectionIdentityHeader(
+          mark: const OpenWebUiConnectionMark(),
+          title: AppLocalizations.of(context)!.backendChooserOpenWebUITitle,
+          subtitle: AppLocalizations.of(context)!.signInServerDescription,
+        ),
+        const SizedBox(height: Spacing.xl),
+        ConnectionSection(
+          title: AppLocalizations.of(context)!.openWebUIServer,
+          child: ConnectionValueRow(
+            label: AppLocalizations.of(context)!.serverUrl,
+            value: _serverAddressForDisplay(_resolvedServerConfig?.url),
+            monospace: true,
           ),
         ),
-        const SizedBox(height: Spacing.md),
-        ConduitCard(
-          isElevated: false,
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                AppLocalizations.of(context)!.openWebUIServer,
-                style: theme.bodySmall?.copyWith(
-                  color: theme.textSecondary,
-                  fontWeight: FontWeight.w500,
+      ],
+    );
+  }
+
+  ServerConfig? get _resolvedServerConfig {
+    final activeServerAsync = ref.watch(activeServerProvider);
+    return widget.serverConfig ??
+        activeServerAsync.maybeWhen(data: (s) => s, orElse: () => null);
+  }
+
+  Widget _buildAuthMethodSection() {
+    final methods = _availableAuthModes.map(_methodPresentation).toList();
+    return ConnectionSection(
+      key: const ValueKey<String>('authentication-mode-selector'),
+      title: AppLocalizations.of(context)!.signIn,
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+      child: Column(
+        children: [
+          for (var index = 0; index < methods.length; index++)
+            ConnectionChoiceRow(
+              leading: ConnectionMark(
+                padding: const EdgeInsets.all(Spacing.xs),
+                child: Icon(
+                  methods[index].icon,
+                  color: context.conduitTheme.buttonPrimary,
+                  size: IconSize.small,
                 ),
               ),
-              const SizedBox(height: Spacing.xxs),
-              _buildServerDomain(),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAuthModeSelector() {
-    final modes = _availableAuthModes;
-    return AdaptiveSegmentedSelector<AuthMode>(
-      key: const ValueKey<String>('authentication-mode-selector'),
-      value: _authMode,
-      showIcons: false,
-      onChanged: (mode) {
-        setState(() {
-          _authMode = mode;
-          _loginError = null;
-          _obscurePassword = true;
-        });
-      },
-      options: [
-        for (final mode in modes)
-          (
-            value: mode,
-            label: _authModeLabel(mode),
-            cupertinoIcon: CupertinoIcons.circle,
-            materialIcon: Icons.circle_outlined,
-            enabled: true,
-          ),
-      ],
-    );
-  }
-
-  Widget _buildServerDomain() {
-    final activeServerAsync = ref.watch(activeServerProvider);
-    final cfg =
-        widget.serverConfig ??
-        activeServerAsync.maybeWhen(data: (s) => s, orElse: () => null);
-    final displayUrl = _serverAddressForDisplay(cfg?.url);
-    return Text(
-      displayUrl,
-      overflow: TextOverflow.ellipsis,
-      style: context.conduitTheme.bodySmall?.copyWith(
-        color: context.conduitTheme.textPrimary,
-        fontWeight: FontWeight.w600,
-        fontFamily: AppTypography.monospaceFontFamily,
+              title: methods[index].title,
+              subtitle: methods[index].subtitle,
+              selected: _authMode == methods[index].mode,
+              showDivider: index != methods.length - 1,
+              onTap: () => setState(() {
+                _authMode = methods[index].mode;
+                _loginError = null;
+                _obscurePassword = true;
+              }),
+            ),
+        ],
       ),
     );
+  }
+
+  _AuthMethodPresentation _methodPresentation(AuthMode mode) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (mode) {
+      AuthMode.credentials => _AuthMethodPresentation(
+        mode: mode,
+        title: l10n.credentials,
+        subtitle: l10n.usernameOrEmail,
+        icon: context.usesCupertinoChrome
+            ? CupertinoIcons.person_crop_circle
+            : Icons.person_outline,
+      ),
+      AuthMode.sso => _AuthMethodPresentation(
+        mode: mode,
+        title: _ssoTitle(l10n),
+        subtitle: _ssoSubtitle(l10n),
+        icon: context.usesCupertinoChrome
+            ? CupertinoIcons.lock_shield
+            : Icons.security_outlined,
+      ),
+      AuthMode.ldap => _AuthMethodPresentation(
+        mode: mode,
+        title: l10n.ldap,
+        subtitle: l10n.ldapDescription,
+        icon: context.usesCupertinoChrome
+            ? CupertinoIcons.person_2
+            : Icons.badge_outlined,
+      ),
+      AuthMode.token => _AuthMethodPresentation(
+        mode: mode,
+        title: l10n.token,
+        subtitle: l10n.tokenHint,
+        icon: context.usesCupertinoChrome
+            ? CupertinoIcons.lock
+            : Icons.key_outlined,
+      ),
+    };
+  }
+
+  String _ssoTitle(AppLocalizations l10n) {
+    final providers = _oauthProviders.enabledProviders;
+    if (providers.length == 1) {
+      return _oauthProviders.getProviderDisplayName(providers.single);
+    }
+    return l10n.sso;
+  }
+
+  String _ssoSubtitle(AppLocalizations l10n) {
+    final providers = _oauthProviders.enabledProviders;
+    if (providers.length > 1) {
+      return providers.map(_oauthProviders.getProviderDisplayName).join(' · ');
+    }
+    return l10n.ssoDescription;
   }
 
   String _serverAddressForDisplay(String? rawUrl) {
@@ -489,112 +573,34 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildAuthForm() {
-    final l10n = AppLocalizations.of(context)!;
+    final form = switch (_authMode) {
+      AuthMode.credentials when _hasLoginFormEnabled => _buildCredentialsForm(),
+      AuthMode.ldap when _hasLdapEnabled => _buildLdapForm(),
+      AuthMode.token => _buildApiKeyForm(),
+      AuthMode.sso => _buildSsoMethodDescription(),
+      _ => const SizedBox.shrink(),
+    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Show SSO buttons prominently if OAuth providers are configured
-        if (_hasSsoEnabled) ...[
-          _buildSsoButtons(l10n),
-          if (_hasLoginFormEnabled || _hasLdapEnabled) ...[
-            const SizedBox(height: Spacing.lg),
-            _buildDividerWithText(l10n.or),
-            const SizedBox(height: Spacing.lg),
-          ],
-        ],
-
-        // Show the appropriate form based on auth mode
-        // Credentials form is shown directly when login form is enabled
-        // Other modes (LDAP, Token) are shown when selected from "More options"
-        if (_hasLoginFormEnabled && _authMode == AuthMode.credentials) ...[
-          _buildCredentialsForm(),
-        ] else if (_authMode == AuthMode.ldap && _hasLdapEnabled) ...[
-          _buildLdapForm(),
-        ] else if (_authMode == AuthMode.token) ...[
-          _buildApiKeyForm(),
-        ] else if (_authMode == AuthMode.sso && !_hasSsoEnabled) ...[
-          _buildSsoPrompt(),
-        ],
-
-        if (_loginError != null) ...[
+        ConnectionSection(title: _authModeLabel(_authMode), child: form),
+        if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
-          _buildErrorMessage(_loginError!),
+          ConnectionAttemptBanner(state: _attemptState),
         ],
       ],
     );
   }
 
-  Widget _buildDividerWithText(String text) {
-    return Row(
-      children: [
-        Expanded(
-          child: Divider(
-            color: context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-          child: Text(
-            text,
-            style: context.conduitTheme.bodySmall?.copyWith(
-              color: context.conduitTheme.textSecondary,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Divider(
-            color: context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSsoButtons(AppLocalizations l10n) {
-    final providers = _oauthProviders.enabledProviders;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (int i = 0; i < providers.length; i++) ...[
-          if (i > 0) const SizedBox(height: Spacing.sm),
-          _buildOAuthButton(providers[i], l10n),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildOAuthButton(String provider, AppLocalizations l10n) {
-    final displayName = _oauthProviders.getProviderDisplayName(provider);
-
-    IconData icon;
-
-    switch (provider) {
-      case 'google':
-        icon = Icons.g_mobiledata;
-      case 'microsoft':
-        icon = Icons.window;
-      case 'github':
-        icon = Icons.code;
-      case 'oidc':
-        icon = context.usesCupertinoChrome
-            ? CupertinoIcons.lock_shield
-            : Icons.security;
-      case 'feishu':
-        icon = Icons.chat_bubble_outline;
-      default:
-        icon = Icons.login;
-    }
-
-    return ConduitButton(
-      text: l10n.continueWithProvider(displayName),
-      icon: icon,
-      onPressed: _navigateToSso,
-      isSecondary: true,
-      isFullWidth: true,
-    );
-  }
+  Widget _buildSsoMethodDescription() => Text(
+    _ssoSubtitle(AppLocalizations.of(context)!),
+    key: const ValueKey<String>('sso_form'),
+    style: context.conduitTheme.bodySmall?.copyWith(
+      color: context.conduitTheme.textSecondary,
+      height: 1.4,
+    ),
+  );
 
   /// Validates that a token is a JWT and not an API key.
   /// API keys (sk-, api-, key-) don't work with WebSocket authentication.
@@ -803,59 +809,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
-  Widget _buildSsoPrompt() {
-    final l10n = AppLocalizations.of(context)!;
-
-    return Column(
-      key: const ValueKey('sso_form'),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(Spacing.lg),
-          decoration: BoxDecoration(
-            color: context.conduitTheme.surfaceContainer.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-            border: Border.all(
-              color: context.conduitTheme.dividerColor.withValues(alpha: 0.5),
-              width: BorderWidth.standard,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                context.usesCupertinoChrome
-                    ? CupertinoIcons.lock_shield
-                    : Icons.security,
-                size: IconSize.xxl,
-                color: context.conduitTheme.buttonPrimary,
-              ),
-              const SizedBox(height: Spacing.md),
-              Text(l10n.sso, style: context.conduitTheme.headingMedium),
-              const SizedBox(height: Spacing.sm),
-              Text(
-                l10n.ssoDescription,
-                style: context.conduitTheme.bodyMedium?.copyWith(
-                  color: context.conduitTheme.textSecondary,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: Spacing.lg),
-              ConduitButton(
-                text: l10n.signInWithSso,
-                icon: context.usesCupertinoChrome
-                    ? CupertinoIcons.arrow_right
-                    : Icons.arrow_forward,
-                onPressed: _navigateToSso,
-                isFullWidth: true,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Future<void> _navigateToSso() async {
-    if (!mounted) return;
+    if (!mounted || _isSigningIn) return;
+    setState(() {
+      _isSigningIn = true;
+      _loginError = null;
+    });
 
     // Save server config first if needed. _saveServerConfig can throw (for
     // example when the selected server's API client is not ready in time), so
@@ -863,9 +822,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     // nothing; the user can then retry the SSO button.
     if (widget.serverConfig != null && !_serverConfigSaved) {
       try {
-        setState(() {
-          _loginError = null;
-        });
         await _saveServerConfig(widget.serverConfig!);
         _serverConfigSaved = true;
       } catch (e) {
@@ -878,22 +834,23 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           setState(() {
             _loginError = _formatLoginError(e.toString());
           });
+          PlatformService.hapticFeedbackWithSettings(
+            type: HapticType.error,
+            hapticEnabled: ref.read(hapticEnabledProvider),
+          );
         }
+        if (mounted) setState(() => _isSigningIn = false);
         return;
       }
       if (!mounted) return;
     }
 
-    context.pushNamed(RouteNames.ssoAuth, extra: widget.serverConfig);
+    await context.pushNamed(RouteNames.ssoAuth, extra: widget.serverConfig);
+    if (mounted) setState(() => _isSigningIn = false);
   }
 
   Widget _buildSignInButton() {
     final l10n = AppLocalizations.of(context)!;
-
-    // Don't show sign-in button for SSO mode (it has its own button)
-    if (_authMode == AuthMode.sso) {
-      return const SizedBox.shrink();
-    }
 
     String buttonText;
     if (_isSigningIn) {
@@ -913,48 +870,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return ConduitButton(
       text: buttonText,
-      onPressed: _isSigningIn ? null : _signIn,
+      onPressed: _isSigningIn
+          ? null
+          : _authMode == AuthMode.sso
+          ? _navigateToSso
+          : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,
       useNativeLabel: true,
-    );
-  }
-
-  Widget _buildErrorMessage(String message) {
-    return Semantics(
-      liveRegion: true,
-      label: message,
-      child: Container(
-        padding: const EdgeInsets.all(Spacing.md),
-        decoration: BoxDecoration(
-          color: context.conduitTheme.error.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: context.conduitTheme.error.withValues(alpha: 0.2),
-            width: BorderWidth.standard,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.exclamationmark_circle
-                  : Icons.error_outline,
-              color: context.conduitTheme.error,
-              size: IconSize.small,
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Text(
-                message,
-                style: context.conduitTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.error,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

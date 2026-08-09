@@ -646,6 +646,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         child: DirectConnectionEditorPage(
           profileId: state.pathParameters['id']!,
           isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+          entry: state.uri.queryParameters['entry'] == 'chooser'
+              ? DirectEditorEntry.chooser
+              : DirectEditorEntry.overview,
           isOpenWebUi:
               state.uri.queryParameters['source'] ==
               openWebUiDirectConnectionSourceQueryValue,

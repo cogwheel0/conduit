@@ -187,7 +187,9 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         directoryId: directoryId,
         page: nextPage,
       );
-      final pending = append ? current.pending : await _loadPending(session.api);
+      final pending = append
+          ? current.pending
+          : await _loadPending(session.api);
       if (generation != _requestGeneration || !session.isCurrent(ref)) return;
       state = AsyncData(
         current.copyWith(
@@ -417,9 +419,14 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
 
   /// Computes a sync diff for a locally-supplied manifest. Read-only; provided
   /// for parity with the server sync API and covered by unit tests.
-  Future<WorkspaceSyncDiff> syncDiff(List<Map<String, dynamic>> manifest) async {
+  Future<WorkspaceSyncDiff> syncDiff(
+    List<Map<String, dynamic>> manifest,
+  ) async {
     final session = WorkspaceSessionIdentity.read(ref);
-    final diff = await session.api.diffWorkspaceKnowledge(knowledgeId, manifest);
+    final diff = await session.api.diffWorkspaceKnowledge(
+      knowledgeId,
+      manifest,
+    );
     session.ensureCurrent(ref);
     return diff;
   }

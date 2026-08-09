@@ -64,11 +64,7 @@ Future<WorkspaceImportReport> runWorkspaceImport(
     try {
       await importItem(item);
       results.add(
-        WorkspaceImportItemResult(
-          index: index,
-          label: label,
-          succeeded: true,
-        ),
+        WorkspaceImportItemResult(index: index, label: label, succeeded: true),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -284,9 +280,7 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(widget.title, style: theme.headingSmall),
-              ),
+              Expanded(child: Text(widget.title, style: theme.headingSmall)),
               SheetCloseButton(
                 tooltip: l10n.close,
                 onPressed: () => Navigator.of(context).pop(_report),

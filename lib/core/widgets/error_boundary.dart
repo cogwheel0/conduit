@@ -1,10 +1,98 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
 import '../error/enhanced_error_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import '../services/haptic_service.dart';
+
+void installConduitErrorWidgetBuilder() {
+  ErrorWidget.builder = (details) => ConduitFriendlyErrorView(details: details);
+}
+
+class ConduitFriendlyErrorView extends StatelessWidget {
+  const ConduitFriendlyErrorView({super.key, required this.details});
+
+  final FlutterErrorDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = context.conduitTheme;
+    final debugDetails =
+        '${details.exceptionAsString()}\n${details.stack ?? ''}';
+
+    return Material(
+      color: theme.surfaceBackground,
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 300;
+            final content = Semantics(
+              liveRegion: true,
+              label: l10n?.errorMessage ?? 'Something went wrong',
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.pagePadding),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.error_outline_rounded,
+                        size: compact ? IconSize.medium : IconSize.xxl,
+                        color: theme.error,
+                      ),
+                      SizedBox(height: compact ? Spacing.sm : Spacing.lg),
+                      Text(
+                        l10n?.errorMessage ??
+                            'Something went wrong. Please try again.',
+                        textAlign: TextAlign.center,
+                        style: compact ? theme.bodyMedium : theme.headingSmall,
+                      ),
+                      if (kDebugMode) ...[
+                        const SizedBox(height: Spacing.sm),
+                        GestureDetector(
+                          onLongPress: () {
+                            Clipboard.setData(
+                              ClipboardData(text: debugDetails),
+                            );
+                            ConduitHaptics.selectionClick();
+                          },
+                          child: SelectableText(
+                            debugDetails,
+                            maxLines: compact ? 2 : 8,
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.textSecondary,
+                              fontFamily: AppTypography.monospaceFontFamily,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+
+            return SingleChildScrollView(
+              child: SizedBox(
+                width: constraints.maxWidth,
+                height: constraints.maxHeight.isFinite
+                    ? constraints.maxHeight
+                    : null,
+                child: Center(child: content),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
 
 /// Error boundary widget that catches and handles errors in child widgets
 class ErrorBoundary extends ConsumerStatefulWidget {
@@ -248,18 +336,14 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
     // Wrap child in error handler
     return Builder(
       builder: (context) {
-        ErrorWidget.builder = (FlutterErrorDetails details) {
-          // Defer handling to avoid setState during build of error widgets
-          _scheduleHandleError(details.exception, details.stack);
-          return const SizedBox.shrink();
-        };
-
         try {
           return widget.child;
         } catch (error, stack) {
           // Defer handling to avoid setState during build
           _scheduleHandleError(error, stack);
-          return const SizedBox.shrink();
+          return ConduitFriendlyErrorView(
+            details: FlutterErrorDetails(exception: error, stack: stack),
+          );
         }
       },
     );

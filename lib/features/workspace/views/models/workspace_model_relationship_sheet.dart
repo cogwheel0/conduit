@@ -101,12 +101,21 @@ class _WorkspaceRelationshipSheetState
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(widget.title, style: theme.headingSmall),
-              ),
-              SheetCloseButton(
-                tooltip: l10n.close,
+              TextButton(
                 onPressed: () => Navigator.of(context).pop(),
+                child: Text(l10n.cancel),
+              ),
+              Expanded(
+                child: Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: theme.headingSmall,
+                ),
+              ),
+              TextButton(
+                key: const Key('workspace-relationship-save'),
+                onPressed: () => Navigator.of(context).pop(_result()),
+                child: Text(l10n.save),
               ),
             ],
           ),
@@ -135,46 +144,48 @@ class _WorkspaceRelationshipSheetState
                       ),
                     ),
                   )
-                : Material(
-                    type: MaterialType.transparency,
-                    child: ListView.builder(
-                    key: const Key('workspace-relationship-list'),
-                    shrinkWrap: true,
-                    itemCount: visible.length,
-                    itemBuilder: (context, index) {
-                      final option = visible[index];
-                      final selected = _selected.contains(option.id);
-                      return CheckboxListTile(
-                        key: Key('workspace-relationship-${option.id}'),
-                        value: selected,
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: MiddleEllipsisText(option.label),
-                        subtitle: option.subtitle == null
-                            ? null
-                            : Text(
-                                option.subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                        onChanged: (value) => setState(() {
-                          if (value == true) {
-                            _selected.add(option.id);
-                          } else {
-                            _selected.remove(option.id);
-                          }
-                        }),
-                      );
-                    },
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Material(
+                      color: theme.surfaceContainer,
+                      child: ListView.separated(
+                        key: const Key('workspace-relationship-list'),
+                        shrinkWrap: true,
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => Divider(
+                          height: 1,
+                          indent: Spacing.md,
+                          color: theme.dividerColor,
+                        ),
+                        itemBuilder: (context, index) {
+                          final option = visible[index];
+                          final selected = _selected.contains(option.id);
+                          return CheckboxListTile(
+                            key: Key('workspace-relationship-${option.id}'),
+                            value: selected,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: Spacing.md,
+                            ),
+                            title: MiddleEllipsisText(option.label),
+                            subtitle: option.subtitle == null
+                                ? null
+                                : Text(
+                                    option.subtitle!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                            onChanged: (value) => setState(() {
+                              if (value == true) {
+                                _selected.add(option.id);
+                              } else {
+                                _selected.remove(option.id);
+                              }
+                            }),
+                          );
+                        },
+                      ),
                     ),
                   ),
-          ),
-          const SizedBox(height: Spacing.sm),
-          ConduitButton(
-            key: const Key('workspace-relationship-save'),
-            text: l10n.save,
-            isFullWidth: true,
-            onPressed: () => Navigator.of(context).pop(_result()),
           ),
         ],
       ),

@@ -140,14 +140,11 @@ class _WorkspaceToolUrlImportSheetState
                 ),
                 const SizedBox(width: Spacing.sm),
                 Expanded(
-                  child: Text(
-                    switch (_errorKey) {
-                      'invalid' => l10n.workspaceToolImportUrlInvalid,
-                      'host' => l10n.workspaceToolImportUrlHost,
-                      _ => l10n.workspaceToolImportUrlFailed,
-                    },
-                    style: theme.bodySmall?.copyWith(color: theme.error),
-                  ),
+                  child: Text(switch (_errorKey) {
+                    'invalid' => l10n.workspaceToolImportUrlInvalid,
+                    'host' => l10n.workspaceToolImportUrlHost,
+                    _ => l10n.workspaceToolImportUrlFailed,
+                  }, style: theme.bodySmall?.copyWith(color: theme.error)),
                 ),
               ],
             ),

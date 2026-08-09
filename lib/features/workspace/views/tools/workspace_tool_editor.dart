@@ -17,6 +17,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_url_import_sheet.dart';
@@ -88,6 +89,8 @@ class WorkspaceToolEditorView extends ConsumerWidget {
     if (id == null || id.isEmpty) {
       return WorkspaceEditorScaffold(
         title: l10n.workspaceTools,
+        section: WorkspaceSection.tools,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         child: const SizedBox.shrink(),
       );
@@ -97,11 +100,15 @@ class WorkspaceToolEditorView extends ConsumerWidget {
     return detail.when(
       loading: () => WorkspaceEditorScaffold(
         title: l10n.workspaceTools,
+        section: WorkspaceSection.tools,
+        mode: mode,
         isLoading: true,
         child: const SizedBox.shrink(),
       ),
       error: (_, _) => WorkspaceEditorScaffold(
         title: l10n.workspaceTools,
+        section: WorkspaceSection.tools,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         onRetry: () => ref.invalidate(workspaceToolDetailProvider(id)),
         child: const SizedBox.shrink(),
@@ -110,6 +117,8 @@ class WorkspaceToolEditorView extends ConsumerWidget {
         if (value == null) {
           return WorkspaceEditorScaffold(
             title: l10n.workspaceTools,
+            section: WorkspaceSection.tools,
+            mode: mode,
             errorMessage: l10n.workspaceLoadFailed,
             onRetry: () => ref.invalidate(workspaceToolDetailProvider(id)),
             child: const SizedBox.shrink(),
@@ -147,6 +156,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   bool _idManuallyEdited = false;
   bool _dirty = false;
   bool _saving = false;
+  bool _detailsExpanded = false;
   String? _errorMessage;
   bool _idError = false;
 
@@ -593,11 +603,18 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
 
     return WorkspaceEditorScaffold(
       title: title,
+      section: WorkspaceSection.tools,
+      mode: widget.mode,
       isDirty: _dirty && !_saving,
       readOnly: _fieldsReadOnly,
       isSaving: _saving,
       canSave: !_fieldsReadOnly && !_isIncompatible,
       onSave: _fieldsReadOnly ? null : _save,
+      onEdit: _isDetail && _writeAccess
+          ? () => context.push(
+              WorkspaceSection.tools.routes.editLocation(summary!.id),
+            )
+          : null,
       errorMessage: _errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
@@ -612,23 +629,19 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            if (_isDetail && _writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-tool-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.tools.routes.editLocation(summary!.id),
-                  ),
-                ),
+            WorkspaceGroupedSection(
+              title: l10n.workspaceTools,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _nameField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _idField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _descriptionField(l10n),
+                ],
               ),
-            _nameField(l10n),
-            const SizedBox(height: Spacing.md),
-            _idField(l10n),
-            const SizedBox(height: Spacing.md),
-            _descriptionField(l10n),
+            ),
             const SizedBox(height: Spacing.xl),
             if (_isIncompatible) _incompatibilityBanner(l10n),
             _contentEditor(l10n),
@@ -636,8 +649,20 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             _warning(l10n),
             const SizedBox(height: Spacing.xl),
             if (summary != null) ...[
-              _manifestSummary(l10n, summary),
-              _specsSummary(l10n, summary),
+              WorkspaceDisclosureSection(
+                key: const Key('workspace-tool-details-disclosure'),
+                title: l10n.workspaceToolDetails,
+                expanded: _detailsExpanded,
+                onChanged: (value) => setState(() => _detailsExpanded = value),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _manifestSummary(l10n, summary),
+                    _specsSummary(l10n, summary),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Spacing.xl),
             ],
             _accessTile(l10n),
             const SizedBox(height: Spacing.xl),
@@ -648,6 +673,13 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-tool-name'),
+        label: l10n.workspaceToolName,
+        value: _nameController.text,
+      );
+    }
     return ConduitInput(
       key: const Key('workspace-tool-name'),
       controller: _nameController,
@@ -660,6 +692,13 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   }
 
   Widget _idField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-tool-id'),
+        label: l10n.workspaceToolId,
+        value: _idController.text,
+      );
+    }
     return WorkspaceLabeledField(
       helperText: l10n.workspaceToolIdHint,
       child: ConduitInput(
@@ -674,6 +713,13 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-tool-description'),
+        label: l10n.workspaceToolDescription,
+        value: _descriptionController.text,
+      );
+    }
     return ConduitInput(
       key: const Key('workspace-tool-description'),
       controller: _descriptionController,
@@ -692,16 +738,33 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       children: [
         Text(l10n.workspaceToolContent, style: theme.headingSmall),
         const SizedBox(height: Spacing.sm),
-        AdaptiveTextField(
-          key: const Key('workspace-tool-content'),
-          controller: _contentController,
-          enabled: !_fieldsReadOnly,
-          minLines: 12,
-          maxLines: 32,
-          onChanged: _onContentChanged,
-          style: theme.code?.copyWith(color: theme.textPrimary),
-          placeholder: l10n.workspaceToolContentHint,
-        ),
+        if (_isDetail)
+          Container(
+            key: const Key('workspace-tool-content'),
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 160),
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              color: theme.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppBorderRadius.medium),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: SelectableText(
+              _contentController.text,
+              style: theme.code?.copyWith(color: theme.textPrimary),
+            ),
+          )
+        else
+          AdaptiveTextField(
+            key: const Key('workspace-tool-content'),
+            controller: _contentController,
+            enabled: !_fieldsReadOnly,
+            minLines: 12,
+            maxLines: 32,
+            onChanged: _onContentChanged,
+            style: theme.code?.copyWith(color: theme.textPrimary),
+            placeholder: l10n.workspaceToolContentHint,
+          ),
       ],
     );
   }

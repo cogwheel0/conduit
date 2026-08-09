@@ -91,6 +91,37 @@ void main() {
     expect(find.byKey(const Key('workspace-editor-error')), findsOneWidget);
   });
 
+  testWidgets('compact toolbar back confirms before discarding edits', (
+    tester,
+  ) async {
+    view.physicalSize = const Size(390, 844);
+    await tester.pumpWidget(
+      _harness(models: _FakeWorkspaceModels(), mode: WorkspaceRouteMode.create),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-id')),
+      'unsaved-model',
+    );
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-editor-back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('workspace-model-id')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('workspace-editor-back')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('nav-target'), findsOneWidget);
+  });
+
   testWidgets('edit editor saves via updateItem', (tester) async {
     final fake = _FakeWorkspaceModels();
     await tester.pumpWidget(
@@ -375,6 +406,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _scrollTo(tester, const Key('workspace-model-advanced-disclosure'));
+    await tester.tap(
+      find.byKey(const Key('workspace-model-advanced-disclosure')),
+    );
+    await tester.pumpAndSettle();
     await _scrollTo(tester, const Key('workspace-model-params'));
     await tester.enterText(
       find.byKey(const Key('workspace-model-params')),

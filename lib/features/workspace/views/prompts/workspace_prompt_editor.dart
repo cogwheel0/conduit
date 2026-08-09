@@ -17,6 +17,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -65,6 +66,8 @@ class WorkspacePromptEditorView extends ConsumerWidget {
     if (id == null || id.isEmpty) {
       return WorkspaceEditorScaffold(
         title: l10n.workspacePrompts,
+        section: WorkspaceSection.prompts,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         child: const SizedBox.shrink(),
       );
@@ -74,11 +77,15 @@ class WorkspacePromptEditorView extends ConsumerWidget {
     return detail.when(
       loading: () => WorkspaceEditorScaffold(
         title: l10n.workspacePrompts,
+        section: WorkspaceSection.prompts,
+        mode: mode,
         isLoading: true,
         child: const SizedBox.shrink(),
       ),
       error: (_, _) => WorkspaceEditorScaffold(
         title: l10n.workspacePrompts,
+        section: WorkspaceSection.prompts,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         onRetry: () => ref.invalidate(workspacePromptDetailProvider(id)),
         child: const SizedBox.shrink(),
@@ -87,6 +94,8 @@ class WorkspacePromptEditorView extends ConsumerWidget {
         if (value == null) {
           return WorkspaceEditorScaffold(
             title: l10n.workspacePrompts,
+            section: WorkspaceSection.prompts,
+            mode: mode,
             errorMessage: l10n.workspaceLoadFailed,
             onRetry: () => ref.invalidate(workspacePromptDetailProvider(id)),
             child: const SizedBox.shrink(),
@@ -125,6 +134,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
   bool _isProduction = true;
   bool _previewMode = false;
+  bool _versionExpanded = false;
   bool _commandManuallyEdited = false;
   bool _dirty = false;
   bool _saving = false;
@@ -577,11 +587,18 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
     return WorkspaceEditorScaffold(
       title: title,
+      section: WorkspaceSection.prompts,
+      mode: widget.mode,
       isDirty: _dirty && !_saving,
       readOnly: _fieldsReadOnly,
       isSaving: _saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
+      onEdit: _isDetail && _writeAccess
+          ? () => context.push(
+              WorkspaceSection.prompts.routes.editLocation(summary!.id),
+            )
+          : null,
       errorMessage: _errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
@@ -596,23 +613,19 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            if (_isDetail && _writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-prompt-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.prompts.routes.editLocation(summary!.id),
-                  ),
-                ),
+            WorkspaceGroupedSection(
+              title: l10n.workspacePrompts,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _nameField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _commandField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _tagsField(l10n),
+                ],
               ),
-            _nameField(l10n),
-            const SizedBox(height: Spacing.md),
-            _commandField(l10n),
-            const SizedBox(height: Spacing.md),
-            _tagsField(l10n),
+            ),
             const SizedBox(height: Spacing.xl),
             _contentEditor(l10n),
             if (!_fieldsReadOnly) ...[
@@ -643,6 +656,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-prompt-name'),
+        label: l10n.workspacePromptName,
+        value: _nameController.text,
+      );
+    }
     return ConduitInput(
       key: const Key('workspace-prompt-name'),
       controller: _nameController,
@@ -654,6 +674,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   }
 
   Widget _commandField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-prompt-command'),
+        label: l10n.workspacePromptCommand,
+        value: WorkspacePromptCommand.display(_commandController.text),
+      );
+    }
     final theme = context.conduitTheme;
     return WorkspaceLabeledField(
       helperText: l10n.workspacePromptCommandHint,
@@ -712,6 +739,16 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
   Widget _contentEditor(AppLocalizations l10n) {
     final theme = context.conduitTheme;
+    if (_isDetail) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.workspacePromptContent, style: theme.headingSmall),
+          const SizedBox(height: Spacing.sm),
+          _previewPane(l10n),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -784,35 +821,40 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   }
 
   Widget _versionSection(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        WorkspaceSectionHeader(title: l10n.workspacePromptVersionSection),
-        ConduitInput(
-          key: const Key('workspace-prompt-commit-message'),
-          controller: _commitController,
-          label: l10n.workspacePromptCommitMessage,
-          hint: l10n.workspacePromptCommitMessageHint,
-          enabled: !_fieldsReadOnly,
-          onChanged: (_) => _markDirty(),
-        ),
-        const SizedBox(height: Spacing.xs),
-        AdaptiveListTile(
-          key: const Key('workspace-prompt-production-toggle'),
-          padding: EdgeInsets.zero,
-          title: Text(l10n.workspacePromptSetProduction),
-          subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
-          trailing: AdaptiveSwitch(
-            value: _isProduction,
-            onChanged: _fieldsReadOnly
-                ? null
-                : (value) => setState(() {
-                    _isProduction = value;
-                    _dirty = true;
-                  }),
+    return WorkspaceDisclosureSection(
+      key: const Key('workspace-prompt-version-disclosure'),
+      title: l10n.workspacePromptVersionSection,
+      expanded: _versionExpanded,
+      onChanged: (value) => setState(() => _versionExpanded = value),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ConduitInput(
+            key: const Key('workspace-prompt-commit-message'),
+            controller: _commitController,
+            label: l10n.workspacePromptCommitMessage,
+            hint: l10n.workspacePromptCommitMessageHint,
+            enabled: !_fieldsReadOnly,
+            onChanged: (_) => _markDirty(),
           ),
-        ),
-      ],
+          const SizedBox(height: Spacing.xs),
+          AdaptiveListTile(
+            key: const Key('workspace-prompt-production-toggle'),
+            padding: EdgeInsets.zero,
+            title: Text(l10n.workspacePromptSetProduction),
+            subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
+            trailing: AdaptiveSwitch(
+              value: _isProduction,
+              onChanged: _fieldsReadOnly
+                  ? null
+                  : (value) => setState(() {
+                      _isProduction = value;
+                      _dirty = true;
+                    }),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

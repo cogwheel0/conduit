@@ -41,6 +41,8 @@ void main() {
     // The permission-gated create affordance renders for a manageable section.
     expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
     expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.text('Read only'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-section-tabs')));
     await tester.pumpAndSettle();
@@ -86,6 +88,27 @@ void main() {
     await sheetFuture;
 
     check(activeSectionLabel.evaluate()).length.equals(1);
+  });
+
+  testWidgets('compact collection stays usable at 320px and 2x text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _workspaceHarness(textScaler: const TextScaler.linear(2)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('workspace-create-models'))).height,
+      greaterThanOrEqualTo(TouchTarget.minimum),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('compact Android exit surface stays at toolbar action size', (
@@ -152,6 +175,7 @@ void main() {
 
     expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
     expect(find.byKey(const Key('workspace-list-models')), findsNothing);
+    expect(find.text('0 functions'), findsOneWidget);
   });
 
   testWidgets('section changes retain a back button that exits workspace', (
@@ -380,6 +404,7 @@ Widget _workspaceHarness({
   WorkspaceRouteMode mode = WorkspaceRouteMode.collection,
   String? resourceId,
   Object? detailError,
+  TextScaler? textScaler,
 }) {
   return ProviderScope(
     overrides: [
@@ -394,6 +419,12 @@ Widget _workspaceHarness({
     child: MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: textScaler == null
+          ? null
+          : (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+              child: child!,
+            ),
       home: WorkspacePage(
         section: WorkspaceSection.models,
         mode: mode,

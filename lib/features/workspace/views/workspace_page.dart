@@ -16,6 +16,7 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -220,6 +221,15 @@ class WorkspaceScaffold extends ConsumerWidget {
       );
     }
 
+    // Compact editors own their native navigation chrome so Save, Edit, and
+    // More live in the platform app bar without an inline duplicate toolbar.
+    if (!wide && mode != WorkspaceRouteMode.collection) {
+      return Material(
+        color: theme.surfaceBackground,
+        child: _buildCompact(context, permitted),
+      );
+    }
+
     // iOS 26 native toolbars contribute their height to MediaQuery padding.
     // Older Cupertino bars still need the explicit status-bar + navigation-bar
     // offset.
@@ -412,13 +422,17 @@ class _WorkspaceSectionMenu extends StatelessWidget {
     final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
     final controlScale = conduitSystemControlScaleOf(context);
     final iconSize = conduitScaledIconExtent(context, IconSize.small);
+    final availableWidth =
+        MediaQuery.sizeOf(context).width -
+        (conduitScaledControlExtent(context) + Spacing.md) * 2;
+    final maxPillWidth = availableWidth.clamp(80.0, 260.0);
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: label,
       textStyle: textStyle,
-      maxWidth: 260,
-      minWidth: 120,
-      horizontalPadding: 20,
+      maxWidth: maxPillWidth,
+      minWidth: maxPillWidth < 120 ? maxPillWidth : 120,
+      horizontalPadding: 18,
       trailingWidth: iconSize + Spacing.sm,
     );
 
@@ -429,7 +443,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
         child: SizedBox.fromSize(
           size: menuSize,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 9),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -618,8 +632,6 @@ R _withCollectionBinding<R>(
           onLoadMore: ref.read(workspaceKnowledgeProvider.notifier).loadMore,
           onSearch: ref.read(workspaceKnowledgeProvider.notifier).setQuery,
           filterBar: const _KnowledgeFilterBar(),
-          trailingOf: (item) =>
-              item.isExternal ? const _KnowledgeExternalBadge() : null,
         ),
       );
     case WorkspaceSection.prompts:
@@ -781,6 +793,8 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                       child: ListView.builder(
                         key: Key('workspace-list-${section.name}'),
                         padding: EdgeInsets.only(
+                          left: Spacing.pagePadding,
+                          right: Spacing.pagePadding,
                           bottom:
                               Spacing.pagePadding +
                               MediaQuery.paddingOf(context).bottom,
@@ -803,6 +817,8 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                             collection.items[index],
                             section: section,
                             selectedId: selectedId,
+                            groupedIndex: index,
+                            groupedLast: index == collection.items.length - 1,
                           );
                         },
                       ),
@@ -890,9 +906,19 @@ class _WorkspaceIosCollectionShellState
       data: (collection) => collection.query,
       orElse: () => '',
     );
+    // The iOS 26 navigation bar is a native overlay rather than part of the
+    // Flutter scaffold layout. Reserve exactly its safe-area and toolbar
+    // extent so the search field begins below the chrome instead of behind
+    // the Dynamic Island. Material app bars already inset their body.
+    final nativeTopInset = PlatformInfo.isIOS
+        ? MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context)
+        : 0.0;
 
     final slivers = <Widget>[
       CupertinoSliverRefreshControl(onRefresh: binding.onRefresh),
+      if (nativeTopInset > 0)
+        SliverToBoxAdapter(child: SizedBox(height: nativeTopInset)),
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -934,18 +960,11 @@ class _WorkspaceIosCollectionShellState
         permitted: widget.permitted,
         canCreate: canCreate,
       ),
-      body: Padding(
-        padding: EdgeInsets.only(
-          top:
-              MediaQuery.paddingOf(context).top +
-              conduitAdaptiveToolbarHeightOf(context),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: CustomScrollView(
-            controller: _scrollController,
-            slivers: slivers,
-          ),
+      body: Material(
+        color: Colors.transparent,
+        child: CustomScrollView(
+          controller: _scrollController,
+          slivers: slivers,
         ),
       ),
     );
@@ -994,10 +1013,11 @@ class _WorkspaceIosCollectionShellState
               child: LinearProgressIndicator(minHeight: 2),
             ),
           SliverPadding(
-            padding: EdgeInsets.only(
-              top: Spacing.md,
-              bottom:
-                  Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+            padding: EdgeInsets.fromLTRB(
+              Spacing.pagePadding,
+              Spacing.md,
+              Spacing.pagePadding,
+              Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
             ),
             sliver: SliverList(
               key: Key('workspace-list-${section.name}'),
@@ -1015,6 +1035,8 @@ class _WorkspaceIosCollectionShellState
                     binding,
                     collection.items[index],
                     section: section,
+                    groupedIndex: index,
+                    groupedLast: index == collection.items.length - 1,
                   );
                 },
                 childCount:
@@ -1037,27 +1059,138 @@ Widget _resourceTile<T>(
   T item, {
   required WorkspaceSection section,
   String? selectedId,
+  int? groupedIndex,
+  bool groupedLast = false,
 }) {
   final id = binding.idOf(item);
   final subtitle = binding.subtitleOf(item);
-  final trailing = binding.trailingOf?.call(item);
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(
-      Spacing.pagePadding,
-      0,
-      Spacing.pagePadding,
-      Spacing.md,
-    ),
-    child: WorkspaceResourceTile(
-      key: Key('workspace-resource-${section.name}-$id'),
-      icon: _sectionIcon(section),
-      title: binding.titleOf(item),
-      subtitle: subtitle,
-      trailing: trailing,
-      selected: selectedId == id,
-      onTap: () => context.push(section.routes.detailLocation(id)),
-    ),
+  final customTrailing = binding.trailingOf?.call(item);
+  final presentation = _workspaceResourcePresentation(
+    AppLocalizations.of(context)!,
+    item,
   );
+  final resolvedSubtitle = [
+    if (subtitle != null && subtitle.isNotEmpty) subtitle,
+    if (presentation.readOnly)
+      AppLocalizations.of(context)!.workspaceReadOnlyBadge,
+  ].join(' · ');
+  final status = presentation.statusLabel == null
+      ? null
+      : WorkspaceStatusPill(
+          label: presentation.statusLabel!,
+          tone: presentation.statusTone,
+        );
+  final tile = WorkspaceResourceTile(
+    key: Key('workspace-resource-${section.name}-$id'),
+    icon: _sectionIcon(section),
+    title: binding.titleOf(item),
+    subtitle: resolvedSubtitle.isEmpty ? null : resolvedSubtitle,
+    trailing: customTrailing ?? status,
+    selected: selectedId == id,
+    grouped: groupedIndex != null,
+    onTap: () => context.push(section.routes.detailLocation(id)),
+  );
+  if (groupedIndex == null) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Spacing.pagePadding,
+        0,
+        Spacing.pagePadding,
+        Spacing.md,
+      ),
+      child: tile,
+    );
+  }
+  final theme = context.conduitTheme;
+  return Container(
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: theme.surfaceContainer.withValues(alpha: 0.68),
+      border: Border(
+        left: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
+        top: groupedIndex == 0
+            ? BorderSide(color: theme.cardBorder, width: BorderWidth.thin)
+            : BorderSide.none,
+        right: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
+        bottom: BorderSide(
+          color: groupedLast ? theme.cardBorder : theme.dividerColor,
+          width: BorderWidth.thin,
+        ),
+      ),
+      borderRadius: BorderRadius.vertical(
+        top: groupedIndex == 0
+            ? const Radius.circular(AppBorderRadius.card)
+            : Radius.zero,
+        bottom: groupedLast
+            ? const Radius.circular(AppBorderRadius.card)
+            : Radius.zero,
+      ),
+    ),
+    child: tile,
+  );
+}
+
+class _WorkspaceResourcePresentation {
+  const _WorkspaceResourcePresentation({
+    this.statusLabel,
+    this.statusTone = WorkspaceStatusTone.neutral,
+    this.readOnly = false,
+  });
+
+  final String? statusLabel;
+  final WorkspaceStatusTone statusTone;
+  final bool readOnly;
+}
+
+_WorkspaceResourcePresentation _workspaceResourcePresentation(
+  AppLocalizations l10n,
+  Object? item,
+) {
+  final readOnly = switch (item) {
+    WorkspaceModelSummary() => !item.writeAccess,
+    WorkspaceKnowledgeSummary() => !item.writeAccess,
+    WorkspacePromptSummary() => !item.writeAccess,
+    WorkspaceToolSummary() => !item.writeAccess,
+    WorkspaceSkillSummary() => !item.writeAccess,
+    _ => false,
+  };
+  return switch (item) {
+    WorkspaceModelSummary() => _WorkspaceResourcePresentation(
+      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
+      statusTone: item.isActive
+          ? WorkspaceStatusTone.success
+          : WorkspaceStatusTone.neutral,
+      readOnly: readOnly,
+    ),
+    WorkspacePromptSummary() => _WorkspaceResourcePresentation(
+      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
+      statusTone: item.isActive
+          ? WorkspaceStatusTone.success
+          : WorkspaceStatusTone.neutral,
+      readOnly: readOnly,
+    ),
+    WorkspaceSkillSummary() => _WorkspaceResourcePresentation(
+      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
+      statusTone: item.isActive
+          ? WorkspaceStatusTone.success
+          : WorkspaceStatusTone.neutral,
+      readOnly: readOnly,
+    ),
+    WorkspaceKnowledgeSummary() => _WorkspaceResourcePresentation(
+      statusLabel: item.isExternal
+          ? l10n.workspaceKnowledgeExternalBadge
+          : l10n.workspaceKnowledgeSourceLocal,
+      statusTone: item.isExternal
+          ? WorkspaceStatusTone.info
+          : WorkspaceStatusTone.neutral,
+      readOnly: readOnly,
+    ),
+    WorkspaceToolSummary() => _WorkspaceResourcePresentation(
+      statusLabel: l10n.workspaceToolFunctionCount(item.specs.length),
+      readOnly: readOnly,
+    ),
+    _ => const _WorkspaceResourcePresentation(),
+  };
 }
 
 /// Shared empty-collection placeholder, keyed `workspace-empty-<section>`.
@@ -1491,27 +1624,6 @@ class _WorkspaceFilterMenu extends StatelessWidget {
           ],
           onSelected: (_, entry) => onSelected(entry.value ?? ''),
         ),
-      ),
-    );
-  }
-}
-
-/// Compact "Connected" chip marking an external (read-only) knowledge base.
-class _KnowledgeExternalBadge extends StatelessWidget {
-  const _KnowledgeExternalBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(right: Spacing.xs),
-      child: ConduitBadge(
-        key: const Key('workspace-knowledge-external-badge'),
-        text: l10n.workspaceKnowledgeExternalBadge,
-        isCompact: true,
-        backgroundColor: theme.surfaceContainerHighest,
-        textColor: theme.textSecondary,
       ),
     );
   }

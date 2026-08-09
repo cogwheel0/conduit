@@ -15,10 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 TextField _textFieldByKey(WidgetTester tester, String key) {
   return tester.widget<TextField>(
-    find.descendant(
-      of: find.byKey(Key(key)),
-      matching: find.byType(TextField),
-    ),
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField)),
   );
 }
 
@@ -127,6 +124,10 @@ void main() {
       find.byKey(const Key('workspace-prompt-content')),
       'Updated body',
     );
+    await tester.tap(
+      find.byKey(const Key('workspace-prompt-version-disclosure')),
+    );
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('workspace-prompt-commit-message')),
       'Tighten wording',
@@ -282,7 +283,10 @@ void main() {
     await tester.tap(find.byKey(const Key('prompt-history-diff-h2')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-prompt-diff-empty')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-prompt-diff-empty')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('restore loads snapshot content without changing command', (
@@ -645,10 +649,7 @@ class _FakePrompts extends WorkspacePrompts {
     required String fromId,
     required String toId,
   }) async {
-    return <String, dynamic>{
-      'content_diff': <String>[],
-      'name_changed': false,
-    };
+    return <String, dynamic>{'content_diff': <String>[], 'name_changed': false};
   }
 
   @override

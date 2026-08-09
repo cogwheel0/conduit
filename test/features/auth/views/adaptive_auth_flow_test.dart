@@ -14,6 +14,7 @@ import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/auth/widgets/adaptive_auth_scaffold.dart';
+import 'package:conduit/features/auth/widgets/connection_setup_components.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
@@ -159,7 +160,7 @@ void main() {
     TargetPlatform.iOS,
     TargetPlatform.android,
   ]) {
-    testWidgets('sign-in uses the adaptive auth selector on ${platform.name}', (
+    testWidgets('sign-in uses grouped auth methods on ${platform.name}', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(375, 812);
@@ -183,10 +184,15 @@ void main() {
         const ValueKey<String>('authentication-mode-selector'),
       );
       expect(selectorFinder, findsOneWidget);
-      final selector = tester.widget<AdaptiveSegmentedSelector<AuthMode>>(
-        selectorFinder,
+      final selector = tester.widget<ConnectionSection>(selectorFinder);
+      check(selector.title).equals('Sign in');
+      expect(
+        find.descendant(
+          of: selectorFinder,
+          matching: find.byType(ConnectionChoiceRow),
+        ),
+        findsNWidgets(3),
       );
-      check(selector.showIcons).isFalse();
       for (final field in tester.widgetList<AccessibleFormField>(
         find.byType(AccessibleFormField),
       )) {
@@ -205,16 +211,15 @@ void main() {
       check(renderedField.cupertinoDecoration).isNotNull();
       check(renderedField.cupertinoDecoration!.border).isNull();
 
-      if (platform == TargetPlatform.iOS) {
-        expect(
-          find.byType(CupertinoSlidingSegmentedControl<AuthMode>),
-          findsOneWidget,
-        );
-      } else {
-        expect(find.byType(SegmentedButton<AuthMode>), findsOneWidget);
-      }
+      expect(
+        find.byType(CupertinoSlidingSegmentedControl<AuthMode>),
+        findsNothing,
+      );
+      expect(find.byType(SegmentedButton<AuthMode>), findsNothing);
 
-      selector.onChanged(AuthMode.token);
+      await tester.tap(
+        find.descendant(of: selectorFinder, matching: find.text('Token')),
+      );
       await tester.pump();
 
       expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
@@ -304,12 +309,8 @@ void main() {
     check(renderedUrlField.cupertinoDecoration).isNotNull();
     check(renderedUrlField.cupertinoDecoration!.border).isNull();
 
-    final adaptiveToggle = tester.widget<AdaptiveButton>(toggle);
-    check(adaptiveToggle.padding).equals(EdgeInsets.zero);
-    check(adaptiveToggle.child).isA<Padding>();
-    check(
-      (adaptiveToggle.child! as Padding).padding,
-    ).equals(const EdgeInsets.symmetric(horizontal: Spacing.md));
+    final disclosure = tester.widget<ConnectionDisclosure>(toggle);
+    check(disclosure.contentPadding).equals(EdgeInsets.zero);
 
     expect(find.byIcon(Icons.hub), findsNothing);
     expect(find.byIcon(Icons.hub_outlined), findsNothing);
@@ -438,7 +439,7 @@ void main() {
         find.byKey(const ValueKey<String>('hermes-onboarding-back-button')),
         findsOneWidget,
       );
-      expect(find.byType(AccessibleFormField), findsNWidgets(3));
+      expect(find.byType(AccessibleFormField), findsNWidgets(2));
       expect(find.byType(ConduitInput), findsNothing);
       for (final field in tester.widgetList<AdaptiveTextFormField>(
         find.byType(AdaptiveTextFormField),
@@ -446,6 +447,11 @@ void main() {
         check(field.cupertinoDecoration).isNotNull();
         check(field.cupertinoDecoration!.border).isNull();
       }
+      await tester.tap(
+        find.byKey(const ValueKey<String>('hermes-memory-key-disclosure')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AccessibleFormField), findsNWidgets(3));
 
       final container = ProviderScope.containerOf(
         tester.element(find.byType(HermesSettingsPage)),
@@ -466,51 +472,61 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Direct onboarding has explicit back navigation and a sticky action',
-    (tester) async {
-      _usePhoneViewport(tester);
-      await _initializeBackendOnboardingStorage();
-      addTearDown(PreferencesStore.debugReset);
-      final harness = _BackendOnboardingHarness();
-      addTearDown(harness.dispose);
+  testWidgets('Direct onboarding opens the editor and returns to the chooser', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => PlatformUiCapabilities.debugPlatformOverride = null);
+    _usePhoneViewport(tester);
+    await _initializeBackendOnboardingStorage();
+    addTearDown(PreferencesStore.debugReset);
+    final harness = _BackendOnboardingHarness();
+    addTearDown(harness.dispose);
 
-      await tester.pumpWidget(
-        harness.build(initialLocation: Routes.backendChooser),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
 
-      await tester.tap(find.text('Connect directly'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect directly'));
+    await tester.pumpAndSettle();
 
-      final route = harness.router.routeInformationProvider.value.uri;
-      check(route.path).equals(Routes.directConnections);
-      check(route.queryParameters['onboarding']).equals('true');
-      check(harness.router.canPop()).isFalse();
-      expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
-      expect(find.byType(SettingsPageScaffold), findsNothing);
-      expect(
-        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
-        findsOneWidget,
-      );
-      final startButton = tester.widget<ConduitButton>(
-        find.byKey(const ValueKey<String>('finish-direct-onboarding-button')),
-      );
-      check(startButton.onPressed).isNull();
+    final route = harness.router.routeInformationProvider.value.uri;
+    check(route.path).equals('${Routes.directConnections}/new');
+    check(route.queryParameters['onboarding']).equals('true');
+    check(route.queryParameters['entry']).equals('chooser');
+    check(harness.router.canPop()).isFalse();
+    expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
+    expect(find.byType(SettingsPageScaffold), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('direct-editor-back-button')),
+      findsOneWidget,
+    );
+    expect(find.text('Connect a provider'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('direct-editor-save-button')),
+      findsOneWidget,
+    );
+    final navigationBarBottom = tester
+        .getBottomLeft(find.byType(CupertinoNavigationBar))
+        .dy;
+    final identityTitleTop = tester
+        .getTopLeft(find.text('Connect a provider'))
+        .dy;
+    check(identityTitleTop - navigationBarBottom).isLessOrEqual(Spacing.lg);
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
-      );
-      await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('direct-editor-back-button')),
+    );
+    await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.backendChooser);
-      expect(find.byType(BackendChooserPage), findsOneWidget);
-      await harness.unmount(tester);
-    },
-  );
+    check(
+      harness.router.routeInformationProvider.value.uri.path,
+    ).equals(Routes.backendChooser);
+    expect(find.byType(BackendChooserPage), findsOneWidget);
+    await harness.unmount(tester);
+  });
 
   testWidgets('Direct onboarding editor uses adaptive fields and navigation', (
     tester,
@@ -535,13 +551,12 @@ void main() {
       find.byKey(const ValueKey<String>('direct-editor-back-button')),
       findsOneWidget,
     );
-    expect(find.byType(AccessibleFormField), findsNWidgets(9));
+    expect(find.byType(AccessibleFormField), findsNWidgets(3));
     expect(find.byType(ConduitInput), findsNothing);
-    check(
-      tester
-          .widget<AnimatedCrossFade>(find.byType(AnimatedCrossFade))
-          .crossFadeState,
-    ).equals(CrossFadeState.showFirst);
+    expect(
+      find.byKey(const ValueKey<String>('direct-api-version-field')),
+      findsNothing,
+    );
     for (final selector in tester.widgetList<AdaptiveSegmentedSelector<Object>>(
       find.byType(AdaptiveSegmentedSelector),
     )) {
@@ -565,11 +580,11 @@ void main() {
     await tester.tap(advancedToggle);
     await tester.pumpAndSettle();
 
-    check(
-      tester
-          .widget<AnimatedCrossFade>(find.byType(AnimatedCrossFade))
-          .crossFadeState,
-    ).equals(CrossFadeState.showSecond);
+    expect(find.byType(AccessibleFormField), findsNWidgets(9));
+    expect(
+      find.byKey(const ValueKey<String>('direct-api-version-field')),
+      findsOneWidget,
+    );
     final addHeaderFinder = find.byKey(
       const ValueKey<String>('add-direct-custom-header-button'),
     );
@@ -813,6 +828,9 @@ class _BackendOnboardingHarness {
           builder: (_, state) => DirectConnectionEditorPage(
             profileId: state.pathParameters['id']!,
             isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+            entry: state.uri.queryParameters['entry'] == 'chooser'
+                ? DirectEditorEntry.chooser
+                : DirectEditorEntry.overview,
           ),
         ),
       ],

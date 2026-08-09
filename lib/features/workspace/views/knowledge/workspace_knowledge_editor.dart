@@ -15,6 +15,7 @@ import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_f
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_read_only_badge.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
@@ -62,6 +63,8 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
     if (id == null || id.isEmpty) {
       return WorkspaceEditorScaffold(
         title: l10n.workspaceKnowledge,
+        section: WorkspaceSection.knowledge,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         child: const SizedBox.shrink(),
       );
@@ -71,11 +74,15 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
     return detail.when(
       loading: () => WorkspaceEditorScaffold(
         title: l10n.workspaceKnowledge,
+        section: WorkspaceSection.knowledge,
+        mode: mode,
         isLoading: true,
         child: const SizedBox.shrink(),
       ),
       error: (_, _) => WorkspaceEditorScaffold(
         title: l10n.workspaceKnowledge,
+        section: WorkspaceSection.knowledge,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
         child: const SizedBox.shrink(),
@@ -84,6 +91,8 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
         if (value == null) {
           return WorkspaceEditorScaffold(
             title: l10n.workspaceKnowledge,
+            section: WorkspaceSection.knowledge,
+            mode: mode,
             errorMessage: l10n.workspaceLoadFailed,
             onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
             child: const SizedBox.shrink(),
@@ -378,11 +387,18 @@ class _WorkspaceKnowledgeFormState
 
     return WorkspaceEditorScaffold(
       title: title,
+      section: WorkspaceSection.knowledge,
+      mode: widget.mode,
       isDirty: _dirty && !_saving,
       readOnly: _fieldsReadOnly,
       isSaving: _saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
+      onEdit: _isDetail && _writeAccess && !_isExternal
+          ? () => context.push(
+              WorkspaceSection.knowledge.routes.editLocation(summary!.id),
+            )
+          : null,
       errorMessage: _errorMessage,
       actions: _buildActions(l10n),
       bodyPadding: EdgeInsets.zero,
@@ -416,34 +432,43 @@ class _WorkspaceKnowledgeFormState
                   ],
                 ),
               ),
-            if (_isDetail && _writeAccess && !_isExternal)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-knowledge-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.knowledge.routes.editLocation(summary!.id),
-                  ),
-                ),
+            WorkspaceGroupedSection(
+              title: l10n.workspaceKnowledge,
+              child: Column(
+                children: [
+                  if (_isDetail) ...[
+                    WorkspaceValueRow(
+                      key: const Key('workspace-knowledge-name'),
+                      label: l10n.workspaceKnowledgeName,
+                      value: _nameController.text,
+                      showDivider: true,
+                    ),
+                    WorkspaceValueRow(
+                      key: const Key('workspace-knowledge-description'),
+                      label: l10n.workspaceKnowledgeDescription,
+                      value: _descriptionController.text,
+                    ),
+                  ] else ...[
+                    ConduitInput(
+                      key: const Key('workspace-knowledge-name'),
+                      controller: _nameController,
+                      label: l10n.workspaceKnowledgeName,
+                      enabled: !_fieldsReadOnly,
+                      onChanged: (_) => _markDirty(),
+                    ),
+                    const SizedBox(height: Spacing.md),
+                    ConduitInput(
+                      key: const Key('workspace-knowledge-description'),
+                      controller: _descriptionController,
+                      label: l10n.workspaceKnowledgeDescription,
+                      enabled: !_fieldsReadOnly,
+                      minLines: 2,
+                      maxLines: 4,
+                      onChanged: (_) => _markDirty(),
+                    ),
+                  ],
+                ],
               ),
-            ConduitInput(
-              key: const Key('workspace-knowledge-name'),
-              controller: _nameController,
-              label: l10n.workspaceKnowledgeName,
-              enabled: !_fieldsReadOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitInput(
-              key: const Key('workspace-knowledge-description'),
-              controller: _descriptionController,
-              label: l10n.workspaceKnowledgeDescription,
-              enabled: !_fieldsReadOnly,
-              minLines: 2,
-              maxLines: 4,
-              onChanged: (_) => _markDirty(),
             ),
             const SizedBox(height: Spacing.xl),
             _accessTile(l10n),

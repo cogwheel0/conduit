@@ -7,6 +7,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../widgets/connection_setup_components.dart';
 
 /// First-run screen letting a fresh install choose its backend: a self-hosted
 /// Open WebUI, direct model APIs, or a Hermes Agent.
@@ -17,7 +18,7 @@ class BackendChooserPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final safePadding = MediaQuery.of(context).padding;
+    final safePadding = MediaQuery.viewPaddingOf(context);
 
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
@@ -30,7 +31,7 @@ class BackendChooserPage extends ConsumerWidget {
                 left: Spacing.pagePadding,
                 right: Spacing.pagePadding,
                 top: safePadding.top + Spacing.xxl,
-                bottom: Spacing.xxl,
+                bottom: safePadding.bottom + Spacing.xl,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -52,33 +53,56 @@ class BackendChooserPage extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: Spacing.xxl),
-                  _ChooserCard(
-                    leading: const _ProviderLogo(
-                      assetName: 'assets/icons/open_webui.png',
-                      kind: _ProviderLogoKind.openWebUI,
+                  ConnectionSection(
+                    title: '',
+                    padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                    child: Column(
+                      children: [
+                        ConnectionChoiceRow(
+                          leading: const _ProviderLogo(
+                            assetName: 'assets/icons/open_webui.png',
+                            kind: _ProviderLogoKind.openWebUI,
+                          ),
+                          title: l10n.backendChooserOpenWebUITitle,
+                          subtitle: l10n.backendChooserOpenWebUISubtitle,
+                          selected: false,
+                          showDivider: true,
+                          showSelectionIndicator: false,
+                          trailing: _chooserChevron(context),
+                          onTap: () => context.go(Routes.serverConnection),
+                        ),
+                        ConnectionChoiceRow(
+                          leading: const _DirectConnectionIcon(),
+                          title: l10n.backendChooserDirectTitle,
+                          subtitle: l10n.backendChooserDirectSubtitle,
+                          selected: false,
+                          showDivider: true,
+                          showSelectionIndicator: false,
+                          trailing: _chooserChevron(context),
+                          onTap: () => context.goNamed(
+                            RouteNames.directConnectionEditor,
+                            pathParameters: const {'id': 'new'},
+                            queryParameters: const {
+                              'onboarding': 'true',
+                              'entry': 'chooser',
+                            },
+                          ),
+                        ),
+                        ConnectionChoiceRow(
+                          leading: const _ProviderLogo(
+                            assetName: 'assets/icons/hermes_agent.png',
+                            kind: _ProviderLogoKind.hermes,
+                          ),
+                          title: l10n.backendChooserHermesTitle,
+                          subtitle: l10n.backendChooserHermesSubtitle,
+                          selected: false,
+                          showSelectionIndicator: false,
+                          trailing: _chooserChevron(context),
+                          onTap: () =>
+                              context.go(Routes.hermesSettings, extra: true),
+                        ),
+                      ],
                     ),
-                    title: l10n.backendChooserOpenWebUITitle,
-                    subtitle: l10n.backendChooserOpenWebUISubtitle,
-                    onTap: () => context.go(Routes.serverConnection),
-                  ),
-                  const SizedBox(height: Spacing.md),
-                  _ChooserCard(
-                    leading: const _DirectConnectionIcon(),
-                    title: l10n.backendChooserDirectTitle,
-                    subtitle: l10n.backendChooserDirectSubtitle,
-                    onTap: () => context.go(
-                      '${Routes.directConnections}?onboarding=true',
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.md),
-                  _ChooserCard(
-                    leading: const _ProviderLogo(
-                      assetName: 'assets/icons/hermes_agent.png',
-                      kind: _ProviderLogoKind.hermes,
-                    ),
-                    title: l10n.backendChooserHermesTitle,
-                    subtitle: l10n.backendChooserHermesSubtitle,
-                    onTap: () => context.go(Routes.hermesSettings, extra: true),
                   ),
                 ],
               ),
@@ -90,80 +114,13 @@ class BackendChooserPage extends ConsumerWidget {
   }
 }
 
-class _ChooserCard extends StatelessWidget {
-  const _ChooserCard({
-    required this.leading,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final Widget leading;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Semantics(
-      label: '$title. $subtitle',
-      button: true,
-      onTap: onTap,
-      excludeSemantics: true,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          child: Container(
-            padding: const EdgeInsets.all(Spacing.lg),
-            decoration: BoxDecoration(
-              color: theme.cardBackground,
-              borderRadius: BorderRadius.circular(AppBorderRadius.card),
-              border: Border.all(color: theme.cardBorder),
-            ),
-            child: Row(
-              children: [
-                leading,
-                const SizedBox(width: Spacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: AppTypography.standard.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        subtitle,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  context.usesCupertinoChrome
-                      ? CupertinoIcons.chevron_forward
-                      : Icons.chevron_right,
-                  color: theme.iconSecondary,
-                  size: IconSize.small,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+Widget _chooserChevron(BuildContext context) => Icon(
+  context.usesCupertinoChrome
+      ? CupertinoIcons.chevron_forward
+      : Icons.chevron_right,
+  color: context.conduitTheme.iconSecondary,
+  size: IconSize.small,
+);
 
 enum _ProviderLogoKind { openWebUI, hermes }
 

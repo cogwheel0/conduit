@@ -20,6 +20,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -89,6 +90,8 @@ class WorkspaceSkillEditorView extends ConsumerWidget {
     if (id == null || id.isEmpty) {
       return WorkspaceEditorScaffold(
         title: l10n.workspaceSkills,
+        section: WorkspaceSection.skills,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         child: const SizedBox.shrink(),
       );
@@ -98,11 +101,15 @@ class WorkspaceSkillEditorView extends ConsumerWidget {
     return detail.when(
       loading: () => WorkspaceEditorScaffold(
         title: l10n.workspaceSkills,
+        section: WorkspaceSection.skills,
+        mode: mode,
         isLoading: true,
         child: const SizedBox.shrink(),
       ),
       error: (_, _) => WorkspaceEditorScaffold(
         title: l10n.workspaceSkills,
+        section: WorkspaceSection.skills,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
         child: const SizedBox.shrink(),
@@ -111,6 +118,8 @@ class WorkspaceSkillEditorView extends ConsumerWidget {
         if (value == null) {
           return WorkspaceEditorScaffold(
             title: l10n.workspaceSkills,
+            section: WorkspaceSection.skills,
+            mode: mode,
             errorMessage: l10n.workspaceLoadFailed,
             onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
             child: const SizedBox.shrink(),
@@ -620,11 +629,18 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
     return WorkspaceEditorScaffold(
       title: title,
+      section: WorkspaceSection.skills,
+      mode: widget.mode,
       isDirty: _dirty && !_saving,
       readOnly: _fieldsReadOnly,
       isSaving: _saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
+      onEdit: _isDetail && _writeAccess
+          ? () => context.push(
+              WorkspaceSection.skills.routes.editLocation(summary!.id),
+            )
+          : null,
       errorMessage: _errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
@@ -639,23 +655,19 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            if (_isDetail && _writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-skill-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.skills.routes.editLocation(summary!.id),
-                  ),
-                ),
+            WorkspaceGroupedSection(
+              title: l10n.workspaceSkills,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _nameField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _idField(l10n),
+                  const SizedBox(height: Spacing.md),
+                  _descriptionField(l10n),
+                ],
               ),
-            _nameField(l10n),
-            const SizedBox(height: Spacing.md),
-            _idField(l10n),
-            const SizedBox(height: Spacing.md),
-            _descriptionField(l10n),
+            ),
             const SizedBox(height: Spacing.xl),
             _contentEditor(l10n),
             const SizedBox(height: Spacing.xl),
@@ -668,6 +680,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-skill-name'),
+        label: l10n.workspaceSkillName,
+        value: _nameController.text,
+      );
+    }
     return ConduitInput(
       key: const Key('workspace-skill-name'),
       controller: _nameController,
@@ -680,6 +699,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _idField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-skill-id'),
+        label: l10n.workspaceSkillId,
+        value: _idController.text,
+      );
+    }
     return WorkspaceLabeledField(
       helperText: l10n.workspaceSkillIdHint,
       child: ConduitInput(
@@ -694,6 +720,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-skill-description'),
+        label: l10n.workspaceSkillDescription,
+        value: _descriptionController.text,
+      );
+    }
     return ConduitInput(
       key: const Key('workspace-skill-description'),
       controller: _descriptionController,
@@ -707,6 +740,16 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Widget _contentEditor(AppLocalizations l10n) {
     final theme = context.conduitTheme;
+    if (_isDetail) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.workspaceSkillContent, style: theme.headingSmall),
+          const SizedBox(height: Spacing.sm),
+          _previewPane(l10n),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

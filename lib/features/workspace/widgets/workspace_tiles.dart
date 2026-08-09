@@ -56,6 +56,7 @@ class WorkspaceResourceTile extends StatelessWidget {
     this.onTap,
     this.selected = false,
     this.showChevron = true,
+    this.grouped = false,
   });
 
   /// Icon rendered inside a [WorkspaceIconBadge]; ignored when [leading] is
@@ -80,6 +81,7 @@ class WorkspaceResourceTile extends StatelessWidget {
   final VoidCallback? onTap;
   final bool selected;
   final bool showChevron;
+  final bool grouped;
 
   @override
   Widget build(BuildContext context) {
@@ -92,65 +94,81 @@ class WorkspaceResourceTile extends StatelessWidget {
             : WorkspaceIconBadge(icon: icon!, color: badgeColor));
     final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
 
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      onTap: onTap,
-      isSelected: selected,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (resolvedLeading != null) ...[
-            resolvedLeading,
-            const SizedBox(width: Spacing.md),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        style: profileTitleTextStyle(context),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (titleTrailing != null) ...[
-                      const SizedBox(width: Spacing.sm),
-                      titleTrailing!,
-                    ],
-                  ],
-                ),
-                if (hasSubtitle) ...[
-                  const SizedBox(height: Spacing.xs),
-                  Text(
-                    subtitle!,
-                    style: profileSubtitleTextStyle(context),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ],
-          if (showChevron && onTap != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
+    final content = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (resolvedLeading != null) ...[
+          resolvedLeading,
+          const SizedBox(width: Spacing.md),
         ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: profileTitleTextStyle(context),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (titleTrailing != null) ...[
+                    const SizedBox(width: Spacing.sm),
+                    titleTrailing!,
+                  ],
+                ],
+              ),
+              if (hasSubtitle) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  subtitle!,
+                  style: profileSubtitleTextStyle(context),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
+        if (showChevron && onTap != null) ...[
+          SizedBox(width: trailing == null ? Spacing.sm : Spacing.xs),
+          Icon(
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.chevron_right,
+              android: Icons.chevron_right,
+            ),
+            color: theme.iconSecondary,
+            size: IconSize.small,
+          ),
+        ],
+      ],
+    );
+    if (!grouped) {
+      return ConduitCard(
+        padding: const EdgeInsets.all(Spacing.md),
+        onTap: onTap,
+        isSelected: selected,
+        child: content,
+      );
+    }
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: context.motionDuration(AnimationDuration.microInteraction),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minHeight: TouchTarget.comfortable),
+          padding: const EdgeInsets.all(Spacing.md),
+          color: selected
+              ? theme.buttonPrimary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          child: content,
+        ),
       ),
     );
   }

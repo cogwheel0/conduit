@@ -24,6 +24,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -70,6 +71,8 @@ class WorkspaceModelEditorView extends ConsumerWidget {
     if (id == null || id.isEmpty) {
       return WorkspaceEditorScaffold(
         title: l10n.workspaceModels,
+        section: WorkspaceSection.models,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         child: const SizedBox.shrink(),
       );
@@ -79,11 +82,15 @@ class WorkspaceModelEditorView extends ConsumerWidget {
     return detail.when(
       loading: () => WorkspaceEditorScaffold(
         title: l10n.workspaceModels,
+        section: WorkspaceSection.models,
+        mode: mode,
         isLoading: true,
         child: const SizedBox.shrink(),
       ),
       error: (_, _) => WorkspaceEditorScaffold(
         title: l10n.workspaceModels,
+        section: WorkspaceSection.models,
+        mode: mode,
         errorMessage: l10n.workspaceLoadFailed,
         onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
         child: const SizedBox.shrink(),
@@ -92,6 +99,8 @@ class WorkspaceModelEditorView extends ConsumerWidget {
         if (value == null) {
           return WorkspaceEditorScaffold(
             title: l10n.workspaceModels,
+            section: WorkspaceSection.models,
+            mode: mode,
             errorMessage: l10n.workspaceLoadFailed,
             onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
             child: const SizedBox.shrink(),
@@ -143,6 +152,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
   bool _dirty = false;
   bool _saving = false;
+  bool _advancedExpanded = false;
   String? _errorMessage;
   String? _paramsError;
   // True once the user explicitly removes the avatar, so the editor renders the
@@ -590,11 +600,18 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
     return WorkspaceEditorScaffold(
       title: title,
+      section: WorkspaceSection.models,
+      mode: widget.mode,
       isDirty: _dirty && !_saving,
       readOnly: _readOnly,
       isSaving: _saving,
       canSave: !_readOnly,
       onSave: _readOnly ? null : _save,
+      onEdit: _isDetail && widget.writeAccess
+          ? () => context.push(
+              WorkspaceSection.models.routes.editLocation(_draft.id),
+            )
+          : null,
       errorMessage: _errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
@@ -609,103 +626,112 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            if (_isDetail && widget.writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-model-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.models.routes.editLocation(_draft.id),
-                  ),
-                ),
-              ),
             _profileImage(l10n),
             const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionBasics),
-            _textField(
-              key: 'workspace-model-id',
-              controller: _idController,
-              label: l10n.workspaceModelIdLabel,
-              enabled: !_readOnly && _isCreate,
-              onChanged: (_) => _markDirty(),
+            WorkspaceGroupedSection(
+              title: l10n.workspaceModelSectionBasics,
+              child: Column(
+                children: [
+                  _textField(
+                    key: 'workspace-model-id',
+                    controller: _idController,
+                    label: l10n.workspaceModelIdLabel,
+                    enabled: !_readOnly && _isCreate,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _baseModelSelector(l10n),
+                  _textField(
+                    key: 'workspace-model-name',
+                    controller: _nameController,
+                    label: l10n.workspaceModelName,
+                    enabled: !_readOnly,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _textField(
+                    key: 'workspace-model-description',
+                    controller: _descriptionController,
+                    label: l10n.workspaceModelDescription,
+                    enabled: !_readOnly,
+                    minLines: 2,
+                    maxLines: 4,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _tagsField(l10n),
+                ],
+              ),
             ),
-            _baseModelSelector(l10n),
-            _textField(
-              key: 'workspace-model-name',
-              controller: _nameController,
-              label: l10n.workspaceModelName,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-description',
-              controller: _descriptionController,
-              label: l10n.workspaceModelDescription,
-              enabled: !_readOnly,
-              minLines: 2,
-              maxLines: 4,
-              onChanged: (_) => _markDirty(),
-            ),
-            _tagsField(l10n),
             const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionPrompt),
-            _textField(
-              key: 'workspace-model-system',
-              controller: _systemController,
-              label: l10n.workspaceModelSystemPrompt,
-              enabled: !_readOnly,
-              minLines: 3,
-              maxLines: 10,
-              onChanged: (_) => _markDirty(),
+            WorkspaceGroupedSection(
+              title: l10n.workspaceModelSectionPrompt,
+              child: Column(
+                children: [
+                  _textField(
+                    key: 'workspace-model-system',
+                    controller: _systemController,
+                    label: l10n.workspaceModelSystemPrompt,
+                    enabled: !_readOnly,
+                    minLines: 3,
+                    maxLines: 10,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _suggestionPrompts(l10n),
+                ],
+              ),
             ),
-            _suggestionPrompts(l10n),
             const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAdvanced),
-            _textField(
-              key: 'workspace-model-stop',
-              controller: _stopController,
-              label: l10n.workspaceModelStopSequences,
-              helperText: l10n.workspaceModelStopHint,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _jsonField(
-              key: 'workspace-model-params',
-              controller: _paramsController,
-              label: l10n.workspaceModelAdvancedParams,
-              helperText: l10n.workspaceModelParamsHint,
-              hasError: _paramsError == 'params',
-            ),
-            _capabilities(l10n),
-            _textField(
-              key: 'workspace-model-terminal',
-              controller: _terminalController,
-              label: l10n.workspaceModelTerminal,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-tts',
-              controller: _ttsController,
-              label: l10n.workspaceModelTtsVoice,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-default-features',
-              controller: _defaultFeaturesController,
-              label: l10n.workspaceModelDefaultFeatures,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _jsonField(
-              key: 'workspace-model-builtin-tools',
-              controller: _builtinToolsController,
-              label: l10n.workspaceModelBuiltinTools,
-              helperText: l10n.workspaceModelParamsHint,
-              hasError: _paramsError == 'builtinTools',
+            WorkspaceDisclosureSection(
+              key: const Key('workspace-model-advanced-disclosure'),
+              title: l10n.workspaceModelSectionAdvanced,
+              expanded: _advancedExpanded,
+              onChanged: (value) => setState(() => _advancedExpanded = value),
+              child: Column(
+                children: [
+                  _textField(
+                    key: 'workspace-model-stop',
+                    controller: _stopController,
+                    label: l10n.workspaceModelStopSequences,
+                    helperText: l10n.workspaceModelStopHint,
+                    enabled: !_readOnly,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _jsonField(
+                    key: 'workspace-model-params',
+                    controller: _paramsController,
+                    label: l10n.workspaceModelAdvancedParams,
+                    helperText: l10n.workspaceModelParamsHint,
+                    hasError: _paramsError == 'params',
+                  ),
+                  _capabilities(l10n),
+                  _textField(
+                    key: 'workspace-model-terminal',
+                    controller: _terminalController,
+                    label: l10n.workspaceModelTerminal,
+                    enabled: !_readOnly,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _textField(
+                    key: 'workspace-model-tts',
+                    controller: _ttsController,
+                    label: l10n.workspaceModelTtsVoice,
+                    enabled: !_readOnly,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _textField(
+                    key: 'workspace-model-default-features',
+                    controller: _defaultFeaturesController,
+                    label: l10n.workspaceModelDefaultFeatures,
+                    enabled: !_readOnly,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  _jsonField(
+                    key: 'workspace-model-builtin-tools',
+                    controller: _builtinToolsController,
+                    label: l10n.workspaceModelBuiltinTools,
+                    helperText: l10n.workspaceModelParamsHint,
+                    hasError: _paramsError == 'builtinTools',
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: Spacing.xl),
             WorkspaceSectionHeader(
@@ -847,6 +873,15 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     int maxLines = 1,
     ValueChanged<String>? onChanged,
   }) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: Key(key),
+        label: label,
+        value: controller.text.trim().isEmpty
+            ? AppLocalizations.of(context)!.workspaceModelBaseModelNone
+            : controller.text,
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: WorkspaceLabeledField(
@@ -871,6 +906,15 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     String? helperText,
     bool hasError = false,
   }) {
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: Key(key),
+        label: label,
+        value: controller.text.trim().isEmpty
+            ? AppLocalizations.of(context)!.workspaceModelBaseModelNone
+            : controller.text,
+      );
+    }
     final theme = context.conduitTheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
@@ -956,6 +1000,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // a synthetic entry when the async options have not yet arrived or no longer
     // contain it), so an existing base model renders correctly from build one.
     final selectedId = _draft.baseModelId;
+    if (_isDetail) {
+      return WorkspaceValueRow(
+        key: const Key('workspace-model-base'),
+        label: l10n.workspaceModelBaseModel,
+        value: selectedId ?? l10n.workspaceModelBaseModelNone,
+      );
+    }
     final hasSelectedOption =
         selectedId == null || models.any((m) => m.id == selectedId);
     return Padding(
