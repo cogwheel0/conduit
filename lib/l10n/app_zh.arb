@@ -3091,5 +3091,9 @@
   "hermesConnectAction": "连接 Hermes",
   "hermesNoToolsets": "服务器未报告工具集。",
   "hermesServerStatusTitle": "服务器状态",
-  "hermesNoServerStatus": "服务器未报告状态。"
+  "hermesNoServerStatus": "服务器未报告状态。",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "再显示 {count} 行",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "收起"
 }

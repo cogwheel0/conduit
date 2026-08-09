@@ -8,6 +8,7 @@ import 'dart:io' show Platform;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -408,15 +409,17 @@ class _ComposerAttachmentKeyboardState
     final listItems = <Widget>[
       SizedBox(
         height: 94,
-        child: ListView.separated(
-          key: const ValueKey('composer-attachment-action-strip'),
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-          itemCount: attachments.length,
-          separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-          itemBuilder: (_, index) =>
-              SizedBox(width: 76, child: attachments[index]),
+        child: HorizontalOverflowFade(
+          child: ListView.separated(
+            key: const ValueKey('composer-attachment-action-strip'),
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+            itemCount: attachments.length,
+            separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
+            itemBuilder: (_, index) =>
+                SizedBox(width: 76, child: attachments[index]),
+          ),
         ),
       ),
       if (featureTiles.isNotEmpty) ...[

@@ -5268,5 +5268,13 @@
   "hermesServerStatusTitle": "Server status",
   "@hermesServerStatusTitle": {"description":"Section title above Hermes server diagnostic status."},
   "hermesNoServerStatus": "No status reported by the server.",
-  "@hermesNoServerStatus": {"description":"Empty state when a Hermes server reports no diagnostic status."}
+  "@hermesNoServerStatus": {"description":"Empty state when a Hermes server reports no diagnostic status."},
+  "sidebarHermesTab": "Hermes",
+  "@sidebarHermesTab": {
+    "description": "Compact label for the Hermes sidebar tab."
+  },
+  "markdownShowMoreLines": "Show {count} more lines",
+  "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
+  "markdownShowLess": "Show less",
+  "@markdownShowLess": {"description":"Action that collapses an expanded Markdown code block."}
 }

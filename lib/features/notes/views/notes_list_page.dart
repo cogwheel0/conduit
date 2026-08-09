@@ -16,6 +16,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -266,17 +267,31 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final paddedSlivers = <Widget>[
       SliverToBoxAdapter(child: SizedBox(height: topPadding + appBarHeight)),
       ...slivers,
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: MediaQuery.viewPaddingOf(context).bottom + Spacing.lg,
+        ),
+      ),
     ];
 
-    return ConduitRefreshIndicator(
+    final refreshable = ConduitRefreshIndicator(
       edgeOffset: topPadding + kTextTabBarHeight,
       onRefresh: _refreshNotes,
       child: CustomScrollView(
         controller: _scrollController,
+        primary: false,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: platformAlwaysScrollablePhysics(context),
         slivers: paddedSlivers,
       ),
     );
+    final primary = PrimaryScrollController(
+      controller: _scrollController,
+      child: refreshable,
+    );
+    return context.usesCupertinoChrome
+        ? CupertinoScrollbar(controller: _scrollController, child: primary)
+        : Scrollbar(controller: _scrollController, child: primary);
   }
 
   Widget _buildPinnedSectionHeader(BuildContext context, int count) {
@@ -313,7 +328,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               borderRadius: BorderRadius.circular(AppBorderRadius.pill),
             ),
             child: Text(
-              '$count',
+              LocaleDisplayFormatters.integer(context, count),
               style: AppTypography.labelMediumStyle.copyWith(
                 color: theme.buttonPrimary.withValues(alpha: 0.9),
                 fontWeight: FontWeight.w600,
@@ -360,7 +375,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           children: [
             AnimatedRotation(
               turns: isExpanded ? 0.25 : 0,
-              duration: AnimationDuration.fast,
+              duration: context.motionDuration(
+                AnimationDuration.microInteraction,
+              ),
               curve: Curves.easeOutCubic,
               child: Icon(
                 Platform.isIOS
@@ -387,7 +404,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                 borderRadius: BorderRadius.circular(AppBorderRadius.pill),
               ),
               child: Text(
-                '$count',
+                LocaleDisplayFormatters.integer(context, count),
                 style: AppTypography.labelMediumStyle.copyWith(
                   color: theme.buttonPrimary.withValues(alpha: 0.9),
                   fontWeight: FontWeight.w600,

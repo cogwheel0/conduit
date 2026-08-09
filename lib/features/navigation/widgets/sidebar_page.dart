@@ -15,6 +15,7 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../hermes/providers/hermes_providers.dart';
@@ -545,7 +546,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       if (hermesOnly || hermesEnabled)
         _SidebarTabDefinition(
           id: _SidebarTabId.hermes,
-          label: 'Hermes',
+          label: localizations.sidebarHermesTab,
           body: HermesSessionsTab(
             showBottomNavigationBar: hasBottomNavigationBar,
           ),
@@ -588,8 +589,17 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     );
 
     void onTap(int index) {
+      final selectedTab = tabDefinitions[index].id;
+      if (index == activeIndex) {
+        unawaited(
+          ref
+              .read(sidebarTabScrollRegistryProvider)
+              .scrollToTop(selectedTab.name),
+        );
+        return;
+      }
       ref.read(sidebarActiveTabProvider.notifier).set(index);
-      if (tabDefinitions[index].id != _SidebarTabId.terminal) {
+      if (selectedTab != _SidebarTabId.terminal) {
         ref
             .read(terminalSidebarPanelProvider.notifier)
             .setPanel(TerminalSidebarPanel.console);

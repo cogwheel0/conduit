@@ -21,13 +21,16 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';
+import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
@@ -49,6 +52,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     with AutomaticKeepAliveClientMixin {
   final Terminal _terminal = Terminal(maxLines: 5000);
   final TerminalController _terminalController = TerminalController();
+  final ScrollController _filesScrollController = ScrollController();
+  final ScrollController _portsScrollController = ScrollController();
+  late final SidebarTabScrollRegistry _scrollRegistry;
 
   ProviderSubscription<int>? _refreshSubscription;
   ProviderSubscription<String>? _sessionScopeSubscription;
@@ -79,6 +85,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     super.initState();
     _terminal.onOutput = _handleTerminalOutput;
     _terminal.onResize = _handleTerminalResize;
+    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
+    _scrollRegistry.register('terminal', owner: this, callback: _scrollToTop);
 
     _refreshSubscription = ref.listenManual<int>(
       terminalBrowserRefreshTokenProvider,
@@ -186,7 +194,22 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     unawaited(_channel?.sink.close() ?? Future<void>.value());
     _channelSubscription = null;
     _channel = null;
+    _scrollRegistry.unregister('terminal', owner: this);
+    _filesScrollController.dispose();
+    _portsScrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _scrollToTop() async {
+    final controller = _filesScrollController.hasClients
+        ? _filesScrollController
+        : _portsScrollController;
+    if (!controller.hasClients) return;
+    await controller.animateTo(
+      0,
+      duration: context.motionDuration(AnimationDuration.fast),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _reloadBrowserState() async {
@@ -1143,8 +1166,11 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
               if (ports.isNotEmpty) ...[
                 const SizedBox(width: Spacing.xs),
                 Text(
-                  '(${ports.length})',
-                  style: labelStyle.copyWith(fontWeight: FontWeight.w500),
+                  '(${LocaleDisplayFormatters.integer(context, ports.length)})',
+                  style: labelStyle.copyWith(
+                    fontWeight: FontWeight.w500,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ],
             ],
@@ -1206,19 +1232,29 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       else if (filteredEntries.isEmpty)
         SliverToBoxAdapter(child: _buildInfoCard(l10n.terminalNoFiles))
       else
-        SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: Spacing.xxs),
-              child: _buildEntryTile(filteredEntries[index]),
-            );
-          }, childCount: filteredEntries.length),
+        DecoratedSliver(
+          decoration: BoxDecoration(
+            color: theme.surfaceContainer.withValues(alpha: 0.68),
+            borderRadius: BorderRadius.circular(AppBorderRadius.card),
+            border: Border.all(color: theme.cardBorder),
+          ),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildEntryTile(
+                filteredEntries[index],
+                showDivider: index != filteredEntries.length - 1,
+              ),
+              childCount: filteredEntries.length,
+            ),
+          ),
         ),
       SliverToBoxAdapter(child: SizedBox(height: bottomPad)),
     ];
 
     return CustomScrollView(
       key: const PageStorageKey<String>('terminal_tab_files_scroll'),
+      controller: _filesScrollController,
+      primary: false,
       physics: platformAlwaysScrollablePhysics(context),
       slivers: slivers,
     );
@@ -1232,6 +1268,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       constraints: const BoxConstraints(maxHeight: 180),
       child: CustomScrollView(
         key: const PageStorageKey<String>('terminal_tab_ports_scroll'),
+        controller: _portsScrollController,
+        primary: false,
         shrinkWrap: true,
         physics: platformAlwaysScrollablePhysics(context),
         slivers: [
@@ -1251,13 +1289,24 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           else if (ports.isEmpty)
             SliverToBoxAdapter(child: _buildInfoCard(l10n.terminalNoPorts))
           else
-            SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xxs),
-                  child: _buildPortTile(l10n: l10n, port: ports[index]),
-                );
-              }, childCount: ports.length),
+            DecoratedSliver(
+              decoration: BoxDecoration(
+                color: context.conduitTheme.surfaceContainer.withValues(
+                  alpha: 0.68,
+                ),
+                borderRadius: BorderRadius.circular(AppBorderRadius.card),
+                border: Border.all(color: context.conduitTheme.cardBorder),
+              ),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => _buildPortTile(
+                    l10n: l10n,
+                    port: ports[index],
+                    showDivider: index != ports.length - 1,
+                  ),
+                  childCount: ports.length,
+                ),
+              ),
             ),
         ],
       ),
@@ -1416,7 +1465,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     final parentPath = parentTerminalPath(currentPath);
     final canGoUp = canInteract && parentPath != currentPath;
 
-    return ConduitCard(
+    return InsetGroupedSection(
       padding: const EdgeInsets.all(Spacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1533,78 +1582,70 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     ];
   }
 
-  Widget _buildEntryTile(TerminalFileEntry entry) {
+  Widget _buildEntryTile(TerminalFileEntry entry, {required bool showDivider}) {
     final l10n = AppLocalizations.of(context)!;
     final subtitle = entry.isDirectory
         ? entry.path
         : [
-            if (entry.size != null) '${entry.size} B',
+            if (entry.size != null)
+              LocaleDisplayFormatters.bytes(context, entry.size!),
             if (entry.modifiedAt != null)
               MaterialLocalizations.of(
                 context,
               ).formatShortDate(entry.modifiedAt!),
           ].join(' • ');
 
-    return ConduitCard(
-      padding: EdgeInsets.zero,
-      child: Material(
-        type: MaterialType.transparency,
-        child: AdaptiveListTile(
-          hideBottomDivider: true,
-          backgroundColor: Colors.transparent,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
-          ),
-          onTap: () => _openEntry(entry),
-          leading: Icon(
-            entry.isDirectory
-                ? UiUtils.folderIcon
-                : UiUtils.platformIcon(
-                    ios: CupertinoIcons.doc,
-                    android: Icons.insert_drive_file_outlined,
-                  ),
-          ),
-          title: Text(
-            sanitizeUtf16(entry.displayName),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: subtitle.isEmpty
-              ? null
-              : Text(
-                  sanitizeUtf16(subtitle),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(
+                bottom: BorderSide(
+                  color: context.conduitTheme.dividerColor,
+                  width: BorderWidth.thin,
                 ),
-          trailing: AdaptiveTooltip(
-            message: l10n.more,
-            child: AdaptivePopupMenuButton.icon<String>(
-              icon: conduitAdaptivePopupMenuIcon(
-                iosSymbol: 'ellipsis',
-                materialIcon: Icons.more_horiz_rounded,
-              ),
-              items: _buildEntryMenuItems(l10n: l10n, entry: entry),
-              onSelected: (_, selected) async {
-                switch (selected.value) {
-                  case 'download':
-                    await _downloadEntry(entry);
-                    break;
-                  case 'rename':
-                    await _renameEntry(entry);
-                    break;
-                  case 'delete':
-                    await _deleteEntry(entry);
-                    break;
-                  case null:
-                    return;
-                }
-              },
-              buttonStyle: conduitSupportsNativeGlass()
-                  ? PopupButtonStyle.glass
-                  : PopupButtonStyle.plain,
-              size: TouchTarget.medium,
+              )
+            : null,
+      ),
+      child: UtilityRow(
+        padding: const EdgeInsets.all(Spacing.md),
+        onTap: () => _openEntry(entry),
+        leading: Icon(
+          entry.isDirectory
+              ? UiUtils.folderIcon
+              : UiUtils.platformIcon(
+                  ios: CupertinoIcons.doc,
+                  android: Icons.insert_drive_file_outlined,
+                ),
+        ),
+        title: sanitizeUtf16(entry.displayName),
+        subtitle: subtitle.isEmpty ? null : sanitizeUtf16(subtitle),
+        trailing: AdaptiveTooltip(
+          message: l10n.more,
+          child: AdaptivePopupMenuButton.icon<String>(
+            icon: conduitAdaptivePopupMenuIcon(
+              iosSymbol: 'ellipsis',
+              materialIcon: Icons.more_horiz_rounded,
             ),
+            items: _buildEntryMenuItems(l10n: l10n, entry: entry),
+            onSelected: (_, selected) async {
+              switch (selected.value) {
+                case 'download':
+                  await _downloadEntry(entry);
+                  break;
+                case 'rename':
+                  await _renameEntry(entry);
+                  break;
+                case 'delete':
+                  await _deleteEntry(entry);
+                  break;
+                case null:
+                  return;
+              }
+            },
+            buttonStyle: conduitSupportsNativeGlass()
+                ? PopupButtonStyle.glass
+                : PopupButtonStyle.plain,
+            size: TouchTarget.medium,
           ),
         ),
       ),
@@ -1614,40 +1655,42 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   Widget _buildPortTile({
     required AppLocalizations l10n,
     required TerminalListeningPort port,
+    required bool showDivider,
   }) {
     final subtitleParts = <String>[
       if (port.process != null && port.process!.trim().isNotEmpty)
         port.process!,
       if (port.pid != null) 'PID ${port.pid}',
     ];
-    return ConduitCard(
-      padding: EdgeInsets.zero,
-      child: Material(
-        type: MaterialType.transparency,
-        child: AdaptiveListTile(
-          hideBottomDivider: true,
-          backgroundColor: Colors.transparent,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(
+                bottom: BorderSide(
+                  color: context.conduitTheme.dividerColor,
+                  width: BorderWidth.thin,
+                ),
+              )
+            : null,
+      ),
+      child: UtilityRow(
+        padding: const EdgeInsets.all(Spacing.md),
+        onTap: () => _openPortInBrowser(port),
+        leading: Icon(
+          UiUtils.platformIcon(
+            ios: CupertinoIcons.globe,
+            android: Icons.lan_outlined,
           ),
-          onTap: () => _openPortInBrowser(port),
-          leading: Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.globe,
-              android: Icons.lan_outlined,
-            ),
-          ),
-          title: Text('localhost:${port.port}'),
-          subtitle: subtitleParts.isEmpty
-              ? null
-              : Text(sanitizeUtf16(subtitleParts.join(' • '))),
-          trailing: _buildAdaptiveIconActionButton(
-            tooltip: l10n.terminalOpenInBrowserAction,
-            iosIcon: CupertinoIcons.arrow_up_right,
-            materialIcon: Icons.open_in_new_rounded,
-            onPressed: () => _openPortInBrowser(port),
-          ),
+        ),
+        title: 'localhost:${port.port}',
+        subtitle: subtitleParts.isEmpty
+            ? null
+            : sanitizeUtf16(subtitleParts.join(' • ')),
+        trailing: _buildAdaptiveIconActionButton(
+          tooltip: l10n.terminalOpenInBrowserAction,
+          iosIcon: CupertinoIcons.arrow_up_right,
+          materialIcon: Icons.open_in_new_rounded,
+          onPressed: () => _openPortInBrowser(port),
         ),
       ),
     );
@@ -1730,7 +1773,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
   Widget _buildInfoCard(String message) {
     final theme = context.conduitTheme;
-    return ConduitCard(
+    return InsetGroupedSection(
       padding: const EdgeInsets.all(Spacing.md),
       child: Text(
         sanitizeUtf16(message),

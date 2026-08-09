@@ -104,6 +104,7 @@ class ThemedSheets {
     required BuildContext context,
     required WidgetBuilder builder,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     final theme = context.conduitTheme;
     final backgroundColor = theme.surfaceBackground;
     final platform = Theme.of(context).platform;
@@ -201,6 +202,7 @@ class ThemedSheets {
     double? elevation,
     Clip? clipBehavior,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     final resolvedShape = shape ?? roundedShapeFor(context);
     return _showTracked<T>(
       context: context,
@@ -257,6 +259,7 @@ class ThemedSheets {
     Color? barrierColor,
     RouteSettings? routeSettings,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     return _showTracked<T>(
       context: context,
       present: (coverage) {

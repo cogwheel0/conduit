@@ -1,11 +1,10 @@
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_sheets.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 const settingsSectionGap = SizedBox(height: Spacing.lg);
 
@@ -138,79 +137,24 @@ class SettingsSelectorTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.card);
-    final background = selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            theme.surfaceBackground,
-          )
-        : Colors.transparent;
-    final titleStyle = AppTypography.bodyMediumStyle.copyWith(
-      color: selected ? theme.textPrimary : theme.textSecondary,
-      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-    );
-    final subtitleStyle = AppTypography.bodySmallStyle.copyWith(
-      color: theme.textSecondary,
-    );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: borderRadius,
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm,
-            vertical: Spacing.xs,
-          ),
-          child: Row(
-            children: [
-              if (leading != null) ...[
-                leading!,
-                const SizedBox(width: Spacing.sm),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: titleStyle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (subtitle != null && subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle!,
-                        style: subtitleStyle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (trailing != null) ...[
-                const SizedBox(width: Spacing.xs),
-                trailing!,
-              ],
-              if (selected) ...[
-                const SizedBox(width: Spacing.xs),
-                Icon(
+    return UtilityRow(
+      title: title,
+      subtitle: subtitle,
+      leading: leading,
+      selected: selected,
+      onTap: onTap,
+      trailing:
+          trailing ??
+          (selected
+              ? Icon(
                   Icons.check,
                   color: theme.buttonPrimary,
                   size: IconSize.medium,
-                ),
-              ],
-            ],
-          ),
-        ),
+                )
+              : null),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.xs,
       ),
     );
   }
@@ -260,27 +204,7 @@ class SettingsPageScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final topPadding = Theme.of(context).platform == TargetPlatform.iOS
-        ? mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg
-        : Spacing.lg;
-
-    return AdaptiveRouteShell(
-      backgroundColor: context.conduitTheme.surfaceBackground,
-      appBar: AdaptiveAppBar(title: title),
-      body: ListView(
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        padding: EdgeInsets.fromLTRB(
-          Spacing.pagePadding,
-          topPadding,
-          Spacing.pagePadding,
-          Spacing.pagePadding + mediaQuery.padding.bottom,
-        ),
-        children: children,
-      ),
-    );
+    return UtilityPageScaffold(title: title, children: children);
   }
 }
 

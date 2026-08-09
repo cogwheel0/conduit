@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +7,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_jobs_sheet.dart';
@@ -13,13 +15,44 @@ import 'hermes_session_tile.dart';
 
 /// Sidebar tab listing the user's Hermes server-side conversations, with one
 /// compact entry point for scheduled agents when the server exposes jobs.
-class HermesSessionsTab extends ConsumerWidget {
+class HermesSessionsTab extends ConsumerStatefulWidget {
   const HermesSessionsTab({super.key, this.showBottomNavigationBar = true});
 
   final bool showBottomNavigationBar;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HermesSessionsTab> createState() => _HermesSessionsTabState();
+}
+
+class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab> {
+  final ScrollController _scrollController = ScrollController();
+  late final SidebarTabScrollRegistry _scrollRegistry;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
+    _scrollRegistry.register('hermes', owner: this, callback: _scrollToTop);
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: context.motionDuration(AnimationDuration.fast),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollRegistry.unregister('hermes', owner: this);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final caps = ref.watch(hermesCapabilitiesProvider).asData?.value;
     final showJobs = caps?.jobs ?? true;
     final sessionsAsync = ref.watch(hermesSessionsProvider);
@@ -28,35 +61,44 @@ class HermesSessionsTab extends ConsumerWidget {
     // so InkWell / IconButton / CustomizationTile work inside this tab.
     // Top/bottom insets + the refresh edge offset mirror the Chats tab so the
     // content clears the native sidebar chrome and bottom tab bar.
+    final scroll = CustomScrollView(
+      controller: _scrollController,
+      primary: false,
+      physics: platformAlwaysScrollablePhysics(context),
+      slivers: [
+        SliverToBoxAdapter(
+          child: SizedBox(height: sidebarTabContentTopPadding(context)),
+        ),
+        if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
+        ..._sessionSlivers(context, sessionsAsync),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: sidebarTabContentBottomPadding(
+              context,
+              includeNativeBottomBar: widget.showBottomNavigationBar,
+            ),
+          ),
+        ),
+      ],
+    );
+    final refreshable = ConduitRefreshIndicator(
+      edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
+      onRefresh: () async {
+        if (showJobs) ref.invalidate(hermesJobsProvider);
+        ref.invalidate(hermesSessionsProvider);
+        await ref.read(hermesSessionsProvider.future);
+      },
+      child: scroll,
+    );
+    final primary = PrimaryScrollController(
+      controller: _scrollController,
+      child: refreshable,
+    );
     return Material(
       type: MaterialType.transparency,
-      child: ConduitRefreshIndicator(
-        edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
-        onRefresh: () async {
-          if (showJobs) ref.invalidate(hermesJobsProvider);
-          ref.invalidate(hermesSessionsProvider);
-          await ref.read(hermesSessionsProvider.future);
-        },
-        child: CustomScrollView(
-          physics: platformAlwaysScrollablePhysics(context),
-          slivers: [
-            SliverToBoxAdapter(
-              child: SizedBox(height: sidebarTabContentTopPadding(context)),
-            ),
-            if (showJobs)
-              const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
-            ..._sessionSlivers(context, sessionsAsync),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: sidebarTabContentBottomPadding(
-                  context,
-                  includeNativeBottomBar: showBottomNavigationBar,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: context.usesCupertinoChrome
+          ? CupertinoScrollbar(controller: _scrollController, child: primary)
+          : Scrollbar(controller: _scrollController, child: primary),
     );
   }
 

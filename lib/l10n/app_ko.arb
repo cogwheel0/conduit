@@ -2869,5 +2869,9 @@
   "hermesConnectAction": "Hermes 연결",
   "hermesNoToolsets": "서버에서 보고한 도구 세트가 없습니다.",
   "hermesServerStatusTitle": "서버 상태",
-  "hermesNoServerStatus": "서버에서 보고한 상태가 없습니다."
+  "hermesNoServerStatus": "서버에서 보고한 상태가 없습니다.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "{count}줄 더 보기",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "간단히 보기"
 }

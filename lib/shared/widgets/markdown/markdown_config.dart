@@ -718,42 +718,59 @@ class ConduitMarkdown {
 
         final placeholder = Container(
           width: double.infinity,
-          height: 200,
           decoration: BoxDecoration(
-            color: theme.surfaceBackground.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            color: theme.surfaceContainer.withValues(alpha: 0.68),
           ),
           child: Center(
-            child: CircularProgressIndicator(
-              color: theme.loadingIndicator,
-              strokeWidth: 2,
+            child: SizedBox.square(
+              dimension: IconSize.medium,
+              child: CircularProgressIndicator(
+                color: theme.loadingIndicator,
+                strokeWidth: 2,
+              ),
             ),
           ),
         );
         return Container(
           margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 480),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: Image(
-              image: RasterMediaPolicy.resizeProvider(
-                CachedNetworkImageProvider(
-                  url,
-                  cacheKey: cacheKey,
-                  cacheManager: cacheManager,
-                  headers: headers,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image(
+                image: RasterMediaPolicy.resizeProvider(
+                  CachedNetworkImageProvider(
+                    url,
+                    cacheKey: cacheKey,
+                    cacheManager: cacheManager,
+                    headers: headers,
+                  ),
+                  decodeTarget,
                 ),
-                decodeTarget,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.contain,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  final loaded = wasSynchronouslyLoaded || frame != null;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      placeholder,
+                      AnimatedOpacity(
+                        opacity: loaded ? 1 : 0,
+                        duration: context.motionDuration(
+                          AnimationDuration.microInteraction,
+                        ),
+                        curve: Curves.easeOutCubic,
+                        child: child,
+                      ),
+                    ],
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) =>
+                    Center(child: buildImageError(context, theme)),
               ),
-              width: double.infinity,
-              fit: BoxFit.contain,
-              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                return wasSynchronouslyLoaded || frame != null
-                    ? child
-                    : placeholder;
-              },
-              errorBuilder: (context, error, stackTrace) =>
-                  buildImageError(context, theme),
             ),
           ),
         );
@@ -1349,7 +1366,11 @@ class _CollapseToggle extends StatelessWidget {
             AnimatedSwitcher(
               duration: context.motionDuration(AnimationDuration.fast),
               child: Text(
-                isCollapsed ? 'Show $hiddenLineCount more lines' : 'Show less',
+                isCollapsed
+                    ? AppLocalizations.of(
+                        context,
+                      )!.markdownShowMoreLines(hiddenLineCount)
+                    : AppLocalizations.of(context)!.markdownShowLess,
                 key: ValueKey(isCollapsed),
                 style: markdownStyle.codeChrome.copyWith(
                   color: labelColor,

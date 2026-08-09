@@ -3091,5 +3091,9 @@
   "hermesConnectAction": "Hermes verbinden",
   "hermesNoToolsets": "De server heeft geen toolsets gemeld.",
   "hermesServerStatusTitle": "Serverstatus",
-  "hermesNoServerStatus": "De server heeft geen status gemeld."
+  "hermesNoServerStatus": "De server heeft geen status gemeld.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "Nog {count} regels tonen",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "Minder tonen"
 }

@@ -9,11 +9,14 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/providers/sidebar_providers.dart';
+import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../providers/channel_providers.dart';
 import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
@@ -31,6 +34,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   static final _channelRoutePattern = RegExp(r'^/channel/(.+)$');
 
   String? _activeChannelId;
+  final ScrollController _scrollController = ScrollController();
+  late final SidebarTabScrollRegistry _scrollRegistry;
 
   @override
   bool get wantKeepAlive => true;
@@ -39,6 +44,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   void initState() {
     super.initState();
     _activeChannelId = _parseChannelId(_currentPath);
+    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
+    _scrollRegistry.register('channels', owner: this, callback: _scrollToTop);
     NavigationService.router.routeInformationProvider.addListener(
       _onRouteChanged,
     );
@@ -49,7 +56,18 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
+    _scrollRegistry.unregister('channels', owner: this);
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: context.motionDuration(AnimationDuration.fast),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   String get _currentPath =>
@@ -251,30 +269,44 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               );
             }
 
-            return RefreshIndicator.adaptive(
+            final list = ListView.builder(
+              controller: _scrollController,
+              primary: false,
+              itemCount: filtered.length,
+              padding: EdgeInsets.only(
+                top: sidebarTabContentTopPadding(context),
+                bottom: sidebarTabContentBottomPadding(context),
+              ),
+              itemBuilder: (context, index) {
+                final ch = filtered[index];
+                return _ChannelTile(
+                  channel: ch,
+                  selected: ch.id == _activeChannelId,
+                  onTap: () => _onChannelTap(ch),
+                  actions: _buildChannelActions(ch),
+                  firstInGroup: index == 0,
+                  lastInGroup: index == filtered.length - 1,
+                );
+              },
+            );
+            final refreshable = RefreshIndicator.adaptive(
               edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
               onRefresh: () async {
                 ConduitHaptics.lightImpact();
                 await ref.read(channelsListProvider.notifier).refresh();
               },
-              child: ListView.builder(
-                itemExtent: 72,
-                itemCount: filtered.length,
-                padding: EdgeInsets.only(
-                  top: sidebarTabContentTopPadding(context),
-                  bottom: sidebarTabContentBottomPadding(context),
-                ),
-                itemBuilder: (context, index) {
-                  final ch = filtered[index];
-                  return _ChannelTile(
-                    channel: ch,
-                    selected: ch.id == _activeChannelId,
-                    onTap: () => _onChannelTap(ch),
-                    actions: _buildChannelActions(ch),
-                  );
-                },
-              ),
+              child: list,
             );
+            final primary = PrimaryScrollController(
+              controller: _scrollController,
+              child: refreshable,
+            );
+            return context.usesCupertinoChrome
+                ? CupertinoScrollbar(
+                    controller: _scrollController,
+                    child: primary,
+                  )
+                : Scrollbar(controller: _scrollController, child: primary);
           },
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (err, _) => Center(
@@ -303,12 +335,16 @@ class _ChannelTile extends ConsumerWidget {
     required this.selected,
     required this.onTap,
     required this.actions,
+    required this.firstInGroup,
+    required this.lastInGroup,
   });
 
   final Channel channel;
   final bool selected;
   final VoidCallback onTap;
   final List<ConduitContextMenuAction> actions;
+  final bool firstInGroup;
+  final bool lastInGroup;
 
   IconData _channelIcon() {
     if (channel.isDm) return Icons.person_outline;
@@ -342,78 +378,61 @@ class _ChannelTile extends ConsumerWidget {
     return ConduitContextMenu(
       actions: actions,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Container(
           decoration: BoxDecoration(
             color: background,
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          ),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(
-                    _channelIcon(),
-                    color: selected ? theme.textPrimary : theme.textSecondary,
-                    size: IconSize.listItem,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _channelDisplayName(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.sidebarTitleStyle.copyWith(
-                            color: selected
-                                ? theme.textPrimary
-                                : theme.textSecondary,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                        if (channel.description.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            channel.description,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.sidebarSupportingStyle
-                                .copyWith(color: theme.textSecondary),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (unread > 0) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        unread > 99 ? '99+' : '$unread',
-                        style: AppTypography.sidebarBadgeStyle.copyWith(
-                          color: Theme.of(context).colorScheme.onPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+            borderRadius: BorderRadius.vertical(
+              top: firstInGroup
+                  ? const Radius.circular(AppBorderRadius.card)
+                  : Radius.zero,
+              bottom: lastInGroup
+                  ? const Radius.circular(AppBorderRadius.card)
+                  : Radius.zero,
             ),
+            border: lastInGroup
+                ? null
+                : Border(
+                    bottom: BorderSide(
+                      color: theme.dividerColor,
+                      width: BorderWidth.thin,
+                    ),
+                  ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: UtilityRow(
+            onTap: onTap,
+            leading: Icon(
+              _channelIcon(),
+              color: selected ? theme.textPrimary : theme.textSecondary,
+              size: IconSize.listItem,
+            ),
+            title: _channelDisplayName(),
+            subtitle: channel.description.isEmpty ? null : channel.description,
+            selected: selected,
+            padding: const EdgeInsets.all(14),
+            trailing: unread <= 0
+                ? null
+                : Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      unread > 99
+                          ? '99+'
+                          : LocaleDisplayFormatters.integer(context, unread),
+                      style: AppTypography.sidebarBadgeStyle.copyWith(
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),

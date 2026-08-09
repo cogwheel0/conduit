@@ -29,6 +29,7 @@ import 'drawer_section_notifiers.dart';
 import 'folder_icon.dart';
 import '../providers/conversation_selection_provider.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 
 /// Chevron / expand icon for section headers — matches folder row disclosure.
 IconData _chatsDrawerDisclosureIcon(bool isExpanded) {
@@ -56,6 +57,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   bool get wantKeepAlive => true;
   late final TextEditingController _sidebarSearchController;
   final ScrollController _listController = ScrollController();
+  late final SidebarTabScrollRegistry _scrollRegistry;
   Timer? _debounce;
   String _query = '';
   bool _isLoadingMoreConversations = false;
@@ -68,6 +70,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   void initState() {
     super.initState();
     _listController.addListener(_onListScrolled);
+    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
+    _scrollRegistry.register('chats', owner: this, callback: _scrollToTop);
     _sidebarSearchController = ref.read(sidebarSearchFieldControllerProvider);
     _sidebarSearchController.addListener(_onSearchChanged);
   }
@@ -95,6 +99,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         await ref.read(foldersProvider.future);
       } catch (_) {}
     } catch (_) {}
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_listController.hasClients) return;
+    await _listController.animateTo(
+      0,
+      duration: context.motionDuration(AnimationDuration.fast),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _refreshEmptyStateChats() async {
@@ -293,10 +306,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers: paddedSlivers,
     );
 
-    final refreshableScroll = RefreshIndicator.noSpinner(
-      onRefresh: _refreshChats,
-      onStatusChange: _handleRefreshStatusChange,
-      child: scroll,
+    final refreshableScroll = PrimaryScrollController(
+      controller: _listController,
+      child: RefreshIndicator.noSpinner(
+        onRefresh: _refreshChats,
+        onStatusChange: _handleRefreshStatusChange,
+        child: scroll,
+      ),
     );
 
     if (Platform.isIOS) {
@@ -428,6 +444,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     _refreshDoneHideTimer?.cancel();
     _listController.removeListener(_onListScrolled);
     _sidebarSearchController.removeListener(_onSearchChanged);
+    _scrollRegistry.unregister('chats', owner: this);
     _listController.dispose();
     super.dispose();
   }

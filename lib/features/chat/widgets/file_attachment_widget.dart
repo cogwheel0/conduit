@@ -12,6 +12,7 @@ import '../../../core/services/media_upload_controller.dart';
 import '../../../core/services/raster_media_policy.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
 
 const Set<String> _previewableImageExtensions = <String>{
   '.jpg',
@@ -59,21 +60,23 @@ class FileAttachmentWidget extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: Spacing.sm),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var index = 0; index < placeholderCount; index++)
-                  const Padding(
-                    padding: EdgeInsets.only(right: Spacing.sm),
-                    child: _FileAttachmentSkeletonCard(),
-                  ),
-                for (final fileState in attachedFiles)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Spacing.sm),
-                    child: _FileAttachmentCard(fileState: fileState),
-                  ),
-              ],
+          HorizontalOverflowFade(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < placeholderCount; index++)
+                    const Padding(
+                      padding: EdgeInsets.only(right: Spacing.sm),
+                      child: _FileAttachmentSkeletonCard(),
+                    ),
+                  for (final fileState in attachedFiles)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Spacing.sm),
+                      child: _FileAttachmentCard(fileState: fileState),
+                    ),
+                ],
+              ),
             ),
           ),
         ],

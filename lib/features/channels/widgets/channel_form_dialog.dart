@@ -86,6 +86,8 @@ Future<ChannelFormResult?> showChannelFormDialog(
               TextField(
                 controller: nameController,
                 autofocus: true,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
                 style: AppTypography.bodyMediumStyle.copyWith(
                   color: theme.textPrimary,
                 ),

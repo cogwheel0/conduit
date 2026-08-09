@@ -3091,5 +3091,9 @@
   "hermesConnectAction": "Подключить Hermes",
   "hermesNoToolsets": "Сервер не сообщил о наборах инструментов.",
   "hermesServerStatusTitle": "Состояние сервера",
-  "hermesNoServerStatus": "Сервер не сообщил о состоянии."
+  "hermesNoServerStatus": "Сервер не сообщил о состоянии.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "Показать ещё {count, plural, one{{count} строку} few{{count} строки} many{{count} строк} other{{count} строк}}",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "Показать меньше"
 }

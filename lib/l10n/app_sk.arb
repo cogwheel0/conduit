@@ -4746,5 +4746,9 @@
   "hermesConnectAction": "Pripojiť Hermes",
   "hermesNoToolsets": "Server neohlásil žiadne sady nástrojov.",
   "hermesServerStatusTitle": "Stav servera",
-  "hermesNoServerStatus": "Server neohlásil žiadny stav."
+  "hermesNoServerStatus": "Server neohlásil žiadny stav.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "{count, plural, one{Zobraziť 1 ďalší riadok} few{Zobraziť ďalšie {count} riadky} other{Zobraziť ďalších {count} riadkov}}",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "Zobraziť menej"
 }

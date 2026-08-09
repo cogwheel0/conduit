@@ -3091,5 +3091,9 @@
   "hermesConnectAction": "Connecter Hermes",
   "hermesNoToolsets": "Aucun ensemble d’outils signalé par le serveur.",
   "hermesServerStatusTitle": "État du serveur",
-  "hermesNoServerStatus": "Aucun état signalé par le serveur."
+  "hermesNoServerStatus": "Aucun état signalé par le serveur.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "Afficher {count} lignes de plus",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "Afficher moins"
 }

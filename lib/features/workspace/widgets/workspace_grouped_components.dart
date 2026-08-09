@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 /// Calm, inset-grouped surface shared by Workspace collections and editors.
 class WorkspaceGroupedSection extends StatelessWidget {
@@ -20,49 +21,11 @@ class WorkspaceGroupedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (title != null && title!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-            child: Text(
-              title!,
-              style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        if (description != null && description!.isNotEmpty) ...[
-          const SizedBox(height: Spacing.xs),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-            child: Text(
-              description!,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textTertiary,
-              ),
-            ),
-          ),
-        ],
-        if (title != null || description != null)
-          const SizedBox(height: Spacing.sm),
-        Container(
-          clipBehavior: Clip.antiAlias,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.68),
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            border: Border.all(
-              color: theme.cardBorder,
-              width: BorderWidth.thin,
-            ),
-          ),
-          child: Material(type: MaterialType.transparency, child: child),
-        ),
-      ],
+    return InsetGroupedSection(
+      title: title,
+      description: description,
+      padding: padding,
+      child: child,
     );
   }
 }
@@ -75,26 +38,7 @@ class WorkspaceGroupedList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final divider = context.conduitTheme.dividerColor;
-    return WorkspaceGroupedSection(
-      padding: EdgeInsets.zero,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var index = 0; index < children.length; index++) ...[
-            children[index],
-            if (index != children.length - 1)
-              Divider(
-                height: BorderWidth.thin,
-                thickness: BorderWidth.thin,
-                indent: Spacing.md,
-                endIndent: Spacing.md,
-                color: divider,
-              ),
-          ],
-        ],
-      ),
-    );
+    return InsetGroupedList(children: children);
   }
 }
 
@@ -114,37 +58,11 @@ class WorkspaceIdentityHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox.square(dimension: TouchTarget.comfortable, child: leading),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.titleLargeStyle.copyWith(
-                  color: theme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (subtitle != null && subtitle!.isNotEmpty) ...[
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  subtitle!,
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
-      ],
+    return UtilityIdentityHeader(
+      leading: leading,
+      title: title,
+      subtitle: subtitle,
+      trailing: trailing,
     );
   }
 }
@@ -210,58 +128,18 @@ class WorkspaceValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
-        decoration: showDivider
-            ? BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: theme.dividerColor,
-                    width: BorderWidth.thin,
-                  ),
-                ),
-              )
-            : null,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 2,
-              child: Text(
-                label,
-                style: AppTypography.bodyMediumStyle.copyWith(
-                  color: theme.textPrimary,
-                ),
-              ),
-            ),
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              flex: 3,
-              child: SelectableText(
-                value,
-                textAlign: TextAlign.end,
-                style: AppTypography.bodyMediumStyle.copyWith(
-                  color: theme.textSecondary,
-                ),
-              ),
-            ),
-            if (onTap != null) ...[
-              const SizedBox(width: Spacing.sm),
-              Icon(
-                context.usesCupertinoChrome
-                    ? CupertinoIcons.chevron_right
-                    : Icons.chevron_right,
-                size: IconSize.small,
-                color: theme.iconSecondary,
-              ),
-            ],
-          ],
+    final row = UtilityValueRow(label: label, value: value, onTap: onTap);
+    if (!showDivider) return row;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: context.conduitTheme.dividerColor,
+            width: BorderWidth.thin,
+          ),
         ),
       ),
+      child: row,
     );
   }
 }
@@ -284,90 +162,12 @@ class WorkspaceDisclosureSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    return WorkspaceGroupedSection(
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          Semantics(
-            button: true,
-            expanded: expanded,
-            child: InkWell(
-              onTap: () => onChanged(!expanded),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.comfortable,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(Spacing.md),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: AppTypography.bodyMediumStyle.copyWith(
-                                color: theme.textPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (subtitle != null && subtitle!.isNotEmpty) ...[
-                              const SizedBox(height: Spacing.xxs),
-                              Text(
-                                subtitle!,
-                                style: AppTypography.bodySmallStyle.copyWith(
-                                  color: theme.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      AnimatedRotation(
-                        turns: expanded ? 0.5 : 0,
-                        duration: duration,
-                        curve: Curves.easeOutCubic,
-                        child: Icon(
-                          context.usesCupertinoChrome
-                              ? CupertinoIcons.chevron_down
-                              : Icons.expand_more,
-                          size: IconSize.medium,
-                          color: theme.iconSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          ClipRect(
-            child: AnimatedSize(
-              duration: duration,
-              curve: Curves.easeOutCubic,
-              alignment: Alignment.topCenter,
-              child: expanded
-                  ? Column(
-                      children: [
-                        Divider(
-                          height: BorderWidth.thin,
-                          thickness: BorderWidth.thin,
-                          color: theme.dividerColor,
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(Spacing.md),
-                          child: child,
-                        ),
-                      ],
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ),
-        ],
-      ),
+    return UtilityDisclosureSection(
+      title: title,
+      subtitle: subtitle,
+      expanded: expanded,
+      onChanged: onChanged,
+      child: child,
     );
   }
 }

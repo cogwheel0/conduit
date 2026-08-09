@@ -4431,5 +4431,9 @@
   "hermesConnectAction": "Hermes に接続",
   "hermesNoToolsets": "サーバーからツールセットが報告されていません。",
   "hermesServerStatusTitle": "サーバーの状態",
-  "hermesNoServerStatus": "サーバーから状態が報告されていません。"
+  "hermesNoServerStatus": "サーバーから状態が報告されていません。",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "あと{count}行を表示",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "表示を減らす"
 }

@@ -8,6 +8,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 enum ConnectionAttemptPhase { idle, connecting, connected, failed }
 
@@ -50,35 +51,11 @@ class ConnectionIdentityHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox.square(dimension: TouchTarget.comfortable, child: mark),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.titleLargeStyle.copyWith(
-                  color: theme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: Spacing.xs),
-              Text(
-                subtitle,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: theme.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
-      ],
+    return UtilityIdentityHeader(
+      leading: mark,
+      title: title,
+      subtitle: subtitle,
+      trailing: trailing,
     );
   }
 }
@@ -148,49 +125,11 @@ class ConnectionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (title.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-            child: Text(
-              title,
-              style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-        if (description != null && description!.isNotEmpty) ...[
-          const SizedBox(height: Spacing.xs),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-            child: Text(
-              description!,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textTertiary,
-              ),
-            ),
-          ),
-        ],
-        if (title.isNotEmpty || (description?.isNotEmpty ?? false))
-          const SizedBox(height: Spacing.sm),
-        Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.68),
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            border: Border.all(
-              color: theme.cardBorder,
-              width: BorderWidth.thin,
-            ),
-          ),
-          child: Material(type: MaterialType.transparency, child: child),
-        ),
-      ],
+    return InsetGroupedSection(
+      title: title,
+      description: description,
+      padding: padding,
+      child: child,
     );
   }
 }
@@ -349,52 +288,12 @@ class ConnectionValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Semantics(
-      readOnly: true,
-      label: '$label. $value',
-      excludeSemantics: true,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-        child: Row(
-          children: [
-            if (leading != null) ...[
-              leading!,
-              const SizedBox(width: Spacing.md),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: theme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  SelectableText(
-                    value,
-                    maxLines: 2,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: monospace
-                          ? AppTypography.monospaceFontFamily
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (trailing != null) ...[
-              const SizedBox(width: Spacing.sm),
-              trailing!,
-            ],
-          ],
-        ),
-      ),
+    return UtilityValueRow(
+      label: label,
+      value: value,
+      leading: leading,
+      trailing: trailing,
+      monospace: monospace,
     );
   }
 }
@@ -481,110 +380,16 @@ class ConnectionDisclosure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        type: MaterialType.transparency,
-        child: Column(
-          children: [
-            Semantics(
-              button: true,
-              expanded: expanded,
-              child: InkWell(
-                onTap: () => onChanged(!expanded),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minHeight: TouchTarget.comfortable,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(Spacing.md),
-                    child: Row(
-                      children: [
-                        if (leading != null) ...[
-                          leading!,
-                          const SizedBox(width: Spacing.sm),
-                        ],
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: AppTypography.bodyMediumStyle.copyWith(
-                                  color: theme.textPrimary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (subtitle != null && subtitle!.isNotEmpty) ...[
-                                const SizedBox(height: Spacing.xxs),
-                                Text(
-                                  subtitle!,
-                                  style: AppTypography.bodySmallStyle.copyWith(
-                                    color: theme.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.sm),
-                        AnimatedRotation(
-                          turns: expanded ? 0.5 : 0,
-                          duration: duration,
-                          curve: Curves.easeOutCubic,
-                          child: Icon(
-                            context.usesCupertinoChrome
-                                ? CupertinoIcons.chevron_down
-                                : Icons.expand_more,
-                            color: theme.iconSecondary,
-                            size: IconSize.medium,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (context.reduceMotion)
-              if (expanded) _buildContent(theme) else const SizedBox.shrink()
-            else
-              ClipRect(
-                child: AnimatedSize(
-                  duration: duration,
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.topCenter,
-                  child: expanded
-                      ? _buildContent(theme)
-                      : const SizedBox.shrink(),
-                ),
-              ),
-          ],
-        ),
-      ),
+    return UtilityDisclosureSection(
+      title: title,
+      subtitle: subtitle,
+      leading: leading,
+      expanded: expanded,
+      onChanged: onChanged,
+      contentPadding: contentPadding,
+      child: child,
     );
   }
-
-  Widget _buildContent(ConduitThemeExtension theme) => Column(
-    children: [
-      Divider(
-        height: BorderWidth.thin,
-        thickness: BorderWidth.thin,
-        color: theme.dividerColor,
-      ),
-      SizedBox(
-        width: double.infinity,
-        child: Padding(padding: contentPadding, child: child),
-      ),
-    ],
-  );
 }
 
 class ConnectionAttemptBanner extends StatelessWidget {
