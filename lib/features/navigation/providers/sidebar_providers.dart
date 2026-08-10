@@ -51,8 +51,10 @@ class SidebarActiveTab extends _$SidebarActiveTab {
   int? pendingLegacyIndex() => _legacyIndex;
 
   void set(SidebarTabId tab) {
+    final mustNotifyLegacyClear = _legacyIndex != null && state == tab;
     _legacyIndex = null;
     state = tab;
+    if (mustNotifyLegacyClear) ref.notifyListeners();
     unawaited(
       PreferencesStore.put(
         PreferenceKeys.sidebarActiveTab,

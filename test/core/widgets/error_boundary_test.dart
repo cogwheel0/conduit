@@ -74,6 +74,26 @@ void main() {
       ErrorWidget.builder = originalErrorWidgetBuilder;
     });
 
+    test('disposing an older registration keeps the newer handler active', () {
+      final older = ErrorBoundaryHandlerRegistration((_, _) {})..install();
+      final newer = ErrorBoundaryHandlerRegistration((_, _) {})..install();
+      final newerHandler = FlutterError.onError;
+
+      older.dispose();
+      final newerHandlerStillActive = identical(
+        FlutterError.onError,
+        newerHandler,
+      );
+      newer.dispose();
+      final originalHandlerRestored = identical(
+        FlutterError.onError,
+        originalFlutterErrorOnError,
+      );
+
+      expect(newerHandlerStillActive, isTrue);
+      expect(originalHandlerRestored, isTrue);
+    });
+
     testWidgets('global builder renders a friendly nonblank fallback', (
       tester,
     ) async {

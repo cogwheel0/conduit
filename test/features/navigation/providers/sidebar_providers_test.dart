@@ -102,6 +102,27 @@ void main() {
     check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(1);
   });
 
+  test(
+    'clearing a legacy index notifies when the tab value is unchanged',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        PreferenceKeys.sidebarActiveTab: 0,
+      });
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifications = <SidebarTabId>[];
+      container.listen(
+        sidebarActiveTabProvider,
+        (_, next) => notifications.add(next),
+      );
+
+      container.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.chats);
+
+      check(notifications).deepEquals([SidebarTabId.chats]);
+    },
+  );
+
   test('tablet sidebar width restores, clamps, and persists', () async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarTabletWidth: 440.0,

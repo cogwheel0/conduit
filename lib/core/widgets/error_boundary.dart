@@ -108,6 +108,48 @@ class ConduitFriendlyErrorView extends StatelessWidget {
   }
 }
 
+/// Owns one link in the process-global [FlutterError.onError] chain.
+///
+/// Exposed for lifecycle tests; app code should use [ErrorBoundary].
+@visibleForTesting
+final class ErrorBoundaryHandlerRegistration {
+  ErrorBoundaryHandlerRegistration(this.onError) {
+    _installed = _handle;
+  }
+
+  static final Set<ErrorBoundaryHandlerRegistration> _active = {};
+
+  final void Function(
+    FlutterErrorDetails details,
+    void Function(FlutterErrorDetails details)? previous,
+  )
+  onError;
+  void Function(FlutterErrorDetails details)? _previous;
+  late final void Function(FlutterErrorDetails details) _installed;
+
+  void _handle(FlutterErrorDetails details) {
+    onError(details, _previous);
+  }
+
+  void install() {
+    _previous = FlutterError.onError;
+    _active.add(this);
+    FlutterError.onError = _installed;
+  }
+
+  void dispose() {
+    for (final registration in _active) {
+      if (identical(registration._previous, _installed)) {
+        registration._previous = _previous;
+      }
+    }
+    _active.remove(this);
+    if (identical(FlutterError.onError, _installed)) {
+      FlutterError.onError = _previous;
+    }
+  }
+}
+
 /// Error boundary widget that catches and handles errors in child widgets
 class ErrorBoundary extends ConsumerStatefulWidget {
   final Widget child;
@@ -133,7 +175,7 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
   Object? _error;
   StackTrace? _stackTrace;
   bool _hasError = false;
-  void Function(FlutterErrorDetails details)? _previousOnError;
+  late final ErrorBoundaryHandlerRegistration _handlerRegistration;
 
   bool _shouldIgnoreError(Object error) {
     final errorString = error.toString();
@@ -168,26 +210,23 @@ class _ErrorBoundaryState extends ConsumerState<ErrorBoundary> {
   void initState() {
     super.initState();
 
-    // Set up Flutter error handling for this widget
-    _previousOnError = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
+    _handlerRegistration = ErrorBoundaryHandlerRegistration((
+      details,
+      previous,
+    ) {
       // Check if this is a harmless error we should completely ignore
       if (_shouldIgnoreError(details.exception)) {
         return; // Don't forward or handle
       }
-      // Forward to any previously registered handler to avoid interfering
-      _previousOnError?.call(details);
+      previous?.call(details);
       // Defer handling to avoid setState during build
       _scheduleHandleError(details.exception, details.stack);
-    };
+    })..install();
   }
 
   @override
   void dispose() {
-    // Restore previous error handler to avoid leaking global state
-    if (FlutterError.onError != _previousOnError) {
-      FlutterError.onError = _previousOnError;
-    }
+    _handlerRegistration.dispose();
     super.dispose();
   }
 
