@@ -294,6 +294,11 @@ void main() {
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
+    final notesLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.notes),
+    );
+    check(notesLayer.opacity).equals(1);
+
     await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pump();
 
