@@ -100,7 +100,9 @@ class ConduitFriendlyErrorView extends StatelessWidget {
                       : 0,
                 ),
                 child: SizedBox(
-                  width: constraints.maxWidth,
+                  width: constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : null,
                   child: Center(child: content),
                 ),
               ),
