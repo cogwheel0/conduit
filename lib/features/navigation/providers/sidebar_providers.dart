@@ -13,15 +13,22 @@ part 'sidebar_providers.g.dart';
 
 SidebarTabId resolveSidebarTabSelection({
   required SidebarTabId persistedTab,
-  required int? legacyIndex,
   required List<SidebarTabId> visibleTabs,
 }) {
   if (visibleTabs.isEmpty) return SidebarTabId.chats;
-  if (legacyIndex != null) {
-    return visibleTabs[legacyIndex.clamp(0, visibleTabs.length - 1)];
-  }
   return visibleTabs.contains(persistedTab) ? persistedTab : visibleTabs.first;
 }
+
+const _legacySidebarTabOrder = <SidebarTabId>[
+  SidebarTabId.chats,
+  SidebarTabId.hermes,
+  SidebarTabId.notes,
+  SidebarTabId.terminal,
+  SidebarTabId.channels,
+];
+
+SidebarTabId sidebarTabIdFromLegacyIndex(int index) =>
+    _legacySidebarTabOrder[index.clamp(0, _legacySidebarTabOrder.length - 1)];
 
 /// Stable identity of the active sidebar tab.
 ///
@@ -36,6 +43,7 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     final raw = PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab);
     if (raw is int) {
       _legacyIndex = raw.clamp(0, 4);
+      return sidebarTabIdFromLegacyIndex(_legacyIndex!);
     }
     final stored = raw is String ? raw : null;
     return SidebarTabId.values.firstWhere(

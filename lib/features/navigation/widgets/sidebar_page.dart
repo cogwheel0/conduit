@@ -537,11 +537,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final legacyIndex = activeTabNotifier.pendingLegacyIndex();
     final selectedTab = resolveSidebarTabSelection(
       persistedTab: persistedTab,
-      legacyIndex: legacyIndex,
       visibleTabs: visibleTabIds,
     );
     if (legacyIndex != null) {
-      _scheduleLegacySelectionMigration(selectedTab);
+      _scheduleLegacySelectionMigration(persistedTab);
     }
     final activeIndex = visibleTabIds.indexOf(selectedTab);
     final isTerminalTabSelected =
