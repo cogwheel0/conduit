@@ -40,7 +40,7 @@ void main() {
     ).equals(SidebarTabId.channels.name);
   });
 
-  test('legacy numeric tab positions safely fall back to chats', () async {
+  test('legacy numeric tab positions migrate against visible tabs', () async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 2,
     });
@@ -48,7 +48,25 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    check(container.read(sidebarActiveTabProvider)).equals(SidebarTabId.chats);
+    final controller = container.read(sidebarActiveTabProvider.notifier);
+    final selected = resolveSidebarTabSelection(
+      persistedTab: container.read(sidebarActiveTabProvider),
+      legacyIndex: controller.pendingLegacyIndex(),
+      visibleTabs: const [
+        SidebarTabId.chats,
+        SidebarTabId.notes,
+        SidebarTabId.channels,
+      ],
+    );
+    check(selected).equals(SidebarTabId.channels);
+
+    controller.migrateLegacySelection(selected);
+    check(
+      container.read(sidebarActiveTabProvider),
+    ).equals(SidebarTabId.channels);
+    check(
+      PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
+    ).equals(SidebarTabId.channels.name);
   });
 
   test('tablet sidebar width restores, clamps, and persists', () async {

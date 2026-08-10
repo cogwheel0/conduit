@@ -11,21 +11,45 @@ import 'sidebar_tab_scroll_registry.dart';
 
 part 'sidebar_providers.g.dart';
 
+SidebarTabId resolveSidebarTabSelection({
+  required SidebarTabId persistedTab,
+  required int? legacyIndex,
+  required List<SidebarTabId> visibleTabs,
+}) {
+  if (visibleTabs.isEmpty) return SidebarTabId.chats;
+  if (legacyIndex != null) {
+    return visibleTabs[legacyIndex.clamp(0, visibleTabs.length - 1)];
+  }
+  return visibleTabs.contains(persistedTab) ? persistedTab : visibleTabs.first;
+}
+
 /// Stable identity of the active sidebar tab.
 ///
 /// Persisting the identity instead of its visible position prevents optional
 /// tabs from changing which feature is restored on the next launch.
 @Riverpod(keepAlive: true)
 class SidebarActiveTab extends _$SidebarActiveTab {
+  int? _legacyIndex;
+
   @override
   SidebarTabId build() {
-    final stored = PreferencesStore.get<String>(
-      PreferenceKeys.sidebarActiveTab,
-    );
+    final raw = PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab);
+    if (raw is int) {
+      _legacyIndex = raw.clamp(0, 4);
+    }
+    final stored = raw is String ? raw : null;
     return SidebarTabId.values.firstWhere(
       (tab) => tab.name == stored,
       orElse: () => SidebarTabId.chats,
     );
+  }
+
+  int? pendingLegacyIndex() => _legacyIndex;
+
+  void migrateLegacySelection(SidebarTabId tab) {
+    if (_legacyIndex == null) return;
+    _legacyIndex = null;
+    set(tab);
   }
 
   void set(SidebarTabId tab) {
