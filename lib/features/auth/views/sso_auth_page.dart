@@ -177,7 +177,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (_serverUrl == null) {
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)?.serverAddressUnavailable;
+        _error = AppLocalizations.of(context)!.serverAddressUnavailable;
         _isLoading = false;
       });
       return;
@@ -193,7 +193,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (!mounted) return;
     if (!webViewDataReady) {
       setState(() {
-        _error = AppLocalizations.of(context)?.ssoAuthFailed;
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
         _shouldRenderWebView = false;
       });
@@ -208,7 +208,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (!mounted) return;
     if (!cookiesCleared) {
       setState(() {
-        _error = AppLocalizations.of(context)?.ssoAuthFailed;
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
         _shouldRenderWebView = false;
       });
@@ -243,7 +243,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)?.ssoAuthFailed;
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
       });
     }
@@ -592,9 +592,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     });
 
     // Capture localized error message before async gap
-    final ssoFailedMessage =
-        AppLocalizations.of(context)?.ssoAuthFailed ??
-        'SSO authentication failed';
+    final ssoFailedMessage = AppLocalizations.of(context)!.ssoAuthFailed;
 
     try {
       final authActions = ref.read(authActionsProvider);
@@ -716,7 +714,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
           }
           if (!cookiesCleared) {
             setState(() {
-              _error = AppLocalizations.of(context)?.ssoAuthFailed;
+              _error = AppLocalizations.of(context)!.ssoAuthFailed;
               _isLoading = false;
             });
             releaseSessionReset();
@@ -749,7 +747,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)?.ssoAuthFailed;
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
       });
     }

@@ -32,7 +32,11 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab> {
   void initState() {
     super.initState();
     _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register('hermes', owner: this, callback: _scrollToTop);
+    _scrollRegistry.register(
+      SidebarTabId.hermes.name,
+      owner: this,
+      callback: _scrollToTop,
+    );
   }
 
   Future<void> _scrollToTop() async {
@@ -46,7 +50,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab> {
 
   @override
   void dispose() {
-    _scrollRegistry.unregister('hermes', owner: this);
+    _scrollRegistry.unregister(SidebarTabId.hermes.name, owner: this);
     _scrollController.dispose();
     super.dispose();
   }

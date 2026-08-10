@@ -624,6 +624,32 @@ void main() {
     expect(committedWidths, [340]);
   });
 
+  testWidgets('tablet divider coalesces repeated keyboard commits', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump(const Duration(milliseconds: 199));
+    expect(committedWidths, isEmpty);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('tablet-drawer-panel'))).width,
+      360,
+    );
+    expect(committedWidths, [360]);
+  });
+
   testWidgets('dismissed tablet drawer releases chrome after closing', (
     tester,
   ) async {

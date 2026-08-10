@@ -1,6 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+part 'sidebar_tab_scroll_registry.g.dart';
+
+enum SidebarTabId { chats, hermes, terminal, notes, channels }
 
 typedef SidebarScrollToTop = FutureOr<void> Function();
 
@@ -29,6 +33,6 @@ class SidebarTabScrollRegistry {
   }
 }
 
-final sidebarTabScrollRegistryProvider = Provider<SidebarTabScrollRegistry>(
-  (ref) => SidebarTabScrollRegistry(),
-);
+@Riverpod(keepAlive: true)
+SidebarTabScrollRegistry sidebarTabScrollRegistry(Ref ref) =>
+    SidebarTabScrollRegistry();

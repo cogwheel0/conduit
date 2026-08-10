@@ -20,20 +20,29 @@ class ConduitFriendlyErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final theme = context.conduitTheme;
+    // ErrorWidget.builder may be invoked because an inherited widget failed.
+    // Keep this last-resort surface independent of theme, localization, and
+    // MediaQuery lookups so the fallback itself cannot repeat that failure.
+    final dark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
+    final background = dark ? const Color(0xFF111214) : const Color(0xFFF7F7F8);
+    final foreground = dark ? const Color(0xFFF5F5F7) : const Color(0xFF1D1D1F);
+    final secondary = dark ? const Color(0xFFA7A7AC) : const Color(0xFF6E6E73);
+    const errorColor = Color(0xFFFF453A);
     final debugDetails =
         '${details.exceptionAsString()}\n${details.stack ?? ''}';
 
-    return Material(
-      color: theme.surfaceBackground,
-      child: SafeArea(
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColoredBox(
+        color: background,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compact = constraints.maxHeight < 300;
             final content = Semantics(
               liveRegion: true,
-              label: l10n?.errorMessage ?? 'Something went wrong',
+              label: 'Something went wrong',
               child: Padding(
                 padding: const EdgeInsets.all(Spacing.pagePadding),
                 child: ConstrainedBox(
@@ -44,14 +53,17 @@ class ConduitFriendlyErrorView extends StatelessWidget {
                       Icon(
                         Icons.error_outline_rounded,
                         size: compact ? IconSize.medium : IconSize.xxl,
-                        color: theme.error,
+                        color: errorColor,
                       ),
                       SizedBox(height: compact ? Spacing.sm : Spacing.lg),
                       Text(
-                        l10n?.errorMessage ??
-                            'Something went wrong. Please try again.',
+                        'Something went wrong. Please try again.',
                         textAlign: TextAlign.center,
-                        style: compact ? theme.bodyMedium : theme.headingSmall,
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: compact ? 14 : 18,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       if (kDebugMode) ...[
                         const SizedBox(height: Spacing.sm),
@@ -62,11 +74,13 @@ class ConduitFriendlyErrorView extends StatelessWidget {
                             );
                             ConduitHaptics.selectionClick();
                           },
-                          child: SelectableText(
+                          child: Text(
                             debugDetails,
                             maxLines: compact ? 2 : 8,
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.textSecondary,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: secondary,
+                              fontSize: 12,
                               fontFamily: AppTypography.monospaceFontFamily,
                             ),
                           ),

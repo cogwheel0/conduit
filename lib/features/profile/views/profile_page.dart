@@ -16,7 +16,6 @@ import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../../../core/services/api_service.dart';
@@ -91,16 +90,12 @@ class ProfilePage extends ConsumerWidget {
   ) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
-    final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
     final hasOpenWebUiAccount = userData != null && api != null;
     final items = _buildSettingsItems(
       context,
       ref,
-      userData: userData,
-      api: api,
-      hermesOnly: hermesOnly,
       directPrimary: directPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
@@ -116,12 +111,12 @@ class ProfilePage extends ConsumerWidget {
       ),
       children: [
         if (hasOpenWebUiAccount) ...[
-          InsetGroupedList(children: [items.first]),
+          InsetGroupedList(
+            children: [_buildProfileHeader(context, userData, api)],
+          ),
           const SizedBox(height: Spacing.sm),
         ],
-        InsetGroupedList(
-          children: hasOpenWebUiAccount ? items.skip(1).toList() : items,
-        ),
+        InsetGroupedList(children: items),
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
         if (hasOpenWebUiAccount) const SizedBox(height: Spacing.xl),
@@ -266,9 +261,6 @@ class ProfilePage extends ConsumerWidget {
   List<Widget> _buildSettingsItems(
     BuildContext context,
     WidgetRef ref, {
-    required dynamic userData,
-    required ApiService? api,
-    required bool hermesOnly,
     required bool directPrimary,
     required bool hasOpenWebUiAccount,
   }) {
@@ -276,7 +268,6 @@ class ProfilePage extends ConsumerWidget {
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
     return [
-      if (hasOpenWebUiAccount) _buildProfileHeader(context, userData, api),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(

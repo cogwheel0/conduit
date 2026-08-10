@@ -54,6 +54,7 @@ void main() {
     check(
       container.read(sidebarTabletWidthProvider),
     ).equals(maximumSidebarTabletWidth);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     check(
       PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth),
     ).equals(maximumSidebarTabletWidth);
@@ -62,11 +63,22 @@ void main() {
     check(
       container.read(sidebarTabletWidthProvider),
     ).equals(minimumSidebarTabletWidth);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    check(
+      PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth),
+    ).equals(minimumSidebarTabletWidth);
+
+    final clampedContainer = ProviderContainer();
+    addTearDown(clampedContainer.dispose);
+    check(
+      clampedContainer.read(sidebarTabletWidthProvider),
+    ).equals(minimumSidebarTabletWidth);
 
     controller.reset();
     check(
       container.read(sidebarTabletWidthProvider),
     ).equals(defaultSidebarTabletWidth);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
 
     final restoredContainer = ProviderContainer();
     addTearDown(restoredContainer.dispose);

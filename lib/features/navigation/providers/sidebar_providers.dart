@@ -35,11 +35,18 @@ class SidebarActiveTab extends _$SidebarActiveTab {
 /// reversible.
 @Riverpod(keepAlive: true)
 class SidebarTabletWidth extends _$SidebarTabletWidth {
+  Timer? _persistTimer;
+
   @override
-  double build() => _clamp(
-    PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth)?.toDouble() ??
-        defaultSidebarTabletWidth,
-  );
+  double build() {
+    ref.onDispose(() => _persistTimer?.cancel());
+    return _clamp(
+      PreferencesStore.get<num>(
+            PreferenceKeys.sidebarTabletWidth,
+          )?.toDouble() ??
+          defaultSidebarTabletWidth,
+    );
+  }
 
   double _clamp(double width) => width
       .clamp(minimumSidebarTabletWidth, maximumSidebarTabletWidth)
@@ -47,8 +54,16 @@ class SidebarTabletWidth extends _$SidebarTabletWidth {
 
   void setWidth(double width) {
     state = _clamp(width);
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 200), () {
+      _persistTimer = null;
+      _persistWidth(state);
+    });
+  }
+
+  void _persistWidth(double width) {
     unawaited(
-      PreferencesStore.put(PreferenceKeys.sidebarTabletWidth, state).catchError(
+      PreferencesStore.put(PreferenceKeys.sidebarTabletWidth, width).catchError(
         (Object error, StackTrace stackTrace) {
           DebugLogger.error(
             'tablet-width-write-failed',

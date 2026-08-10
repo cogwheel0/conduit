@@ -13,6 +13,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
@@ -34,9 +35,6 @@ const double _kSidebarSearchCloseActionReserve = 64;
 const double _kSidebarSearchFieldReserve = 96;
 // Mirrors Conduit platform UI's iPadOS window-control reservation.
 const double _kSidebarWindowedLeadingInset = 62;
-const double _kSidebarNativeBottomBarContentHeight = 50;
-
-enum _SidebarTabId { chats, hermes, terminal, notes, channels }
 
 class _SidebarTabDefinition {
   const _SidebarTabDefinition({
@@ -45,7 +43,7 @@ class _SidebarTabDefinition {
     required this.body,
   });
 
-  final _SidebarTabId id;
+  final SidebarTabId id;
   final String label;
   final Widget body;
 
@@ -145,17 +143,17 @@ class _SidebarSyncProgressBar extends StatelessWidget {
   }
 }
 
-IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
+IconData _materialTabIcon(SidebarTabId id, {bool selected = false}) {
   switch (id) {
-    case _SidebarTabId.chats:
+    case SidebarTabId.chats:
       return selected ? Icons.chat_bubble : Icons.chat_bubble_outline;
-    case _SidebarTabId.hermes:
+    case SidebarTabId.hermes:
       return selected ? Icons.smart_toy : Icons.smart_toy_outlined;
-    case _SidebarTabId.notes:
+    case SidebarTabId.notes:
       return selected ? Icons.note : Icons.note_outlined;
-    case _SidebarTabId.terminal:
+    case SidebarTabId.terminal:
       return selected ? Icons.terminal : Icons.terminal_rounded;
-    case _SidebarTabId.channels:
+    case SidebarTabId.channels:
       return Icons.tag;
   }
 }
@@ -177,17 +175,17 @@ class _HermesTabImage extends StatelessWidget {
   }
 }
 
-String _sfSymbolTabIcon(_SidebarTabId id, {bool selected = false}) {
+String _sfSymbolTabIcon(SidebarTabId id, {bool selected = false}) {
   switch (id) {
-    case _SidebarTabId.chats:
+    case SidebarTabId.chats:
       return selected ? 'bubble.left.fill' : 'bubble.left';
-    case _SidebarTabId.hermes:
+    case SidebarTabId.hermes:
       return 'sparkles';
-    case _SidebarTabId.notes:
+    case SidebarTabId.notes:
       return selected ? 'doc.text.fill' : 'doc.text';
-    case _SidebarTabId.terminal:
+    case SidebarTabId.terminal:
       return 'terminal';
-    case _SidebarTabId.channels:
+    case SidebarTabId.channels:
       return 'number';
   }
 }
@@ -248,10 +246,10 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
           destinations: [
             for (final item in navigationItems)
               NavigationDestination(
-                icon: item.tabDefinition.id == _SidebarTabId.hermes
+                icon: item.tabDefinition.id == SidebarTabId.hermes
                     ? const _HermesTabImage()
                     : Icon(_materialTabIcon(item.tabDefinition.id)),
-                selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
+                selectedIcon: item.tabDefinition.id == SidebarTabId.hermes
                     ? const _HermesTabImage()
                     : Icon(
                         _materialTabIcon(item.tabDefinition.id, selected: true),
@@ -331,10 +329,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
             // ImageIcon keeps the alpha-mask asset tintable on Cupertino and
             // is also recognized by the native iOS tab-bar asset extractor.
             // Let Cupertino supply size so selected/unselected icons match.
-            icon: def.id == _SidebarTabId.hermes
+            icon: def.id == SidebarTabId.hermes
                 ? const ImageIcon(kHermesTabIcon)
                 : _sfSymbolTabIcon(def.id),
-            selectedIcon: def.id == _SidebarTabId.hermes
+            selectedIcon: def.id == SidebarTabId.hermes
                 ? const ImageIcon(kHermesTabIcon)
                 : _sfSymbolTabIcon(def.id, selected: true),
             label: def.label,
@@ -499,7 +497,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           child: ConduitChromeGradientFade.bottom(
             contentHeight:
                 MediaQuery.viewPaddingOf(context).bottom +
-                _kSidebarNativeBottomBarContentHeight,
+                sidebarNativeBottomBarContentHeight,
           ),
         ),
       ],
@@ -523,12 +521,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     // (so a terminal-disabled server doesn't surface the tab offline).
     final showTerminalTab =
         hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider);
-    final visibleTabIds = <_SidebarTabId>[
-      if (!hermesOnly) _SidebarTabId.chats,
-      if (hermesOnly || hermesEnabled) _SidebarTabId.hermes,
-      if (notesEnabled) _SidebarTabId.notes,
-      if (showTerminalTab) _SidebarTabId.terminal,
-      if (channelsEnabled) _SidebarTabId.channels,
+    final visibleTabIds = <SidebarTabId>[
+      if (!hermesOnly) SidebarTabId.chats,
+      if (hermesOnly || hermesEnabled) SidebarTabId.hermes,
+      if (notesEnabled) SidebarTabId.notes,
+      if (showTerminalTab) SidebarTabId.terminal,
+      if (channelsEnabled) SidebarTabId.channels,
     ];
     final hasMultipleTabs = visibleTabIds.length > 1;
     final persistentTabletSidebar = PersistentTabletSidebarScope.isActive(
@@ -541,17 +539,17 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       _schedulePersistedIndexSync(activeIndex);
     }
     final isTerminalTabSelected =
-        visibleTabIds[activeIndex] == _SidebarTabId.terminal;
+        visibleTabIds[activeIndex] == SidebarTabId.terminal;
     final tabDefinitions = <_SidebarTabDefinition>[
       if (!hermesOnly)
         _SidebarTabDefinition(
-          id: _SidebarTabId.chats,
+          id: SidebarTabId.chats,
           label: localizations.sidebarChatsTab,
           body: const ChatsDrawer(),
         ),
       if (hermesOnly || hermesEnabled)
         _SidebarTabDefinition(
-          id: _SidebarTabId.hermes,
+          id: SidebarTabId.hermes,
           label: localizations.sidebarHermesTab,
           body: HermesSessionsTab(
             showBottomNavigationBar: hasBottomNavigationBar,
@@ -559,19 +557,19 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         ),
       if (notesEnabled)
         _SidebarTabDefinition(
-          id: _SidebarTabId.notes,
+          id: SidebarTabId.notes,
           label: localizations.sidebarNotesTab,
           body: const NotesListTab(),
         ),
       if (showTerminalTab)
         _SidebarTabDefinition(
-          id: _SidebarTabId.terminal,
+          id: SidebarTabId.terminal,
           label: localizations.sidebarTerminalTab,
           body: TerminalTab(isActive: isTerminalTabSelected),
         ),
       if (channelsEnabled)
         _SidebarTabDefinition(
-          id: _SidebarTabId.channels,
+          id: SidebarTabId.channels,
           label: localizations.sidebarChannelsTab,
           body: const ChannelListTab(),
         ),
@@ -585,7 +583,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       context,
     );
     final isTerminalTabActive =
-        tabDefinitions[activeIndex].id == _SidebarTabId.terminal;
+        tabDefinitions[activeIndex].id == SidebarTabId.terminal;
     final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
     final appBarActions = _sidebarAppBarActions(
       context: context,
@@ -605,7 +603,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         return;
       }
       ref.read(sidebarActiveTabProvider.notifier).set(index);
-      if (selectedTab != _SidebarTabId.terminal) {
+      if (selectedTab != SidebarTabId.terminal) {
         ref
             .read(terminalSidebarPanelProvider.notifier)
             .setPanel(TerminalSidebarPanel.console);

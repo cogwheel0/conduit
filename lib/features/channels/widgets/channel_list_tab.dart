@@ -46,7 +46,11 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     super.initState();
     _activeChannelId = _parseChannelId(_currentPath);
     _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register('channels', owner: this, callback: _scrollToTop);
+    _scrollRegistry.register(
+      SidebarTabId.channels.name,
+      owner: this,
+      callback: _scrollToTop,
+    );
     NavigationService.router.routeInformationProvider.addListener(
       _onRouteChanged,
     );
@@ -57,7 +61,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
-    _scrollRegistry.unregister('channels', owner: this);
+    _scrollRegistry.unregister(SidebarTabId.channels.name, owner: this);
     _scrollController.dispose();
     super.dispose();
   }

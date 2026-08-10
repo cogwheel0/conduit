@@ -1714,7 +1714,7 @@ class _DirectConnectionEditorPageState
             ),
             const SizedBox(height: Spacing.sm),
             Text(
-              'Optional. Enter one ID per line for servers without model discovery.',
+              l10n.directManualModelIdsDescription,
               style: theme.bodySmall?.copyWith(color: theme.textSecondary),
             ),
           ],

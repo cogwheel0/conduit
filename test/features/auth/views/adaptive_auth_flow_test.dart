@@ -195,8 +195,6 @@ void main() {
         const ValueKey<String>('authentication-mode-selector'),
       );
       expect(selectorFinder, findsOneWidget);
-      final selector = tester.widget<ConnectionSection>(selectorFinder);
-      check(selector.title).equals('Sign in');
       final adaptiveSelector = tester.widget<AdaptiveSegmentedControl>(
         find.descendant(
           of: selectorFinder,
@@ -389,7 +387,7 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
-    expect(find.text('JWT'), findsOneWidget);
+    expect(find.text('JWT'), findsNothing);
 
     await harness.unmount(tester);
   });

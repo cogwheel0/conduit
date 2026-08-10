@@ -60,7 +60,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     super.initState();
     _activeNoteId = _parseNoteId(_currentPath);
     _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register('notes', owner: this, callback: _scrollToTop);
+    _scrollRegistry.register(
+      SidebarTabId.notes.name,
+      owner: this,
+      callback: _scrollToTop,
+    );
     NavigationService.router.routeInformationProvider.addListener(
       _onRouteChanged,
     );
@@ -71,7 +75,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
-    _scrollRegistry.unregister('notes', owner: this);
+    _scrollRegistry.unregister(SidebarTabId.notes.name, owner: this);
     _scrollController.dispose();
     super.dispose();
   }
@@ -386,7 +390,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
               controller: _scrollController,
               child: refreshable,
             );
-            return Platform.isIOS
+            return context.usesCupertinoChrome
                 ? CupertinoScrollbar(
                     controller: _scrollController,
                     child: primary,
@@ -432,7 +436,11 @@ class _NoteListTile extends StatelessWidget {
         key: ValueKey<String>('note-sidebar-row-${note.id}'),
         selected: selected,
         onTap: onTap,
-        semanticLabel: preview.isEmpty ? title : '$title. $preview',
+        semanticLabel: [
+          title,
+          if (note.isPinned) l10n.pinned,
+          if (preview.isNotEmpty) preview,
+        ].join('. '),
         tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
         child: UtilityRow(

@@ -40,13 +40,13 @@ class ConnectionIdentityHeader extends StatelessWidget {
     super.key,
     required this.mark,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     this.trailing,
   });
 
   final Widget mark;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final Widget? trailing;
 
   @override
@@ -187,81 +187,92 @@ class _ConnectionChoiceRowState extends ConsumerState<ConnectionChoiceRow> {
       label: '${widget.title}. ${widget.subtitle}',
       onTap: _handleTap,
       excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) {
-          _setPressed(true);
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              _handleTap();
+              return null;
+            },
+          ),
         },
-        onTapUp: (_) => _setPressed(false),
-        onTapCancel: () => _setPressed(false),
-        onTap: _handleTap,
-        child: AnimatedScale(
-          scale: _pressed && !context.reduceMotion ? 0.98 : 1,
-          duration: duration,
-          curve: Curves.easeOutCubic,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-            padding: const EdgeInsets.symmetric(vertical: Spacing.md),
-            decoration: BoxDecoration(
-              border: widget.showDivider
-                  ? Border(
-                      bottom: BorderSide(
-                        color: theme.dividerColor,
-                        width: BorderWidth.thin,
-                      ),
-                    )
-                  : null,
-            ),
-            child: Row(
-              children: [
-                widget.leading,
-                const SizedBox(width: Spacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.title,
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) {
+            _setPressed(true);
+          },
+          onTapUp: (_) => _setPressed(false),
+          onTapCancel: () => _setPressed(false),
+          onTap: _handleTap,
+          child: AnimatedScale(
+            scale: _pressed && !context.reduceMotion ? 0.98 : 1,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+              padding: const EdgeInsets.symmetric(vertical: Spacing.md),
+              decoration: BoxDecoration(
+                border: widget.showDivider
+                    ? Border(
+                        bottom: BorderSide(
+                          color: theme.dividerColor,
+                          width: BorderWidth.thin,
                         ),
-                      ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        widget.subtitle,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                if (widget.trailing != null)
-                  widget.trailing!
-                else if (widget.showSelectionIndicator)
-                  AnimatedSwitcher(
-                    duration: context.motionDuration(
-                      AnimationDuration.microInteraction,
-                    ),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeOutCubic,
-                    child: widget.selected
-                        ? Icon(
-                            context.usesCupertinoChrome
-                                ? CupertinoIcons.check_mark_circled_solid
-                                : Icons.check_circle,
-                            key: const ValueKey<String>('selected'),
-                            color: theme.buttonPrimary,
-                            size: IconSize.medium,
-                          )
-                        : SizedBox.square(
-                            key: const ValueKey<String>('unselected'),
-                            dimension: IconSize.medium,
+                      )
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  widget.leading,
+                  const SizedBox(width: Spacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.textPrimary,
+                            fontWeight: FontWeight.w600,
                           ),
+                        ),
+                        const SizedBox(height: Spacing.xxs),
+                        Text(
+                          widget.subtitle,
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-              ],
+                  const SizedBox(width: Spacing.sm),
+                  if (widget.trailing != null)
+                    widget.trailing!
+                  else if (widget.showSelectionIndicator)
+                    AnimatedSwitcher(
+                      duration: context.motionDuration(
+                        AnimationDuration.microInteraction,
+                      ),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeOutCubic,
+                      child: widget.selected
+                          ? Icon(
+                              context.usesCupertinoChrome
+                                  ? CupertinoIcons.check_mark_circled_solid
+                                  : Icons.check_circle,
+                              key: const ValueKey<String>('selected'),
+                              color: theme.buttonPrimary,
+                              size: IconSize.medium,
+                            )
+                          : SizedBox.square(
+                              key: const ValueKey<String>('unselected'),
+                              dimension: IconSize.medium,
+                            ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -411,6 +422,7 @@ class ConnectionAttemptBanner extends StatelessWidget {
               liveRegion: true,
               container: true,
               label: state.message,
+              excludeSemantics: true,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(

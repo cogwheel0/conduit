@@ -13,8 +13,6 @@ import '../../shared/theme/theme_extensions.dart';
 import 'drawer_slot.dart';
 import 'sidebar_layout_constants.dart';
 
-const double _kSidebarNativeBottomBarContentHeight = 50.0;
-
 /// Matches the breakpoint used by [ResponsiveDrawerLayout] for its persistent
 /// tablet presentation. Keeping the decision in one place prevents the
 /// sidebar navigation and drawer geometry from choosing different layouts.
@@ -370,7 +368,7 @@ double sidebarTabContentBottomPadding(
   final bottomNavigationVisible =
       layout?.bottomNavigationVisible ?? includeNativeBottomBar;
   final navigationBarHeight = includeNativeBottomBar && bottomNavigationVisible
-      ? _kSidebarNativeBottomBarContentHeight
+      ? sidebarNativeBottomBarContentHeight
       : 0.0;
   return bottomPadding + navigationBarHeight + Spacing.md;
 }
@@ -487,6 +485,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   double? _tabletResizeAnchorWidth;
   double _tabletResizeCumulativeDelta = 0.0;
   bool _isTabletResizing = false;
+  Timer? _tabletKeyboardCommitTimer;
   _TabletWidthTransition _tabletWidthTransition = _TabletWidthTransition.idle;
 
   /// Spring description matching iOS navigation drawer physics.
@@ -1292,7 +1291,11 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       _tabletPreferredWidth = nextWidth;
       _tabletWidthTransition = _TabletWidthTransition.direct;
     });
-    widget.onTabletDrawerWidthChanged?.call(nextWidth);
+    _tabletKeyboardCommitTimer?.cancel();
+    _tabletKeyboardCommitTimer = Timer(
+      const Duration(milliseconds: 200),
+      () => widget.onTabletDrawerWidthChanged?.call(nextWidth),
+    );
     _scheduleTabletWidthTransitionIdle();
   }
 
@@ -1305,6 +1308,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       _tabletPreferredWidth = resetWidth;
       _tabletWidthTransition = _TabletWidthTransition.reset;
     });
+    _tabletKeyboardCommitTimer?.cancel();
     widget.onTabletDrawerWidthChanged?.call(resetWidth);
     if (MediaQuery.disableAnimationsOf(context) ||
         _effectiveTabletWidth(viewportWidth) == previousEffectiveWidth) {
@@ -1551,6 +1555,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   void dispose() {
+    _tabletKeyboardCommitTimer?.cancel();
     _controller.removeStatusListener(_onControllerStatusChanged);
     _controller.dispose();
     super.dispose();

@@ -113,6 +113,7 @@ void main() {
     await tester.tap(find.text('Keep editing'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('workspace-model-id')), findsOneWidget);
+    expect(find.text('unsaved-model'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-editor-back')));
     await tester.pumpAndSettle();

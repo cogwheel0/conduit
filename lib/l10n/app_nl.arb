@@ -2852,7 +2852,7 @@
   "workspaceToolManifestFunding": "Funding: {url}",
   "workspaceToolSpecs": "Generated specifications",
   "workspaceToolDetails": "Tooldetails",
-  "workspaceToolFunctionCount": "{count} functies",
+  "workspaceToolFunctionCount": "{count, plural, =1{1 functie} other{{count} functies}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
@@ -3009,6 +3009,8 @@
   "directApiKey": "API key",
   "directCustomHeaders": "Custom headers",
   "directManualModelIds": "Manual model IDs",
+  "directManualModelIdsDescription": "Optioneel. Voer één ID per regel in als de server de modellen niet kan weergeven.",
+  "@directManualModelIdsDescription": {"placeholders":{}},
   "directModelIdPrefix": "Model ID prefix",
   "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
   "directModelTags": "Model tags",
@@ -3099,11 +3101,13 @@
   "hermesConnectionDetailsTitle": "Verbindingsgegevens",
   "hermesMemoryKeyShortDescription": "Houdt het langetermijngeheugen van de agent aan jou gekoppeld. Laat leeg zodat Conduit een sleutel maakt.",
   "hermesConnectAction": "Hermes verbinden",
+  "hermesToolCount": "{count, plural, =1{1 hulpmiddel} other{{count} hulpmiddelen}}",
+  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
   "hermesNoToolsets": "De server heeft geen toolsets gemeld.",
   "hermesServerStatusTitle": "Serverstatus",
   "hermesNoServerStatus": "De server heeft geen status gemeld.",
   "sidebarHermesTab": "Hermes",
-  "markdownShowMoreLines": "Nog {count} regels tonen",
+  "markdownShowMoreLines": "{count, plural, =1{Toon nog 1 regel} other{Toon nog {count} regels}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
-  "markdownShowLess": "Minder tonen"
+  "markdownShowLess": "Toon minder"
 }

@@ -71,7 +71,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     super.initState();
     _listController.addListener(_onListScrolled);
     _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register('chats', owner: this, callback: _scrollToTop);
+    _scrollRegistry.register(
+      SidebarTabId.chats.name,
+      owner: this,
+      callback: _scrollToTop,
+    );
     _sidebarSearchController = ref.read(sidebarSearchFieldControllerProvider);
     _sidebarSearchController.addListener(_onSearchChanged);
   }
@@ -444,7 +448,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     _refreshDoneHideTimer?.cancel();
     _listController.removeListener(_onListScrolled);
     _sidebarSearchController.removeListener(_onSearchChanged);
-    _scrollRegistry.unregister('chats', owner: this);
+    _scrollRegistry.unregister(SidebarTabId.chats.name, owner: this);
     _listController.dispose();
     super.dispose();
   }

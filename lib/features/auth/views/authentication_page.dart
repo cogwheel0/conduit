@@ -16,6 +16,7 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -291,6 +292,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         throw Exception(authState.error ?? l10n.loginFailed);
       }
 
+      if (!mounted) return;
+
       PlatformService.hapticFeedbackWithSettings(
         type: HapticType.success,
         hapticEnabled: ref.read(hapticEnabledProvider),
@@ -298,6 +301,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
       // Success - navigation will be handled by auth state change
     } catch (e) {
+      if (!mounted) return;
       // Don't clear server config on auth failure - user should be able to retry
       // The server config is valid (passed OpenWebUI verification), only the
       // credentials were wrong or there was a network issue
@@ -430,7 +434,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         ConnectionIdentityHeader(
           mark: const OpenWebUiConnectionMark(),
           title: AppLocalizations.of(context)!.backendChooserOpenWebUITitle,
-          subtitle: AppLocalizations.of(context)!.signInServerDescription,
         ),
         const SizedBox(height: Spacing.xl),
         ConnectionSection(
@@ -458,9 +461,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     var selectedIndex = methods.indexOf(_authMode);
     if (selectedIndex < 0) selectedIndex = 0;
 
-    return ConnectionSection(
+    return InsetGroupedSection(
       key: const ValueKey<String>('authentication-mode-selector'),
-      title: AppLocalizations.of(context)!.signIn,
       child: AdaptiveSegmentedControl(
         labels: methods.map(_authModeLabel).toList(growable: false),
         selectedIndex: selectedIndex,
@@ -519,7 +521,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ConnectionSection(title: _authModeLabel(_authMode), child: form),
+        InsetGroupedSection(child: form),
         if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
           ConnectionAttemptBanner(state: _attemptState),

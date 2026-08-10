@@ -431,6 +431,7 @@ class _ConversationTileState extends State<ConversationTile> {
     return Semantics(
       selected: widget.selected,
       button: true,
+      enabled: enabled,
       child: Container(
         margin: kConversationTileMargin,
         child: ConversationTileSurface(

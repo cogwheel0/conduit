@@ -213,7 +213,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     if (status == null) return l10n.couldNotConnectGeneric;
     switch (status) {
       case ConnectivityStatus.online:
-        return l10n.connectedToServer;
+        return l10n.couldNotConnectGeneric;
       case ConnectivityStatus.offline:
         return l10n.pleaseCheckConnection;
     }

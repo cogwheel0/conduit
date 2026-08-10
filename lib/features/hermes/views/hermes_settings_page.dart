@@ -429,6 +429,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           color: theme.surfaceContainerHighest,
           child: Image.asset(
             'assets/icons/hermes_agent.png',
+            width: 28,
+            height: 28,
             fit: BoxFit.contain,
             color: theme.textPrimary,
             colorBlendMode: BlendMode.srcIn,
@@ -740,7 +742,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: Spacing.xs),
                   child: Text(
-                    '${toolset.label}  ·  ${toolset.tools.length} ${l10n.tools}'
+                    '${toolset.label}  ·  ${l10n.hermesToolCount(toolset.tools.length)}'
                     '${toolset.enabled ? '' : ' (${l10n.disabledLabel})'}',
                     style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textPrimary,

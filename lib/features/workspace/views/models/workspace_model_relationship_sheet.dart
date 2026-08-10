@@ -99,25 +99,27 @@ class _WorkspaceRelationshipSheetState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              TextButton(
+          SizedBox(
+            height: TouchTarget.minimum,
+            child: NavigationToolbar(
+              centerMiddle: true,
+              leading: TextButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: Text(l10n.cancel),
               ),
-              Expanded(
-                child: Text(
-                  widget.title,
-                  textAlign: TextAlign.center,
-                  style: theme.headingSmall,
-                ),
+              middle: Text(
+                widget.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.headingSmall,
               ),
-              TextButton(
+              trailing: TextButton(
                 key: const Key('workspace-relationship-save'),
                 onPressed: () => Navigator.of(context).pop(_result()),
                 child: Text(l10n.save),
               ),
-            ],
+            ),
           ),
           const SizedBox(height: Spacing.sm),
           ConduitGlassSearchField(

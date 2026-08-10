@@ -2787,6 +2787,8 @@
   "directApiKey": "API 키",
   "directCustomHeaders": "사용자 지정 헤더",
   "directManualModelIds": "모델 ID 직접 입력",
+  "directManualModelIdsDescription": "선택 사항. 서버에서 모델 목록을 가져올 수 없으면 한 줄에 ID 하나씩 입력하세요.",
+  "@directManualModelIdsDescription": {"placeholders":{}},
   "directModelIdPrefix": "모델 ID 접두사",
   "directModelIdPrefixDescription": "선택 사항입니다. 제공업체에 전송되는 모델 ID는 변경하지 않고 studio.model-name과 같은 표시용 네임스페이스를 추가합니다.",
   "directModelTags": "모델 태그",
@@ -2877,11 +2879,13 @@
   "hermesConnectionDetailsTitle": "연결 세부 정보",
   "hermesMemoryKeyShortDescription": "에이전트의 장기 기억을 사용자에게 한정합니다. 비워 두면 Conduit가 키를 만듭니다.",
   "hermesConnectAction": "Hermes 연결",
+  "hermesToolCount": "도구 {count}개",
+  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
   "hermesNoToolsets": "서버에서 보고한 도구 세트가 없습니다.",
   "hermesServerStatusTitle": "서버 상태",
   "hermesNoServerStatus": "서버에서 보고한 상태가 없습니다.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count}줄 더 보기",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
-  "markdownShowLess": "간단히 보기"
+  "markdownShowLess": "접기"
 }

@@ -455,6 +455,10 @@ void main() {
     expect(find.byType(CNTabBar), findsNothing);
     final tabBar = tester.widget<CupertinoTabBar>(find.byType(CupertinoTabBar));
     expect(tabBar.items, hasLength(5));
+    expect(
+      tester.getSize(find.byType(CupertinoTabBar)).width,
+      tester.getSize(find.byType(SidebarPage)).width,
+    );
   });
 
   testWidgets('persistent tablet navigation remains usable at 2x text', (

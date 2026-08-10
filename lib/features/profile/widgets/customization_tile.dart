@@ -36,8 +36,10 @@ class CustomizationTile extends StatelessWidget {
       child: UtilityRow(
         title: title,
         subtitle: subtitle,
+        subtitleTrailing: subtitleTrailing,
+        subtitleMaxLines: subtitleMaxLines,
         leading: leading,
-        trailing: trailing ?? subtitleTrailing,
+        trailing: trailing,
         onTap: onTap,
         showChevron: showChevron,
       ),

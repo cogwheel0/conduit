@@ -262,6 +262,8 @@ class UtilityRow extends ConsumerStatefulWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.subtitleTrailing,
+    this.subtitleMaxLines = 3,
     this.leading,
     this.trailing,
     this.status,
@@ -281,6 +283,8 @@ class UtilityRow extends ConsumerStatefulWidget {
 
   final String title;
   final String? subtitle;
+  final Widget? subtitleTrailing;
+  final int subtitleMaxLines;
   final Widget? leading;
   final Widget? trailing;
   final Widget? status;
@@ -379,13 +383,23 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                           if (widget.subtitle != null &&
                               widget.subtitle!.isNotEmpty) ...[
                             const SizedBox(height: Spacing.xxs),
-                            Text(
-                              widget.subtitle!,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.bodySmallStyle.copyWith(
-                                color: theme.textSecondary,
-                              ),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    widget.subtitle!,
+                                    maxLines: widget.subtitleMaxLines,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTypography.bodySmallStyle
+                                        .copyWith(color: theme.textSecondary),
+                                  ),
+                                ),
+                                if (widget.subtitleTrailing != null) ...[
+                                  const SizedBox(width: Spacing.xs),
+                                  widget.subtitleTrailing!,
+                                ],
+                              ],
                             ),
                           ],
                         ],

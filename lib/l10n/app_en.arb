@@ -4514,7 +4514,7 @@
   "@workspaceToolSpecs": {"description":"Heading for the read-only server-generated tool function specifications."},
   "workspaceToolDetails": "Tool details",
   "@workspaceToolDetails": {"description":"Disclosure title for secondary tool manifest and function metadata."},
-  "workspaceToolFunctionCount": "{count} functions",
+  "workspaceToolFunctionCount": "{count, plural, =1{1 function} other{{count} functions}}",
   "@workspaceToolFunctionCount": {"description":"Quiet collection status showing how many functions a tool provides.","placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "@workspaceToolSpecsEmpty": {"description":"Empty state when a tool produced no function specifications."},
@@ -4956,6 +4956,8 @@
   "@directManualModelIds": {
     "description": "Label for newline-separated model identifiers."
   },
+  "directManualModelIdsDescription": "Optional. Enter one ID per line when the server cannot list its models.",
+  "@directManualModelIdsDescription": {"description":"Help text for manually entered model IDs."},
   "directModelIdPrefix": "Model ID prefix",
   "@directModelIdPrefix": {
     "description": "Label for a visible namespace added to direct model IDs."
@@ -5276,6 +5278,8 @@
   "@hermesMemoryKeyShortDescription": {"description":"Concise summary shown on the collapsed Hermes memory-key disclosure."},
   "hermesConnectAction": "Connect Hermes",
   "@hermesConnectAction": {"description":"Primary onboarding action that tests and saves a Hermes connection."},
+  "hermesToolCount": "{count, plural, =1{1 tool} other{{count} tools}}",
+  "@hermesToolCount": {"description":"Tool count shown for a Hermes toolset.","placeholders":{"count":{"type":"int"}}},
   "hermesNoToolsets": "No toolsets reported by the server.",
   "@hermesNoToolsets": {"description":"Empty state when a Hermes server reports no toolsets."},
   "hermesServerStatusTitle": "Server status",
@@ -5286,7 +5290,7 @@
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
-  "markdownShowMoreLines": "Show {count} more lines",
+  "markdownShowMoreLines": "{count, plural, =1{Show 1 more line} other{Show {count} more lines}}",
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show less",
   "@markdownShowLess": {"description":"Action that collapses an expanded Markdown code block."}

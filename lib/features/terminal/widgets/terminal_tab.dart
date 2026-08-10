@@ -86,7 +86,11 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     _terminal.onOutput = _handleTerminalOutput;
     _terminal.onResize = _handleTerminalResize;
     _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register('terminal', owner: this, callback: _scrollToTop);
+    _scrollRegistry.register(
+      SidebarTabId.terminal.name,
+      owner: this,
+      callback: _scrollToTop,
+    );
 
     _refreshSubscription = ref.listenManual<int>(
       terminalBrowserRefreshTokenProvider,
@@ -194,7 +198,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     unawaited(_channel?.sink.close() ?? Future<void>.value());
     _channelSubscription = null;
     _channel = null;
-    _scrollRegistry.unregister('terminal', owner: this);
+    _scrollRegistry.unregister(SidebarTabId.terminal.name, owner: this);
     _filesScrollController.dispose();
     _portsScrollController.dispose();
     super.dispose();
