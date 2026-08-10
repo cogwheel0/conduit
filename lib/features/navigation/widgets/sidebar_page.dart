@@ -281,18 +281,6 @@ class SidebarPage extends ConsumerStatefulWidget {
 }
 
 class _SidebarPageState extends ConsumerState<SidebarPage> {
-  bool _legacySelectionMigrationScheduled = false;
-
-  void _scheduleLegacySelectionMigration(SidebarTabId tab) {
-    if (_legacySelectionMigrationScheduled) return;
-    _legacySelectionMigrationScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(sidebarActiveTabProvider.notifier).migrateLegacySelection(tab);
-      _legacySelectionMigrationScheduled = false;
-    });
-  }
-
   AdaptiveBottomNavigationBar _sidebarBottomNavigationBar(
     List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,
@@ -537,11 +525,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final legacyIndex = activeTabNotifier.pendingLegacyIndex();
     final selectedTab = resolveSidebarTabSelection(
       persistedTab: persistedTab,
+      legacyIndex: legacyIndex,
       visibleTabs: visibleTabIds,
     );
-    if (legacyIndex != null) {
-      _scheduleLegacySelectionMigration(persistedTab);
-    }
     final activeIndex = visibleTabIds.indexOf(selectedTab);
     final isTerminalTabSelected =
         visibleTabIds[activeIndex] == SidebarTabId.terminal;

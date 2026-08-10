@@ -266,8 +266,22 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
   final terminalOn = hasOpenWebUi && ref.watch(terminalTabVisibleProvider);
   final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
+  final visibleTabs = <SidebarTabId>[
+    SidebarTabId.chats,
+    if (hermesOn) SidebarTabId.hermes,
+    if (notesOn) SidebarTabId.notes,
+    if (terminalOn) SidebarTabId.terminal,
+    if (channelsOn) SidebarTabId.channels,
+  ];
+  final resolvedTabId = resolveSidebarTabSelection(
+    persistedTab: tabId,
+    legacyIndex: ref
+        .read(sidebarActiveTabProvider.notifier)
+        .pendingLegacyIndex(),
+    visibleTabs: visibleTabs,
+  );
 
-  return switch (tabId) {
+  return switch (resolvedTabId) {
     SidebarTabId.notes when notesOn => l10n.searchNotes,
     SidebarTabId.terminal when terminalOn => l10n.searchFiles,
     SidebarTabId.channels when channelsOn => l10n.searchChannels,

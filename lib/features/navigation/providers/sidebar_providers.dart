@@ -13,22 +13,15 @@ part 'sidebar_providers.g.dart';
 
 SidebarTabId resolveSidebarTabSelection({
   required SidebarTabId persistedTab,
+  required int? legacyIndex,
   required List<SidebarTabId> visibleTabs,
 }) {
   if (visibleTabs.isEmpty) return SidebarTabId.chats;
+  if (legacyIndex != null) {
+    return visibleTabs[legacyIndex.clamp(0, visibleTabs.length - 1)];
+  }
   return visibleTabs.contains(persistedTab) ? persistedTab : visibleTabs.first;
 }
-
-const _legacySidebarTabOrder = <SidebarTabId>[
-  SidebarTabId.chats,
-  SidebarTabId.hermes,
-  SidebarTabId.notes,
-  SidebarTabId.terminal,
-  SidebarTabId.channels,
-];
-
-SidebarTabId sidebarTabIdFromLegacyIndex(int index) =>
-    _legacySidebarTabOrder[index.clamp(0, _legacySidebarTabOrder.length - 1)];
 
 /// Stable identity of the active sidebar tab.
 ///
@@ -43,7 +36,10 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     final raw = PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab);
     if (raw is int) {
       _legacyIndex = raw.clamp(0, 4);
-      return sidebarTabIdFromLegacyIndex(_legacyIndex!);
+      // Legacy values were positions within the conditionally visible list.
+      // Keep the raw index until the user selects a tab so async capability
+      // discovery cannot permanently migrate it against an incomplete list.
+      return SidebarTabId.chats;
     }
     final stored = raw is String ? raw : null;
     return SidebarTabId.values.firstWhere(
@@ -54,13 +50,8 @@ class SidebarActiveTab extends _$SidebarActiveTab {
 
   int? pendingLegacyIndex() => _legacyIndex;
 
-  void migrateLegacySelection(SidebarTabId tab) {
-    if (_legacyIndex == null) return;
-    _legacyIndex = null;
-    set(tab);
-  }
-
   void set(SidebarTabId tab) {
+    _legacyIndex = null;
     state = tab;
     unawaited(
       PreferencesStore.put(

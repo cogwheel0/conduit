@@ -40,40 +40,39 @@ void main() {
     ).equals(SidebarTabId.channels.name);
   });
 
-  test(
-    'legacy numeric tab positions migrate through historical order',
-    () async {
-      SharedPreferences.setMockInitialValues({
-        PreferenceKeys.sidebarActiveTab: 2,
-      });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
+  test('legacy numeric tab positions resolve against visible tabs', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.sidebarActiveTab: 2,
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
 
-      final controller = container.read(sidebarActiveTabProvider.notifier);
-      final selected = resolveSidebarTabSelection(
-        persistedTab: container.read(sidebarActiveTabProvider),
-        visibleTabs: const [
-          SidebarTabId.chats,
-          SidebarTabId.notes,
-          SidebarTabId.channels,
-        ],
-      );
-      check(selected).equals(SidebarTabId.notes);
+    final controller = container.read(sidebarActiveTabProvider.notifier);
+    final selected = resolveSidebarTabSelection(
+      persistedTab: container.read(sidebarActiveTabProvider),
+      legacyIndex: controller.pendingLegacyIndex(),
+      visibleTabs: const [
+        SidebarTabId.chats,
+        SidebarTabId.notes,
+        SidebarTabId.channels,
+      ],
+    );
+    check(selected).equals(SidebarTabId.channels);
 
-      controller.migrateLegacySelection(
-        container.read(sidebarActiveTabProvider),
-      );
-      check(
-        container.read(sidebarActiveTabProvider),
-      ).equals(SidebarTabId.notes);
-      check(
-        PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
-      ).equals(SidebarTabId.notes.name);
-    },
-  );
+    // Capability discovery must not rewrite the legacy value. A committed
+    // user selection completes the migration to a stable identity.
+    check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(2);
+    controller.set(selected);
+    check(
+      container.read(sidebarActiveTabProvider),
+    ).equals(SidebarTabId.channels);
+    check(
+      PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
+    ).equals(SidebarTabId.channels.name);
+  });
 
-  test('unavailable legacy identity falls back without replacement', () async {
+  test('legacy selection is not persisted during capability changes', () async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 1,
     });
@@ -83,18 +82,16 @@ void main() {
 
     final controller = container.read(sidebarActiveTabProvider.notifier);
     final persisted = container.read(sidebarActiveTabProvider);
-    check(persisted).equals(SidebarTabId.hermes);
+    check(persisted).equals(SidebarTabId.chats);
     check(
       resolveSidebarTabSelection(
         persistedTab: persisted,
+        legacyIndex: controller.pendingLegacyIndex(),
         visibleTabs: const [SidebarTabId.chats, SidebarTabId.notes],
       ),
-    ).equals(SidebarTabId.chats);
+    ).equals(SidebarTabId.notes);
 
-    controller.migrateLegacySelection(persisted);
-    check(
-      PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
-    ).equals(SidebarTabId.hermes.name);
+    check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(1);
   });
 
   test('tablet sidebar width restores, clamps, and persists', () async {
