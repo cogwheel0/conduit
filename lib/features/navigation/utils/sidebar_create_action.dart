@@ -30,13 +30,30 @@ class SidebarCreateActionSpec {
 }
 
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
+  final tabId = ref.watch(sidebarActiveTabProvider);
+  final legacyIndex = ref
+      .read(sidebarActiveTabProvider.notifier)
+      .pendingLegacyIndex();
+  final hermesOnly = ref.watch(hermesOnlyModeProvider);
+  final hermesOn = ref.watch(hermesEnabledProvider);
+  final notesOn = ref.watch(notesFeatureEnabledProvider);
+  final terminalOn = _watchTerminalTabVisible(ref);
+  final channelsOn = ref.watch(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
-    tabId: ref.watch(sidebarActiveTabProvider),
-    hermesOnly: ref.watch(hermesOnlyModeProvider),
-    hermesOn: ref.watch(hermesEnabledProvider),
-    notesOn: ref.watch(notesFeatureEnabledProvider),
-    terminalOn: _watchTerminalTabVisible(ref),
-    channelsOn: ref.watch(channelsFeatureEnabledProvider),
+    tabId: _resolveActiveSidebarTab(
+      tabId: tabId,
+      legacyIndex: legacyIndex,
+      hermesOnly: hermesOnly,
+      hermesOn: hermesOn,
+      notesOn: notesOn,
+      terminalOn: terminalOn,
+      channelsOn: channelsOn,
+    ),
+    hermesOnly: hermesOnly,
+    hermesOn: hermesOn,
+    notesOn: notesOn,
+    terminalOn: terminalOn,
+    channelsOn: channelsOn,
   );
   if (kind == null) {
     return null;
@@ -59,13 +76,30 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 }
 
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
+  final tabId = ref.read(sidebarActiveTabProvider);
+  final legacyIndex = ref
+      .read(sidebarActiveTabProvider.notifier)
+      .pendingLegacyIndex();
+  final hermesOnly = ref.read(hermesOnlyModeProvider);
+  final hermesOn = ref.read(hermesEnabledProvider);
+  final notesOn = ref.read(notesFeatureEnabledProvider);
+  final terminalOn = _readTerminalTabVisible(ref);
+  final channelsOn = ref.read(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
-    tabId: ref.read(sidebarActiveTabProvider),
-    hermesOnly: ref.read(hermesOnlyModeProvider),
-    hermesOn: ref.read(hermesEnabledProvider),
-    notesOn: ref.read(notesFeatureEnabledProvider),
-    terminalOn: _readTerminalTabVisible(ref),
-    channelsOn: ref.read(channelsFeatureEnabledProvider),
+    tabId: _resolveActiveSidebarTab(
+      tabId: tabId,
+      legacyIndex: legacyIndex,
+      hermesOnly: hermesOnly,
+      hermesOn: hermesOn,
+      notesOn: notesOn,
+      terminalOn: terminalOn,
+      channelsOn: channelsOn,
+    ),
+    hermesOnly: hermesOnly,
+    hermesOn: hermesOn,
+    notesOn: notesOn,
+    terminalOn: terminalOn,
+    channelsOn: channelsOn,
   );
   switch (kind) {
     case null:
@@ -83,6 +117,29 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
       await _createChannel(context, ref);
       break;
   }
+}
+
+SidebarTabId _resolveActiveSidebarTab({
+  required SidebarTabId tabId,
+  required int? legacyIndex,
+  required bool hermesOnly,
+  required bool hermesOn,
+  required bool notesOn,
+  required bool terminalOn,
+  required bool channelsOn,
+}) {
+  final visibleTabs = <SidebarTabId>[
+    if (!hermesOnly) SidebarTabId.chats,
+    if (hermesOnly || hermesOn) SidebarTabId.hermes,
+    if (!hermesOnly && notesOn) SidebarTabId.notes,
+    if (!hermesOnly && terminalOn) SidebarTabId.terminal,
+    if (!hermesOnly && channelsOn) SidebarTabId.channels,
+  ];
+  return resolveSidebarTabSelection(
+    persistedTab: tabId,
+    legacyIndex: legacyIndex,
+    visibleTabs: visibleTabs,
+  );
 }
 
 _SidebarCreateActionKind? _resolveSidebarCreateActionKind({

@@ -885,7 +885,7 @@
   "channelSendError": "메시지를 보내지 못했습니다",
   "channelDeleted": "이 채널이 삭제되었습니다",
   "searchChannels": "채널 검색...",
-  "channelUnreadCount": "읽지 않은 메시지 {count}개",
+  "channelUnreadCount": "{count, plural, =1{읽지 않은 메시지 1개} other{읽지 않은 메시지 {count}개}}",
   "channelCreateError": "채널을 만들지 못했습니다",
   "channelMessageHint": "메시지...",
   "audioUploadError": "오디오 업로드에 실패했습니다: {error}",

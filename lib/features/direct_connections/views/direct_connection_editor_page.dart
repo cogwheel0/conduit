@@ -678,6 +678,7 @@ class _DirectConnectionEditorPageState
 
   Future<DirectConnectionProfile?> _testConnection() async {
     if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return null;
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _testing = true);
     final draft = _buildDraft(validateFields: true);
     if (draft == null) {
@@ -1122,7 +1123,16 @@ class _DirectConnectionEditorPageState
       title: widget.isNew
           ? l10n.addDirectConnection
           : l10n.editDirectConnection,
-      children: content,
+      children: [
+        for (final (index, child) in content.indexed)
+          AbsorbPointer(
+            key: index == 0
+                ? const ValueKey<String>('direct-editor-form-interaction-lock')
+                : null,
+            absorbing: _testing,
+            child: child,
+          ),
+      ],
       bottomAction: widget.isOnboarding
           ? Column(
               mainAxisSize: MainAxisSize.min,

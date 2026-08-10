@@ -702,7 +702,7 @@ void main() {
     expect(find.text('Connection overview'), findsOneWidget);
   });
 
-  testWidgets('onboarding saves the exact draft that passed the probe', (
+  testWidgets('onboarding locks the form and saves the tested draft', (
     tester,
   ) async {
     final probeCompleter = Completer<DirectConnectionProbe>();
@@ -737,16 +737,21 @@ void main() {
 
     expect(controller.probeCalls, 1);
     final probedDraft = controller.lastProbe!;
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('direct-base-url-field')),
-      'https://changed.example/v1',
+    expect(
+      tester
+          .widget<AbsorbPointer>(
+            find.byKey(
+              const ValueKey<String>('direct-editor-form-interaction-lock'),
+            ),
+          )
+          .absorbing,
+      isTrue,
     );
     probeCompleter.complete(const DirectConnectionProbe(reachable: true));
     await tester.pumpAndSettle();
 
     expect(controller.upsertCalls, 1);
     expect(controller.lastUpsert, same(probedDraft));
-    expect(controller.lastUpsert?.baseUrl, isNot('https://changed.example/v1'));
   });
 
   testWidgets('a new server draft is revoked when the account changes', (

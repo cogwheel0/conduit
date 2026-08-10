@@ -419,9 +419,9 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                     if (widget.status != null) ...[
                       const SizedBox(width: Spacing.sm),
                       if (widget.preserveTrailingSemantics)
-                        ExcludeSemantics(child: widget.status!)
+                        widget.status!
                       else
-                        widget.status!,
+                        ExcludeSemantics(child: widget.status!),
                     ],
                     if (widget.trailing != null) ...[
                       const SizedBox(width: Spacing.sm),

@@ -91,6 +91,14 @@ void main() {
       ),
     ).equals(SidebarTabId.notes);
 
+    check(
+      resolveSidebarTabSelection(
+        persistedTab: persisted,
+        legacyIndex: controller.pendingLegacyIndex(),
+        visibleTabs: const [SidebarTabId.chats],
+      ),
+    ).equals(SidebarTabId.chats);
+
     check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(1);
   });
 

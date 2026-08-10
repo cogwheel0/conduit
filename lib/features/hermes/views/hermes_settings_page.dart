@@ -194,7 +194,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final notifier = ref.read(hermesConfigProvider.notifier);
     final result = await connectHermesOnboarding(
       probe: () => testHermesDraftConnection(draft),
-      persist: _commitConnection,
+      persist: () => _commitConnection(allowWhileFinishing: true),
       onReachable: () {
         if (!mounted) return;
         setState(
@@ -265,8 +265,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     return apiKey.isNotEmpty;
   }
 
-  Future<bool> _commitConnection() async {
-    if (_saving || _testing || _finishing) return false;
+  Future<bool> _commitConnection({bool allowWhileFinishing = false}) async {
+    if (_saving || _testing || (_finishing && !allowWhileFinishing)) {
+      return false;
+    }
     final config = ref.read(hermesConfigProvider);
     if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
       setState(
