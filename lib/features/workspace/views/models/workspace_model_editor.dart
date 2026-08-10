@@ -24,7 +24,6 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -32,6 +31,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 import 'workspace_model_relationship_sheet.dart';
 
@@ -628,7 +628,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           children: [
             _profileImage(l10n),
             const SizedBox(height: Spacing.xl),
-            WorkspaceGroupedSection(
+            InsetGroupedSection(
               title: l10n.workspaceModelSectionBasics,
               child: Column(
                 children: [
@@ -661,7 +661,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               ),
             ),
             const SizedBox(height: Spacing.xl),
-            WorkspaceGroupedSection(
+            InsetGroupedSection(
               title: l10n.workspaceModelSectionPrompt,
               child: Column(
                 children: [
@@ -679,7 +679,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               ),
             ),
             const SizedBox(height: Spacing.xl),
-            WorkspaceDisclosureSection(
+            UtilityDisclosureSection(
               key: const Key('workspace-model-advanced-disclosure'),
               title: l10n.workspaceModelSectionAdvanced,
               expanded: _advancedExpanded,
@@ -874,7 +874,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     ValueChanged<String>? onChanged,
   }) {
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: Key(key),
         label: label,
         value: controller.text.trim().isEmpty
@@ -907,7 +907,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     bool hasError = false,
   }) {
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: Key(key),
         label: label,
         value: controller.text.trim().isEmpty
@@ -1001,7 +1001,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // contain it), so an existing base model renders correctly from build one.
     final selectedId = _draft.baseModelId;
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: const Key('workspace-model-base'),
         label: l10n.workspaceModelBaseModel,
         value: selectedId ?? l10n.workspaceModelBaseModelNone,

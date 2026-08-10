@@ -122,7 +122,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// Whether the server has OAuth/SSO providers configured.
   bool get _hasSsoEnabled =>
-      widget.backendConfig?.hasSsoEnabled == true && isWebViewSupported;
+      isWebViewSupported && (widget.backendConfig?.hasSsoEnabled ?? true);
 
   /// Whether LDAP authentication is enabled on the server.
   bool get _hasLdapEnabled => widget.backendConfig?.enableLdap == true;

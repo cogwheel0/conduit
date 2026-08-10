@@ -7,13 +7,13 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 final class WorkspacePromptCoreFields extends StatelessWidget {
   const WorkspacePromptCoreFields({
@@ -49,7 +49,7 @@ final class WorkspacePromptCoreFields extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (isDetail)
-          WorkspaceValueRow(
+          UtilityValueRow(
             key: const Key('workspace-prompt-name'),
             label: l10n.workspacePromptName,
             value: nameController.text,
@@ -65,7 +65,7 @@ final class WorkspacePromptCoreFields extends StatelessWidget {
           ),
         const SizedBox(height: Spacing.md),
         if (isDetail)
-          WorkspaceValueRow(
+          UtilityValueRow(
             key: const Key('workspace-prompt-command'),
             label: l10n.workspacePromptCommand,
             value: WorkspacePromptCommand.display(commandController.text),
@@ -224,7 +224,7 @@ final class WorkspacePromptVersionSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return WorkspaceDisclosureSection(
+    return UtilityDisclosureSection(
       key: const Key('workspace-prompt-version-disclosure'),
       title: l10n.workspacePromptVersionSection,
       expanded: expanded,

@@ -31,6 +31,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
+import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';

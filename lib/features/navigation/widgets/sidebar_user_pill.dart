@@ -31,10 +31,9 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
-import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
+import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
-import '../providers/sidebar_tab_scroll_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -258,35 +257,11 @@ String sidebarProfileFallbackRouteName({
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
-  // Hermes-only: the Hermes tab is the only tab.
-  if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
-  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-  final tabId = ref.watch(sidebarActiveTabProvider);
-  final hermesOn = ref.watch(hermesEnabledProvider);
-  final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
-  final terminalOn = hasOpenWebUi && ref.watch(terminalTabVisibleProvider);
-  final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
-  final visibleTabs = <SidebarTabId>[
-    SidebarTabId.chats,
-    if (hermesOn) SidebarTabId.hermes,
-    if (notesOn) SidebarTabId.notes,
-    if (terminalOn) SidebarTabId.terminal,
-    if (channelsOn) SidebarTabId.channels,
-  ];
-  final resolvedTabId = resolveSidebarTabSelection(
-    persistedTab: tabId,
-    legacyIndex: ref
-        .read(sidebarActiveTabProvider.notifier)
-        .pendingLegacyIndex(),
-    visibleTabs: visibleTabs,
-  );
-
-  return switch (resolvedTabId) {
-    SidebarTabId.notes when notesOn => l10n.searchNotes,
-    SidebarTabId.terminal when terminalOn => l10n.searchFiles,
-    SidebarTabId.channels when channelsOn => l10n.searchChannels,
-    SidebarTabId.hermes when hermesOn => l10n.searchConversations,
-    _ => l10n.searchConversations,
+  return switch (ref.watch(sidebarNavigationSnapshotProvider).selectedTab) {
+    SidebarTabId.notes => l10n.searchNotes,
+    SidebarTabId.terminal => l10n.searchFiles,
+    SidebarTabId.channels => l10n.searchChannels,
+    SidebarTabId.chats || SidebarTabId.hermes => l10n.searchConversations,
   };
 }
 

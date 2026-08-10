@@ -13,7 +13,7 @@ import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'workspace_grouped_components.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'workspace_read_only_badge.dart';
 import 'workspace_tiles.dart';
 
@@ -105,7 +105,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
     final effectiveHeader =
         header ??
         (compact
-            ? WorkspaceIdentityHeader(
+            ? UtilityIdentityHeader(
                 leading: WorkspaceIconBadge(
                   icon: _identityIcon(section),
                   color: theme.buttonPrimary,

@@ -325,6 +325,27 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('sign-in keeps SSO available when backend config is absent', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = true;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final harness = _AuthHarness(server: server, backendConfig: null);
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    final selector = tester.widget<AdaptiveSegmentedControl>(
+      find.byType(AdaptiveSegmentedControl),
+    );
+    check(selector.labels).deepEquals(['Password', 'SSO', 'JWT']);
+
+    await harness.unmount(tester);
+  });
+
   for (final platform in <TargetPlatform>[
     TargetPlatform.iOS,
     TargetPlatform.android,
@@ -833,7 +854,7 @@ class _AuthHarness {
 
   final ServerConfig server;
   final TargetPlatform platform;
-  final BackendConfig backendConfig;
+  final BackendConfig? backendConfig;
   final bool disableAnimations;
   final TextScaler? textScaler;
   final _MockOptimizedStorageService storage = _MockOptimizedStorageService();

@@ -20,7 +20,6 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -29,6 +28,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// Reads a user-picked Markdown file as text, or null if cancelled.
 typedef WorkspaceMarkdownPicker = Future<String?> Function();
@@ -655,7 +655,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            WorkspaceGroupedSection(
+            InsetGroupedSection(
               title: l10n.workspaceSkills,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -681,7 +681,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Widget _nameField(AppLocalizations l10n) {
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: const Key('workspace-skill-name'),
         label: l10n.workspaceSkillName,
         value: _nameController.text,
@@ -700,7 +700,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Widget _idField(AppLocalizations l10n) {
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: const Key('workspace-skill-id'),
         label: l10n.workspaceSkillId,
         value: _idController.text,
@@ -721,7 +721,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Widget _descriptionField(AppLocalizations l10n) {
     if (_isDetail) {
-      return WorkspaceValueRow(
+      return UtilityValueRow(
         key: const Key('workspace-skill-description'),
         label: l10n.workspaceSkillDescription,
         value: _descriptionController.text,

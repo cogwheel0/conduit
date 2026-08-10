@@ -527,6 +527,7 @@ class UtilityValueRow extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.monospace = false,
+    this.showDivider = false,
   });
 
   final String label;
@@ -535,11 +536,12 @@ class UtilityValueRow extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool monospace;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return UtilityRow(
+    final row = UtilityRow(
       title: label,
       leading: leading,
       trailing: trailing,
@@ -559,6 +561,18 @@ class UtilityValueRow extends StatelessWidget {
           fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
         ),
       ),
+    );
+    if (!showDivider) return row;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.dividerColor,
+            width: BorderWidth.thin,
+          ),
+        ),
+      ),
+      child: row,
     );
   }
 }

@@ -2,7 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/providers/sidebar_tab_scroll_registry.dart';
+import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

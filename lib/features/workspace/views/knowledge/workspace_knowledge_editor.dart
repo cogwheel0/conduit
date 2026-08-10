@@ -15,7 +15,6 @@ import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_f
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_read_only_badge.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
@@ -24,6 +23,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// Section-registry entry point for the Knowledge editor.
 Widget buildWorkspaceKnowledgeEditor(
@@ -432,18 +432,18 @@ class _WorkspaceKnowledgeFormState
                   ],
                 ),
               ),
-            WorkspaceGroupedSection(
+            InsetGroupedSection(
               title: l10n.workspaceKnowledge,
               child: Column(
                 children: [
                   if (_isDetail) ...[
-                    WorkspaceValueRow(
+                    UtilityValueRow(
                       key: const Key('workspace-knowledge-name'),
                       label: l10n.workspaceKnowledgeName,
                       value: _nameController.text,
                       showDivider: true,
                     ),
-                    WorkspaceValueRow(
+                    UtilityValueRow(
                       key: const Key('workspace-knowledge-description'),
                       label: l10n.workspaceKnowledgeDescription,
                       value: _descriptionController.text,

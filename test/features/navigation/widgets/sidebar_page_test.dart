@@ -26,7 +26,7 @@ import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/providers/sidebar_tab_scroll_registry.dart';
+import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';

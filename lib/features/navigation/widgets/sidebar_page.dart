@@ -6,7 +6,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -15,11 +14,11 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
+import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
 import '../../channels/widgets/channel_list_tab.dart';
-import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import '../../terminal/models/terminal_models.dart';
@@ -494,77 +493,50 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
-    // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
-    final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-    final hermesEnabled = ref.watch(hermesEnabledProvider);
-    final notesEnabled =
-        hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider);
-    final channelsEnabled =
-        hasOpenWebUi &&
-        !hermesOnly &&
-        ref.watch(channelsFeatureEnabledProvider);
-    // Live when the server list resolves; cached last-known value when offline
-    // (so a terminal-disabled server doesn't surface the tab offline).
-    final showTerminalTab =
-        hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider);
-    final visibleTabIds = <SidebarTabId>[
-      if (!hermesOnly) SidebarTabId.chats,
-      if (hermesOnly || hermesEnabled) SidebarTabId.hermes,
-      if (notesEnabled) SidebarTabId.notes,
-      if (showTerminalTab) SidebarTabId.terminal,
-      if (channelsEnabled) SidebarTabId.channels,
-    ];
+    final navigation = ref.watch(sidebarNavigationSnapshotProvider);
+    final visibleTabIds = navigation.visibleTabs;
     final hasMultipleTabs = visibleTabIds.length > 1;
     final persistentTabletSidebar = PersistentTabletSidebarScope.isActive(
       context,
     );
     final hasBottomNavigationBar = hasMultipleTabs;
-    final persistedTab = ref.watch(sidebarActiveTabProvider);
     final activeTabNotifier = ref.read(sidebarActiveTabProvider.notifier);
-    final legacyIndex = activeTabNotifier.pendingLegacyIndex();
-    final selectedTab = resolveSidebarTabSelection(
-      persistedTab: persistedTab,
-      legacyIndex: legacyIndex,
-      visibleTabs: visibleTabIds,
-    );
-    final activeIndex = visibleTabIds.indexOf(selectedTab);
+    final activeIndex = navigation.selectedIndex;
     final isTerminalTabSelected =
         visibleTabIds[activeIndex] == SidebarTabId.terminal;
-    final tabDefinitions = <_SidebarTabDefinition>[
-      if (!hermesOnly)
-        _SidebarTabDefinition(
-          id: SidebarTabId.chats,
-          label: localizations.sidebarChatsTab,
-          body: const ChatsDrawer(),
-        ),
-      if (hermesOnly || hermesEnabled)
-        _SidebarTabDefinition(
-          id: SidebarTabId.hermes,
-          label: localizations.sidebarHermesTab,
-          body: HermesSessionsTab(
-            showBottomNavigationBar: hasBottomNavigationBar,
-          ),
-        ),
-      if (notesEnabled)
-        _SidebarTabDefinition(
-          id: SidebarTabId.notes,
-          label: localizations.sidebarNotesTab,
-          body: const NotesListTab(),
-        ),
-      if (showTerminalTab)
-        _SidebarTabDefinition(
-          id: SidebarTabId.terminal,
-          label: localizations.sidebarTerminalTab,
-          body: TerminalTab(isActive: isTerminalTabSelected),
-        ),
-      if (channelsEnabled)
-        _SidebarTabDefinition(
-          id: SidebarTabId.channels,
-          label: localizations.sidebarChannelsTab,
-          body: const ChannelListTab(),
-        ),
-    ];
+    final tabDefinitions = visibleTabIds
+        .map((tab) {
+          return switch (tab) {
+            SidebarTabId.chats => _SidebarTabDefinition(
+              id: SidebarTabId.chats,
+              label: localizations.sidebarChatsTab,
+              body: const ChatsDrawer(),
+            ),
+            SidebarTabId.hermes => _SidebarTabDefinition(
+              id: SidebarTabId.hermes,
+              label: localizations.sidebarHermesTab,
+              body: HermesSessionsTab(
+                showBottomNavigationBar: hasBottomNavigationBar,
+              ),
+            ),
+            SidebarTabId.notes => _SidebarTabDefinition(
+              id: SidebarTabId.notes,
+              label: localizations.sidebarNotesTab,
+              body: const NotesListTab(),
+            ),
+            SidebarTabId.terminal => _SidebarTabDefinition(
+              id: SidebarTabId.terminal,
+              label: localizations.sidebarTerminalTab,
+              body: TerminalTab(isActive: isTerminalTabSelected),
+            ),
+            SidebarTabId.channels => _SidebarTabDefinition(
+              id: SidebarTabId.channels,
+              label: localizations.sidebarChannelsTab,
+              body: const ChannelListTab(),
+            ),
+          };
+        })
+        .toList(growable: false);
     final navigationItems = _sidebarNavigationItems(tabDefinitions);
 
     final conduitTheme = context.conduitTheme;
@@ -586,7 +558,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     void onTap(int index) {
       final selectedTab = tabDefinitions[index].id;
       if (index == activeIndex) {
-        if (legacyIndex != null) {
+        if (navigation.isLegacySelection) {
           activeTabNotifier.set(selectedTab);
         }
         unawaited(

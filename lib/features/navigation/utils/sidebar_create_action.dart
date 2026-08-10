@@ -14,11 +14,9 @@ import '../../channels/providers/channel_providers.dart';
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
-import '../../hermes/providers/hermes_providers.dart';
 import '../../notes/providers/notes_providers.dart';
-import '../../terminal/providers/terminal_providers.dart';
+import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
-import '../providers/sidebar_tab_scroll_registry.dart';
 
 enum _SidebarCreateActionKind { chat, hermesChat, note, channel }
 
@@ -30,31 +28,8 @@ class SidebarCreateActionSpec {
 }
 
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
-  final tabId = ref.watch(sidebarActiveTabProvider);
-  final legacyIndex = ref
-      .read(sidebarActiveTabProvider.notifier)
-      .pendingLegacyIndex();
-  final hermesOnly = ref.watch(hermesOnlyModeProvider);
-  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-  final hermesOn = ref.watch(hermesEnabledProvider);
-  final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
-  final terminalOn = hasOpenWebUi && _watchTerminalTabVisible(ref);
-  final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
-    tabId: _resolveActiveSidebarTab(
-      tabId: tabId,
-      legacyIndex: legacyIndex,
-      hermesOnly: hermesOnly,
-      hermesOn: hermesOn,
-      notesOn: notesOn,
-      terminalOn: terminalOn,
-      channelsOn: channelsOn,
-    ),
-    hermesOnly: hermesOnly,
-    hermesOn: hermesOn,
-    notesOn: notesOn,
-    terminalOn: terminalOn,
-    channelsOn: channelsOn,
+    ref.watch(sidebarNavigationSnapshotProvider).selectedTab,
   );
   if (kind == null) {
     return null;
@@ -77,31 +52,8 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 }
 
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
-  final tabId = ref.read(sidebarActiveTabProvider);
-  final legacyIndex = ref
-      .read(sidebarActiveTabProvider.notifier)
-      .pendingLegacyIndex();
-  final hermesOnly = ref.read(hermesOnlyModeProvider);
-  final hasOpenWebUi = ref.read(openWebUiAccountAvailableProvider);
-  final hermesOn = ref.read(hermesEnabledProvider);
-  final notesOn = hasOpenWebUi && ref.read(notesFeatureEnabledProvider);
-  final terminalOn = hasOpenWebUi && _readTerminalTabVisible(ref);
-  final channelsOn = hasOpenWebUi && ref.read(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
-    tabId: _resolveActiveSidebarTab(
-      tabId: tabId,
-      legacyIndex: legacyIndex,
-      hermesOnly: hermesOnly,
-      hermesOn: hermesOn,
-      notesOn: notesOn,
-      terminalOn: terminalOn,
-      channelsOn: channelsOn,
-    ),
-    hermesOnly: hermesOnly,
-    hermesOn: hermesOn,
-    notesOn: notesOn,
-    terminalOn: terminalOn,
-    channelsOn: channelsOn,
+    ref.read(sidebarNavigationSnapshotProvider).selectedTab,
   );
   switch (kind) {
     case null:
@@ -121,64 +73,14 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
   }
 }
 
-SidebarTabId _resolveActiveSidebarTab({
-  required SidebarTabId tabId,
-  required int? legacyIndex,
-  required bool hermesOnly,
-  required bool hermesOn,
-  required bool notesOn,
-  required bool terminalOn,
-  required bool channelsOn,
-}) {
-  final visibleTabs = <SidebarTabId>[
-    if (!hermesOnly) SidebarTabId.chats,
-    if (hermesOnly || hermesOn) SidebarTabId.hermes,
-    if (!hermesOnly && notesOn) SidebarTabId.notes,
-    if (!hermesOnly && terminalOn) SidebarTabId.terminal,
-    if (!hermesOnly && channelsOn) SidebarTabId.channels,
-  ];
-  return resolveSidebarTabSelection(
-    persistedTab: tabId,
-    legacyIndex: legacyIndex,
-    visibleTabs: visibleTabs,
-  );
-}
-
-_SidebarCreateActionKind? _resolveSidebarCreateActionKind({
-  required SidebarTabId tabId,
-  required bool hermesOnly,
-  required bool hermesOn,
-  required bool notesOn,
-  required bool terminalOn,
-  required bool channelsOn,
-}) {
-  // Hermes-only: the Hermes tab is the only tab, so "+" always starts a new
-  // Hermes chat.
-  if (hermesOnly) {
-    return _SidebarCreateActionKind.hermesChat;
-  }
-
+_SidebarCreateActionKind? _resolveSidebarCreateActionKind(SidebarTabId tabId) {
   return switch (tabId) {
     SidebarTabId.chats => _SidebarCreateActionKind.chat,
-    SidebarTabId.hermes when hermesOn => _SidebarCreateActionKind.hermesChat,
-    SidebarTabId.notes when notesOn => _SidebarCreateActionKind.note,
-    SidebarTabId.terminal when terminalOn => null,
-    SidebarTabId.channels when channelsOn => _SidebarCreateActionKind.channel,
-    _ => _SidebarCreateActionKind.chat,
+    SidebarTabId.hermes => _SidebarCreateActionKind.hermesChat,
+    SidebarTabId.notes => _SidebarCreateActionKind.note,
+    SidebarTabId.terminal => null,
+    SidebarTabId.channels => _SidebarCreateActionKind.channel,
   };
-}
-
-// Single source of truth for terminal-tab visibility (shared with the sidebar).
-// Must match `sidebar_page.dart`'s `showTerminalTab` exactly, or the create
-// action's tab-index mapping drifts from the rendered tabs and the wrong (or no)
-// create action is shown — e.g. hiding the Channels create action while terminal
-// availability is still loading.
-bool _watchTerminalTabVisible(WidgetRef ref) {
-  return ref.watch(terminalTabVisibleProvider);
-}
-
-bool _readTerminalTabVisible(WidgetRef ref) {
-  return ref.read(terminalTabVisibleProvider);
 }
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {

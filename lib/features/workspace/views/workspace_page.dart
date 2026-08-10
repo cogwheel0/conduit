@@ -16,8 +16,7 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
-import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_presentation.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -586,6 +585,7 @@ class _CollectionBinding<T> {
     required this.onRefresh,
     required this.onLoadMore,
     required this.onSearch,
+    required this.presentationOf,
     this.filterBar,
     this.trailingOf,
   });
@@ -597,6 +597,8 @@ class _CollectionBinding<T> {
   final Future<void> Function() onRefresh;
   final Future<void> Function() onLoadMore;
   final Future<void> Function(String) onSearch;
+  final WorkspaceResourcePresentation Function(AppLocalizations, T)
+  presentationOf;
   final Widget? filterBar;
   final Widget? Function(T)? trailingOf;
 }
@@ -619,6 +621,7 @@ R _withCollectionBinding<R>(
           onRefresh: ref.read(workspaceModelsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceModelsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceModelsProvider.notifier).setQuery,
+          presentationOf: presentWorkspaceModel,
         ),
       );
     case WorkspaceSection.knowledge:
@@ -631,6 +634,7 @@ R _withCollectionBinding<R>(
           onRefresh: ref.read(workspaceKnowledgeProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceKnowledgeProvider.notifier).loadMore,
           onSearch: ref.read(workspaceKnowledgeProvider.notifier).setQuery,
+          presentationOf: presentWorkspaceKnowledge,
           filterBar: const _KnowledgeFilterBar(),
         ),
       );
@@ -646,6 +650,7 @@ R _withCollectionBinding<R>(
           onRefresh: ref.read(workspacePromptsProvider.notifier).refresh,
           onLoadMore: ref.read(workspacePromptsProvider.notifier).loadMore,
           onSearch: ref.read(workspacePromptsProvider.notifier).setQuery,
+          presentationOf: presentWorkspacePrompt,
         ),
       );
     case WorkspaceSection.tools:
@@ -658,6 +663,7 @@ R _withCollectionBinding<R>(
           onRefresh: ref.read(workspaceToolsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceToolsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceToolsProvider.notifier).setQuery,
+          presentationOf: presentWorkspaceTool,
         ),
       );
     case WorkspaceSection.skills:
@@ -670,6 +676,7 @@ R _withCollectionBinding<R>(
           onRefresh: ref.read(workspaceSkillsProvider.notifier).refresh,
           onLoadMore: ref.read(workspaceSkillsProvider.notifier).loadMore,
           onSearch: ref.read(workspaceSkillsProvider.notifier).setQuery,
+          presentationOf: presentWorkspaceSkill,
         ),
       );
   }
@@ -1063,134 +1070,18 @@ Widget _resourceTile<T>(
   bool groupedLast = false,
 }) {
   final id = binding.idOf(item);
-  final subtitle = binding.subtitleOf(item);
-  final customTrailing = binding.trailingOf?.call(item);
-  final presentation = _workspaceResourcePresentation(
-    AppLocalizations.of(context)!,
-    item,
-  );
-  final resolvedSubtitle = [
-    if (subtitle != null && subtitle.isNotEmpty) subtitle,
-    if (presentation.readOnly)
-      AppLocalizations.of(context)!.workspaceReadOnlyBadge,
-  ].join(' · ');
-  final status = presentation.statusLabel == null
-      ? null
-      : WorkspaceStatusPill(
-          label: presentation.statusLabel!,
-          tone: presentation.statusTone,
-        );
-  final tile = WorkspaceResourceTile(
-    key: Key('workspace-resource-${section.name}-$id'),
+  return WorkspaceCollectionResourceTile(
+    section: section,
+    resourceId: id,
     icon: _sectionIcon(section),
     title: binding.titleOf(item),
-    subtitle: resolvedSubtitle.isEmpty ? null : resolvedSubtitle,
-    trailing: customTrailing ?? status,
+    subtitle: binding.subtitleOf(item),
+    trailing: binding.trailingOf?.call(item),
+    presentation: binding.presentationOf(AppLocalizations.of(context)!, item),
     selected: selectedId == id,
-    grouped: groupedIndex != null,
-    onTap: () => context.push(section.routes.detailLocation(id)),
+    groupedIndex: groupedIndex,
+    groupedLast: groupedLast,
   );
-  if (groupedIndex == null) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        Spacing.pagePadding,
-        0,
-        Spacing.pagePadding,
-        Spacing.md,
-      ),
-      child: tile,
-    );
-  }
-  final theme = context.conduitTheme;
-  return Container(
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      color: theme.surfaceContainer.withValues(alpha: 0.68),
-      border: Border(
-        left: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
-        top: groupedIndex == 0
-            ? BorderSide(color: theme.cardBorder, width: BorderWidth.thin)
-            : BorderSide.none,
-        right: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
-        bottom: BorderSide(
-          color: groupedLast ? theme.cardBorder : theme.dividerColor,
-          width: BorderWidth.thin,
-        ),
-      ),
-      borderRadius: BorderRadius.vertical(
-        top: groupedIndex == 0
-            ? const Radius.circular(AppBorderRadius.card)
-            : Radius.zero,
-        bottom: groupedLast
-            ? const Radius.circular(AppBorderRadius.card)
-            : Radius.zero,
-      ),
-    ),
-    child: tile,
-  );
-}
-
-class _WorkspaceResourcePresentation {
-  const _WorkspaceResourcePresentation({
-    this.statusLabel,
-    this.statusTone = WorkspaceStatusTone.neutral,
-    this.readOnly = false,
-  });
-
-  final String? statusLabel;
-  final WorkspaceStatusTone statusTone;
-  final bool readOnly;
-}
-
-_WorkspaceResourcePresentation _workspaceResourcePresentation(
-  AppLocalizations l10n,
-  Object? item,
-) {
-  final readOnly = switch (item) {
-    WorkspaceModelSummary() => !item.writeAccess,
-    WorkspaceKnowledgeSummary() => !item.writeAccess,
-    WorkspacePromptSummary() => !item.writeAccess,
-    WorkspaceToolSummary() => !item.writeAccess,
-    WorkspaceSkillSummary() => !item.writeAccess,
-    _ => false,
-  };
-  return switch (item) {
-    WorkspaceModelSummary() => _WorkspaceResourcePresentation(
-      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
-      statusTone: item.isActive
-          ? WorkspaceStatusTone.success
-          : WorkspaceStatusTone.neutral,
-      readOnly: readOnly,
-    ),
-    WorkspacePromptSummary() => _WorkspaceResourcePresentation(
-      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
-      statusTone: item.isActive
-          ? WorkspaceStatusTone.success
-          : WorkspaceStatusTone.neutral,
-      readOnly: readOnly,
-    ),
-    WorkspaceSkillSummary() => _WorkspaceResourcePresentation(
-      statusLabel: item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
-      statusTone: item.isActive
-          ? WorkspaceStatusTone.success
-          : WorkspaceStatusTone.neutral,
-      readOnly: readOnly,
-    ),
-    WorkspaceKnowledgeSummary() => _WorkspaceResourcePresentation(
-      statusLabel: item.isExternal
-          ? l10n.workspaceKnowledgeExternalBadge
-          : l10n.workspaceKnowledgeSourceLocal,
-      statusTone: item.isExternal
-          ? WorkspaceStatusTone.info
-          : WorkspaceStatusTone.neutral,
-      readOnly: readOnly,
-    ),
-    WorkspaceToolSummary() => _WorkspaceResourcePresentation(
-      statusLabel: l10n.workspaceToolFunctionCount(item.specs.length),
-      readOnly: readOnly,
-    ),
-    _ => const _WorkspaceResourcePresentation(),
-  };
 }
 
 /// Shared empty-collection placeholder, keyed `workspace-empty-<section>`.

@@ -962,13 +962,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             });
           }
           final safeChild = child ?? const SizedBox.shrink();
-          final mediaQuery = MediaQuery.of(context);
-          final scaledChild = MediaQuery(
-            data: mediaQuery.copyWith(
-              textScaler: mediaQuery.textScaler.clamp(maxScaleFactor: 2),
-            ),
-            child: safeChild,
-          );
 
           // On iOS, AdaptiveApp creates CupertinoApp which
           // doesn't propagate Material ThemeExtensions.
@@ -983,7 +976,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           return Theme(
             data: materialTheme,
             child: ReleaseNotesCoordinator(
-              child: _KeyboardDismissOnScroll(child: scaledChild),
+              child: _KeyboardDismissOnScroll(child: safeChild),
             ),
           );
         },

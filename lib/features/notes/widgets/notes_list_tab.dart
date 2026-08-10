@@ -20,6 +20,7 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
+import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../providers/notes_providers.dart';

@@ -17,6 +17,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
+import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../providers/channel_providers.dart';
 import '../utils/channel_request_owner.dart';

@@ -16,7 +16,6 @@ import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_url_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_valves_sheet.dart';
@@ -24,6 +23,7 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 import 'workspace_tool_editor_sections.dart';
 
@@ -642,7 +642,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
-            WorkspaceGroupedSection(
+            InsetGroupedSection(
               title: l10n.workspaceTools,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -678,7 +678,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             const WorkspaceToolWarning(),
             const SizedBox(height: Spacing.xl),
             if (summary != null) ...[
-              WorkspaceDisclosureSection(
+              UtilityDisclosureSection(
                 key: const Key('workspace-tool-details-disclosure'),
                 title: l10n.workspaceToolDetails,
                 expanded: _detailsExpanded,

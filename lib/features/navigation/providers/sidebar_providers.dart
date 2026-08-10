@@ -1,27 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
+import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
-import 'sidebar_tab_scroll_registry.dart';
+import '../../hermes/providers/hermes_providers.dart';
+import '../../terminal/providers/terminal_providers.dart';
+import '../models/sidebar_navigation_model.dart';
 
 part 'sidebar_providers.g.dart';
-
-SidebarTabId resolveSidebarTabSelection({
-  required SidebarTabId persistedTab,
-  required int? legacyIndex,
-  required List<SidebarTabId> visibleTabs,
-}) {
-  if (visibleTabs.isEmpty) return SidebarTabId.chats;
-  if (legacyIndex != null) {
-    return visibleTabs[legacyIndex.clamp(0, visibleTabs.length - 1)];
-  }
-  return visibleTabs.contains(persistedTab) ? persistedTab : visibleTabs.first;
-}
 
 /// Stable identity of the active sidebar tab.
 ///
@@ -70,6 +62,38 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     );
   }
 }
+
+final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
+  ref,
+) {
+  final hermesOnly = ref.watch(hermesOnlyModeProvider);
+  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
+  final visibleTabs = <SidebarTabId>[
+    if (!hermesOnly) SidebarTabId.chats,
+    if (hermesOnly || ref.watch(hermesEnabledProvider)) SidebarTabId.hermes,
+    if (hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider))
+      SidebarTabId.notes,
+    if (hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider))
+      SidebarTabId.terminal,
+    if (hasOpenWebUi &&
+        !hermesOnly &&
+        ref.watch(channelsFeatureEnabledProvider))
+      SidebarTabId.channels,
+  ];
+  final persistedTab = ref.watch(sidebarActiveTabProvider);
+  final legacyIndex = ref
+      .read(sidebarActiveTabProvider.notifier)
+      .pendingLegacyIndex();
+  return SidebarNavigationSnapshot(
+    visibleTabs: visibleTabs,
+    isLegacySelection: legacyIndex != null,
+    selectedTab: resolveSidebarTabSelection(
+      persistedTab: persistedTab,
+      legacyIndex: legacyIndex,
+      visibleTabs: visibleTabs,
+    ),
+  );
+});
 
 /// Preferred width for the persistent tablet sidebar.
 ///

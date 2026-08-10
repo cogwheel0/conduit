@@ -1,5 +1,4 @@
 import 'package:conduit/core/widgets/error_boundary.dart';
-import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,11 +31,7 @@ void main() {
 
       expect(find.text('Hello World'), findsOneWidget);
 
-      // Dispose the widget tree so ErrorBoundary restores globals.
       await tester.pumpWidget(const SizedBox.shrink());
-      // Manually restore ErrorWidget.builder since ErrorBoundary
-      // sets it in build(), not initState.
-      ErrorWidget.builder = originalErrorWidgetBuilder;
     });
 
     testWidgets('can be found by type', (tester) async {
@@ -51,48 +46,21 @@ void main() {
       expect(find.byType(ErrorBoundary), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
-      ErrorWidget.builder = originalErrorWidgetBuilder;
     });
 
-    testWidgets('accepts custom errorBuilder parameter', (tester) async {
+    testWidgets('does not replace the process-level Flutter error handler', (
+      tester,
+    ) async {
+      void handler(FlutterErrorDetails details) {}
+
+      FlutterError.onError = handler;
       await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(
-              body: ErrorBoundary(
-                errorBuilder: (error, stack) =>
-                    Text('Error: ${error.toString()}'),
-                child: const Text('No error here'),
-              ),
-            ),
-          ),
+        const ProviderScope(
+          child: MaterialApp(home: ErrorBoundary(child: SizedBox.shrink())),
         ),
       );
 
-      expect(find.text('No error here'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox.shrink());
-      ErrorWidget.builder = originalErrorWidgetBuilder;
-    });
-
-    test('disposing an older registration keeps the newer handler active', () {
-      final older = ErrorBoundaryHandlerRegistration((_, _) {})..install();
-      final newer = ErrorBoundaryHandlerRegistration((_, _) {})..install();
-      final newerHandler = FlutterError.onError;
-
-      older.dispose();
-      final newerHandlerStillActive = identical(
-        FlutterError.onError,
-        newerHandler,
-      );
-      newer.dispose();
-      final originalHandlerRestored = identical(
-        FlutterError.onError,
-        originalFlutterErrorOnError,
-      );
-
-      check(newerHandlerStillActive).equals(true);
-      check(originalHandlerRestored).equals(true);
+      expect(identical(FlutterError.onError, handler), isTrue);
     });
 
     testWidgets('global builder renders a friendly nonblank fallback', (

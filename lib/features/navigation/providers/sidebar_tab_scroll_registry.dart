@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-part 'sidebar_tab_scroll_registry.g.dart';
+import '../models/sidebar_navigation_model.dart';
 
-enum SidebarTabId { chats, hermes, terminal, notes, channels }
+part 'sidebar_tab_scroll_registry.g.dart';
 
 typedef SidebarScrollControllerResolver = ScrollController? Function();
 

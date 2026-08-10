@@ -6,12 +6,12 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 final class WorkspaceToolCoreFields extends StatelessWidget {
   const WorkspaceToolCoreFields({
@@ -46,7 +46,7 @@ final class WorkspaceToolCoreFields extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (isDetail)
-          WorkspaceValueRow(
+          UtilityValueRow(
             key: const Key('workspace-tool-name'),
             label: l10n.workspaceToolName,
             value: nameController.text,
@@ -63,7 +63,7 @@ final class WorkspaceToolCoreFields extends StatelessWidget {
           ),
         const SizedBox(height: Spacing.md),
         if (isDetail)
-          WorkspaceValueRow(
+          UtilityValueRow(
             key: const Key('workspace-tool-id'),
             label: l10n.workspaceToolId,
             value: idController.text,
@@ -82,7 +82,7 @@ final class WorkspaceToolCoreFields extends StatelessWidget {
           ),
         const SizedBox(height: Spacing.md),
         if (isDetail)
-          WorkspaceValueRow(
+          UtilityValueRow(
             key: const Key('workspace-tool-description'),
             label: l10n.workspaceToolDescription,
             value: descriptionController.text,
