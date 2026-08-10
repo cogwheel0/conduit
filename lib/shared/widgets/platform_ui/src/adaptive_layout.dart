@@ -108,6 +108,7 @@ class AdaptiveBottomNavigationBar {
     this.selectedIndex,
     this.onTap,
     this.useNativeBottomBar = true,
+    this.nativeFullWidth = false,
     this.cupertinoTabBar,
     this.bottomNavigationBar,
     this.selectedItemColor,
@@ -118,6 +119,7 @@ class AdaptiveBottomNavigationBar {
   final int? selectedIndex;
   final ValueChanged<int>? onTap;
   final bool useNativeBottomBar;
+  final bool nativeFullWidth;
   final CupertinoTabBar? cupertinoTabBar;
   final Widget? bottomNavigationBar;
   final Color? selectedItemColor;
@@ -180,6 +182,7 @@ class AdaptiveScaffold extends StatelessWidget {
         !tabBarHidden &&
         navigation!.useNativeBottomBar &&
         PlatformUiCapabilities.usesNativeIOS26 &&
+        !navigation.nativeFullWidth &&
         items.length >= 2 &&
         items.length <= 5;
 

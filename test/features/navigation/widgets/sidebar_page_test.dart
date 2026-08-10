@@ -390,7 +390,7 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
   });
 
-  testWidgets('persistent tablet uses grouped vertical navigation', (
+  testWidgets('persistent tablet uses bottom navigation with all five tabs', (
     tester,
   ) async {
     final controllers = _SidebarHarnessControllers();
@@ -403,33 +403,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final navigation = find.byKey(
-      const ValueKey<String>('sidebar-tablet-navigation'),
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
+      findsNothing,
     );
-    expect(navigation, findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(NavigationBar)).width,
+      tester
+          .getSize(find.byKey(const ValueKey<String>('sidebar-page-surface')))
+          .width,
+    );
     for (final label in ['Chats', 'Hermes', 'Notes', 'Terminal', 'Channels']) {
-      expect(
-        find.descendant(of: navigation, matching: find.text(label)),
-        findsOneWidget,
-      );
+      expect(_sidebarBottomNavTabLabel(label), findsOneWidget);
     }
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
-    );
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
 
     expect(controllers.activeTabNotifier.currentValue, 2);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
-        matching: find.byWidgetPredicate(
-          (widget) => widget is Semantics && widget.properties.selected == true,
-        ),
-      ),
-      findsOneWidget,
-    );
     expect(
       find.descendant(
         of: _layerRootFinder(_SidebarTabLayer.notes),
@@ -439,6 +431,29 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('persistent iOS 26 sidebar requests a full-width native bar', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesEnabled: true,
+        persistentTabletSidebar: true,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(CNTabBar), findsNothing);
+    final tabBar = tester.widget<CupertinoTabBar>(find.byType(CupertinoTabBar));
+    expect(tabBar.items, hasLength(5));
   });
 
   testWidgets('persistent tablet navigation remains usable at 2x text', (
@@ -458,12 +473,10 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(
       find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.byType(NavigationBar), findsNothing);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-tablet-nav-notes')),
-    );
+    expect(find.byType(NavigationBar), findsOneWidget);
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
     expect(controllers.activeTabNotifier.currentValue, 2);
   });

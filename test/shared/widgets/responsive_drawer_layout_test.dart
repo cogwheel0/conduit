@@ -586,7 +586,7 @@ void main() {
       expect(node.label, 'Resize sidebar');
       expect(node.value, '320 points');
       expect(node.increasedValue, '340 points');
-      expect(node.decreasedValue, '300 points');
+      expect(node.decreasedValue, '320 points');
       expect(
         node.getSemanticsData().hasAction(SemanticsAction.increase),
         isTrue,

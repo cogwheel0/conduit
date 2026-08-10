@@ -24,8 +24,8 @@ bool usesPersistentTabletSidebar(BuildContext context) =>
 /// Describes which surrounding chrome has already been reserved for sidebar
 /// tab content.
 ///
-/// Tablet vertical navigation owns the header inset and has no bottom tab bar;
-/// compact layouts leave both responsibilities with each tab body.
+/// Custom parent layouts can own the header inset or omit bottom navigation;
+/// the standard sidebar leaves both responsibilities with each tab body.
 class SidebarTabLayoutScope extends InheritedWidget {
   const SidebarTabLayoutScope({
     super.key,

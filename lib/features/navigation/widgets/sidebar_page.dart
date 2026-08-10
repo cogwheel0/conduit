@@ -14,7 +14,6 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
-import '../../../shared/widgets/utility_components.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
@@ -38,8 +37,6 @@ const double _kSidebarWindowedLeadingInset = 62;
 const double _kSidebarNativeBottomBarContentHeight = 50;
 
 enum _SidebarTabId { chats, hermes, terminal, notes, channels }
-
-enum _SidebarNavigationPlacement { bottomBar, verticalGroup }
 
 class _SidebarTabDefinition {
   const _SidebarTabDefinition({
@@ -66,82 +63,6 @@ class _SidebarNavigationItem {
   final String label;
   final AdaptiveNavigationDestination destination;
   final _SidebarTabDefinition tabDefinition;
-}
-
-class _SidebarTabletNavigation extends StatelessWidget {
-  const _SidebarTabletNavigation({
-    required this.navigationItems,
-    required this.selectedIndex,
-    required this.onTap,
-  });
-
-  final List<_SidebarNavigationItem> navigationItems;
-  final int selectedIndex;
-  final ValueChanged<int> onTap;
-
-  Widget _leadingIcon(
-    BuildContext context,
-    _SidebarNavigationItem item,
-    bool selected,
-  ) {
-    final theme = context.conduitTheme;
-    final color = selected ? theme.buttonPrimary : theme.textSecondary;
-    if (item.tabDefinition.id == _SidebarTabId.hermes) {
-      return ImageIcon(kHermesTabIcon, size: IconSize.listItem, color: color);
-    }
-
-    final icon = Platform.isIOS
-        ? cupertinoIconForSFSymbol(
-                _sfSymbolTabIcon(item.tabDefinition.id, selected: selected),
-              ) ??
-              _materialTabIcon(item.tabDefinition.id, selected: selected)
-        : _materialTabIcon(item.tabDefinition.id, selected: selected);
-    return Icon(icon, size: IconSize.listItem, color: color);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final duration = context.motionDuration(AnimationDuration.microInteraction);
-    return Padding(
-      key: const ValueKey<String>('sidebar-tablet-navigation'),
-      padding: const EdgeInsets.fromLTRB(Spacing.sm, 0, Spacing.sm, Spacing.sm),
-      child: InsetGroupedList(
-        dividerIndent: Spacing.md,
-        children: [
-          for (var index = 0; index < navigationItems.length; index++)
-            AnimatedContainer(
-              key: ValueKey<String>(
-                'sidebar-tablet-nav-${navigationItems[index].tabDefinition.id.name}',
-              ),
-              duration: duration,
-              curve: Curves.easeOutCubic,
-              margin: const EdgeInsets.symmetric(horizontal: Spacing.xxs),
-              decoration: BoxDecoration(
-                color: index == selectedIndex
-                    ? theme.buttonPrimary.withValues(alpha: 0.1)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(AppBorderRadius.small),
-              ),
-              child: UtilityRow(
-                title: navigationItems[index].label,
-                selected: index == selectedIndex,
-                leading: _leadingIcon(
-                  context,
-                  navigationItems[index],
-                  index == selectedIndex,
-                ),
-                onTap: () => onTap(index),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.sm,
-                  vertical: Spacing.xs,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Keeps all sidebar tab subtrees mounted and only toggles which one is active.
@@ -379,13 +300,15 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,
     int selectedIndex,
-    ValueChanged<int> onTap,
-  ) {
+    ValueChanged<int> onTap, {
+    required bool nativeFullWidth,
+  }) {
     return AdaptiveBottomNavigationBar(
       items: [for (final item in navigationItems) item.destination],
       selectedIndex: selectedIndex,
       onTap: onTap,
       useNativeBottomBar: true,
+      nativeFullWidth: nativeFullWidth,
       selectedItemColor: conduitTheme.buttonPrimary,
       unselectedItemColor: conduitTheme.textSecondary,
       bottomNavigationBar: _SidebarMaterialBottomNavigationBar(
@@ -608,12 +531,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       if (channelsEnabled) _SidebarTabId.channels,
     ];
     final hasMultipleTabs = visibleTabIds.length > 1;
-    final navigationPlacement = PersistentTabletSidebarScope.isActive(context)
-        ? _SidebarNavigationPlacement.verticalGroup
-        : _SidebarNavigationPlacement.bottomBar;
-    final hasBottomNavigationBar =
-        hasMultipleTabs &&
-        navigationPlacement == _SidebarNavigationPlacement.bottomBar;
+    final persistentTabletSidebar = PersistentTabletSidebarScope.isActive(
+      context,
+    );
+    final hasBottomNavigationBar = hasMultipleTabs;
     final persistedIndex = ref.watch(sidebarActiveTabProvider);
     final activeIndex = _clampIndex(persistedIndex, visibleTabIds.length);
     if (activeIndex != persistedIndex) {
@@ -752,6 +673,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
                   conduitTheme,
                   activeIndex,
                   onTap,
+                  nativeFullWidth: persistentTabletSidebar,
                 )
               : null;
           final tabContent = withSyncProgress(
@@ -760,31 +682,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               hasBottomNavigationBar: hasBottomNavigationBar,
             ),
           );
-          final sidebarBody =
-              navigationPlacement == _SidebarNavigationPlacement.verticalGroup
-              ? Column(
-                  children: [
-                    SizedBox(height: sidebarTabContentTopPadding(context)),
-                    if (hasMultipleTabs)
-                      _SidebarTabletNavigation(
-                        navigationItems: navigationItems,
-                        selectedIndex: activeIndex,
-                        onTap: onTap,
-                      ),
-                    Expanded(
-                      child: SidebarTabLayoutScope(
-                        parentOwnsHeaderInset: true,
-                        bottomNavigationVisible: false,
-                        child: tabContent,
-                      ),
-                    ),
-                  ],
-                )
-              : SidebarTabLayoutScope(
-                  parentOwnsHeaderInset: false,
-                  bottomNavigationVisible: hasBottomNavigationBar,
-                  child: tabContent,
-                );
+          final sidebarBody = SidebarTabLayoutScope(
+            parentOwnsHeaderInset: false,
+            bottomNavigationVisible: hasBottomNavigationBar,
+            child: tabContent,
+          );
 
           if (useNativeIos26Chrome) {
             return SidebarIos26Scaffold(

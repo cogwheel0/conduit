@@ -272,6 +272,42 @@ void main() {
 
     final tabBar = tester.widget<CNTabBar>(find.byType(CNTabBar));
     expect(tabBar.iconSize, kCupertinoNativeControlSymbolExtent);
+    expect(tabBar.shrinkCentered, isTrue);
+  });
+
+  testWidgets('iOS 26 tablet tab bar can fill its sidebar pane', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: SidebarIos26Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: AdaptiveBottomNavigationBar(
+            items: const [
+              AdaptiveNavigationDestination(
+                icon: 'bubble.left',
+                label: 'Chats',
+              ),
+              AdaptiveNavigationDestination(icon: 'doc.text', label: 'Notes'),
+            ],
+            selectedIndex: 0,
+            onTap: (_) {},
+            nativeFullWidth: true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(CNTabBar), findsNothing);
+    expect(find.byType(CupertinoTabBar), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(CupertinoTabBar)).width,
+      tester.getSize(find.byType(CupertinoPageScaffold)).width,
+    );
   });
 
   testWidgets('compatible iOS 26 toolbar menus join their action group', (

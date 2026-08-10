@@ -74,4 +74,18 @@ void main() {
       restoredContainer.read(sidebarTabletWidthProvider),
     ).equals(defaultSidebarTabletWidth);
   });
+
+  test('legacy tablet widths below 320 restore at the new minimum', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.sidebarTabletWidth: 280.0,
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    check(
+      container.read(sidebarTabletWidthProvider),
+    ).equals(minimumSidebarTabletWidth);
+    check(minimumSidebarTabletWidth).equals(320);
+  });
 }

@@ -75,13 +75,18 @@ class SidebarIos26Scaffold extends StatelessWidget {
               left: 0,
               right: 0,
               bottom: 0,
-              child: composeNativeViews
+              child: navigation!.nativeFullWidth
+                  ? _fullWidthCupertinoTabBar(
+                      navigation: navigation,
+                      destinations: destinations,
+                    )
+                  : composeNativeViews
                   ? CNTabBar(
                       items: [
                         for (final destination in destinations)
                           _nativeTabItem(destination),
                       ],
-                      currentIndex: navigation!.selectedIndex!,
+                      currentIndex: navigation.selectedIndex!,
                       onTap: navigation.onTap!,
                       tint:
                           navigation.selectedItemColor ??
@@ -96,6 +101,30 @@ class SidebarIos26Scaffold extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static CupertinoTabBar _fullWidthCupertinoTabBar({
+    required AdaptiveBottomNavigationBar navigation,
+    required List<AdaptiveNavigationDestination> destinations,
+  }) {
+    return navigation.cupertinoTabBar ??
+        CupertinoTabBar(
+          currentIndex: navigation.selectedIndex!,
+          onTap: navigation.onTap!,
+          activeColor: navigation.selectedItemColor,
+          inactiveColor:
+              navigation.unselectedItemColor ?? CupertinoColors.inactiveGray,
+          items: [
+            for (final destination in destinations)
+              BottomNavigationBarItem(
+                icon: _flutterNavigationIcon(destination.icon),
+                activeIcon: _flutterNavigationIcon(
+                  destination.selectedIcon ?? destination.icon,
+                ),
+                label: destination.label,
+              ),
+          ],
+        );
   }
 
   static CNTabBarItem _nativeTabItem(
@@ -131,6 +160,30 @@ class SidebarIos26Scaffold extends StatelessWidget {
     }
     if (icon is AssetImage) return CNImageAsset(icon.assetName);
     return null;
+  }
+
+  static Widget _flutterNavigationIcon(dynamic icon) {
+    if (icon is Widget) return icon;
+    if (icon is IconData) {
+      return Icon(icon, size: kCupertinoNativeControlSymbolExtent);
+    }
+    if (icon is String) {
+      return Icon(
+        cupertinoIconForSFSymbol(icon) ?? CupertinoIcons.circle,
+        size: kCupertinoNativeControlSymbolExtent,
+      );
+    }
+    if (icon is ImageProvider) {
+      return Image(
+        image: icon,
+        width: kCupertinoNativeControlSymbolExtent,
+        height: kCupertinoNativeControlSymbolExtent,
+      );
+    }
+    return const Icon(
+      CupertinoIcons.circle,
+      size: kCupertinoNativeControlSymbolExtent,
+    );
   }
 }
 
