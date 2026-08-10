@@ -266,6 +266,7 @@ class UtilityRow extends ConsumerStatefulWidget {
     this.subtitleMaxLines = 3,
     this.leading,
     this.trailing,
+    this.preserveTrailingSemantics = false,
     this.status,
     this.onTap,
     this.selected = false,
@@ -287,6 +288,9 @@ class UtilityRow extends ConsumerStatefulWidget {
   final int subtitleMaxLines;
   final Widget? leading;
   final Widget? trailing;
+
+  /// Keeps an interactive trailing control as its own accessibility node.
+  final bool preserveTrailingSemantics;
   final Widget? status;
   final VoidCallback? onTap;
   final bool selected;
@@ -343,7 +347,8 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
       expanded: widget.expanded,
       label: semantics,
       onTap: _interactive ? _handleTap : null,
-      excludeSemantics: true,
+      excludeSemantics: !widget.preserveTrailingSemantics,
+      explicitChildNodes: widget.preserveTrailingSemantics,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: _interactive ? (_) => _setPressed(true) : null,
@@ -363,51 +368,60 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                 child: Row(
                   children: [
                     if (widget.leading != null) ...[
-                      widget.leading!,
+                      if (widget.preserveTrailingSemantics)
+                        ExcludeSemantics(child: widget.leading!)
+                      else
+                        widget.leading!,
                       const SizedBox(width: Spacing.md),
                     ],
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            widget.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodyMediumStyle.copyWith(
-                              color: foreground,
-                              fontWeight: FontWeight.w600,
+                      child: ExcludeSemantics(
+                        excluding: widget.preserveTrailingSemantics,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.bodyMediumStyle.copyWith(
+                                color: foreground,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                          if (widget.subtitle != null &&
-                              widget.subtitle!.isNotEmpty) ...[
-                            const SizedBox(height: Spacing.xxs),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    widget.subtitle!,
-                                    maxLines: widget.subtitleMaxLines,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTypography.bodySmallStyle
-                                        .copyWith(color: theme.textSecondary),
+                            if (widget.subtitle != null &&
+                                widget.subtitle!.isNotEmpty) ...[
+                              const SizedBox(height: Spacing.xxs),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      widget.subtitle!,
+                                      maxLines: widget.subtitleMaxLines,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppTypography.bodySmallStyle
+                                          .copyWith(color: theme.textSecondary),
+                                    ),
                                   ),
-                                ),
-                                if (widget.subtitleTrailing != null) ...[
-                                  const SizedBox(width: Spacing.xs),
-                                  widget.subtitleTrailing!,
+                                  if (widget.subtitleTrailing != null) ...[
+                                    const SizedBox(width: Spacing.xs),
+                                    widget.subtitleTrailing!,
+                                  ],
                                 ],
-                              ],
-                            ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                     if (widget.status != null) ...[
                       const SizedBox(width: Spacing.sm),
-                      widget.status!,
+                      ExcludeSemantics(
+                        excluding: widget.preserveTrailingSemantics,
+                        child: widget.status!,
+                      ),
                     ],
                     if (widget.trailing != null) ...[
                       const SizedBox(width: Spacing.sm),

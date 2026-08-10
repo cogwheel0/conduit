@@ -174,10 +174,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       controller.addListener(_resetTransientLogin);
     }
     _setDefaultAuthMode();
-    _loadSavedCredentials();
-    // Check for auth errors (e.g., forced logout due to API key)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAuthStateError();
+    // Hydrate programmatic field values before surfacing auth errors so the
+    // controller listeners cannot immediately clear the message.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _loadSavedCredentials();
+      } finally {
+        if (mounted) _checkAuthStateError();
+      }
     });
   }
 

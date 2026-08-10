@@ -514,6 +514,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
+              enabled: !_finishing,
               label: l10n.hermesServerUrlTitle,
               hint: 'http://192.168.1.10:8642',
               controller: _urlController,
@@ -531,6 +532,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ),
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
+              enabled: !_finishing,
               label: l10n.hermesApiKeyTitle,
               hint: config.apiKey == null || config.apiKey!.isEmpty
                   ? l10n.hermesApiKeyPlaceholder
@@ -569,6 +571,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
+              enabled: !_finishing,
               label: l10n.hermesMemoryKeyTitle,
               hint: config.sessionKey == null || config.sessionKey!.isEmpty
                   ? l10n.hermesMemoryKeyPlaceholder

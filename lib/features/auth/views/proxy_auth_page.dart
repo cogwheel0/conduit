@@ -639,7 +639,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     if (!mounted) return;
     if (!webViewDataReady) {
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.pleaseCheckConnection;
         _isLoading = false;
         _shouldRenderWebView = false;
       });
@@ -669,7 +669,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.pleaseCheckConnection;
         _isLoading = false;
       });
     }
@@ -840,7 +840,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         return;
       }
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.proxyServerVerificationFailed;
         _isLoading = false;
       });
       return;
@@ -851,7 +851,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         return;
       }
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.proxyServerVerificationFailed;
         _isLoading = false;
       });
       return;
@@ -879,7 +879,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final document = _documentFence.committedDocument;
     if (document == null) {
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.proxyServerVerificationFailed;
         _isLoading = false;
       });
       return;
@@ -1030,7 +1030,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
             data: {'errorType': captureError.runtimeType.toString()},
           );
           setState(() {
-            _error = AppLocalizations.of(context)!.proxyAuthFailed;
+            _error = AppLocalizations.of(context)!.proxyManualSignInRequired;
           });
         }
       } else {
@@ -1540,7 +1540,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.pleaseCheckConnection;
         _isLoading = false;
       });
     }
@@ -1560,7 +1560,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = AppLocalizations.of(context)!.proxyAuthFailed;
+        _error = AppLocalizations.of(context)!.proxyManualSignInRequired;
       });
     }
   }

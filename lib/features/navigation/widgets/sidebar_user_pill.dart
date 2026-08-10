@@ -34,6 +34,7 @@ import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -260,7 +261,7 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   // Hermes-only: the Hermes tab is the only tab.
   if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
   final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-  final tabIndex = ref.watch(sidebarActiveTabProvider);
+  final tabId = ref.watch(sidebarActiveTabProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
   final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
   final terminalOn =
@@ -274,25 +275,13 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
           );
   final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
 
-  var i = 0;
-  if (tabIndex == i) return l10n.searchConversations;
-  i++;
-  if (hermesOn) {
-    if (tabIndex == i) return l10n.searchConversations;
-    i++;
-  }
-  if (notesOn) {
-    if (tabIndex == i) return l10n.searchNotes;
-    i++;
-  }
-  if (terminalOn) {
-    if (tabIndex == i) return l10n.searchFiles;
-    i++;
-  }
-  if (channelsOn) {
-    if (tabIndex == i) return l10n.searchChannels;
-  }
-  return l10n.searchConversations;
+  return switch (tabId) {
+    SidebarTabId.notes when notesOn => l10n.searchNotes,
+    SidebarTabId.terminal when terminalOn => l10n.searchFiles,
+    SidebarTabId.channels when channelsOn => l10n.searchChannels,
+    SidebarTabId.hermes when hermesOn => l10n.searchConversations,
+    _ => l10n.searchConversations,
+  };
 }
 
 /// Builds one stable native glass avatar button on iOS 26 and Flutter

@@ -271,8 +271,8 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 /// [sidebarActiveTabProvider].
 ///
 /// Notes, Terminal, and Channels tabs are each independently optional. When a
-/// feature or its backing terminal servers are unavailable, the corresponding
-/// tab is hidden and the persisted index is clamped to the visible tab range.
+/// persisted tab is unavailable, Chats is shown without overwriting the saved
+/// identity, so the selection can be restored if that feature returns.
 class SidebarPage extends ConsumerStatefulWidget {
   const SidebarPage({super.key});
 
@@ -281,19 +281,6 @@ class SidebarPage extends ConsumerStatefulWidget {
 }
 
 class _SidebarPageState extends ConsumerState<SidebarPage> {
-  int _clampIndex(int index, int tabCount) => index.clamp(0, tabCount - 1);
-
-  void _schedulePersistedIndexSync(int index) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      final persistedIndex = ref.read(sidebarActiveTabProvider);
-      if (persistedIndex != index) {
-        ref.read(sidebarActiveTabProvider.notifier).set(index);
-      }
-    });
-  }
-
   AdaptiveBottomNavigationBar _sidebarBottomNavigationBar(
     List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,
@@ -533,11 +520,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       context,
     );
     final hasBottomNavigationBar = hasMultipleTabs;
-    final persistedIndex = ref.watch(sidebarActiveTabProvider);
-    final activeIndex = _clampIndex(persistedIndex, visibleTabIds.length);
-    if (activeIndex != persistedIndex) {
-      _schedulePersistedIndexSync(activeIndex);
-    }
+    final persistedTab = ref.watch(sidebarActiveTabProvider);
+    final persistedIndex = visibleTabIds.indexOf(persistedTab);
+    final activeIndex = persistedIndex < 0 ? 0 : persistedIndex;
     final isTerminalTabSelected =
         visibleTabIds[activeIndex] == SidebarTabId.terminal;
     final tabDefinitions = <_SidebarTabDefinition>[
@@ -602,7 +587,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         );
         return;
       }
-      ref.read(sidebarActiveTabProvider.notifier).set(index);
+      ref.read(sidebarActiveTabProvider.notifier).set(selectedTab);
       if (selectedTab != SidebarTabId.terminal) {
         ref
             .read(terminalSidebarPanelProvider.notifier)

@@ -18,6 +18,7 @@ import '../../hermes/providers/hermes_providers.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 
 enum _SidebarCreateActionKind { chat, hermesChat, note, channel }
 
@@ -30,7 +31,7 @@ class SidebarCreateActionSpec {
 
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
   final kind = _resolveSidebarCreateActionKind(
-    tabIndex: ref.watch(sidebarActiveTabProvider),
+    tabId: ref.watch(sidebarActiveTabProvider),
     hermesOnly: ref.watch(hermesOnlyModeProvider),
     hermesOn: ref.watch(hermesEnabledProvider),
     notesOn: ref.watch(notesFeatureEnabledProvider),
@@ -59,7 +60,7 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
   final kind = _resolveSidebarCreateActionKind(
-    tabIndex: ref.read(sidebarActiveTabProvider),
+    tabId: ref.read(sidebarActiveTabProvider),
     hermesOnly: ref.read(hermesOnlyModeProvider),
     hermesOn: ref.read(hermesEnabledProvider),
     notesOn: ref.read(notesFeatureEnabledProvider),
@@ -85,7 +86,7 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
 }
 
 _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
-  required int tabIndex,
+  required SidebarTabId tabId,
   required bool hermesOnly,
   required bool hermesOn,
   required bool notesOn,
@@ -98,38 +99,14 @@ _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
     return _SidebarCreateActionKind.hermesChat;
   }
 
-  var currentIndex = 0;
-  if (tabIndex == currentIndex) {
-    return _SidebarCreateActionKind.chat;
-  }
-  currentIndex++;
-
-  if (hermesOn) {
-    if (tabIndex == currentIndex) {
-      return _SidebarCreateActionKind.hermesChat;
-    }
-    currentIndex++;
-  }
-
-  if (notesOn) {
-    if (tabIndex == currentIndex) {
-      return _SidebarCreateActionKind.note;
-    }
-    currentIndex++;
-  }
-
-  if (terminalOn) {
-    if (tabIndex == currentIndex) {
-      return null;
-    }
-    currentIndex++;
-  }
-
-  if (channelsOn && tabIndex == currentIndex) {
-    return _SidebarCreateActionKind.channel;
-  }
-
-  return _SidebarCreateActionKind.chat;
+  return switch (tabId) {
+    SidebarTabId.chats => _SidebarCreateActionKind.chat,
+    SidebarTabId.hermes when hermesOn => _SidebarCreateActionKind.hermesChat,
+    SidebarTabId.notes when notesOn => _SidebarCreateActionKind.note,
+    SidebarTabId.terminal when terminalOn => null,
+    SidebarTabId.channels when channelsOn => _SidebarCreateActionKind.channel,
+    _ => _SidebarCreateActionKind.chat,
+  };
 }
 
 // Single source of truth for terminal-tab visibility (shared with the sidebar).

@@ -68,9 +68,14 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
 
   Future<void> _scrollToTop() async {
     if (!_scrollController.hasClients) return;
+    final duration = context.motionDuration(AnimationDuration.fast);
+    if (duration == Duration.zero) {
+      _scrollController.jumpTo(0);
+      return;
+    }
     await _scrollController.animateTo(
       0,
-      duration: context.motionDuration(AnimationDuration.fast),
+      duration: duration,
       curve: Curves.easeOutCubic,
     );
   }

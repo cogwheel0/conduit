@@ -107,9 +107,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Future<void> _scrollToTop() async {
     if (!_listController.hasClients) return;
+    final duration = context.motionDuration(AnimationDuration.fast);
+    if (duration == Duration.zero) {
+      _listController.jumpTo(0);
+      return;
+    }
     await _listController.animateTo(
       0,
-      duration: context.motionDuration(AnimationDuration.fast),
+      duration: duration,
       curve: Curves.easeOutCubic,
     );
   }

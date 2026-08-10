@@ -7,24 +7,30 @@ import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
+import 'sidebar_tab_scroll_registry.dart';
 
 part 'sidebar_providers.g.dart';
 
-/// Index of the active entry within the currently visible sidebar tabs.
-/// Five tabs can be visible when every optional integration is enabled.
-/// Persisted to shared_preferences so reopening the sidebar remembers the last
-/// tab.
+/// Stable identity of the active sidebar tab.
+///
+/// Persisting the identity instead of its visible position prevents optional
+/// tabs from changing which feature is restored on the next launch.
 @Riverpod(keepAlive: true)
 class SidebarActiveTab extends _$SidebarActiveTab {
   @override
-  int build() {
-    return (PreferencesStore.getInt(PreferenceKeys.sidebarActiveTab) ?? 0)
-        .clamp(0, 4);
+  SidebarTabId build() {
+    final stored = PreferencesStore.get<String>(
+      PreferenceKeys.sidebarActiveTab,
+    );
+    return SidebarTabId.values.firstWhere(
+      (tab) => tab.name == stored,
+      orElse: () => SidebarTabId.chats,
+    );
   }
 
-  void set(int index) {
-    state = index.clamp(0, 4);
-    PreferencesStore.put(PreferenceKeys.sidebarActiveTab, state);
+  void set(SidebarTabId tab) {
+    state = tab;
+    PreferencesStore.put(PreferenceKeys.sidebarActiveTab, tab.name);
   }
 }
 

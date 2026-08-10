@@ -26,6 +26,7 @@ import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
+import 'package:conduit/features/navigation/providers/sidebar_tab_scroll_registry.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
@@ -261,14 +262,16 @@ void main() {
       );
 
       expect(terminalLayer.opacity, 1);
-      expect(controllers.activeTabNotifier.currentValue, 2);
+      expect(controllers.activeTabNotifier.currentValue, SidebarTabId.terminal);
     },
   );
 
   testWidgets(
-    'persisted initial index 1 restores notes when notes are enabled',
+    'persisted Notes identity restores notes when notes are enabled',
     (tester) async {
-      final controllers = _SidebarHarnessControllers(initialIndex: 1);
+      final controllers = _SidebarHarnessControllers(
+        initialTab: SidebarTabId.notes,
+      );
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
@@ -285,42 +288,52 @@ void main() {
   );
 
   testWidgets(
-    'persisted initial index syncs to the clamped value when notes are disabled',
+    'unavailable persisted tab falls back without changing its identity',
     (tester) async {
       final controllers = _SidebarHarnessControllers(
         notesEnabled: false,
-        initialIndex: 3,
+        initialTab: SidebarTabId.notes,
       );
 
       await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
-      final channelsLayer = tester.widget<Opacity>(
-        _layerOpacityFinder(_SidebarTabLayer.channels),
+      final chatsLayer = tester.widget<Opacity>(
+        _layerOpacityFinder(_SidebarTabLayer.chats),
       );
 
-      expect(channelsLayer.opacity, 1);
+      expect(chatsLayer.opacity, 1);
       expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
-      expect(controllers.activeTabNotifier.currentValue, 2);
+      expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
     },
   );
 
-  testWidgets('disabling notes re-clamps controller and provider to channels', (
+  testWidgets('active optional tab restores when its feature returns', (
     tester,
   ) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 3);
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.notes,
+    );
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
     controllers.notesNotifier.setEnabled(false);
     await tester.pump();
 
-    final channelsLayer = tester.widget<Opacity>(
-      _layerOpacityFinder(_SidebarTabLayer.channels),
+    final chatsLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.chats),
     );
 
-    expect(channelsLayer.opacity, 1);
-    expect(controllers.activeTabNotifier.currentValue, 2);
+    expect(chatsLayer.opacity, 1);
+    expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
     expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
+
+    controllers.notesNotifier.setEnabled(true);
+    await tester.pump();
+
+    final notesLayer = tester.widget<Opacity>(
+      _layerOpacityFinder(_SidebarTabLayer.notes),
+    );
+    expect(notesLayer.opacity, 1);
   });
 
   testWidgets('inactive layers are excluded from focus and semantics', (
@@ -391,6 +404,20 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
   });
 
+  testWidgets('reselecting a tab uses a static scroll under reduced motion', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(controllers: controllers, disableAnimations: true),
+    );
+
+    await tester.tap(_sidebarBottomNavTabLabel('Chats'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('persistent tablet uses bottom navigation with all five tabs', (
     tester,
   ) async {
@@ -422,7 +449,7 @@ void main() {
     await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
 
-    expect(controllers.activeTabNotifier.currentValue, 2);
+    expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
     expect(
       find.descendant(
         of: _layerRootFinder(_SidebarTabLayer.notes),
@@ -483,7 +510,7 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
     await tester.tap(_sidebarBottomNavTabLabel('Notes'));
     await tester.pumpAndSettle();
-    expect(controllers.activeTabNotifier.currentValue, 2);
+    expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
   });
 
   testWidgets('Hermes bottom tab follows dark navigation icon colors', (
@@ -620,7 +647,9 @@ void main() {
   testWidgets('channel helpers align when terminal tab is hidden', (
     tester,
   ) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 2);
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
     await tester.pumpWidget(
       _buildSidebarHarness(
         controllers: controllers,
@@ -1097,7 +1126,9 @@ void main() {
   testWidgets('empty notes tab shows a refresh action below the message', (
     tester,
   ) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 1);
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.notes,
+    );
     final pendingRefresh = controllers.keepNoteRefreshPending();
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
@@ -1127,7 +1158,9 @@ void main() {
   testWidgets('notes and channels use flat chat-style sidebar rows', (
     tester,
   ) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 1);
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.notes,
+    );
     final timestamp = DateTime(2026, 1, 1);
     final conversation = Conversation(
       id: 'flat-chat',
@@ -1203,7 +1236,9 @@ void main() {
   });
 
   testWidgets('channel layer state survives notes toggle', (tester) async {
-    final controllers = _SidebarHarnessControllers(initialIndex: 3);
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
 
     await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
 
@@ -2272,6 +2307,7 @@ Widget _buildSidebarHarness({
   SyncStatus? syncStatus,
   bool persistentTabletSidebar = false,
   double textScale = 1,
+  bool disableAnimations = false,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -2412,9 +2448,10 @@ Widget _buildSidebarHarness({
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(textScale),
+          disableAnimations: disableAnimations,
+        ),
         child: PersistentTabletSidebarScope(
           active: persistentTabletSidebar,
           child: child ?? const SizedBox.shrink(),
@@ -2541,9 +2578,11 @@ class _TestHermesJobsController extends HermesJobsController {
 }
 
 class _SidebarHarnessControllers {
-  _SidebarHarnessControllers({bool notesEnabled = true, int initialIndex = 0})
-    : notesNotifier = _TestNotesFeatureEnabledNotifier(notesEnabled),
-      activeTabNotifier = _TestSidebarActiveTab(initialIndex);
+  _SidebarHarnessControllers({
+    bool notesEnabled = true,
+    SidebarTabId initialTab = SidebarTabId.chats,
+  }) : notesNotifier = _TestNotesFeatureEnabledNotifier(notesEnabled),
+       activeTabNotifier = _TestSidebarActiveTab(initialTab);
 
   final _TestNotesFeatureEnabledNotifier notesNotifier;
   final _TestSidebarActiveTab activeTabNotifier;
@@ -2588,18 +2627,16 @@ class _TestNotesFeatureEnabledNotifier extends NotesFeatureEnabledNotifier {
 class _TestSidebarActiveTab extends SidebarActiveTab {
   _TestSidebarActiveTab(this.initialValue);
 
-  final int initialValue;
+  final SidebarTabId initialValue;
 
   @override
-  int build() => initialValue;
+  SidebarTabId build() => initialValue;
 
   @override
-  void set(int index) {
-    state = index.clamp(0, 3);
-  }
+  void set(SidebarTabId tab) => state = tab;
 
   // ignore: avoid_public_notifier_properties
-  int get currentValue => state;
+  SidebarTabId get currentValue => state;
 }
 
 /// Dependency bumped by gated pagination, mirroring the production notifier's

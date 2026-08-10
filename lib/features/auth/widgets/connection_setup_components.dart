@@ -345,6 +345,7 @@ class ConnectionWebAuthScaffold extends StatelessWidget {
 
     return AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
+      bodySafeArea: true,
       appBar: AdaptiveAppBar(
         title: title,
         leading: backButton,

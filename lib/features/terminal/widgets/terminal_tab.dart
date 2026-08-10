@@ -209,9 +209,14 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         ? _filesScrollController
         : _portsScrollController;
     if (!controller.hasClients) return;
+    final duration = context.motionDuration(AnimationDuration.fast);
+    if (duration == Duration.zero) {
+      controller.jumpTo(0);
+      return;
+    }
     await controller.animateTo(
       0,
-      duration: context.motionDuration(AnimationDuration.fast),
+      duration: duration,
       curve: Curves.easeOutCubic,
     );
   }
@@ -1611,6 +1616,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
             : null,
       ),
       child: UtilityRow(
+        preserveTrailingSemantics: true,
         padding: const EdgeInsets.all(Spacing.md),
         onTap: () => _openEntry(entry),
         leading: Icon(
@@ -1678,6 +1684,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
             : null,
       ),
       child: UtilityRow(
+        preserveTrailingSemantics: true,
         padding: const EdgeInsets.all(Spacing.md),
         onTap: () => _openPortInBrowser(port),
         leading: Icon(
