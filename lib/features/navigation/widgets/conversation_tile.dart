@@ -15,12 +15,15 @@ const double kConversationTileTintInset = Spacing.sm;
 BoxDecoration conduitConversationTileDecoration(
   ConduitThemeExtension theme, {
   required bool selected,
+  bool pressed = false,
 }) {
   final background = selected
       ? Color.alphaBlend(
           theme.buttonPrimary.withValues(alpha: 0.1),
           theme.surfaceBackground,
         )
+      : pressed
+      ? theme.surfaceContainer
       : theme.surfaceBackground;
 
   return BoxDecoration(
@@ -35,19 +38,23 @@ class ConversationTileSurface extends StatelessWidget {
     required this.theme,
     required this.selected,
     required this.child,
+    this.pressed = false,
     this.tintKey,
+    this.pressedKey,
   });
 
   final ConduitThemeExtension theme;
   final bool selected;
   final Widget child;
+  final bool pressed;
   final Key? tintKey;
+  final Key? pressedKey;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        if (selected)
+        if (selected || pressed)
           Positioned.fill(
             left: kConversationTileTintInset,
             // The outer tile preserves its historical 4pt trailing margin.
@@ -55,15 +62,108 @@ class ConversationTileSurface extends StatelessWidget {
             // on both sides without moving the row contents.
             right: kConversationTileTintInset - kConversationTileMargin.right,
             child: DecoratedBox(
-              key: tintKey,
+              key: selected ? tintKey : pressedKey,
               decoration: conduitConversationTileDecoration(
                 theme,
-                selected: true,
+                selected: selected,
+                pressed: pressed,
               ),
             ),
           ),
         child,
       ],
+    );
+  }
+}
+
+/// Adds the quiet grouped surface used while a chat-style row is lifted by an
+/// iOS context menu. The physical insets match the selected tile tint.
+Widget buildConversationTileContextPreview(BuildContext context, Widget child) {
+  final theme = context.conduitTheme;
+  return Stack(
+    children: [
+      Positioned.fill(
+        left: kConversationTileTintInset,
+        right: kConversationTileTintInset,
+        top: kConversationTileMargin.top,
+        bottom: kConversationTileMargin.bottom,
+        child: DecoratedBox(
+          key: const ValueKey<String>(
+            'conversation-tile-context-preview-background',
+          ),
+          decoration: conduitConversationTileDecoration(
+            theme,
+            selected: false,
+            pressed: true,
+          ),
+        ),
+      ),
+      child,
+    ],
+  );
+}
+
+/// Flat pressable row frame shared by high-frequency sidebar lists.
+///
+/// Idle rows remain transparent. Only pressed and selected states paint the
+/// same quiet inset surface used by conversation tiles.
+class ChatStyleSidebarTile extends StatefulWidget {
+  const ChatStyleSidebarTile({
+    super.key,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+    this.semanticLabel,
+    this.tintKey,
+    this.pressedKey,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+  final String? semanticLabel;
+  final Key? tintKey;
+  final Key? pressedKey;
+
+  @override
+  State<ChatStyleSidebarTile> createState() => _ChatStyleSidebarTileState();
+}
+
+class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
+  bool _pressed = false;
+
+  void _setPressed(bool pressed) {
+    if (_pressed == pressed) return;
+    setState(() => _pressed = pressed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      label: widget.semanticLabel,
+      child: Container(
+        margin: kConversationTileMargin,
+        child: ConversationTileSurface(
+          theme: context.conduitTheme,
+          selected: widget.selected,
+          pressed: _pressed,
+          tintKey: widget.tintKey,
+          pressedKey: widget.pressedKey,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (_) => _setPressed(true),
+            onPointerUp: (_) => _setPressed(false),
+            onPointerCancel: (_) => _setPressed(false),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onTap,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -273,7 +373,7 @@ class ConversationTileContent extends StatelessWidget {
 }
 
 /// A tappable conversation tile with hover and selection states.
-class ConversationTile extends StatelessWidget {
+class ConversationTile extends StatefulWidget {
   /// The conversation title.
   final String title;
 
@@ -312,38 +412,59 @@ class ConversationTile extends StatelessWidget {
   });
 
   @override
+  State<ConversationTile> createState() => _ConversationTileState();
+}
+
+class _ConversationTileState extends State<ConversationTile> {
+  bool _pressed = false;
+
+  void _setPressed(bool pressed) {
+    if (_pressed == pressed) return;
+    setState(() => _pressed = pressed);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final enabled = !widget.isLoading && widget.onTap != null;
 
     return Semantics(
-      selected: selected,
+      selected: widget.selected,
       button: true,
       child: Container(
         margin: kConversationTileMargin,
         child: ConversationTileSurface(
           theme: theme,
-          selected: selected,
+          selected: widget.selected,
+          pressed: _pressed,
           tintKey: const ValueKey<String>('conversation-tile-active-tint'),
-          child: GestureDetector(
+          pressedKey: const ValueKey<String>('conversation-tile-pressed-tint'),
+          child: Listener(
             behavior: HitTestBehavior.opaque,
-            onTap: isLoading ? null : onTap,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.sm,
+            onPointerDown: enabled ? (_) => _setPressed(true) : null,
+            onPointerUp: enabled ? (_) => _setPressed(false) : null,
+            onPointerCancel: enabled ? (_) => _setPressed(false) : null,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: enabled ? widget.onTap : null,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: TouchTarget.listItem,
                 ),
-                child: ConversationTileContent(
-                  title: title,
-                  pinned: pinned,
-                  selected: selected,
-                  unread: unread,
-                  isLoading: isLoading,
-                  isGenerating: isGenerating,
-                  badge: badge,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.sm,
+                  ),
+                  child: ConversationTileContent(
+                    title: widget.title,
+                    pinned: widget.pinned,
+                    selected: widget.selected,
+                    unread: widget.unread,
+                    isLoading: widget.isLoading,
+                    isGenerating: widget.isGenerating,
+                    badge: widget.badge,
+                  ),
                 ),
               ),
             ),

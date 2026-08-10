@@ -17,6 +17,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
+import '../../navigation/widgets/conversation_tile.dart';
 import '../providers/channel_providers.dart';
 import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
@@ -284,8 +285,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                   selected: ch.id == _activeChannelId,
                   onTap: () => _onChannelTap(ch),
                   actions: _buildChannelActions(ch),
-                  firstInGroup: index == 0,
-                  lastInGroup: index == filtered.length - 1,
                 );
               },
             );
@@ -335,16 +334,12 @@ class _ChannelTile extends ConsumerWidget {
     required this.selected,
     required this.onTap,
     required this.actions,
-    required this.firstInGroup,
-    required this.lastInGroup,
   });
 
   final Channel channel;
   final bool selected;
   final VoidCallback onTap;
   final List<ConduitContextMenuAction> actions;
-  final bool firstInGroup;
-  final bool lastInGroup;
 
   IconData _channelIcon() {
     if (channel.isDm) return Icons.person_outline;
@@ -368,72 +363,57 @@ class _ChannelTile extends ConsumerWidget {
     final theme = context.conduitTheme;
     final unread = channel.unreadCount;
 
-    final background = selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            theme.surfaceContainer,
-          )
-        : theme.surfaceContainer;
+    final displayName = _channelDisplayName();
+    final description = channel.description.isEmpty
+        ? null
+        : channel.description;
 
     return ConduitContextMenu(
       actions: actions,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.vertical(
-              top: firstInGroup
-                  ? const Radius.circular(AppBorderRadius.card)
-                  : Radius.zero,
-              bottom: lastInGroup
-                  ? const Radius.circular(AppBorderRadius.card)
-                  : Radius.zero,
-            ),
-            border: lastInGroup
-                ? null
-                : Border(
-                    bottom: BorderSide(
-                      color: theme.dividerColor,
-                      width: BorderWidth.thin,
+      previewBuilder: buildConversationTileContextPreview,
+      child: ChatStyleSidebarTile(
+        key: ValueKey<String>('channel-sidebar-row-${channel.id}'),
+        selected: selected,
+        onTap: onTap,
+        semanticLabel: description == null
+            ? displayName
+            : '$displayName. $description',
+        tintKey: ValueKey<String>('channel-sidebar-selected-${channel.id}'),
+        pressedKey: ValueKey<String>('channel-sidebar-pressed-${channel.id}'),
+        child: UtilityRow(
+          leading: Icon(
+            _channelIcon(),
+            color: selected ? theme.textPrimary : theme.textSecondary,
+            size: IconSize.listItem,
+          ),
+          title: displayName,
+          subtitle: description,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          trailing: unread <= 0
+              ? null
+              : Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    unread > 99
+                        ? '99+'
+                        : LocaleDisplayFormatters.integer(context, unread),
+                    style: AppTypography.sidebarBadgeStyle.copyWith(
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: UtilityRow(
-            onTap: onTap,
-            leading: Icon(
-              _channelIcon(),
-              color: selected ? theme.textPrimary : theme.textSecondary,
-              size: IconSize.listItem,
-            ),
-            title: _channelDisplayName(),
-            subtitle: channel.description.isEmpty ? null : channel.description,
-            selected: selected,
-            padding: const EdgeInsets.all(14),
-            trailing: unread <= 0
-                ? null
-                : Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      unread > 99
-                          ? '99+'
-                          : LocaleDisplayFormatters.integer(context, unread),
-                      style: AppTypography.sidebarBadgeStyle.copyWith(
-                        color: Theme.of(context).colorScheme.onPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ),
-          ),
+                ),
         ),
       ),
     );

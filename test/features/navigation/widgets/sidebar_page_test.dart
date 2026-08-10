@@ -46,6 +46,7 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
@@ -1119,6 +1120,84 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('notes and channels use flat chat-style sidebar rows', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers(initialIndex: 1);
+    final timestamp = DateTime(2026, 1, 1);
+    final conversation = Conversation(
+      id: 'flat-chat',
+      title: 'Flat Chat',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messages: const [],
+    );
+    const note = Note(
+      id: 'flat-note',
+      title: 'Flat Note',
+      data: NoteData(content: NoteContent(md: 'Note preview')),
+      createdAt: 1767225600000000000,
+      updatedAt: 1767225600000000000,
+    );
+    const channel = Channel(
+      id: 'flat-channel',
+      name: 'Flat Channel',
+      description: 'Channel preview',
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [conversation],
+        notes: const [note],
+        channels: const [channel],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final noteRow = find.byKey(
+      const ValueKey<String>('note-sidebar-row-flat-note'),
+    );
+    expect(noteRow, findsOneWidget);
+    expect(
+      find.descendant(of: noteRow, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    final noteMenu = tester.widget<ConduitContextMenu>(
+      find.ancestor(of: noteRow, matching: find.byType(ConduitContextMenu)),
+    );
+    expect(noteMenu.previewBuilder, isNotNull);
+    final noteRect = tester.getRect(noteRow);
+
+    await tester.tap(_sidebarBottomNavTabLabel('Chats'));
+    await tester.pumpAndSettle();
+    final chatRect = tester.getRect(
+      find.byKey(
+        ValueKey<String>('drawer-chat-${conversationScopedId(conversation)}'),
+      ),
+    );
+    expect(noteRect.left, chatRect.left);
+    expect(noteRect.right, chatRect.right);
+
+    await tester.tap(_sidebarBottomNavTabLabel('Channels'));
+    await tester.pumpAndSettle();
+    final channelRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-flat-channel'),
+    );
+    expect(channelRow, findsOneWidget);
+    expect(
+      find.descendant(of: channelRow, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    final channelMenu = tester.widget<ConduitContextMenu>(
+      find.ancestor(of: channelRow, matching: find.byType(ConduitContextMenu)),
+    );
+    expect(channelMenu.previewBuilder, isNotNull);
+    final channelRect = tester.getRect(channelRow);
+    expect(channelRect.left, chatRect.left);
+    expect(channelRect.right, chatRect.right);
+  });
+
   testWidgets('channel layer state survives notes toggle', (tester) async {
     final controllers = _SidebarHarnessControllers(initialIndex: 3);
 
@@ -1387,6 +1466,14 @@ void main() {
       find.byKey(ValueKey<String>('tree-guides-chat-$nestedConversationId')),
       findsOneWidget,
     );
+    final nestedHierarchy = tester.widget<FolderTreeHierarchyNode>(
+      find.byKey(const ValueKey<String>('tree-guides-folder-child-folder')),
+    );
+    expect(nestedHierarchy.child, isA<ConduitContextMenu>());
+    final nestedConversationHierarchy = tester.widget<FolderTreeHierarchyNode>(
+      find.byKey(ValueKey<String>('tree-guides-chat-$nestedConversationId')),
+    );
+    expect(nestedConversationHierarchy.child, isA<ConduitContextMenu>());
 
     final parentOffset = tester.getTopLeft(
       find.byKey(const ValueKey<String>('folder-open-parent-folder')),
@@ -1574,6 +1661,44 @@ void main() {
       tester.widget<Text>(find.text('Parent Folder')).style?.fontWeight,
       FontWeight.w600,
     );
+  });
+
+  testWidgets('folder rows paint pressed feedback and clear it on release', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(const ValueKey<String>('folder-open-parent-folder'));
+    final gesture = await tester.startGesture(tester.getCenter(row));
+    await tester.pump();
+
+    final pressedFinder = find.byKey(
+      const ValueKey<String>('folder-pressed-tint-parent-folder'),
+    );
+    final pressed = tester.widget<DecoratedBox>(pressedFinder);
+    final theme = tester.element(row).conduitTheme;
+    expect(
+      (pressed.decoration as BoxDecoration).color,
+      conduitConversationTileDecoration(
+        theme,
+        selected: false,
+        pressed: true,
+      ).color,
+    );
+
+    await gesture.up();
+    await tester.pump();
+    expect(pressedFinder, findsNothing);
   });
 
   testWidgets('active top-level chat tint aligns with root folder gutters', (
@@ -2119,6 +2244,8 @@ Widget _buildSidebarHarness({
   required _SidebarHarnessControllers controllers,
   User? currentUser,
   List<Conversation> conversations = const [],
+  List<Note> notes = const [],
+  List<Channel> channels = const [],
   _TestConversationPagination? pagination,
   _TestArchivedConversationPagination? archivedPagination,
   bool showPinned = true,
@@ -2228,10 +2355,10 @@ Widget _buildSidebarHarness({
       foldersProvider.overrideWith(() => _TestFolders(folders)),
       // ignore: scoped_providers_should_specify_dependencies
       notesListProvider.overrideWith(
-        () => _TestNotesList(onRefresh: controllers.recordNoteRefresh),
+        () => _TestNotesList(notes, onRefresh: controllers.recordNoteRefresh),
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      channelsListProvider.overrideWith(_TestChannelsList.new),
+      channelsListProvider.overrideWith(() => _TestChannelsList(channels)),
       // ignore: scoped_providers_should_specify_dependencies
       optimizedStorageServiceProvider.overrideWithValue(
         _FakeOptimizedStorageService(),
@@ -2249,6 +2376,8 @@ Widget _buildSidebarHarness({
       showArchivedProvider.overrideWith(
         () => _TestShowArchivedNotifier(showArchived),
       ),
+      notesShowPinnedProvider.overrideWith(_TestNotesShowPinnedNotifier.new),
+      notesShowRecentProvider.overrideWith(_TestNotesShowRecentNotifier.new),
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
       hermesOnlyModeProvider.overrideWithValue(hermesOnly),
@@ -2691,12 +2820,13 @@ class _TestFolders extends Folders {
 }
 
 class _TestNotesList extends NotesList {
-  _TestNotesList({this.onRefresh});
+  _TestNotesList(this.notes, {this.onRefresh});
 
+  final List<Note> notes;
   final Future<void> Function()? onRefresh;
 
   @override
-  Future<List<Note>> build() async => const [];
+  Future<List<Note>> build() async => notes;
 
   @override
   Future<void> refresh() async {
@@ -2705,8 +2835,12 @@ class _TestNotesList extends NotesList {
 }
 
 class _TestChannelsList extends ChannelsList {
+  _TestChannelsList(this.channels);
+
+  final List<Channel> channels;
+
   @override
-  Future<List<Channel>> build() async => const [];
+  Future<List<Channel>> build() async => channels;
 }
 
 class _FakeOptimizedStorageService extends Fake
@@ -2725,6 +2859,16 @@ class _TestShowPinnedNotifier extends ShowPinnedNotifier {
 }
 
 class _TestShowFoldersNotifier extends ShowFoldersNotifier {
+  @override
+  bool build() => true;
+}
+
+class _TestNotesShowPinnedNotifier extends NotesShowPinnedNotifier {
+  @override
+  bool build() => true;
+}
+
+class _TestNotesShowRecentNotifier extends NotesShowRecentNotifier {
   @override
   bool build() => true;
 }

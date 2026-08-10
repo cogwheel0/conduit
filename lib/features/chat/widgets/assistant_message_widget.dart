@@ -2254,48 +2254,46 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
 
-    return AdaptivePopupMenuButton.widget<String>(
-      items: overflowActions
-          .map(
-            (action) => AdaptivePopupMenuItem<String>(
-              value: action.id,
-              label: action.label,
-              icon: Platform.isIOS ? action.sfSymbol : action.icon,
-              enabled: action.onTap != null,
-            ),
-          )
-          .toList(growable: false),
-      onSelected: (_, entry) {
-        final selectedId = entry.value;
-        if (selectedId == null) {
-          return;
-        }
-        for (final action in overflowActions) {
-          if (action.id == selectedId) {
-            action.onTap?.call();
-            return;
-          }
-        }
-      },
-      child: AdaptiveTooltip(
-        message: l10n.more,
-        waitDuration: const Duration(milliseconds: 600),
-        child: Semantics(
-          button: true,
-          label: l10n.more,
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Center(
-              child: Icon(
-                Platform.isIOS
-                    ? CupertinoIcons.ellipsis
-                    : Icons.more_horiz_rounded,
-                size: IconSize.sm,
-                color: theme.textPrimary.withValues(alpha: 0.8),
-              ),
-            ),
-          ),
+    return AdaptiveTooltip(
+      message: l10n.more,
+      waitDuration: const Duration(milliseconds: 600),
+      child: Semantics(
+        button: true,
+        label: l10n.more,
+        child: AdaptivePopupMenuButton.icon<String>(
+          key: const ValueKey<String>('assistant-response-overflow-button'),
+          icon: PlatformUiCapabilities.isIOS
+              ? 'ellipsis'
+              : Icons.more_horiz_rounded,
+          items: overflowActions
+              .map(
+                (action) => AdaptivePopupMenuItem<String>(
+                  value: action.id,
+                  label: action.label,
+                  icon: PlatformUiCapabilities.isIOS
+                      ? action.sfSymbol
+                      : action.icon,
+                  enabled: action.onTap != null,
+                  isDestructive: action.id == 'delete',
+                ),
+              )
+              .toList(growable: false),
+          onSelected: (_, entry) {
+            final selectedId = entry.value;
+            if (selectedId == null) {
+              return;
+            }
+            for (final action in overflowActions) {
+              if (action.id == selectedId) {
+                action.onTap?.call();
+                return;
+              }
+            }
+          },
+          tint: theme.textPrimary.withValues(alpha: 0.8),
+          size: 32,
+          iconSize: IconSize.sm,
+          buttonStyle: PopupButtonStyle.plain,
         ),
       ),
     );

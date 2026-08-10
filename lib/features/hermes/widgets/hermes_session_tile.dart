@@ -6,7 +6,6 @@ import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
@@ -33,8 +32,6 @@ class HermesSessionTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.conduitTheme;
-
     final selected =
         ref.watch(activeConversationProvider)?.id == _localConversationId;
     // The session is "in progress" when its run is the one currently streaming.
@@ -42,52 +39,16 @@ class HermesSessionTile extends ConsumerWidget {
         ref.watch(hermesActiveSessionProvider) == session.id &&
         ref.watch(isChatStreamingProvider);
 
-    final baseBackground = theme.surfaceBackground;
-    final background = selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            baseBackground,
-          )
-        : baseBackground;
-
     return ConduitContextMenu(
       actions: _contextMenuActions(context, ref),
-      child: Semantics(
+      previewBuilder: buildConversationTileContextPreview,
+      child: ConversationTile(
+        title: _displayTitle(),
+        pinned: false,
         selected: selected,
-        button: true,
-        child: Container(
-          margin: const EdgeInsets.only(
-            right: Spacing.xs,
-            top: Spacing.xxs,
-            bottom: Spacing.xxs,
-          ),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          ),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => openHermesSession(context, ref, session),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.sm,
-                ),
-                child: ConversationTileContent(
-                  title: _displayTitle(),
-                  pinned: false,
-                  selected: selected,
-                  isLoading: false,
-                  isGenerating: isGenerating,
-                ),
-              ),
-            ),
-          ),
-        ),
+        isLoading: false,
+        isGenerating: isGenerating,
+        onTap: () => openHermesSession(context, ref, session),
       ),
     );
   }

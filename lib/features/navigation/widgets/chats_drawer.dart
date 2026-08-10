@@ -1289,105 +1289,96 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final isExpanded = expandedMap[folderId] ?? folder.isExpanded;
         final isCurrentFolder = NavigationService.currentFolderId == folderId;
 
-        final rowContent = GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          key: ValueKey<String>('folder-open-$folderId'),
+        final rowContent = _FolderSidebarTile(
+          openKey: ValueKey<String>('folder-open-$folderId'),
+          surfaceKey: ValueKey<String>('folder-surface-$folderId'),
+          theme: theme,
+          selected: isCurrentFolder,
+          tintKey: ValueKey<String>('folder-active-tint-$folderId'),
+          pressedKey: ValueKey<String>('folder-pressed-tint-$folderId'),
           onTap: () => _openFolderPage(folderId),
-          onLongPress: null, // Handled by ConduitContextMenu
-          child: Container(
-            key: ValueKey<String>('folder-surface-$folderId'),
-            margin: kConversationTileMargin,
-            child: ConversationTileSurface(
-              theme: theme,
-              selected: isCurrentFolder,
-              tintKey: ValueKey<String>('folder-active-tint-$folderId'),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.listItem,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.xxs,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.xxs,
+              ),
+              child: Row(
+                children: [
+                  FolderIconGlyph(
+                    key: ValueKey<String>('folder-icon-$folderId'),
+                    iconAlias: folder.meta?['icon']?.toString(),
+                    isOpen: isExpanded,
+                    size: IconSize.listItem,
+                    color: isCurrentFolder
+                        ? theme.iconPrimary
+                        : theme.iconSecondary,
                   ),
-                  child: Row(
-                    children: [
-                      FolderIconGlyph(
-                        key: ValueKey<String>('folder-icon-$folderId'),
-                        iconAlias: folder.meta?['icon']?.toString(),
-                        isOpen: isExpanded,
-                        size: IconSize.listItem,
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sidebarTitleStyle.copyWith(
                         color: isCurrentFolder
-                            ? theme.iconPrimary
-                            : theme.iconSecondary,
+                            ? theme.textPrimary
+                            : theme.textSecondary,
+                        fontWeight: isCurrentFolder
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        height: 1.4,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      Expanded(
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.sidebarTitleStyle.copyWith(
-                            color: isCurrentFolder
-                                ? theme.textPrimary
-                                : theme.textSecondary,
-                            fontWeight: isCurrentFolder
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            height: 1.4,
-                          ),
-                        ),
+                    ),
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  SizedBox(
+                    width: TouchTarget.minimum,
+                    height: TouchTarget.minimum,
+                    child: IconButton(
+                      key: ValueKey<String>('folder-expand-$folderId'),
+                      iconSize: IconSize.sm,
+                      padding: const EdgeInsets.all(
+                        (TouchTarget.minimum - IconSize.sm) / 2,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      SizedBox(
+                      constraints: const BoxConstraints.tightFor(
                         width: TouchTarget.minimum,
                         height: TouchTarget.minimum,
-                        child: IconButton(
-                          key: ValueKey<String>('folder-expand-$folderId'),
-                          iconSize: IconSize.sm,
-                          padding: const EdgeInsets.all(
-                            (TouchTarget.minimum - IconSize.sm) / 2,
-                          ),
-                          constraints: const BoxConstraints.tightFor(
-                            width: TouchTarget.minimum,
-                            height: TouchTarget.minimum,
-                          ),
-                          style: IconButton.styleFrom(
-                            shape: const CircleBorder(),
-                          ),
-                          icon: Icon(
-                            _chatsDrawerDisclosureIcon(isExpanded),
-                            color: theme.iconSecondary,
-                            size: IconSize.sm,
-                          ),
-                          onPressed: () {
-                            ConduitHaptics.selectionClick();
-                            _setFolderExpanded(folderId, !isExpanded);
-                          },
-                        ),
                       ),
-                    ],
+                      style: IconButton.styleFrom(shape: const CircleBorder()),
+                      icon: Icon(
+                        _chatsDrawerDisclosureIcon(isExpanded),
+                        color: theme.iconSecondary,
+                        size: IconSize.sm,
+                      ),
+                      onPressed: () {
+                        ConduitHaptics.selectionClick();
+                        _setFolderExpanded(folderId, !isExpanded);
+                      },
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
         );
 
-        final hierarchyWrapped = depth == 0
-            ? rowContent
+        final contextTile = ConduitContextMenu(
+          actions: _buildFolderActions(folder, allFolders),
+          previewBuilder: buildConversationTileContextPreview,
+          child: rowContent,
+        );
+
+        return depth == 0
+            ? contextTile
             : FolderTreeHierarchyNode(
                 key: ValueKey<String>('tree-guides-folder-$folderId'),
                 ancestorHasMoreSiblings: ancestorHasMoreSiblings,
                 showBranch: true,
                 hasMoreSiblings: hasMoreSiblings,
-                child: rowContent,
+                child: contextTile,
               );
-
-        return ConduitContextMenu(
-          actions: _buildFolderActions(folder, allFolders),
-          child: hierarchyWrapped,
-        );
       },
     );
   }
@@ -1820,17 +1811,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       onTap: () => _selectConversation(conversation),
     );
 
-    final wrappedTile = showHierarchyBranch
-        ? FolderTreeHierarchyNode(
-            key: ValueKey<String>('tree-guides-chat-$scopedId'),
-            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
-            showBranch: true,
-            hasMoreSiblings: hasMoreSiblings,
-            child: tileWidget,
-          )
-        : tileWidget;
-
-    final tile = ConduitContextMenu(
+    final contextTile = ConduitContextMenu(
       actions: buildConversationActionsWithFolders(
         context: context,
         ref: ref,
@@ -1838,8 +1819,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         foldersEnabled: foldersEnabled,
         folders: folders,
       ),
-      child: wrappedTile,
+      previewBuilder: buildConversationTileContextPreview,
+      child: tileWidget,
     );
+
+    final tile = showHierarchyBranch
+        ? FolderTreeHierarchyNode(
+            key: ValueKey<String>('tree-guides-chat-$scopedId'),
+            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
+            showBranch: true,
+            hasMoreSiblings: hasMoreSiblings,
+            child: contextTile,
+          )
+        : contextTile;
 
     return tile;
   }
@@ -1997,6 +1989,67 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     // on-device row that happens to share the same raw ID.
     return !isDirectLocalConversation(conversation) &&
         activeChatIds.contains(conversation.id);
+  }
+}
+
+class _FolderSidebarTile extends StatefulWidget {
+  const _FolderSidebarTile({
+    required this.openKey,
+    required this.surfaceKey,
+    required this.theme,
+    required this.selected,
+    required this.tintKey,
+    required this.pressedKey,
+    required this.onTap,
+    required this.child,
+  });
+
+  final Key openKey;
+  final Key surfaceKey;
+  final ConduitThemeExtension theme;
+  final bool selected;
+  final Key tintKey;
+  final Key pressedKey;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_FolderSidebarTile> createState() => _FolderSidebarTileState();
+}
+
+class _FolderSidebarTileState extends State<_FolderSidebarTile> {
+  bool _pressed = false;
+
+  void _setPressed(bool pressed) {
+    if (_pressed == pressed) return;
+    setState(() => _pressed = pressed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      key: widget.openKey,
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => _setPressed(true),
+      onPointerUp: (_) => _setPressed(false),
+      onPointerCancel: (_) => _setPressed(false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: Container(
+          key: widget.surfaceKey,
+          margin: kConversationTileMargin,
+          child: ConversationTileSurface(
+            theme: widget.theme,
+            selected: widget.selected,
+            pressed: _pressed,
+            tintKey: widget.tintKey,
+            pressedKey: widget.pressedKey,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
   }
 }
 

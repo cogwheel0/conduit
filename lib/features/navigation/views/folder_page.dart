@@ -1449,6 +1449,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   foldersEnabled: true,
                   folders: folders,
                 ),
+                previewBuilder: buildConversationTileContextPreview,
                 child: ConversationTile(
                   key: ValueKey<String>('folder-chat-${conversation.id}'),
                   title: conversation.title.isEmpty

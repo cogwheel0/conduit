@@ -21,6 +21,7 @@ import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';
+import '../../navigation/widgets/conversation_tile.dart';
 import '../providers/notes_providers.dart';
 import '../utils/note_context_actions.dart';
 
@@ -267,8 +268,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             selected: note.id == _activeNoteId,
             onTap: () => _onNoteTap(note),
             actions: _buildNoteActions(note),
-            firstInGroup: index - cursor == 0,
-            lastInGroup: index - cursor == pinnedNotes.length - 1,
           );
         }
         cursor = pinnedEnd;
@@ -296,8 +295,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             selected: note.id == _activeNoteId,
             onTap: () => _onNoteTap(note),
             actions: _buildNoteActions(note),
-            firstInGroup: index - cursor == 0,
-            lastInGroup: index - cursor == otherNotes.length - 1,
           );
         }
       }
@@ -410,16 +407,12 @@ class _NoteListTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.actions,
-    required this.firstInGroup,
-    required this.lastInGroup,
   });
 
   final Note note;
   final bool selected;
   final VoidCallback onTap;
   final List<ConduitContextMenuAction> actions;
-  final bool firstInGroup;
-  final bool lastInGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -432,60 +425,38 @@ class _NoteListTile extends StatelessWidget {
       note.updatedDateTime,
     );
 
-    final background = selected
-        ? Color.alphaBlend(
-            theme.buttonPrimary.withValues(alpha: 0.1),
-            theme.surfaceContainer,
-          )
-        : theme.surfaceContainer;
-
     return ConduitContextMenu(
       actions: actions,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.vertical(
-              top: firstInGroup
-                  ? const Radius.circular(AppBorderRadius.card)
-                  : Radius.zero,
-              bottom: lastInGroup
-                  ? const Radius.circular(AppBorderRadius.card)
-                  : Radius.zero,
-            ),
-            border: lastInGroup
-                ? null
-                : Border(
-                    bottom: BorderSide(
-                      color: theme.dividerColor,
-                      width: BorderWidth.thin,
-                    ),
-                  ),
+      previewBuilder: buildConversationTileContextPreview,
+      child: ChatStyleSidebarTile(
+        key: ValueKey<String>('note-sidebar-row-${note.id}'),
+        selected: selected,
+        onTap: onTap,
+        semanticLabel: preview.isEmpty ? title : '$title. $preview',
+        tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
+        pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
+        child: UtilityRow(
+          title: title,
+          subtitle: preview.isEmpty ? null : preview,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: UtilityRow(
-            onTap: onTap,
-            title: title,
-            subtitle: preview.isEmpty ? null : preview,
-            selected: selected,
-            padding: const EdgeInsets.all(14),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (note.isPinned) ...[
-                  Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  timeAgo,
-                  style: AppTypography.sidebarSupportingStyle.copyWith(
-                    color: theme.textSecondary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (note.isPinned) ...[
+                Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
+                const SizedBox(width: 6),
               ],
-            ),
+              Text(
+                timeAgo,
+                style: AppTypography.sidebarSupportingStyle.copyWith(
+                  color: theme.textSecondary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
           ),
         ),
       ),

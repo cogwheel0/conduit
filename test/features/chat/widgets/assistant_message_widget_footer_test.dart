@@ -18,6 +18,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -158,6 +159,8 @@ Future<void> _tapVersionControl(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
   testWidgets('streaming content rebuilds only the assistant body', (
     tester,
@@ -446,6 +449,47 @@ void main() {
     expect(find.text('Prev'), findsOneWidget);
     expect(find.text('Next'), findsOneWidget);
     expect(find.text('Info'), findsOneWidget);
+  });
+
+  testWidgets('assistant overflow uses the native iOS 26 popup menu', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    final message = ChatMessage(
+      id: 'assistant-native-overflow',
+      role: 'assistant',
+      content: 'Response with overflow actions.',
+      timestamp: DateTime(2024, 1, 1),
+      usage: const {'total_tokens': 24},
+      versions: [
+        ChatMessageVersion(
+          id: 'assistant-native-overflow-v1',
+          content: 'Older version',
+          timestamp: DateTime(2023, 12, 31),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pump();
+
+    final nativeMenu = tester.widget<CNPopupMenuButton>(
+      find.byType(CNPopupMenuButton),
+    );
+    expect(nativeMenu.buttonStyle, CNButtonStyle.plain);
+    expect(nativeMenu.width, 32);
+    expect(
+      nativeMenu.items.whereType<CNPopupMenuItem>().last.isDestructive,
+      isTrue,
+    );
+
+    // The native package delays platform-view readiness in debug builds.
+    // Dispose the control before advancing that guard timer in widget tests.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 500));
   });
 
   testWidgets('assistant header follows the active version model', (

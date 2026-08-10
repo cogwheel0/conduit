@@ -50,6 +50,7 @@ class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
+  final Widget Function(BuildContext context, Widget child)? previewBuilder;
   final bool stabilizePreviewSize;
 
   const ConduitContextMenu({
@@ -57,6 +58,7 @@ class ConduitContextMenu extends StatefulWidget {
     required this.actions,
     required this.child,
     this.topWidgetBuilder,
+    this.previewBuilder,
     this.stabilizePreviewSize = true,
   });
 
@@ -126,6 +128,11 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             height: size.height,
             child: previewChild,
           );
+        }
+
+        final previewBuilder = widget.previewBuilder;
+        if (animation.value > 0 && previewBuilder != null) {
+          preview = previewBuilder(context, preview);
         }
 
         final topWidgetBuilder = widget.topWidgetBuilder;
