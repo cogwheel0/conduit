@@ -30,7 +30,19 @@ class SidebarActiveTab extends _$SidebarActiveTab {
 
   void set(SidebarTabId tab) {
     state = tab;
-    PreferencesStore.put(PreferenceKeys.sidebarActiveTab, tab.name);
+    unawaited(
+      PreferencesStore.put(
+        PreferenceKeys.sidebarActiveTab,
+        tab.name,
+      ).catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'active-tab-write-failed',
+          scope: 'navigation/sidebar',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
   }
 }
 

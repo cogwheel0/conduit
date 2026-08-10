@@ -408,13 +408,37 @@ void main() {
     tester,
   ) async {
     final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
     await tester.pumpWidget(
-      _buildSidebarHarness(controllers: controllers, disableAnimations: true),
+      _buildSidebarHarness(
+        controllers: controllers,
+        disableAnimations: true,
+        conversations: List<Conversation>.generate(
+          30,
+          (index) => Conversation(
+            id: 'reduced-motion-$index',
+            title: 'Conversation $index',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            messages: const [],
+          ),
+        ),
+      ),
     );
+    await tester.pumpAndSettle();
+
+    final chatsScroll = find.byKey(
+      const PageStorageKey<String>('chats_drawer_scroll'),
+    );
+    final controller = tester.widget<CustomScrollView>(chatsScroll).controller!;
+    await tester.drag(chatsScroll, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(controller.offset, greaterThan(0));
 
     await tester.tap(_sidebarBottomNavTabLabel('Chats'));
     await tester.pump();
 
+    expect(controller.offset, 0);
     expect(tester.takeException(), isNull);
   });
 

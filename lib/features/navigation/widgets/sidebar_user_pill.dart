@@ -264,15 +264,7 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   final tabId = ref.watch(sidebarActiveTabProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
   final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
-  final terminalOn =
-      hasOpenWebUi &&
-      ref
-          .watch(terminalAvailableServersProvider)
-          .maybeWhen(
-            data: (servers) => servers.isNotEmpty,
-            error: (_, _) => true,
-            orElse: () => true,
-          );
+  final terminalOn = hasOpenWebUi && ref.watch(terminalTabVisibleProvider);
   final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
 
   return switch (tabId) {
