@@ -586,6 +586,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     void onTap(int index) {
       final selectedTab = tabDefinitions[index].id;
       if (index == activeIndex) {
+        if (legacyIndex != null) {
+          activeTabNotifier.set(selectedTab);
+        }
         unawaited(
           ref
               .read(sidebarTabScrollRegistryProvider)

@@ -287,6 +287,22 @@ void main() {
     },
   );
 
+  testWidgets('reselecting a legacy tab persists its stable identity', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers(legacyIndex: 1);
+
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
+    await tester.pump();
+
+    check(
+      controllers.activeTabNotifier.currentValue,
+    ).equals(SidebarTabId.notes);
+    check(controllers.activeTabNotifier.pendingLegacyIndex()).isNull();
+  });
+
   testWidgets(
     'unavailable persisted tab falls back without changing its identity',
     (tester) async {
@@ -2646,8 +2662,12 @@ class _SidebarHarnessControllers {
   _SidebarHarnessControllers({
     bool notesEnabled = true,
     SidebarTabId initialTab = SidebarTabId.chats,
+    int? legacyIndex,
   }) : notesNotifier = _TestNotesFeatureEnabledNotifier(notesEnabled),
-       activeTabNotifier = _TestSidebarActiveTab(initialTab);
+       activeTabNotifier = _TestSidebarActiveTab(
+         initialTab,
+         legacyIndex: legacyIndex,
+       );
 
   final _TestNotesFeatureEnabledNotifier notesNotifier;
   final _TestSidebarActiveTab activeTabNotifier;
@@ -2690,15 +2710,23 @@ class _TestNotesFeatureEnabledNotifier extends NotesFeatureEnabledNotifier {
 }
 
 class _TestSidebarActiveTab extends SidebarActiveTab {
-  _TestSidebarActiveTab(this.initialValue);
+  _TestSidebarActiveTab(this.initialValue, {int? legacyIndex})
+    : _legacyIndex = legacyIndex;
 
   final SidebarTabId initialValue;
+  int? _legacyIndex;
 
   @override
   SidebarTabId build() => initialValue;
 
   @override
-  void set(SidebarTabId tab) => state = tab;
+  int? pendingLegacyIndex() => _legacyIndex;
+
+  @override
+  void set(SidebarTabId tab) {
+    _legacyIndex = null;
+    state = tab;
+  }
 
   // ignore: avoid_public_notifier_properties
   SidebarTabId get currentValue => state;
