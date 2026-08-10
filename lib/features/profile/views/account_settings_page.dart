@@ -16,6 +16,7 @@ import '../../../core/utils/user_avatar_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
@@ -757,10 +758,10 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     }
     if (!mounted) return;
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.genderLabel,
           itemCount: options.length,
           initialChildSize: 0.42,
@@ -768,7 +769,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
           maxChildSize: 0.68,
           itemBuilder: (context, index) {
             final option = options[index];
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               selected: _selectedGenderValue == option.value,
               onTap: () {
@@ -794,7 +795,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   }) async {
     DateTime selectedDate = initialDate;
 
-    return showSettingsSheet<DateTime>(
+    return showAdaptiveSelectionSheet<DateTime>(
       context: context,
       builder: (context) {
         final theme = context.conduitTheme;

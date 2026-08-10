@@ -1,8 +1,18 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
+import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _messages = HermesConnectionMessages(
+  connecting: 'Connecting',
+  connected: 'Connected',
+  unreachable: 'Could not connect',
+  persistenceFailed: 'Could not save',
+  activationFailed: 'Could not activate',
+);
 
 void main() {
   test(
@@ -31,116 +41,182 @@ void main() {
     },
   );
 
-  test('connection draft does not mutate the saved configuration', () {
+  test('connection controller builds an origin-safe immutable draft', () {
     const saved = HermesConfig(
       enabled: true,
       baseUrl: 'https://one.example/v1',
       apiKey: 'old-key',
       sessionKey: 'old-memory',
     );
-
-    final draft = buildHermesConnectionDraft(
-      saved: saved,
-      baseUrl: ' https://two.example/v1 ',
-      apiKeyChanged: true,
-      apiKey: 'new-key',
-      sessionKeyChanged: false,
-      sessionKey: '',
+    final controller = HermesConnectionController(
+      initialConfig: saved,
+      gateway: _FakeHermesConnectionGateway(),
     );
+    addTearDown(controller.dispose);
+    controller.url.text = ' https://two.example/v1 ';
+    controller.apiKey.text = 'new-key';
+    controller.markApiKeyChanged();
+
+    final draft = controller.buildDraft(saved);
 
     check(saved.baseUrl).equals('https://one.example/v1');
     check(saved.apiKey).equals('old-key');
     check(saved.sessionKey).equals('old-memory');
-    check(draft.enabled).isTrue();
-    check(draft.baseUrl).equals('https://two.example/v1');
-    check(draft.apiKey).equals('new-key');
-    check(draft.sessionKey).isNull();
+    check(draft.config.enabled).isTrue();
+    check(draft.config.baseUrl).equals('https://two.example/v1');
+    check(draft.config.apiKey).equals('new-key');
+    check(draft.config.sessionKey).isNull();
+    check(draft.apiKeyChanged).isTrue();
+    check(draft.sessionKeyChanged).isTrue();
   });
 
-  test(
-    'onboarding surfaces session-key failure and stops completion',
-    () async {
-      final calls = <String>[];
+  test('activation failure is one typed onboarding result', () async {
+    final gateway = _FakeHermesConnectionGateway(
+      onActivate: () async => throw StateError('secure storage unavailable'),
+    );
+    final controller = _configuredController(gateway);
+    addTearDown(controller.dispose);
 
-      final result = await completeHermesOnboarding(
-        enable: () async => calls.add('enable'),
-        ensureSessionKey: () async {
-          calls.add('session-key');
-          throw StateError('secure storage unavailable');
-        },
-        selectHermes: () async => calls.add('select-hermes'),
-      );
-
-      check(result.success).isFalse();
-      check(result.error).isA<StateError>();
-      check(calls).deepEquals(['enable', 'session-key']);
-    },
-  );
-
-  test('onboarding selects Hermes only after every step succeeds', () async {
-    final calls = <String>[];
-
-    final result = await completeHermesOnboarding(
-      enable: () async => calls.add('enable'),
-      ensureSessionKey: () async => calls.add('session-key'),
-      selectHermes: () async => calls.add('select-hermes'),
+    final result = await controller.finishOnboarding(
+      saved: const HermesConfig(),
+      messages: _messages,
     );
 
-    check(result.success).isTrue();
-    check(result.error).isNull();
-    check(calls).deepEquals(['enable', 'session-key', 'select-hermes']);
+    check(result.outcome).equals(HermesConnectionOutcome.activationFailed);
+    check(result.error).isA<StateError>();
+    check(gateway.calls).deepEquals(['probe', 'persist', 'activate']);
+    check(controller.attempt.message).equals('Could not activate');
   });
 
   test(
     'failed onboarding probe performs no persistence or activation',
     () async {
-      final calls = <String>[];
+      final gateway = _FakeHermesConnectionGateway(probeResult: false);
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
 
-      final result = await connectHermesOnboarding(
-        probe: () async {
-          calls.add('probe');
-          return false;
-        },
-        persist: () async {
-          calls.add('persist');
-          return true;
-        },
-        enable: () async => calls.add('enable'),
-        ensureSessionKey: () async => calls.add('session-key'),
-        selectHermes: () async => calls.add('select-hermes'),
+      final result = await controller.finishOnboarding(
+        saved: const HermesConfig(),
+        messages: _messages,
       );
 
-      check(
-        result.outcome,
-      ).equals(HermesConnectionOnboardingOutcome.unreachable);
-      check(calls).deepEquals(['probe']);
+      check(result.outcome).equals(HermesConnectionOutcome.unreachable);
+      check(gateway.calls).deepEquals(['probe']);
     },
   );
 
-  test('successful onboarding preserves probe-to-selection ordering', () async {
-    final calls = <String>[];
+  test(
+    'successful onboarding preserves probe-to-activation ordering',
+    () async {
+      final gateway = _FakeHermesConnectionGateway();
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
 
-    final result = await connectHermesOnboarding(
-      probe: () async {
-        calls.add('probe');
-        return true;
-      },
-      persist: () async {
-        calls.add('persist');
-        return true;
-      },
-      enable: () async => calls.add('enable'),
-      ensureSessionKey: () async => calls.add('session-key'),
-      selectHermes: () async => calls.add('select-hermes'),
-    );
+      final result = await controller.finishOnboarding(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
 
-    check(result.outcome).equals(HermesConnectionOnboardingOutcome.success);
-    check(calls).deepEquals([
-      'probe',
-      'persist',
-      'enable',
-      'session-key',
-      'select-hermes',
-    ]);
+      check(result.outcome).equals(HermesConnectionOutcome.success);
+      check(gateway.calls).deepEquals(['probe', 'persist', 'activate']);
+      check(gateway.probedDraft).isNotNull();
+      check(gateway.persistedDraft).isNotNull();
+      check(
+        identical(gateway.probedDraft, gateway.persistedDraft!.config),
+      ).isTrue();
+    },
+  );
+
+  test(
+    'persistence failure prevents activation and retains credentials',
+    () async {
+      final gateway = _FakeHermesConnectionGateway(
+        onPersist: (_) async => throw StateError('write failed'),
+      );
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
+
+      final result = await controller.finishOnboarding(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+
+      check(result.outcome).equals(HermesConnectionOutcome.persistenceFailed);
+      check(gateway.calls).deepEquals(['probe', 'persist']);
+      check(controller.apiKey.text).equals('secret-key');
+      check(controller.attempt.message).equals('Could not save');
+    },
+  );
+
+  test(
+    'an in-flight probe can finish after the controller is disposed',
+    () async {
+      final probe = Completer<bool>();
+      final gateway = _FakeHermesConnectionGateway(
+        onProbe: (_) => probe.future,
+      );
+      final controller = _configuredController(gateway);
+
+      final result = controller.testConnection(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+      probe.complete(true);
+
+      check(await result).isTrue();
+    },
+  );
+}
+
+HermesConnectionController _configuredController(
+  HermesConnectionGateway gateway,
+) {
+  final controller = HermesConnectionController(
+    initialConfig: const HermesConfig(),
+    gateway: gateway,
+  );
+  controller.url.text = 'https://hermes.example/v1';
+  controller.apiKey.text = 'secret-key';
+  controller.markApiKeyChanged();
+  return controller;
+}
+
+final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
+  _FakeHermesConnectionGateway({
+    this.probeResult = true,
+    this.onProbe,
+    this.onPersist,
+    this.onActivate,
   });
+
+  final bool probeResult;
+  final Future<bool> Function(HermesConfig draft)? onProbe;
+  final Future<void> Function(HermesConnectionDraft draft)? onPersist;
+  final Future<void> Function()? onActivate;
+  final List<String> calls = [];
+  HermesConfig? probedDraft;
+  HermesConnectionDraft? persistedDraft;
+
+  @override
+  Future<bool> probe(HermesConfig draft) async {
+    calls.add('probe');
+    probedDraft = draft;
+    if (onProbe case final callback?) return callback(draft);
+    return probeResult;
+  }
+
+  @override
+  Future<void> persist(HermesConnectionDraft draft) async {
+    calls.add('persist');
+    persistedDraft = draft;
+    await onPersist?.call(draft);
+  }
+
+  @override
+  Future<void> activate() async {
+    calls.add('activate');
+    await onActivate?.call();
+  }
 }

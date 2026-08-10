@@ -18,6 +18,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -512,7 +513,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
       return;
     }
 
-    final result = await showSettingsSheet<String?>(
+    final result = await showAdaptiveSelectionSheet<String?>(
       context: context,
       builder: (sheetContext) => DefaultModelBottomSheet(
         models: models,
@@ -588,7 +589,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
       return;
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) => _TextEditorSheet(
         title: title,

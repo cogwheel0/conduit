@@ -13,6 +13,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/tool.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -784,7 +785,7 @@ class AppCustomizationPage extends ConsumerWidget {
       return;
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) => _ServerPromptEditorSheet(
         title: title,
@@ -881,10 +882,10 @@ class AppCustomizationPage extends ConsumerWidget {
       ),
     ];
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.androidAssistantTitle,
           description: l10n.androidAssistantDescription,
           itemCount: options.length,
@@ -894,7 +895,7 @@ class AppCustomizationPage extends ConsumerWidget {
           itemBuilder: (context, index) {
             final option = options[index];
             final selected = settings.androidAssistantTrigger == option.value;
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               selected: selected,
               onTap: () {
@@ -1592,10 +1593,10 @@ class AppCustomizationPage extends ConsumerWidget {
       return;
     }
 
-    showSettingsSheet<void>(
+    showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (BuildContext sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.ttsSelectVoice,
           itemCount: entries.length,
           initialChildSize: 0.7,
@@ -1623,7 +1624,7 @@ class AppCustomizationPage extends ConsumerWidget {
 
             final option = entry.option;
             if (option == null) {
-              return SettingsSelectorTile(
+              return AdaptiveSelectionTile(
                 title: l10n.ttsSystemDefault,
                 selected: selectedOptionId == ttsSystemDefaultVoiceId,
                 onTap: () async {
@@ -1639,7 +1640,7 @@ class AppCustomizationPage extends ConsumerWidget {
               );
             }
 
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               subtitle: option.subtitle,
               selected: option.id == selectedOptionId,
@@ -1822,10 +1823,10 @@ class AppCustomizationPage extends ConsumerWidget {
       return;
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.transportMode,
           itemCount: options.length,
           initialChildSize: 0.42,
@@ -1834,7 +1835,7 @@ class AppCustomizationPage extends ConsumerWidget {
           itemBuilder: (context, index) {
             final option = options[index];
             final selected = current == option.value;
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.title,
               subtitle: option.subtitle,
               selected: selected,
@@ -1940,10 +1941,10 @@ class AppCustomizationPage extends ConsumerWidget {
       return;
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.themePalette,
           itemCount: palettes.length,
           initialChildSize: 0.66,
@@ -1951,7 +1952,7 @@ class AppCustomizationPage extends ConsumerWidget {
           maxChildSize: 0.86,
           itemBuilder: (context, index) {
             final palette = palettes[index];
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: palette.label(l10n),
               subtitle: palette.description(l10n),
               selected: palette.id == activePaletteId,
@@ -2028,10 +2029,10 @@ class AppCustomizationPage extends ConsumerWidget {
       return null;
     }
 
-    return showSettingsSheet<String>(
+    return showAdaptiveSelectionSheet<String>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: AppLocalizations.of(sheetContext)!.appLanguage,
           itemCount: options.length,
           initialChildSize: 0.72,
@@ -2039,7 +2040,7 @@ class AppCustomizationPage extends ConsumerWidget {
           maxChildSize: 0.86,
           itemBuilder: (context, index) {
             final option = options[index];
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               selected: normalizedCurrent == option.value,
               onTap: () => Navigator.pop(sheetContext, option.value),

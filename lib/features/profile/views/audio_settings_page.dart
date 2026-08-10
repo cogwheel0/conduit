@@ -12,6 +12,7 @@ import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
@@ -448,10 +449,10 @@ class AudioSettingsPage extends ConsumerWidget {
       }
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.ttsSelectVoice,
           itemCount: voiceOptions.length + 1,
           initialChildSize: 0.68,
@@ -459,7 +460,7 @@ class AudioSettingsPage extends ConsumerWidget {
           maxChildSize: 0.9,
           itemBuilder: (context, index) {
             if (index == 0) {
-              return SettingsSelectorTile(
+              return AdaptiveSelectionTile(
                 title: l10n.ttsSystemDefault,
                 selected: selectedOptionId == ttsSystemDefaultVoiceId,
                 onTap: () async {
@@ -475,7 +476,7 @@ class AudioSettingsPage extends ConsumerWidget {
             }
 
             final option = voiceOptions[index - 1];
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               subtitle: option.subtitle,
               selected: option.id == selectedOptionId,

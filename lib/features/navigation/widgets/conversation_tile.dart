@@ -116,14 +116,18 @@ class ChatStyleSidebarTile extends StatefulWidget {
     this.semanticLabel,
     this.tintKey,
     this.pressedKey,
+    this.surfaceKey,
+    this.enabled = true,
   });
 
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Widget child;
   final String? semanticLabel;
   final Key? tintKey;
   final Key? pressedKey;
+  final Key? surfaceKey;
+  final bool enabled;
 
   @override
   State<ChatStyleSidebarTile> createState() => _ChatStyleSidebarTileState();
@@ -138,12 +142,23 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
   }
 
   @override
+  void didUpdateWidget(covariant ChatStyleSidebarTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((!widget.enabled || widget.onTap == null) && _pressed) {
+      _pressed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final effectiveEnabled = widget.enabled && widget.onTap != null;
     return Semantics(
       button: true,
       selected: widget.selected,
+      enabled: effectiveEnabled,
       label: widget.semanticLabel,
       child: Container(
+        key: widget.surfaceKey,
         margin: kConversationTileMargin,
         child: ConversationTileSurface(
           theme: context.conduitTheme,
@@ -153,12 +168,14 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
           pressedKey: widget.pressedKey,
           child: Listener(
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => _setPressed(true),
-            onPointerUp: (_) => _setPressed(false),
-            onPointerCancel: (_) => _setPressed(false),
+            onPointerDown: effectiveEnabled ? (_) => _setPressed(true) : null,
+            onPointerUp: effectiveEnabled ? (_) => _setPressed(false) : null,
+            onPointerCancel: effectiveEnabled
+                ? (_) => _setPressed(false)
+                : null,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: widget.onTap,
+              onTap: effectiveEnabled ? widget.onTap : null,
               child: widget.child,
             ),
           ),
@@ -373,7 +390,7 @@ class ConversationTileContent extends StatelessWidget {
 }
 
 /// A tappable conversation tile with hover and selection states.
-class ConversationTile extends StatefulWidget {
+class ConversationTile extends StatelessWidget {
   /// The conversation title.
   final String title;
 
@@ -412,63 +429,28 @@ class ConversationTile extends StatefulWidget {
   });
 
   @override
-  State<ConversationTile> createState() => _ConversationTileState();
-}
-
-class _ConversationTileState extends State<ConversationTile> {
-  bool _pressed = false;
-
-  void _setPressed(bool pressed) {
-    if (_pressed == pressed) return;
-    setState(() => _pressed = pressed);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final enabled = !widget.isLoading && widget.onTap != null;
-
-    return Semantics(
-      selected: widget.selected,
-      button: true,
-      enabled: enabled,
-      child: Container(
-        margin: kConversationTileMargin,
-        child: ConversationTileSurface(
-          theme: theme,
-          selected: widget.selected,
-          pressed: _pressed,
-          tintKey: const ValueKey<String>('conversation-tile-active-tint'),
-          pressedKey: const ValueKey<String>('conversation-tile-pressed-tint'),
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: enabled ? (_) => _setPressed(true) : null,
-            onPointerUp: enabled ? (_) => _setPressed(false) : null,
-            onPointerCancel: enabled ? (_) => _setPressed(false) : null,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: enabled ? widget.onTap : null,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.listItem,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.sm,
-                  ),
-                  child: ConversationTileContent(
-                    title: widget.title,
-                    pinned: widget.pinned,
-                    selected: widget.selected,
-                    unread: widget.unread,
-                    isLoading: widget.isLoading,
-                    isGenerating: widget.isGenerating,
-                    badge: widget.badge,
-                  ),
-                ),
-              ),
-            ),
+    return ChatStyleSidebarTile(
+      selected: selected,
+      enabled: !isLoading,
+      onTap: onTap,
+      tintKey: const ValueKey<String>('conversation-tile-active-tint'),
+      pressedKey: const ValueKey<String>('conversation-tile-pressed-tint'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          child: ConversationTileContent(
+            title: title,
+            pinned: pinned,
+            selected: selected,
+            unread: unread,
+            isLoading: isLoading,
+            isGenerating: isGenerating,
+            badge: badge,
           ),
         ),
       ),

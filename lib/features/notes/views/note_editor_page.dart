@@ -47,6 +47,7 @@ import '../utils/note_document_codec.dart';
 import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
 import '../widgets/note_file_attachment.dart';
+import '../widgets/note_floating_actions.dart';
 
 /// Builds the rich-note editor theme from Conduit's semantic color tokens.
 ///
@@ -1611,7 +1612,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   left: Spacing.md,
                   right: Spacing.md,
                   bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                  child: _buildFloatingActionsRow(context),
+                  child: NoteFloatingActions(
+                    isRecording: _isRecording,
+                    isUploadingAudio: _isUploadingAudio,
+                    isEnhancing: _isEnhancing,
+                    onVoicePressed: _isRecording
+                        ? _toggleDictation
+                        : _showRecordingOptions,
+                    onEnhance: _enhanceContent,
+                    onGenerateTitle: _generateTitle,
+                  ),
                 ),
               // Formatting toolbar — shown above the keyboard while the content
               // editor is focused (in place of the floating actions row). The
@@ -2884,227 +2894,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _showError(e.toString());
       }
     }
-  }
-
-  Widget _buildFloatingActionsRow(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // Voice/Recording button - shows menu if not recording, stops if recording
-        _buildFloatingButton(
-          context,
-          nativeSymbol: _isRecording ? 'stop.fill' : 'mic.fill',
-          icon: _isRecording
-              ? (Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop_rounded)
-              : (Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded),
-          color: _isRecording ? theme.error : null,
-          isLoading: _isUploadingAudio,
-          tooltip: _isRecording ? l10n.stopRecording : l10n.voiceOptions,
-          onPressed: _isUploadingAudio
-              ? null
-              : (_isRecording ? _toggleDictation : _showRecordingOptions),
-        ),
-
-        // AI button
-        _buildFloatingButton(
-          context,
-          nativeSymbol: 'sparkles',
-          icon: Platform.isIOS
-              ? CupertinoIcons.sparkles
-              : Icons.auto_awesome_rounded,
-          isLoading: _isEnhancing,
-          tooltip: l10n.enhanceWithAI,
-          onPressed: _isEnhancing ? null : _enhanceContent,
-          showMenu: true,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFloatingButton(
-    BuildContext context, {
-    required String nativeSymbol,
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback? onPressed,
-    bool isLoading = false,
-    Color? color,
-    bool showMenu = false,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    final button = _buildAdaptiveFloatingButton(
-      context,
-      nativeSymbol: nativeSymbol,
-      icon: icon,
-      onPressed: onPressed,
-      isLoading: isLoading,
-      color: color,
-    );
-
-    if (showMenu) {
-      final enhancementItems = [
-        AdaptivePopupMenuItem<String>(
-          label: l10n.enhanceNote,
-          value: 'enhance',
-          icon: Platform.isIOS ? 'wand.and.stars' : Icons.auto_fix_high_rounded,
-        ),
-        AdaptivePopupMenuItem<String>(
-          label: l10n.generateTitle,
-          value: 'title',
-          icon: Platform.isIOS ? 'textformat' : Icons.title_rounded,
-        ),
-      ];
-
-      if (conduitSupportsNativeGlass() && !isLoading) {
-        return AdaptiveTooltip(
-          message: tooltip,
-          child: Semantics(
-            button: true,
-            label: tooltip,
-            child: AdaptivePopupMenuButton.icon<String>(
-              key: const ValueKey<String>('note-ai-native-glass-menu'),
-              icon: nativeSymbol,
-              items: enhancementItems,
-              onSelected: (_, entry) => _handleEnhancementAction(entry.value),
-              size: TouchTarget.button,
-              iconSize: IconSize.md,
-              buttonStyle: PopupButtonStyle.glass,
-            ),
-          ),
-        );
-      }
-
-      return AdaptiveTooltip(
-        message: tooltip,
-        child: Semantics(
-          button: true,
-          label: tooltip,
-          child: AdaptivePopupMenuButton.widget<String>(
-            items: enhancementItems,
-            onSelected: (_, entry) => _handleEnhancementAction(entry.value),
-            child: IgnorePointer(child: button),
-          ),
-        ),
-      );
-    }
-
-    return Semantics(
-      button: true,
-      label: tooltip,
-      enabled: onPressed != null,
-      child: AdaptiveTooltip(message: tooltip, child: button),
-    );
-  }
-
-  void _handleEnhancementAction(String? action) {
-    switch (action) {
-      case 'enhance':
-        _enhanceContent();
-      case 'title':
-        _generateTitle();
-    }
-  }
-
-  Widget _buildAdaptiveFloatingButton(
-    BuildContext context, {
-    required String nativeSymbol,
-    required IconData icon,
-    required VoidCallback? onPressed,
-    required bool isLoading,
-    Color? color,
-  }) {
-    final theme = context.conduitTheme;
-    final labelColor = theme.textPrimary;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
-    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
-    final effectiveColor = usesOpaqueFallback && color == null
-        ? theme.surfaceContainerHighest
-        : color;
-
-    if (conduitSupportsNativeGlass()) {
-      if (isLoading) {
-        return SizedBox.square(
-          key: const ValueKey<String>('note-floating-native-glass-loading'),
-          dimension: TouchTarget.button,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: AdaptiveGlassBackdrop(borderRadius: borderRadius),
-              ),
-              Center(
-                child: SizedBox(
-                  width: IconSize.md,
-                  height: IconSize.md,
-                  child: CircularProgressIndicator(
-                    strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(labelColor),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }
-
-      return AdaptiveButton.sfSymbol(
-        key: const ValueKey<String>('note-floating-native-glass-button'),
-        onPressed: onPressed,
-        enabled: onPressed != null,
-        sfSymbol: SFSymbol(
-          nativeSymbol,
-          size: IconSize.md,
-          color: color == null ? labelColor : Colors.white,
-        ),
-        color: color,
-        style: color == null
-            ? AdaptiveButtonStyle.glass
-            : AdaptiveButtonStyle.prominentGlass,
-        size: AdaptiveButtonSize.large,
-        minSize: const Size.square(TouchTarget.button),
-        padding: EdgeInsets.zero,
-        borderRadius: borderRadius,
-        useSmoothRectangleBorder: false,
-      );
-    }
-
-    return AdaptiveButton.child(
-      onPressed: onPressed,
-      enabled: onPressed != null,
-      color: effectiveColor,
-      style: usesOpaqueFallback
-          ? AdaptiveButtonStyle.filled
-          : color == null
-          ? AdaptiveButtonStyle.glass
-          : AdaptiveButtonStyle.prominentGlass,
-      size: AdaptiveButtonSize.large,
-      minSize: const Size(TouchTarget.button, TouchTarget.button),
-      padding: EdgeInsets.zero,
-      borderRadius: borderRadius,
-      useSmoothRectangleBorder: false,
-      child: SizedBox(
-        width: TouchTarget.button,
-        height: TouchTarget.button,
-        child: Center(
-          child: isLoading
-              ? SizedBox(
-                  width: IconSize.md,
-                  height: IconSize.md,
-                  child: CircularProgressIndicator(
-                    strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(labelColor),
-                  ),
-                )
-              : Icon(
-                  icon,
-                  color: color == null ? labelColor : Colors.white,
-                  size: IconSize.md,
-                ),
-        ),
-      ),
-    );
   }
 
   Widget _buildNotFoundState(BuildContext context) {

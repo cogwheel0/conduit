@@ -4,9 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/services/voice_input_service.dart';
-import 'settings_page_scaffold.dart';
 
 String sttLanguageSubtitle(AppLocalizations l10n, AppSettings settings) {
   return settings.sttLanguageCode ?? l10n.sttTranscriptionLanguageAuto;
@@ -90,7 +90,7 @@ Future<void> showDeviceSttLanguagePickerSheet(
     await notifier.setVoiceLocaleId(normalized);
   }
 
-  await showSettingsSheet<void>(
+  await showAdaptiveSelectionSheet<void>(
     context: context,
     builder: (sheetContext) {
       return DeviceSttLanguagePicker(
@@ -129,7 +129,7 @@ class DeviceSttLanguagePicker extends StatelessWidget {
         selectedLocaleId != SettingsService.voiceLocaleSystemDefault &&
         !installedIds.contains(selectedLocaleId.toLowerCase());
 
-    return SettingsSelectorSheet(
+    return AdaptiveSelectionSheet(
       title: l10n.sttDeviceLanguage,
       description: l10n.sttDeviceLanguageDescription,
       itemCount: locales.length + 3,
@@ -138,7 +138,7 @@ class DeviceSttLanguagePicker extends StatelessWidget {
       maxChildSize: 0.86,
       itemBuilder: (context, index) {
         if (index == 0) {
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             key: const Key('device-stt-auto-option'),
             title: l10n.sttTranscriptionLanguageAuto,
             subtitle: l10n.sttDeviceLanguageAutoDescription,
@@ -147,7 +147,7 @@ class DeviceSttLanguagePicker extends StatelessWidget {
           );
         }
         if (index == 1) {
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             key: const Key('device-stt-system-option'),
             title: l10n.ttsSystemDefault,
             subtitle: l10n.sttDeviceLanguageSystemDescription,
@@ -157,7 +157,7 @@ class DeviceSttLanguagePicker extends StatelessWidget {
           );
         }
         if (index == locales.length + 2) {
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             key: const Key('device-stt-custom-option'),
             title: l10n.sttTranscriptionLanguageCustom,
             subtitle: hasCustomSelection
@@ -169,7 +169,7 @@ class DeviceSttLanguagePicker extends StatelessWidget {
         }
 
         final locale = locales[index - 2];
-        return SettingsSelectorTile(
+        return AdaptiveSelectionTile(
           key: Key('device-stt-locale-${locale.localeId}'),
           title: locale.name,
           subtitle: locale.name == locale.localeId ? null : locale.localeId,
@@ -190,10 +190,10 @@ Future<void> showSttLanguagePickerSheet(
   final l10n = AppLocalizations.of(context)!;
   final notifier = ref.read(appSettingsProvider.notifier);
 
-  return showSettingsSheet<void>(
+  return showAdaptiveSelectionSheet<void>(
     context: context,
     builder: (sheetContext) {
-      return SettingsSelectorSheet(
+      return AdaptiveSelectionSheet(
         title: l10n.sttTranscriptionLanguage,
         description: l10n.sttTranscriptionLanguageDescription,
         itemCount: 2,
@@ -202,7 +202,7 @@ Future<void> showSttLanguagePickerSheet(
         maxChildSize: 0.58,
         itemBuilder: (context, index) {
           if (index == 0) {
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: l10n.sttTranscriptionLanguageAuto,
               subtitle: l10n.sttTranscriptionLanguageDescription,
               selected: settings.sttLanguageCode == null,
@@ -215,7 +215,7 @@ Future<void> showSttLanguagePickerSheet(
             );
           }
 
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             title: l10n.sttTranscriptionLanguageCustom,
             subtitle:
                 settings.sttLanguageCode ??

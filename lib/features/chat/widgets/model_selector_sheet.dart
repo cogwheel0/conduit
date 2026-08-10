@@ -63,23 +63,28 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     final allowsCustom = policy.allowsCustom;
     final options = policy.options;
     final customMarker = '__custom__';
-    final selectionItems = <AdaptiveSelectionItem<String>>[
+    final selectedValue = options.contains(current) ? current : customMarker;
+    final selectionItems = <({String value, String label})>[
       for (final option in options)
-        AdaptiveSelectionItem<String>(
-          value: option,
-          label: _effortLabel(l10n, option),
-        ),
+        (value: option, label: _effortLabel(l10n, option)),
       if (allowsCustom)
-        AdaptiveSelectionItem<String>(
-          value: customMarker,
-          label: l10n.customReasoningEffort,
-        ),
+        (value: customMarker, label: l10n.customReasoningEffort),
     ];
-    final selected = await AdaptiveSelectionSheet.showSingle<String>(
+    final selected = await showAdaptiveSelectionSheet<String>(
       context: context,
-      title: l10n.reasoningEffort,
-      items: selectionItems,
-      selected: options.contains(current) ? current : customMarker,
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: l10n.reasoningEffort,
+        initialChildSize: 0.68,
+        itemCount: selectionItems.length,
+        itemBuilder: (_, index) {
+          final item = selectionItems[index];
+          return AdaptiveSelectionTile(
+            title: item.label,
+            selected: item.value == selectedValue,
+            onTap: () => Navigator.of(sheetContext).pop(item.value),
+          );
+        },
+      ),
     );
     if (!mounted || selected == null) return;
     var effort = selected;

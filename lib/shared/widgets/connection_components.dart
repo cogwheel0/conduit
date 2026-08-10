@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../models/connection_attempt.dart';
 import '../theme/theme_extensions.dart';
 import 'adaptive_route_shell.dart';
 import 'adaptive_toolbar_components.dart';
@@ -8,31 +9,7 @@ import 'platform_ui/platform_ui.dart';
 import 'utility_components.dart';
 
 export 'utility_components.dart';
-
-enum ConnectionAttemptPhase { idle, connecting, connected, failed }
-
-@immutable
-class ConnectionAttemptState {
-  const ConnectionAttemptState._(this.phase, this.message);
-
-  const ConnectionAttemptState.idle()
-    : this._(ConnectionAttemptPhase.idle, null);
-
-  const ConnectionAttemptState.connecting(String message)
-    : this._(ConnectionAttemptPhase.connecting, message);
-
-  const ConnectionAttemptState.connected(String message)
-    : this._(ConnectionAttemptPhase.connected, message);
-
-  const ConnectionAttemptState.failed(String message)
-    : this._(ConnectionAttemptPhase.failed, message);
-
-  final ConnectionAttemptPhase phase;
-  final String? message;
-
-  bool get isBusy => phase == ConnectionAttemptPhase.connecting;
-  bool get isVisible => phase != ConnectionAttemptPhase.idle;
-}
+export '../models/connection_attempt.dart';
 
 class ConnectionMark extends StatelessWidget {
   const ConnectionMark({

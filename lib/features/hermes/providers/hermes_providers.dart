@@ -644,39 +644,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }
 
   /// Canonical origin used to bind secrets to their intended server.
-  static String? connectionOrigin(String value) {
-    final uri = Uri.tryParse(value.trim());
-    if (uri == null ||
-        (uri.scheme != 'http' && uri.scheme != 'https') ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasQuery ||
-        uri.hasFragment) {
-      return null;
-    }
-    final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
-    return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
-  }
+  static String? connectionOrigin(String value) =>
+      HermesConfig.connectionOrigin(value);
 
   /// Canonical request root used to detect when the currently configured
   /// Hermes endpoint changes. `/v1` and a trailing slash are equivalent because
   /// [HermesApiService] strips them before composing request paths.
-  static String? connectionEndpoint(String value) {
-    var normalized = value.trim();
-    while (normalized.endsWith('/')) {
-      normalized = normalized.substring(0, normalized.length - 1);
-    }
-    if (normalized.endsWith('/v1')) {
-      normalized = normalized.substring(0, normalized.length - '/v1'.length);
-    }
-
-    final uri = Uri.tryParse(normalized);
-    final origin = connectionOrigin(normalized);
-    if (uri == null || origin == null) return null;
-    return '$origin${uri.path}'
-        '${uri.hasQuery ? '?${uri.query}' : ''}'
-        '${uri.hasFragment ? '#${uri.fragment}' : ''}';
-  }
+  static String? connectionEndpoint(String value) =>
+      HermesConfig.connectionEndpoint(value);
 
   String documentTrustPrincipalId() {
     final existing = PreferencesStore.getString(

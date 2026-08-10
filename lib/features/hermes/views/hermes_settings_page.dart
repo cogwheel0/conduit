@@ -6,133 +6,16 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
+import '../controllers/hermes_connection_controller.dart';
 import '../models/hermes_capabilities.dart';
-import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
-import '../services/hermes_api_service.dart';
-
-@visibleForTesting
-HermesConfig buildHermesConnectionDraft({
-  required HermesConfig saved,
-  required String baseUrl,
-  required bool apiKeyChanged,
-  required String apiKey,
-  required bool sessionKeyChanged,
-  required String sessionKey,
-}) {
-  final trimmedUrl = baseUrl.trim();
-  final originChanged =
-      HermesConfigController.connectionOrigin(saved.baseUrl) !=
-      HermesConfigController.connectionOrigin(trimmedUrl);
-  final trimmedApiKey = apiKey.trim();
-  final trimmedSessionKey = sessionKey.trim();
-  return HermesConfig(
-    enabled: true,
-    baseUrl: trimmedUrl,
-    apiKey: originChanged || apiKeyChanged
-        ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
-        : saved.apiKey,
-    sessionKey: originChanged
-        ? (sessionKeyChanged && trimmedSessionKey.isNotEmpty
-              ? trimmedSessionKey
-              : null)
-        : sessionKeyChanged
-        ? (trimmedSessionKey.isEmpty ? null : trimmedSessionKey)
-        : saved.sessionKey,
-  );
-}
-
-@visibleForTesting
-Future<({bool success, Object? error})> completeHermesOnboarding({
-  required Future<void> Function() enable,
-  required Future<void> Function() ensureSessionKey,
-  required Future<void> Function() selectHermes,
-}) async {
-  try {
-    await enable();
-    await ensureSessionKey();
-    await selectHermes();
-    return (success: true, error: null);
-  } catch (error) {
-    DebugLogger.error(
-      'onboarding-failed',
-      scope: 'hermes/onboarding',
-      data: {'errorType': error.runtimeType.toString()},
-    );
-    return (success: false, error: error);
-  }
-}
-
-enum HermesConnectionOnboardingOutcome {
-  unreachable,
-  persistenceFailed,
-  activationFailed,
-  success,
-}
-
-@immutable
-class HermesConnectionOnboardingResult {
-  const HermesConnectionOnboardingResult(this.outcome, [this.error]);
-
-  final HermesConnectionOnboardingOutcome outcome;
-  final Object? error;
-}
-
-@visibleForTesting
-Future<HermesConnectionOnboardingResult> connectHermesOnboarding({
-  required Future<bool> Function() probe,
-  required Future<bool> Function() persist,
-  required Future<void> Function() enable,
-  required Future<void> Function() ensureSessionKey,
-  required Future<void> Function() selectHermes,
-  void Function()? onReachable,
-}) async {
-  try {
-    if (!await probe()) {
-      return const HermesConnectionOnboardingResult(
-        HermesConnectionOnboardingOutcome.unreachable,
-      );
-    }
-  } catch (error) {
-    return HermesConnectionOnboardingResult(
-      HermesConnectionOnboardingOutcome.unreachable,
-      error,
-    );
-  }
-  onReachable?.call();
-
-  try {
-    if (!await persist()) {
-      return const HermesConnectionOnboardingResult(
-        HermesConnectionOnboardingOutcome.persistenceFailed,
-      );
-    }
-  } catch (error) {
-    return HermesConnectionOnboardingResult(
-      HermesConnectionOnboardingOutcome.persistenceFailed,
-      error,
-    );
-  }
-
-  final activation = await completeHermesOnboarding(
-    enable: enable,
-    ensureSessionKey: ensureSessionKey,
-    selectHermes: selectHermes,
-  );
-  return HermesConnectionOnboardingResult(
-    activation.success
-        ? HermesConnectionOnboardingOutcome.success
-        : HermesConnectionOnboardingOutcome.activationFailed,
-    activation.error,
-  );
-}
+import '../services/hermes_connection_service.dart';
 
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
 /// URL, API key, long-term memory key, and a connection test.
@@ -147,200 +30,52 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
   ConsumerState<HermesSettingsPage> createState() => _HermesSettingsPageState();
 }
 
-enum _HermesSettingsOperation { idle, testing, saving, finishing, saved }
-
-extension on _HermesSettingsOperation {
-  bool get isBusy =>
-      this == _HermesSettingsOperation.testing ||
-      this == _HermesSettingsOperation.saving ||
-      this == _HermesSettingsOperation.finishing;
-}
-
 class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
-  late final TextEditingController _urlController;
-  late final TextEditingController _apiKeyController;
-  late final TextEditingController _sessionKeyController;
-
-  _HermesSettingsOperation _operation = _HermesSettingsOperation.idle;
-  bool _apiKeyDirty = false;
-  bool _sessionKeyDirty = false;
-  bool _showMemoryKey = false;
-  ConnectionAttemptState _attempt = const ConnectionAttemptState.idle();
-  String? _urlError;
-  String? _onboardingError;
+  late final HermesConnectionController _connectionController;
 
   @override
   void initState() {
     super.initState();
-    final config = ref.read(hermesConfigProvider);
-    _urlController = TextEditingController(text: config.baseUrl);
-    _apiKeyController = TextEditingController();
-    _sessionKeyController = TextEditingController();
+    _connectionController = HermesConnectionController(
+      initialConfig: ref.read(hermesConfigProvider),
+      gateway: ref.read(hermesConnectionGatewayProvider),
+    )..addListener(_handleConnectionChanged);
   }
 
-  Future<void> _finishOnboarding() async {
-    if (_operation.isBusy) return;
-    setState(() {
-      _operation = _HermesSettingsOperation.finishing;
-      _onboardingError = null;
-      _attempt = ConnectionAttemptState.connecting(
-        AppLocalizations.of(context)!.connecting,
-      );
-    });
+  void _handleConnectionChanged() {
+    if (mounted) setState(() {});
+  }
 
-    final saved = ref.read(hermesConfigProvider);
-    final draft = buildHermesConnectionDraft(
-      saved: saved,
-      baseUrl: _urlController.text,
-      apiKeyChanged: _apiKeyDirty,
-      apiKey: _apiKeyController.text,
-      sessionKeyChanged: _sessionKeyDirty,
-      sessionKey: _sessionKeyController.text,
-    );
-    final notifier = ref.read(hermesConfigProvider.notifier);
-    final result = await connectHermesOnboarding(
-      probe: () => testHermesDraftConnection(draft),
-      persist: _persistConnection,
-      onReachable: () {
-        if (!mounted) return;
-        setState(
-          () => _attempt = ConnectionAttemptState.connected(
-            AppLocalizations.of(context)!.connectedToServer,
-          ),
-        );
-      },
-      enable: () => notifier.setEnabled(true),
-      ensureSessionKey: () async {
-        await notifier.ensureSessionKey();
-      },
-      selectHermes: () => ref
-          .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.hermes),
+  HermesConnectionMessages _messages(AppLocalizations l10n) =>
+      HermesConnectionMessages(
+        connecting: l10n.connecting,
+        connected: l10n.connectedToServer,
+        unreachable: l10n.couldNotConnectGeneric,
+        persistenceFailed: l10n.directConnectionSaveFailed,
+        activationFailed: l10n.hermesOnboardingFailed,
+      );
+
+  Future<void> _finishOnboarding() async {
+    final l10n = AppLocalizations.of(context)!;
+    final result = await _connectionController.finishOnboarding(
+      saved: ref.read(hermesConfigProvider),
+      messages: _messages(l10n),
     );
     if (!mounted) return;
-    switch (result.outcome) {
-      case HermesConnectionOnboardingOutcome.unreachable:
-        setState(() {
-          _operation = _HermesSettingsOperation.idle;
-          _attempt = ConnectionAttemptState.failed(
-            AppLocalizations.of(context)!.couldNotConnectGeneric,
-          );
-        });
-        return;
-      case HermesConnectionOnboardingOutcome.persistenceFailed:
-        setState(() {
-          _operation = _HermesSettingsOperation.idle;
-          _attempt = ConnectionAttemptState.failed(
-            AppLocalizations.of(context)!.directConnectionSaveFailed,
-          );
-        });
-        return;
-      case HermesConnectionOnboardingOutcome.activationFailed:
-        setState(() {
-          _operation = _HermesSettingsOperation.idle;
-          _onboardingError = AppLocalizations.of(
-            context,
-          )!.hermesOnboardingFailed;
-          _attempt = ConnectionAttemptState.failed(_onboardingError!);
-        });
-        return;
-      case HermesConnectionOnboardingOutcome.success:
-        context.go(Routes.chat);
+    if (result.outcome == HermesConnectionOutcome.success) {
+      context.go(Routes.chat);
     }
   }
 
   @override
   void dispose() {
-    _urlController.dispose();
-    _apiKeyController.dispose();
-    _sessionKeyController.dispose();
+    _connectionController.removeListener(_handleConnectionChanged);
+    _connectionController.dispose();
     super.dispose();
   }
 
-  bool _originChanged(HermesConfig config) =>
-      HermesConfigController.connectionOrigin(config.baseUrl) !=
-      HermesConfigController.connectionOrigin(_urlController.text);
-
-  bool _draftIsUsable(HermesConfig config) {
-    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
-      return false;
-    }
-    final apiKey = _apiKeyDirty || _originChanged(config)
-        ? _apiKeyController.text.trim()
-        : config.apiKey?.trim() ?? '';
-    return apiKey.isNotEmpty;
-  }
-
-  Future<bool> _persistConnection() async {
-    final config = ref.read(hermesConfigProvider);
-    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
-      setState(
-        () => _urlError = AppLocalizations.of(
-          context,
-        )!.directConnectionUrlInvalid,
-      );
-      return false;
-    }
-    final originChanged = _originChanged(config);
-    if ((originChanged || _apiKeyDirty) &&
-        _apiKeyController.text.trim().isEmpty) {
-      setState(() {
-        _urlError = originChanged
-            ? AppLocalizations.of(
-                context,
-              )!.directConnectionCredentialsReentryRequired
-            : null;
-      });
-      return false;
-    }
-
-    setState(() => _urlError = null);
-    try {
-      await ref
-          .read(hermesConfigProvider.notifier)
-          .saveConnection(
-            baseUrl: _urlController.text,
-            apiKeyChanged: originChanged || _apiKeyDirty,
-            apiKey: _apiKeyController.text,
-            sessionKeyChanged: _sessionKeyDirty,
-            sessionKey: _sessionKeyController.text,
-          );
-      if (!mounted) return true;
-      _apiKeyController.clear();
-      _sessionKeyController.clear();
-      setState(() {
-        _apiKeyDirty = false;
-        _sessionKeyDirty = false;
-      });
-      return true;
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _urlError = AppLocalizations.of(
-            context,
-          )!.directConnectionSaveFailed,
-        );
-      }
-      return false;
-    }
-  }
-
-  Future<bool> _commitConnection() async {
-    if (_operation.isBusy) return false;
-    setState(() => _operation = _HermesSettingsOperation.saving);
-    final didSave = await _persistConnection();
-    if (mounted) {
-      setState(
-        () => _operation = didSave
-            ? _HermesSettingsOperation.saved
-            : _HermesSettingsOperation.idle,
-      );
-    }
-    return didSave;
-  }
-
   Future<void> _saveSettings() async {
-    await _commitConnection();
+    await _connectionController.save(ref.read(hermesConfigProvider));
   }
 
   Future<void> _retrySecrets() =>
@@ -360,40 +95,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
-    if (_operation.isBusy) return;
-    final saved = ref.read(hermesConfigProvider);
-    final draft = buildHermesConnectionDraft(
-      saved: saved,
-      baseUrl: _urlController.text,
-      apiKeyChanged: _apiKeyDirty,
-      apiKey: _apiKeyController.text,
-      sessionKeyChanged: _sessionKeyDirty,
-      sessionKey: _sessionKeyController.text,
+    await _connectionController.testConnection(
+      saved: ref.read(hermesConfigProvider),
+      messages: _messages(AppLocalizations.of(context)!),
     );
-    setState(() {
-      _operation = _HermesSettingsOperation.testing;
-      _attempt = ConnectionAttemptState.connecting(
-        AppLocalizations.of(context)!.connecting,
-      );
-    });
-    bool ok;
-    try {
-      ok = await testHermesDraftConnection(draft);
-    } catch (_) {
-      // A thrown health check (network/Dio error) must still clear the spinner.
-      ok = false;
-    }
-    if (!mounted) return;
-    setState(() {
-      _operation = _HermesSettingsOperation.idle;
-      _attempt = ok
-          ? ConnectionAttemptState.connected(
-              AppLocalizations.of(context)!.connectedToServer,
-            )
-          : ConnectionAttemptState.failed(
-              AppLocalizations.of(context)!.couldNotConnectGeneric,
-            );
-    });
   }
 
   @override
@@ -403,6 +108,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final urlError = switch (_connectionController.validationIssue) {
+      HermesConnectionValidationIssue.invalidUrl =>
+        l10n.directConnectionUrlInvalid,
+      HermesConnectionValidationIssue.credentialsReentryRequired =>
+        l10n.directConnectionCredentialsReentryRequired,
+      HermesConnectionValidationIssue.persistenceFailed =>
+        l10n.directConnectionSaveFailed,
+      null => null,
+    };
 
     final content = <Widget>[
       if (secretsError != null)
@@ -526,41 +240,29 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
-              enabled: !_operation.isBusy,
+              enabled: !_connectionController.operation.isBusy,
               label: l10n.hermesServerUrlTitle,
               hint: 'http://192.168.1.10:8642',
-              controller: _urlController,
+              controller: _connectionController.url,
               keyboardType: TextInputType.url,
               textInputAction: TextInputAction.next,
               autocorrect: false,
-              errorText: _urlError,
-              onChanged: (value) {
-                setState(() {
-                  _urlError = null;
-                  _operation = _HermesSettingsOperation.idle;
-                  _attempt = const ConnectionAttemptState.idle();
-                });
-              },
+              errorText: urlError,
+              onChanged: (_) => _connectionController.markUrlChanged(),
             ),
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
-              enabled: !_operation.isBusy,
+              enabled: !_connectionController.operation.isBusy,
               label: l10n.hermesApiKeyTitle,
               hint: config.apiKey == null || config.apiKey!.isEmpty
                   ? l10n.hermesApiKeyPlaceholder
                   : l10n.hermesConfiguredReplacePlaceholder,
               obscureText: true,
-              controller: _apiKeyController,
+              controller: _connectionController.apiKey,
               keyboardType: TextInputType.visiblePassword,
               textInputAction: TextInputAction.next,
               autocorrect: false,
-              onChanged: (value) {
-                setState(() {
-                  _apiKeyDirty = true;
-                  _operation = _HermesSettingsOperation.idle;
-                  _attempt = const ConnectionAttemptState.idle();
-                });
-              },
+              onChanged: (_) => _connectionController.markApiKeyChanged(),
             ),
           ],
         ),
@@ -577,27 +279,23 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           color: theme.iconSecondary,
           size: IconSize.medium,
         ),
-        expanded: _showMemoryKey,
-        onChanged: (value) => setState(() => _showMemoryKey = value),
+        expanded: _connectionController.showMemoryKey,
+        onChanged: _connectionController.setShowMemoryKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
-              enabled: !_operation.isBusy,
+              enabled: !_connectionController.operation.isBusy,
               label: l10n.hermesMemoryKeyTitle,
               hint: config.sessionKey == null || config.sessionKey!.isEmpty
                   ? l10n.hermesMemoryKeyPlaceholder
                   : l10n.hermesConfiguredReplacePlaceholder,
               obscureText: true,
-              controller: _sessionKeyController,
+              controller: _connectionController.sessionKey,
               keyboardType: TextInputType.visiblePassword,
               textInputAction: TextInputAction.done,
               autocorrect: false,
-              onChanged: (value) => setState(() {
-                _sessionKeyDirty = true;
-                _operation = _HermesSettingsOperation.idle;
-                _attempt = const ConnectionAttemptState.idle();
-              }),
+              onChanged: (_) => _connectionController.markSessionKeyChanged(),
             ),
             const SizedBox(height: Spacing.sm),
             Text(
@@ -618,29 +316,40 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           children: [
             ConduitButton(
               text: l10n.save,
-              isLoading: _operation == _HermesSettingsOperation.saving,
-              onPressed: _draftIsUsable(config) && !_operation.isBusy
+              isLoading:
+                  _connectionController.operation ==
+                  HermesConnectionOperation.saving,
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
                   ? _saveSettings
                   : null,
             ),
             ConduitButton(
               text: l10n.testDirectConnection,
               isSecondary: true,
-              isLoading: _operation == _HermesSettingsOperation.testing,
+              isLoading:
+                  _connectionController.operation ==
+                  HermesConnectionOperation.testing,
               useNativeLabel: true,
-              onPressed: _draftIsUsable(config) && !_operation.isBusy
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
                   ? _testConnection
                   : null,
             ),
-            if (_operation == _HermesSettingsOperation.saved &&
-                !_attempt.isVisible)
+            if (_connectionController.operation ==
+                    HermesConnectionOperation.saved &&
+                !_connectionController.attempt.isVisible)
               ConnectionAttemptBanner(
                 state: ConnectionAttemptState.connected(l10n.saved),
               )
-            else if (_attempt.isVisible)
+            else if (_connectionController.attempt.isVisible)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 320),
-                child: ConnectionAttemptBanner(state: _attempt),
+                child: ConnectionAttemptBanner(
+                  state: _connectionController.attempt,
+                ),
               ),
           ],
         ),
@@ -664,14 +373,19 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         bottomAction: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ConnectionAttemptBanner(state: _attempt),
-            if (_attempt.isVisible) const SizedBox(height: Spacing.sm),
+            ConnectionAttemptBanner(state: _connectionController.attempt),
+            if (_connectionController.attempt.isVisible)
+              const SizedBox(height: Spacing.sm),
             ConduitButton(
               text: l10n.hermesConnectAction,
               isFullWidth: true,
-              isLoading: _operation == _HermesSettingsOperation.finishing,
+              isLoading:
+                  _connectionController.operation ==
+                  HermesConnectionOperation.finishing,
               useNativeLabel: true,
-              onPressed: _draftIsUsable(config) && !_operation.isBusy
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
                   ? _finishOnboarding
                   : null,
             ),

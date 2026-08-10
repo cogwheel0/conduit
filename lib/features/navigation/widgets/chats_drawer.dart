@@ -1285,10 +1285,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final isExpanded = expandedMap[folderId] ?? folder.isExpanded;
         final isCurrentFolder = NavigationService.currentFolderId == folderId;
 
-        final rowContent = _FolderSidebarTile(
-          openKey: ValueKey<String>('folder-open-$folderId'),
+        final rowContent = ChatStyleSidebarTile(
+          key: ValueKey<String>('folder-open-$folderId'),
           surfaceKey: ValueKey<String>('folder-surface-$folderId'),
-          theme: theme,
           selected: isCurrentFolder,
           tintKey: ValueKey<String>('folder-active-tint-$folderId'),
           pressedKey: ValueKey<String>('folder-pressed-tint-$folderId'),
@@ -1985,67 +1984,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     // on-device row that happens to share the same raw ID.
     return !isDirectLocalConversation(conversation) &&
         activeChatIds.contains(conversation.id);
-  }
-}
-
-class _FolderSidebarTile extends StatefulWidget {
-  const _FolderSidebarTile({
-    required this.openKey,
-    required this.surfaceKey,
-    required this.theme,
-    required this.selected,
-    required this.tintKey,
-    required this.pressedKey,
-    required this.onTap,
-    required this.child,
-  });
-
-  final Key openKey;
-  final Key surfaceKey;
-  final ConduitThemeExtension theme;
-  final bool selected;
-  final Key tintKey;
-  final Key pressedKey;
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  State<_FolderSidebarTile> createState() => _FolderSidebarTileState();
-}
-
-class _FolderSidebarTileState extends State<_FolderSidebarTile> {
-  bool _pressed = false;
-
-  void _setPressed(bool pressed) {
-    if (_pressed == pressed) return;
-    setState(() => _pressed = pressed);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      key: widget.openKey,
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (_) => _setPressed(true),
-      onPointerUp: (_) => _setPressed(false),
-      onPointerCancel: (_) => _setPressed(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Container(
-          key: widget.surfaceKey,
-          margin: kConversationTileMargin,
-          child: ConversationTileSurface(
-            theme: widget.theme,
-            selected: widget.selected,
-            pressed: _pressed,
-            tintKey: widget.tintKey,
-            pressedKey: widget.pressedKey,
-            child: widget.child,
-          ),
-        ),
-      ),
-    );
   }
 }
 

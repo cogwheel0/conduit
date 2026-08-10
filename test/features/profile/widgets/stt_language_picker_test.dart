@@ -5,9 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/profile/views/audio_settings_page.dart';
-import 'package:conduit/features/profile/widgets/settings_page_scaffold.dart';
 import 'package:conduit/features/profile/widgets/stt_language_picker.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/adaptive_selection_sheet.dart';
 
 void main() {
   test('device recognition language tile is Android and device-STT only', () {
@@ -84,7 +84,7 @@ void _expectSelected(WidgetTester tester, String selectedKey) {
     'device-stt-custom-option',
   ];
   for (final key in optionKeys) {
-    final tile = tester.widget<SettingsSelectorTile>(find.byKey(Key(key)));
+    final tile = tester.widget<AdaptiveSelectionTile>(find.byKey(Key(key)));
     check(tile.selected, because: key).equals(key == selectedKey);
   }
 }
