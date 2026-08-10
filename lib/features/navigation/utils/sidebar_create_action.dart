@@ -35,10 +35,11 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
       .read(sidebarActiveTabProvider.notifier)
       .pendingLegacyIndex();
   final hermesOnly = ref.watch(hermesOnlyModeProvider);
+  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
-  final notesOn = ref.watch(notesFeatureEnabledProvider);
-  final terminalOn = _watchTerminalTabVisible(ref);
-  final channelsOn = ref.watch(channelsFeatureEnabledProvider);
+  final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
+  final terminalOn = hasOpenWebUi && _watchTerminalTabVisible(ref);
+  final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
     tabId: _resolveActiveSidebarTab(
       tabId: tabId,
@@ -81,10 +82,11 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
       .read(sidebarActiveTabProvider.notifier)
       .pendingLegacyIndex();
   final hermesOnly = ref.read(hermesOnlyModeProvider);
+  final hasOpenWebUi = ref.read(openWebUiAccountAvailableProvider);
   final hermesOn = ref.read(hermesEnabledProvider);
-  final notesOn = ref.read(notesFeatureEnabledProvider);
-  final terminalOn = _readTerminalTabVisible(ref);
-  final channelsOn = ref.read(channelsFeatureEnabledProvider);
+  final notesOn = hasOpenWebUi && ref.read(notesFeatureEnabledProvider);
+  final terminalOn = hasOpenWebUi && _readTerminalTabVisible(ref);
+  final channelsOn = hasOpenWebUi && ref.read(channelsFeatureEnabledProvider);
   final kind = _resolveSidebarCreateActionKind(
     tabId: _resolveActiveSidebarTab(
       tabId: tabId,
