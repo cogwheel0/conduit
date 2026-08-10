@@ -244,6 +244,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
+  "jwt": "JWT",
   "usernameOrEmail": "Používateľské meno alebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."

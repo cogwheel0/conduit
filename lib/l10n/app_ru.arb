@@ -65,6 +65,7 @@
   "credentials": "Учетные данные",
   "apiKey": "API-ключ",
   "token": "Токен",
+  "jwt": "JWT",
   "usernameOrEmail": "Имя пользователя или email",
   "password": "Пароль",
   "signInWithToken": "Войти с помощью токена",

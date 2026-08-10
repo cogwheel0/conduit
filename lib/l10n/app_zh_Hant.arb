@@ -65,6 +65,7 @@
   "credentials": "憑據",
   "apiKey": "API 密鑰",
   "token": "令牌",
+  "jwt": "JWT",
   "usernameOrEmail": "用戶名或電子郵件",
   "password": "密碼",
   "signInWithToken": "使用令牌登錄",

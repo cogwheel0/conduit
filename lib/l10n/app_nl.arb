@@ -65,6 +65,7 @@
   "credentials": "Inloggegevens",
   "apiKey": "API-sleutel",
   "token": "Token",
+  "jwt": "JWT",
   "usernameOrEmail": "Gebruikersnaam of e-mail",
   "password": "Wachtwoord",
   "signInWithToken": "Inloggen met token",

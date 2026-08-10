@@ -106,6 +106,7 @@
   "credentials": "자격 증명",
   "apiKey": "API 키",
   "token": "토큰",
+  "jwt": "JWT",
   "usernameOrEmail": "사용자 이름 또는 이메일",
   "password": "비밀번호",
   "signInWithToken": "토큰으로 로그인",

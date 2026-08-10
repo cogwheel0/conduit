@@ -4,6 +4,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/auth/webview_cookie_helper.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -160,9 +161,16 @@ void main() {
     TargetPlatform.iOS,
     TargetPlatform.android,
   ]) {
-    testWidgets('sign-in uses grouped auth methods on ${platform.name}', (
+    testWidgets('sign-in uses segmented auth methods on ${platform.name}', (
       tester,
     ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      debugIsWebViewSupportedOverride = true;
+      addTearDown(() {
+        PlatformUiCapabilities.resetDebugOverrides();
+        debugIsWebViewSupportedOverride = null;
+      });
       tester.view.physicalSize = const Size(375, 812);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -171,7 +179,10 @@ void main() {
       final harness = _AuthHarness(
         server: server,
         platform: platform,
-        backendConfig: const BackendConfig(enableLdap: true),
+        backendConfig: const BackendConfig(
+          oauthProviders: OAuthProviders(google: 'Google'),
+          enableLdap: true,
+        ),
       );
       addTearDown(harness.dispose);
 
@@ -186,13 +197,15 @@ void main() {
       expect(selectorFinder, findsOneWidget);
       final selector = tester.widget<ConnectionSection>(selectorFinder);
       check(selector.title).equals('Sign in');
-      expect(
+      final adaptiveSelector = tester.widget<AdaptiveSegmentedControl>(
         find.descendant(
           of: selectorFinder,
-          matching: find.byType(ConnectionChoiceRow),
+          matching: find.byType(AdaptiveSegmentedControl),
         ),
-        findsNWidgets(3),
       );
+      check(
+        adaptiveSelector.labels,
+      ).deepEquals(['Password', 'SSO', 'LDAP', 'JWT']);
       for (final field in tester.widgetList<AccessibleFormField>(
         find.byType(AccessibleFormField),
       )) {
@@ -205,20 +218,32 @@ void main() {
         findsNothing,
       );
 
+      if (platform == TargetPlatform.iOS) {
+        expect(
+          find.byType(CupertinoSlidingSegmentedControl<int>),
+          findsOneWidget,
+        );
+        expect(find.byType(SegmentedButton<int>), findsNothing);
+      } else {
+        expect(find.byType(SegmentedButton<int>), findsOneWidget);
+        expect(
+          find.byType(CupertinoSlidingSegmentedControl<int>),
+          findsNothing,
+        );
+      }
+
+      await tester.tap(
+        find.descendant(of: selectorFinder, matching: find.text('Password')),
+      );
+      await tester.pump();
       final renderedField = tester.widget<AdaptiveTextFormField>(
         find.byType(AdaptiveTextFormField).first,
       );
       check(renderedField.cupertinoDecoration).isNotNull();
       check(renderedField.cupertinoDecoration!.border).isNull();
 
-      expect(
-        find.byType(CupertinoSlidingSegmentedControl<AuthMode>),
-        findsNothing,
-      );
-      expect(find.byType(SegmentedButton<AuthMode>), findsNothing);
-
       await tester.tap(
-        find.descendant(of: selectorFinder, matching: find.text('Token')),
+        find.descendant(of: selectorFinder, matching: find.text('JWT')),
       );
       await tester.pump();
 
@@ -274,6 +299,100 @@ void main() {
       },
     );
   }
+
+  testWidgets('sign-in hides unavailable methods', (tester) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final harness = _AuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(
+        enableLoginForm: false,
+        enableLdap: true,
+        oauthProviders: OAuthProviders(google: 'Google'),
+      ),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    final selector = tester.widget<AdaptiveSegmentedControl>(
+      find.byType(AdaptiveSegmentedControl),
+    );
+    check(selector.labels).deepEquals(['LDAP', 'JWT']);
+    expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.iOS,
+    TargetPlatform.android,
+  ]) {
+    testWidgets(
+      'four auth segments fit a 320px viewport at 2x text on ${platform.name}',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+        debugIsWebViewSupportedOverride = true;
+        addTearDown(() {
+          PlatformUiCapabilities.resetDebugOverrides();
+          debugIsWebViewSupportedOverride = null;
+        });
+        tester.view.physicalSize = const Size(320, 812);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final harness = _AuthHarness(
+          server: server,
+          platform: platform,
+          textScaler: const TextScaler.linear(2),
+          backendConfig: const BackendConfig(
+            oauthProviders: OAuthProviders(google: 'Google'),
+            enableLdap: true,
+          ),
+        );
+        addTearDown(harness.dispose);
+
+        await tester.pumpWidget(
+          harness.build(initialLocation: Routes.authentication),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AdaptiveSegmentedControl), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await harness.unmount(tester);
+      },
+    );
+  }
+
+  testWidgets('sign-in omits selector when only JWT is available', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final harness = _AuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLoginForm: false),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('authentication-mode-selector')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
+    expect(find.text('JWT'), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
 
   testWidgets('server advanced disclosure respects reduced motion', (
     tester,
@@ -702,6 +821,7 @@ class _AuthHarness {
     this.platform = TargetPlatform.android,
     this.backendConfig = const BackendConfig(),
     this.disableAnimations = false,
+    this.textScaler,
   }) {
     when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -717,6 +837,7 @@ class _AuthHarness {
   final TargetPlatform platform;
   final BackendConfig backendConfig;
   final bool disableAnimations;
+  final TextScaler? textScaler;
   final _MockOptimizedStorageService storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -759,9 +880,10 @@ class _AuthHarness {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(disableAnimations: disableAnimations),
+          data: MediaQuery.of(context).copyWith(
+            disableAnimations: disableAnimations,
+            textScaler: textScaler,
+          ),
           child: child!,
         ),
         routerConfig: router,

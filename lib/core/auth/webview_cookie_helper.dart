@@ -50,8 +50,12 @@ Future<bool> deleteAllWebViewCookiesWithVerification({
 /// Check if WebView is supported on the current platform.
 ///
 /// Proxy/SSO auth WebViews are only supported on iOS and Android.
+@visibleForTesting
+bool? debugIsWebViewSupportedOverride;
+
 bool get isWebViewSupported =>
-    !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+    debugIsWebViewSupportedOverride ??
+    (!kIsWeb && (Platform.isIOS || Platform.isAndroid));
 
 /// Helper for managing WebView data and cookies.
 ///

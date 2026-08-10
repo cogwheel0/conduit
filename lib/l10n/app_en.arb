@@ -417,6 +417,10 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
+  "jwt": "JWT",
+  "@jwt": {
+    "description": "Authentication method label for JWT token sign-in."
+  },
   "usernameOrEmail": "Email or username",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."

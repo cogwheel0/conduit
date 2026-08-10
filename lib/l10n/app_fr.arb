@@ -65,6 +65,7 @@
   "credentials": "Identifiants",
   "apiKey": "Clé API",
   "token": "Jeton",
+  "jwt": "JWT",
   "usernameOrEmail": "Nom d'utilisateur ou e‑mail",
   "password": "Mot de passe",
   "signInWithToken": "Se connecter avec un jeton",

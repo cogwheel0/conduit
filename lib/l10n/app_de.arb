@@ -65,6 +65,7 @@
   "credentials": "Zugangsdaten",
   "apiKey": "API-Schlüssel",
   "token": "Token",
+  "jwt": "JWT",
   "usernameOrEmail": "Benutzername oder E‑Mail",
   "password": "Passwort",
   "signInWithToken": "Mit Token anmelden",

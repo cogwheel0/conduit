@@ -65,6 +65,7 @@
   "credentials": "凭据",
   "apiKey": "API 密钥",
   "token": "令牌",
+  "jwt": "JWT",
   "usernameOrEmail": "用户名或电子邮件",
   "password": "密码",
   "signInWithToken": "使用令牌登录",

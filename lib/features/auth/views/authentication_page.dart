@@ -15,6 +15,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -29,21 +30,6 @@ enum AuthMode {
   token, // JWT token
   sso, // OAuth/OIDC via WebView
   ldap, // LDAP username/password
-}
-
-@immutable
-class _AuthMethodPresentation {
-  const _AuthMethodPresentation({
-    required this.mode,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  final AuthMode mode;
-  final String title;
-  final String subtitle;
-  final IconData icon;
 }
 
 @visibleForTesting
@@ -153,7 +139,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   List<AuthMode> get _availableAuthModes {
     final modes = <AuthMode>[];
     if (_hasLoginFormEnabled) modes.add(AuthMode.credentials);
-    if (isWebViewSupported) modes.add(AuthMode.sso);
+    if (_hasSsoEnabled) modes.add(AuthMode.sso);
     if (_hasLdapEnabled) modes.add(AuthMode.ldap);
     modes.add(AuthMode.token);
     return modes;
@@ -170,7 +156,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       case AuthMode.ldap:
         return l10n.ldap;
       case AuthMode.token:
-        return l10n.token;
+        return l10n.jwt;
     }
   }
 
@@ -214,10 +200,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _authMode = AuthMode.token;
     }
 
-    // Configured OAuth providers are rendered as their own buttons and are
-    // intentionally omitted from the alternate-method selector. When other
-    // methods are available, keep the selected segment and rendered form in
-    // sync instead of passing an out-of-range value to the native control.
+    // Keep the selected segment and rendered form in sync with the methods
+    // supported by both the server and this platform.
     final selectableModes = _availableAuthModes;
     if (selectableModes.length > 1 && !selectableModes.contains(_authMode)) {
       _authMode = selectableModes.first;
@@ -468,82 +452,33 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildAuthMethodSection() {
-    final methods = _availableAuthModes.map(_methodPresentation).toList();
+    final methods = _availableAuthModes;
+    if (methods.length <= 1) return const SizedBox.shrink();
+
+    var selectedIndex = methods.indexOf(_authMode);
+    if (selectedIndex < 0) selectedIndex = 0;
+
     return ConnectionSection(
       key: const ValueKey<String>('authentication-mode-selector'),
       title: AppLocalizations.of(context)!.signIn,
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-      child: Column(
-        children: [
-          for (var index = 0; index < methods.length; index++)
-            ConnectionChoiceRow(
-              leading: ConnectionMark(
-                padding: const EdgeInsets.all(Spacing.xs),
-                child: Icon(
-                  methods[index].icon,
-                  color: context.conduitTheme.buttonPrimary,
-                  size: IconSize.small,
-                ),
-              ),
-              title: methods[index].title,
-              subtitle: methods[index].subtitle,
-              selected: _authMode == methods[index].mode,
-              showDivider: index != methods.length - 1,
-              onTap: () => setState(() {
-                _authMode = methods[index].mode;
-                _loginError = null;
-                _obscurePassword = true;
-              }),
-            ),
-        ],
+      child: AdaptiveSegmentedControl(
+        labels: methods.map(_authModeLabel).toList(growable: false),
+        selectedIndex: selectedIndex,
+        onValueChanged: (index) {
+          final mode = methods[index];
+          if (mode == _authMode) return;
+          PlatformService.hapticFeedbackWithSettings(
+            type: HapticType.selection,
+            hapticEnabled: ref.read(hapticEnabledProvider),
+          );
+          setState(() {
+            _authMode = mode;
+            _loginError = null;
+            _obscurePassword = true;
+          });
+        },
       ),
     );
-  }
-
-  _AuthMethodPresentation _methodPresentation(AuthMode mode) {
-    final l10n = AppLocalizations.of(context)!;
-    return switch (mode) {
-      AuthMode.credentials => _AuthMethodPresentation(
-        mode: mode,
-        title: l10n.credentials,
-        subtitle: l10n.usernameOrEmail,
-        icon: context.usesCupertinoChrome
-            ? CupertinoIcons.person_crop_circle
-            : Icons.person_outline,
-      ),
-      AuthMode.sso => _AuthMethodPresentation(
-        mode: mode,
-        title: _ssoTitle(l10n),
-        subtitle: _ssoSubtitle(l10n),
-        icon: context.usesCupertinoChrome
-            ? CupertinoIcons.lock_shield
-            : Icons.security_outlined,
-      ),
-      AuthMode.ldap => _AuthMethodPresentation(
-        mode: mode,
-        title: l10n.ldap,
-        subtitle: l10n.ldapDescription,
-        icon: context.usesCupertinoChrome
-            ? CupertinoIcons.person_2
-            : Icons.badge_outlined,
-      ),
-      AuthMode.token => _AuthMethodPresentation(
-        mode: mode,
-        title: l10n.token,
-        subtitle: l10n.tokenHint,
-        icon: context.usesCupertinoChrome
-            ? CupertinoIcons.lock
-            : Icons.key_outlined,
-      ),
-    };
-  }
-
-  String _ssoTitle(AppLocalizations l10n) {
-    final providers = _oauthProviders.enabledProviders;
-    if (providers.length == 1) {
-      return _oauthProviders.getProviderDisplayName(providers.single);
-    }
-    return l10n.sso;
   }
 
   String _ssoSubtitle(AppLocalizations l10n) {
