@@ -483,6 +483,20 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    await tester.tap(_sidebarBottomNavTabLabel('Channels'));
+    await tester.pumpAndSettle();
+
+    expect(controllers.activeTabNotifier.currentValue, SidebarTabId.channels);
+    expect(
+      find.descendant(
+        of: _layerRootFinder(_SidebarTabLayer.channels),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is ExcludeSemantics && !widget.excluding,
+        ),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('persistent iOS 26 sidebar requests a full-width native bar', (
@@ -1257,6 +1271,33 @@ void main() {
     final channelRect = tester.getRect(channelRow);
     expect(channelRect.left, chatRect.left);
     expect(channelRect.right, chatRect.right);
+  });
+
+  testWidgets('channel semantics include the unread message count', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
+    const channel = Channel(
+      id: 'unread-channel',
+      name: 'Unread Channel',
+      description: 'Channel preview',
+      unreadCount: 3,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(controllers: controllers, channels: const [channel]),
+    );
+    await tester.pumpAndSettle();
+
+    final channelRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-unread-channel'),
+    );
+    expect(
+      tester.getSemantics(channelRow).label,
+      contains('3 unread messages'),
+    );
   });
 
   testWidgets('channel layer state survives notes toggle', (tester) async {

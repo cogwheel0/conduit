@@ -2406,6 +2406,7 @@
   "@searchChannels": {
     "description": "Hint text for the channel search field"
   },
+  "channelUnreadCount": "{count, plural, =1{1 neprečítaná správa} few{{count} neprečítané správy} other{{count} neprečítaných správ}}",
   "channelCreateError": "Kanál sa nepodarilo vytvoriť",
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"

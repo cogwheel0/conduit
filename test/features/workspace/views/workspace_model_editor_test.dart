@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -109,18 +110,20 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-editor-back')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Discard changes?'), findsOneWidget);
+    check(find.text('Discard changes?').evaluate()).length.equals(1);
     await tester.tap(find.text('Keep editing'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('workspace-model-id')), findsOneWidget);
-    expect(find.text('unsaved-model'), findsOneWidget);
+    check(
+      find.byKey(const Key('workspace-model-id')).evaluate(),
+    ).length.equals(1);
+    check(find.text('unsaved-model').evaluate()).length.equals(1);
 
     await tester.tap(find.byKey(const Key('workspace-editor-back')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
 
-    expect(find.text('nav-target'), findsOneWidget);
+    check(find.text('nav-target').evaluate()).length.equals(1);
   });
 
   testWidgets('edit editor saves via updateItem', (tester) async {

@@ -576,10 +576,10 @@ class _DirectConnectionEditorPageState
     return confirmed;
   }
 
-  Future<void> _save() async {
+  Future<void> _save({DirectConnectionProfile? testedDraft}) async {
     if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return;
     setState(() => _saving = true);
-    final draft = _buildDraft(validateFields: true);
+    final draft = testedDraft ?? _buildDraft(validateFields: true);
     if (draft == null) {
       if (mounted) setState(() => _saving = false);
       return;
@@ -676,22 +676,22 @@ class _DirectConnectionEditorPageState
     );
   }
 
-  Future<void> _testConnection() async {
-    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return;
+  Future<DirectConnectionProfile?> _testConnection() async {
+    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return null;
     setState(() => _testing = true);
     final draft = _buildDraft(validateFields: true);
     if (draft == null) {
       if (mounted) setState(() => _testing = false);
-      return;
+      return null;
     }
     final originConfirmed = await _confirmOriginSecretTransfer(draft);
     if (!mounted || !originConfirmed) {
       if (mounted) setState(() => _testing = false);
-      return;
+      return null;
     }
     if (!_ensureOpenWebUiOwnerIsCurrent()) {
       if (mounted) setState(() => _testing = false);
-      return;
+      return null;
     }
     setState(
       () => _attempt = ConnectionAttemptState.connecting(
@@ -702,7 +702,7 @@ class _DirectConnectionEditorPageState
       final result = await ref
           .read(directConnectionProfilesProvider.notifier)
           .probe(draft);
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         _testing = false;
         final message = _probeMessage(result, AppLocalizations.of(context)!);
@@ -710,21 +710,23 @@ class _DirectConnectionEditorPageState
             ? ConnectionAttemptState.connected(message)
             : ConnectionAttemptState.failed(message);
       });
+      return result.reachable ? draft : null;
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         _testing = false;
         _attempt = ConnectionAttemptState.failed(
           AppLocalizations.of(context)!.directConnectionReachFailed,
         );
       });
+      return null;
     }
   }
 
   Future<void> _connectAndSave() async {
-    await _testConnection();
-    if (!mounted || _attempt.phase != ConnectionAttemptPhase.connected) return;
-    await _save();
+    final testedDraft = await _testConnection();
+    if (!mounted || testedDraft == null) return;
+    await _save(testedDraft: testedDraft);
   }
 
   Future<void> _delete() async {

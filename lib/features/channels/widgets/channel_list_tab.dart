@@ -370,12 +370,18 @@ class _ChannelTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final unread = channel.unreadCount;
 
     final displayName = _channelDisplayName();
     final description = channel.description.isEmpty
         ? null
         : channel.description;
+    final semanticLabel = [
+      displayName,
+      ?description,
+      if (unread > 0) l10n.channelUnreadCount(unread),
+    ].join('. ');
 
     return ConduitContextMenu(
       actions: actions,
@@ -384,9 +390,7 @@ class _ChannelTile extends ConsumerWidget {
         key: ValueKey<String>('channel-sidebar-row-${channel.id}'),
         selected: selected,
         onTap: onTap,
-        semanticLabel: description == null
-            ? displayName
-            : '$displayName. $description',
+        semanticLabel: semanticLabel,
         tintKey: ValueKey<String>('channel-sidebar-selected-${channel.id}'),
         pressedKey: ValueKey<String>('channel-sidebar-pressed-${channel.id}'),
         child: UtilityRow(

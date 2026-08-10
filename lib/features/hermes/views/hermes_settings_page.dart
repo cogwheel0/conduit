@@ -266,7 +266,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<bool> _commitConnection() async {
-    if (_saving) return false;
+    if (_saving || _testing || _finishing) return false;
     final config = ref.read(hermesConfigProvider);
     if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
       setState(
@@ -348,7 +348,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
-    if (_finishing) return;
+    if (_saving || _testing || _finishing) return;
     final saved = ref.read(hermesConfigProvider);
     final draft = buildHermesConnectionDraft(
       saved: saved,
@@ -514,7 +514,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
-              enabled: !_finishing,
+              enabled: !(_finishing || _saving || _testing),
               label: l10n.hermesServerUrlTitle,
               hint: 'http://192.168.1.10:8642',
               controller: _urlController,
@@ -532,7 +532,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ),
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
-              enabled: !_finishing,
+              enabled: !(_finishing || _saving || _testing),
               label: l10n.hermesApiKeyTitle,
               hint: config.apiKey == null || config.apiKey!.isEmpty
                   ? l10n.hermesApiKeyPlaceholder
@@ -571,7 +571,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AccessibleFormField(
-              enabled: !_finishing,
+              enabled: !(_finishing || _saving || _testing),
               label: l10n.hermesMemoryKeyTitle,
               hint: config.sessionKey == null || config.sessionKey!.isEmpty
                   ? l10n.hermesMemoryKeyPlaceholder
@@ -607,14 +607,18 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ConduitButton(
               text: l10n.save,
               isLoading: _saving,
-              onPressed: _draftIsUsable(config) ? _saveSettings : null,
+              onPressed:
+                  _draftIsUsable(config) && !_saving && !_testing && !_finishing
+                  ? _saveSettings
+                  : null,
             ),
             ConduitButton(
               text: l10n.testDirectConnection,
               isSecondary: true,
               isLoading: _testing,
               useNativeLabel: true,
-              onPressed: _draftIsUsable(config) && !_saving && !_finishing
+              onPressed:
+                  _draftIsUsable(config) && !_saving && !_testing && !_finishing
                   ? _testConnection
                   : null,
             ),

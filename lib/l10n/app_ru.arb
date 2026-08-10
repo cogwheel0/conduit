@@ -1107,6 +1107,7 @@
   "channelSendError": "Не удалось отправить сообщение",
   "channelDeleted": "Этот канал был удалён",
   "searchChannels": "Поиск каналов...",
+  "channelUnreadCount": "{count, plural, =1{1 непрочитанное сообщение} few{{count} непрочитанных сообщения} other{{count} непрочитанных сообщений}}",
   "channelCreateError": "Не удалось создать канал",
   "channelMessageHint": "Сообщение...",
   "audioUploadError": "Не удалось загрузить аудио: {error}",

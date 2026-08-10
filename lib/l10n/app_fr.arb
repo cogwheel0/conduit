@@ -1107,6 +1107,7 @@
   "channelSendError": "Impossible d'envoyer le message",
   "channelDeleted": "Ce canal a été supprimé",
   "searchChannels": "Rechercher des canaux...",
+  "channelUnreadCount": "{count, plural, =1{1 message non lu} other{{count} messages non lus}}",
   "channelCreateError": "Impossible de créer le canal",
   "channelMessageHint": "Message...",
   "audioUploadError": "Échec de l'envoi de l'audio : {error}",

@@ -2696,6 +2696,11 @@
   "@searchChannels": {
     "description": "Hint text for the channel search field"
   },
+  "channelUnreadCount": "{count, plural, =1{1 unread message} other{{count} unread messages}}",
+  "@channelUnreadCount": {
+    "description": "Accessibility text describing unread messages in a channel.",
+    "placeholders": {"count": {"type": "int"}}
+  },
   "channelCreateError": "Failed to create channel",
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"

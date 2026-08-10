@@ -1109,6 +1109,7 @@
   "channelSendError": "Nachricht konnte nicht gesendet werden",
   "channelDeleted": "Dieser Kanal wurde gelöscht",
   "searchChannels": "Kanäle suchen...",
+  "channelUnreadCount": "{count, plural, =1{1 ungelesene Nachricht} other{{count} ungelesene Nachrichten}}",
   "channelCreateError": "Kanal konnte nicht erstellt werden",
   "channelMessageHint": "Nachricht...",
   "audioUploadError": "Audio konnte nicht hochgeladen werden: {error}",

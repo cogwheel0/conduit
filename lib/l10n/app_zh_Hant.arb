@@ -1107,6 +1107,7 @@
   "channelSendError": "無法傳送訊息",
   "channelDeleted": "此頻道已被刪除",
   "searchChannels": "搜尋頻道...",
+  "channelUnreadCount": "{count} 則未讀訊息",
   "channelCreateError": "無法建立頻道",
   "channelMessageHint": "訊息...",
   "audioUploadError": "無法上傳音訊：{error}",

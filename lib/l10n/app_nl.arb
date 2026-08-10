@@ -1107,6 +1107,7 @@
   "channelSendError": "Bericht kon niet worden verzonden",
   "channelDeleted": "Dit kanaal is verwijderd",
   "searchChannels": "Kanalen zoeken...",
+  "channelUnreadCount": "{count, plural, =1{1 ongelezen bericht} other{{count} ongelezen berichten}}",
   "channelCreateError": "Kanaal kon niet worden aangemaakt",
   "channelMessageHint": "Bericht...",
   "audioUploadError": "Audio uploaden mislukt: {error}",

@@ -1107,6 +1107,7 @@
   "channelSendError": "无法发送消息",
   "channelDeleted": "此频道已被删除",
   "searchChannels": "搜索频道...",
+  "channelUnreadCount": "{count} 条未读消息",
   "channelCreateError": "无法创建频道",
   "channelMessageHint": "消息...",
   "audioUploadError": "无法上传音频：{error}",

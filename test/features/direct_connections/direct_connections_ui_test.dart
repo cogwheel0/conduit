@@ -702,6 +702,53 @@ void main() {
     expect(find.text('Connection overview'), findsOneWidget);
   });
 
+  testWidgets('onboarding saves the exact draft that passed the probe', (
+    tester,
+  ) async {
+    final probeCompleter = Completer<DirectConnectionProbe>();
+    final controller = _OnboardingDirectProfiles(
+      const DirectConnectionProbe(reachable: true),
+      probeCompleter: probeCompleter,
+    );
+    final router = _directOnboardingRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(() => controller),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('direct-api-key-field')),
+      'test-secret',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('direct-editor-save-button')),
+    );
+    await tester.pump();
+
+    expect(controller.probeCalls, 1);
+    final probedDraft = controller.lastProbe!;
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('direct-base-url-field')),
+      'https://changed.example/v1',
+    );
+    probeCompleter.complete(const DirectConnectionProbe(reachable: true));
+    await tester.pumpAndSettle();
+
+    expect(controller.upsertCalls, 1);
+    expect(controller.lastUpsert, same(probedDraft));
+    expect(controller.lastUpsert?.baseUrl, isNot('https://changed.example/v1'));
+  });
+
   testWidgets('a new server draft is revoked when the account changes', (
     tester,
   ) async {
@@ -2374,11 +2421,13 @@ final class _StaticDirectProfiles extends DirectConnectionProfilesController {
 
 final class _OnboardingDirectProfiles
     extends DirectConnectionProfilesController {
-  _OnboardingDirectProfiles(this.result);
+  _OnboardingDirectProfiles(this.result, {this.probeCompleter});
 
   final DirectConnectionProbe result;
+  final Completer<DirectConnectionProbe>? probeCompleter;
   int probeCalls = 0;
   int upsertCalls = 0;
+  DirectConnectionProfile? lastProbe;
   DirectConnectionProfile? lastUpsert;
 
   @override
@@ -2387,7 +2436,8 @@ final class _OnboardingDirectProfiles
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
     probeCalls++;
-    return result;
+    lastProbe = profile;
+    return probeCompleter?.future ?? result;
   }
 
   @override
