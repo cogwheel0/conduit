@@ -418,10 +418,11 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                     ),
                     if (widget.status != null) ...[
                       const SizedBox(width: Spacing.sm),
-                      if (widget.preserveTrailingSemantics)
-                        widget.status!
-                      else
-                        ExcludeSemantics(child: widget.status!),
+                      Flexible(
+                        child: widget.preserveTrailingSemantics
+                            ? widget.status!
+                            : ExcludeSemantics(child: widget.status!),
+                      ),
                     ],
                     if (widget.trailing != null) ...[
                       const SizedBox(width: Spacing.sm),
@@ -478,16 +479,14 @@ class UtilityValueRow extends StatelessWidget {
       padding: const EdgeInsets.all(Spacing.md),
       // Selectable text is retained as a dedicated trailing value for rows
       // that expose connection identifiers and URLs.
-      status: Flexible(
-        child: SelectableText(
-          value,
-          maxLines: 2,
-          textAlign: TextAlign.end,
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textSecondary,
-            fontWeight: FontWeight.w600,
-            fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
-          ),
+      status: SelectableText(
+        value,
+        maxLines: 2,
+        textAlign: TextAlign.end,
+        style: AppTypography.bodySmallStyle.copyWith(
+          color: theme.textSecondary,
+          fontWeight: FontWeight.w600,
+          fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
         ),
       ),
     );
