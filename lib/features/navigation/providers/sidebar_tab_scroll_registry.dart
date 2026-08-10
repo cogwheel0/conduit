@@ -11,24 +11,33 @@ typedef SidebarScrollControllerResolver = ScrollController? Function();
 /// Coordinates native status-bar taps and selected-tab reselection without
 /// exposing feature-specific scroll controllers to the sidebar shell.
 class SidebarTabScrollRegistry {
-  final Map<String, ({Object owner, SidebarScrollControllerResolver resolve})>
+  final Map<
+    SidebarTabId,
+    ({Object owner, SidebarScrollControllerResolver resolve})
+  >
   _controllers =
-      <String, ({Object owner, SidebarScrollControllerResolver resolve})>{};
+      <
+        SidebarTabId,
+        ({Object owner, SidebarScrollControllerResolver resolve})
+      >{};
 
   void registerController(
-    String tabId, {
+    SidebarTabId tabId, {
     required Object owner,
     required SidebarScrollControllerResolver resolve,
   }) {
     _controllers[tabId] = (owner: owner, resolve: resolve);
   }
 
-  void unregister(String tabId, {required Object owner}) {
+  void unregister(SidebarTabId tabId, {required Object owner}) {
     final entry = _controllers[tabId];
     if (entry?.owner == owner) _controllers.remove(tabId);
   }
 
-  Future<void> scrollToTop(String tabId, {required Duration duration}) async {
+  Future<void> scrollToTop(
+    SidebarTabId tabId, {
+    required Duration duration,
+  }) async {
     final controller = _controllers[tabId]?.resolve();
     if (controller == null || !controller.hasClients) return;
     if (duration == Duration.zero) {
@@ -58,7 +67,7 @@ mixin SidebarTabScrollRegistration<T extends ConsumerStatefulWidget>
     super.initState();
     _sidebarScrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
     _sidebarScrollRegistry.registerController(
-      sidebarTabId.name,
+      sidebarTabId,
       owner: this,
       resolve: () => sidebarScrollController,
     );
@@ -66,7 +75,7 @@ mixin SidebarTabScrollRegistration<T extends ConsumerStatefulWidget>
 
   @override
   void dispose() {
-    _sidebarScrollRegistry.unregister(sidebarTabId.name, owner: this);
+    _sidebarScrollRegistry.unregister(sidebarTabId, owner: this);
     super.dispose();
   }
 }

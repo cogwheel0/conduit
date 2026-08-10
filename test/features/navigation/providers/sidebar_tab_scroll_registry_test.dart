@@ -20,13 +20,13 @@ void main() {
     ).thenAnswer((_) async {});
 
     registry.registerController(
-      'notes',
+      SidebarTabId.notes,
       owner: owner,
       resolve: () => controller,
     );
 
     await registry.scrollToTop(
-      'notes',
+      SidebarTabId.notes,
       duration: const Duration(milliseconds: 200),
     );
     verify(
@@ -47,18 +47,18 @@ void main() {
     when(() => replacement.hasClients).thenReturn(true);
 
     registry.registerController(
-      'chats',
+      SidebarTabId.chats,
       owner: originalOwner,
       resolve: () => original,
     );
     registry.registerController(
-      'chats',
+      SidebarTabId.chats,
       owner: replacementOwner,
       resolve: () => replacement,
     );
-    registry.unregister('chats', owner: originalOwner);
+    registry.unregister(SidebarTabId.chats, owner: originalOwner);
 
-    await registry.scrollToTop('chats', duration: Duration.zero);
+    await registry.scrollToTop(SidebarTabId.chats, duration: Duration.zero);
     verify(() => replacement.jumpTo(0)).called(1);
   });
 }

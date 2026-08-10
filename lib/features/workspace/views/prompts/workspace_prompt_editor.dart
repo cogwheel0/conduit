@@ -13,21 +13,17 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
-import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
-import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
-part 'workspace_prompt_editor_sections.dart';
+import 'workspace_prompt_editor_sections.dart';
 
 /// Section-registry entry point for the Prompts editor. Dispatches to the
 /// create/detail/edit editor based on [WorkspaceEditorArgs.mode].
@@ -126,8 +122,6 @@ class _WorkspacePromptForm extends ConsumerStatefulWidget {
 }
 
 class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
-  void _mutate(VoidCallback callback) => setState(callback);
-
   late final TextEditingController _nameController;
   late final TextEditingController _commandController;
   late final TextEditingController _contentController;
@@ -604,7 +598,21 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
             )
           : null,
       errorMessage: _errorMessage,
-      actions: _buildActions(l10n, capabilities),
+      actions: buildWorkspacePromptActions(
+        l10n: l10n,
+        capabilities: capabilities,
+        isCreate: _isCreate,
+        isEdit: _isEdit,
+        canWrite: _writeAccess,
+        summary: summary,
+        onImport: _import,
+        onExport: _export,
+        onClone: _clone,
+        onUpdateDetails: _updateDetailsOnly,
+        onToggleActive: _toggleActive,
+        onManageAccess: _manageAccess,
+        onDelete: _delete,
+      ),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
         absorbing: _saving,
@@ -622,22 +630,52 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _nameField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _commandField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _tagsField(l10n),
+                  WorkspacePromptCoreFields(
+                    isDetail: _isDetail,
+                    readOnly: _fieldsReadOnly,
+                    commandError: _commandError,
+                    nameController: _nameController,
+                    commandController: _commandController,
+                    tags: _tags,
+                    onNameChanged: _onNameChanged,
+                    onCommandChanged: _onCommandChanged,
+                    onRemoveTag: (tag) => setState(() {
+                      _tags = [..._tags]..remove(tag);
+                      _dirty = true;
+                    }),
+                    onAddTag: () => _addTag(l10n),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: Spacing.xl),
-            _contentEditor(l10n),
+            WorkspacePromptContentEditor(
+              isDetail: _isDetail,
+              readOnly: _fieldsReadOnly,
+              previewMode: _previewMode,
+              controller: _contentController,
+              onPreviewModeChanged: (value) =>
+                  setState(() => _previewMode = value),
+              onContentChanged: _markDirty,
+            ),
             if (!_fieldsReadOnly) ...[
               const SizedBox(height: Spacing.xl),
-              _versionSection(l10n),
+              WorkspacePromptVersionSection(
+                readOnly: _fieldsReadOnly,
+                expanded: _versionExpanded,
+                isProduction: _isProduction,
+                commitController: _commitController,
+                onExpandedChanged: (value) =>
+                    setState(() => _versionExpanded = value),
+                onCommitChanged: _markDirty,
+                onProductionChanged: (value) => setState(() {
+                  _isProduction = value;
+                  _dirty = true;
+                }),
+              ),
             ],
             const SizedBox(height: Spacing.xl),
-            _accessTile(l10n),
+            WorkspacePromptAccessTile(grants: _grants, onTap: _manageAccess),
             if (!_isCreate && summary != null) ...[
               const SizedBox(height: Spacing.xl),
               WorkspacePromptHistorySection(

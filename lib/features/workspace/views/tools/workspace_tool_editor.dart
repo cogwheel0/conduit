@@ -13,22 +13,19 @@ import 'package:conduit/features/workspace/models/workspace_tool_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
-import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_url_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_valves_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
-part 'workspace_tool_editor_sections.dart';
+import 'workspace_tool_editor_sections.dart';
 
 /// Default Python scaffold for a new tool, mirroring Open WebUI's boilerplate.
 const String _toolBoilerplate = '''"""
@@ -618,7 +615,21 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             )
           : null,
       errorMessage: _errorMessage,
-      actions: _buildActions(l10n, capabilities),
+      actions: buildWorkspaceToolActions(
+        l10n: l10n,
+        capabilities: capabilities,
+        isCreate: _isCreate,
+        isAdmin: _isAdmin,
+        canWrite: _writeAccess,
+        summary: summary,
+        onImportJson: _importJson,
+        onImportUrl: _importUrl,
+        onExport: _export,
+        onClone: _clone,
+        onOpenValves: _openValves,
+        onManageAccess: _manageAccess,
+        onDelete: _delete,
+      ),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
         absorbing: _saving,
@@ -636,19 +647,35 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _nameField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _idField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _descriptionField(l10n),
+                  WorkspaceToolCoreFields(
+                    isDetail: _isDetail,
+                    fieldsReadOnly: _fieldsReadOnly,
+                    idReadOnly: _idReadOnly,
+                    idError: _idError,
+                    nameController: _nameController,
+                    idController: _idController,
+                    descriptionController: _descriptionController,
+                    onNameChanged: _onNameChanged,
+                    onIdChanged: _onIdChanged,
+                    onDescriptionChanged: _markDirty,
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: Spacing.xl),
-            if (_isIncompatible) _incompatibilityBanner(l10n),
-            _contentEditor(l10n),
+            if (_isIncompatible)
+              WorkspaceToolIncompatibilityBanner(
+                requiredVersion: _requiredVersion,
+                currentServerVersion: _currentServerVersion,
+              ),
+            WorkspaceToolContentEditor(
+              isDetail: _isDetail,
+              readOnly: _fieldsReadOnly,
+              controller: _contentController,
+              onChanged: _onContentChanged,
+            ),
             const SizedBox(height: Spacing.sm),
-            _warning(l10n),
+            const WorkspaceToolWarning(),
             const SizedBox(height: Spacing.xl),
             if (summary != null) ...[
               WorkspaceDisclosureSection(
@@ -658,15 +685,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
                 onChanged: (value) => setState(() => _detailsExpanded = value),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _manifestSummary(l10n, summary),
-                    _specsSummary(l10n, summary),
-                  ],
+                  children: [WorkspaceToolDetailsSummary(summary: summary)],
                 ),
               ),
               const SizedBox(height: Spacing.xl),
             ],
-            _accessTile(l10n),
+            WorkspaceToolAccessTile(grants: _grants, onTap: _manageAccess),
             const SizedBox(height: Spacing.xl),
           ],
         ),

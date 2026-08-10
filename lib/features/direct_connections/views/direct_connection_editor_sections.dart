@@ -1,13 +1,32 @@
-part of 'direct_connection_editor_page.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
-extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
-  Widget _buildAvailabilitySection() {
+import '../../../l10n/app_localizations.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/conduit_components.dart';
+import '../../profile/widgets/adaptive_segmented_selector.dart';
+import '../controllers/direct_connection_editor_controller.dart';
+import '../models/direct_connection_profile.dart';
+
+final class DirectConnectionAvailabilitySection extends StatelessWidget {
+  const DirectConnectionAvailabilitySection({
+    super.key,
+    required this.controller,
+  });
+
+  final DirectConnectionEditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedSection(
       title: l10n.enabledLabel,
       child: InkWell(
-        onTap: () => _mutate(() => _enabled = !_enabled),
+        onTap: () => controller.setEnabled(!controller.enabled),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         child: Row(
           children: [
@@ -34,25 +53,32 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
             ),
             const SizedBox(width: Spacing.md),
             AdaptiveSwitch(
-              value: _enabled,
-              onChanged: (value) => _mutate(() => _enabled = value),
+              value: controller.enabled,
+              onChanged: controller.setEnabled,
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildProviderSection() {
+final class DirectConnectionProviderSection extends StatelessWidget {
+  const DirectConnectionProviderSection({super.key, required this.controller});
+
+  final DirectConnectionEditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    if (widget.isOpenWebUi) {
+    if (controller.isOpenWebUi) {
       return InsetGroupedSection(
         title: l10n.directProvider,
         child: Row(
           children: [
-            _providerIcon(
-              context.usesCupertinoChrome
+            _ProviderIcon(
+              icon: context.usesCupertinoChrome
                   ? CupertinoIcons.cloud
                   : Icons.cloud_outlined,
             ),
@@ -83,6 +109,12 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
       );
     }
 
+    void select(String value) => controller.selectProviderPreset(
+      value,
+      ollamaDefaultName: l10n.ollamaCloudDefaultName,
+      openRouterDefaultName: l10n.openRouterProviderName,
+    );
+
     return InsetGroupedSection(
       key: const ValueKey<String>('direct-provider-preset-selector'),
       title: l10n.directProvider,
@@ -90,107 +122,64 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
       child: Column(
         children: [
           UtilitySelectionRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
+            leading: _ProviderIcon(
+              icon: context.usesCupertinoChrome
                   ? CupertinoIcons.chevron_left_slash_chevron_right
                   : Icons.api_rounded,
             ),
             title: l10n.openAICompatible,
             subtitle: l10n.directChatCompletionsDescription,
-            selected: _providerPreset == kOpenAiCompatibleAdapterKey,
+            selected: controller.providerPreset == kOpenAiCompatibleAdapterKey,
             showDivider: true,
-            onTap: () => _selectProviderPreset(kOpenAiCompatibleAdapterKey),
+            onTap: () => select(kOpenAiCompatibleAdapterKey),
           ),
           UtilitySelectionRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
+            leading: _ProviderIcon(
+              icon: context.usesCupertinoChrome
                   ? CupertinoIcons.compass
                   : Icons.explore_outlined,
             ),
             title: l10n.openRouterProviderName,
             subtitle: l10n.directOpenRouterBaseUrlDescription,
-            selected: _providerPreset == kOpenRouterProviderPreset,
+            selected: controller.providerPreset == kOpenRouterProviderPreset,
             showDivider: true,
-            onTap: () => _selectProviderPreset(kOpenRouterProviderPreset),
+            onTap: () => select(kOpenRouterProviderPreset),
           ),
           UtilitySelectionRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
+            leading: _ProviderIcon(
+              icon: context.usesCupertinoChrome
                   ? CupertinoIcons.desktopcomputer
                   : Icons.computer_outlined,
             ),
             title: l10n.ollama,
             subtitle: l10n.ollamaCloudBaseUrlDescription,
-            selected: _providerPreset == kOllamaAdapterKey,
-            onTap: () => _selectProviderPreset(kOllamaAdapterKey),
+            selected: controller.providerPreset == kOllamaAdapterKey,
+            onTap: () => select(kOllamaAdapterKey),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _providerIcon(IconData icon) {
-    final theme = context.conduitTheme;
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: Alpha.subtle),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, size: IconSize.small, color: theme.buttonPrimary),
-    );
-  }
+final class DirectConnectionDetailsSection extends StatelessWidget {
+  const DirectConnectionDetailsSection({super.key, required this.controller});
 
-  void _selectProviderPreset(String value) {
-    if (_providerPreset == value) return;
-    final l10n = AppLocalizations.of(context)!;
-    _mutate(() {
-      _providerPreset = value;
-      _adapterKey = value == kOllamaAdapterKey
-          ? kOllamaAdapterKey
-          : kOpenAiCompatibleAdapterKey;
-      if (value == kOpenRouterProviderPreset) {
-        _authentication = DirectAuthenticationMode.bearer;
-        _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-      }
-      _attempt = const ConnectionAttemptState.idle();
-      _draftController.baseUrl.text = switch (value) {
-        kOllamaAdapterKey => 'https://ollama.com',
-        kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
-        _ => 'https://api.openai.com/v1',
-      };
-      if (value != kOpenRouterProviderPreset) {
-        _authentication = DirectAuthenticationMode.bearer;
-        _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-      }
-      if (widget.isNew &&
-          (_draftController.name.text == 'My provider' ||
-              _draftController.name.text == l10n.ollamaCloudDefaultName ||
-              _draftController.name.text == l10n.openRouterProviderName)) {
-        _draftController.name.text = switch (value) {
-          kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
-          kOpenRouterProviderPreset => l10n.openRouterProviderName,
-          _ => 'My provider',
-        };
-      }
-    });
-  }
+  final DirectConnectionEditorController controller;
 
-  Widget _buildConnectionDetailsSection({
-    required bool isOllama,
-    required bool isOpenRouter,
-  }) {
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final usesCupertinoChrome = context.usesCupertinoChrome;
+    final isOllama = controller.isOllama;
+    final isOpenRouter = controller.isOpenRouter;
     return InsetGroupedSection(
       title: l10n.directConnectionDetailsTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!widget.isOpenWebUi) ...[
+          if (!controller.isOpenWebUi) ...[
             AccessibleFormField(
               key: const ValueKey<String>('direct-connection-name-field'),
               label: l10n.directConnectionName,
@@ -199,11 +188,14 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
                   : isOpenRouter
                   ? l10n.openRouterProviderName
                   : 'My provider',
-              controller: _draftController.name,
-              errorText: _nameError,
+              controller: controller.name,
+              errorText: directDraftValidationMessage(
+                l10n,
+                controller.errors.name,
+              ),
               isRequired: true,
               textInputAction: TextInputAction.next,
-              onChanged: (_) => _clearTransientState(),
+              onChanged: (_) => controller.markGeneralChanged(),
             ),
             const SizedBox(height: Spacing.md),
           ],
@@ -215,13 +207,16 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
                 : isOpenRouter
                 ? kOpenRouterApiBaseUrl
                 : 'https://api.openai.com/v1',
-            controller: _draftController.baseUrl,
+            controller: controller.baseUrl,
             keyboardType: TextInputType.url,
             textInputAction: TextInputAction.next,
             autocorrect: false,
-            errorText: _urlError,
+            errorText: directDraftValidationMessage(
+              l10n,
+              controller.errors.url,
+            ),
             isRequired: true,
-            onChanged: (_) => _invalidateOriginSecretConfirmation(),
+            onChanged: (_) => controller.markBaseUrlChanged(),
           ),
           const SizedBox(height: Spacing.sm),
           Text(
@@ -247,9 +242,9 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
             type: MaterialType.transparency,
             child: DropdownButtonFormField<DirectAuthenticationMode>(
               key: ValueKey<String>(
-                'direct-authentication-selector-$_providerPreset',
+                'direct-authentication-selector-${controller.providerPreset}',
               ),
-              initialValue: _authentication,
+              initialValue: controller.authentication,
               isExpanded: true,
               decoration: context.conduitInputStyles.standard(),
               dropdownColor: theme.surfaceBackground,
@@ -258,17 +253,18 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
                   value: DirectAuthenticationMode.bearer,
                   child: Text(l10n.bearerToken),
                 ),
-                if (!widget.isOpenWebUi && !isOpenRouter)
+                if (!controller.isOpenWebUi && !isOpenRouter)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.apiKeyHeader,
                     child: Text(l10n.directApiKeyHeader),
                   ),
-                if (widget.isOpenWebUi || !isOpenRouter)
+                if (controller.isOpenWebUi || !isOpenRouter)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.none,
                     child: Text(l10n.noAuthentication),
                   ),
-                if (_authentication == DirectAuthenticationMode.unsupported)
+                if (controller.authentication ==
+                    DirectAuthenticationMode.unsupported)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.unsupported,
                     enabled: false,
@@ -276,21 +272,12 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
                   ),
               ],
               onChanged: (value) {
-                if (value == null ||
-                    value == DirectAuthenticationMode.unsupported) {
-                  return;
-                }
-                _mutate(() {
-                  _authentication = value;
-                  _apiKeyDirty = true;
-                  _originSecretsConfirmed = false;
-                  _apiKeyError = null;
-                  _attempt = const ConnectionAttemptState.idle();
-                });
+                if (value != null) controller.setAuthentication(value);
               },
             ),
           ),
-          if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
+          if (controller.authentication ==
+              DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.sm),
             Text(
               l10n.directApiKeyHeaderDescription,
@@ -299,41 +286,42 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
               ),
             ),
           ],
-          if (_authentication == DirectAuthenticationMode.unsupported) ...[
+          if (controller.authentication ==
+              DirectAuthenticationMode.unsupported) ...[
             const SizedBox(height: Spacing.sm),
             Text(
               l10n.openWebUiDirectConnectionUnsupportedAuth,
               style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
             ),
           ],
-          if (_authentication == DirectAuthenticationMode.bearer ||
-              _authentication == DirectAuthenticationMode.apiKeyHeader) ...[
+          if (controller.authentication == DirectAuthenticationMode.bearer ||
+              controller.authentication ==
+                  DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
               key: const ValueKey<String>('direct-api-key-field'),
               label: l10n.directApiKey,
-              hint: (_savedProfile?.apiKey ?? '').isNotEmpty
+              hint: (controller.savedProfile?.apiKey ?? '').isNotEmpty
                   ? l10n.directConfiguredReplacePlaceholder
                   : l10n.directApiKeyPlaceholder,
-              controller: _draftController.apiKey,
-              obscureText: !_showApiKey,
-              errorText: _apiKeyError,
-              isRequired: requiresDirectApiKey(
-                authentication: _authentication,
-                isOpenWebUi: widget.isOpenWebUi,
-                isNew: widget.isNew,
-                savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
-                apiKeyDirty: _apiKeyDirty,
-                originChanged: _originChanged,
+              controller: controller.apiKey,
+              obscureText: !controller.showApiKey,
+              errorText: directDraftValidationMessage(
+                l10n,
+                controller.errors.apiKey,
               ),
+              isRequired: controller.apiKeyRequired,
               keyboardType: TextInputType.visiblePassword,
               textInputAction: TextInputAction.next,
               autocorrect: false,
               suffixIcon: IconButton(
-                tooltip: _showApiKey ? l10n.hidePassword : l10n.showPassword,
-                onPressed: () => _mutate(() => _showApiKey = !_showApiKey),
+                tooltip: controller.showApiKey
+                    ? l10n.hidePassword
+                    : l10n.showPassword,
+                onPressed: () =>
+                    controller.setShowApiKey(!controller.showApiKey),
                 icon: Icon(
-                  _showApiKey
+                  controller.showApiKey
                       ? (usesCupertinoChrome
                             ? CupertinoIcons.eye_slash
                             : Icons.visibility_off)
@@ -342,39 +330,53 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
                             : Icons.visibility),
                 ),
               ),
-              onChanged: (_) {
-                _apiKeyDirty = true;
-                _invalidateOriginSecretConfirmation();
-              },
+              onChanged: (_) => controller.markApiKeyChanged(),
             ),
           ],
         ],
       ),
     );
   }
+}
 
-  Widget _buildAdvancedSettings() {
+final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
+  const DirectConnectionAdvancedSettingsSection({
+    super.key,
+    required this.controller,
+  });
+
+  final DirectConnectionEditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final usesCupertinoChrome = context.usesCupertinoChrome;
     return UtilityDisclosureSection(
       key: const ValueKey<String>('direct-advanced-settings-toggle'),
       title: l10n.advancedSettings,
-      subtitle: _draftController.customHeaders.isEmpty
+      subtitle: controller.customHeaders.isEmpty
           ? null
-          : '${l10n.directCustomHeaders}: ${_draftController.customHeaders.length}',
+          : '${l10n.directCustomHeaders}: ${controller.customHeaders.length}',
       leading: Icon(
         usesCupertinoChrome ? CupertinoIcons.gear_alt : Icons.tune_rounded,
         color: theme.iconSecondary,
         size: IconSize.medium,
       ),
-      expanded: _showAdvancedSettings,
-      onChanged: (value) => _mutate(() => _showAdvancedSettings = value),
-      child: _buildAdvancedSettingsContent(),
+      expanded: controller.showAdvancedSettings,
+      onChanged: controller.setShowAdvancedSettings,
+      child: _AdvancedSettingsContent(controller: controller),
     );
   }
+}
 
-  Widget _buildAdvancedSettingsContent() {
+final class _AdvancedSettingsContent extends StatelessWidget {
+  const _AdvancedSettingsContent({required this.controller});
+
+  final DirectConnectionEditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final usesCupertinoChrome = context.usesCupertinoChrome;
@@ -382,205 +384,200 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_adapterKey != kOllamaAdapterKey) ...[
-          _buildAdvancedApiBehavior(),
+        if (!controller.isOllama) ...[
+          _AdvancedApiBehavior(controller: controller),
           const SizedBox(height: Spacing.xl),
           Divider(height: BorderWidth.thin, color: theme.dividerColor),
           const SizedBox(height: Spacing.lg),
         ],
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.directCustomHeaders,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.directCustomHeaders,
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xxs),
+                  Text(
+                    l10n.customHeadersDescription,
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (controller.customHeaders.isNotEmpty)
+              Text(
+                '${controller.customHeaders.length}',
+                style: theme.bodySmall?.copyWith(color: theme.textTertiary),
+              ),
+          ],
+        ),
+        const SizedBox(height: Spacing.md),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-custom-header-name-field'),
+          label: l10n.headerName,
+          hint: 'X-Custom-Header',
+          controller: controller.headerName,
+          errorText: directHeaderValidationMessage(
+            l10n,
+            controller.headerError,
+          ),
+          textInputAction: TextInputAction.next,
+          autocorrect: false,
+          onChanged: (_) => controller.markHeaderInputChanged(),
+          onSubmitted: (_) => controller.headerValueFocusNode.requestFocus(),
+        ),
+        const SizedBox(height: Spacing.md),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-custom-header-value-field'),
+          label: l10n.headerValue,
+          hint: l10n.headerValueHint,
+          controller: controller.headerValue,
+          focusNode: controller.headerValueFocusNode,
+          textInputAction: TextInputAction.done,
+          autocorrect: false,
+          onChanged: (_) => controller.markHeaderInputChanged(),
+          onSubmitted: (_) {
+            if (controller.canAddCustomHeader) controller.addCustomHeader();
+          },
+        ),
+        const SizedBox(height: Spacing.md),
+        ConduitButton(
+          key: const ValueKey<String>('add-direct-custom-header-button'),
+          text: l10n.addHeader,
+          isSecondary: true,
+          isFullWidth: true,
+          useNativeLabel: true,
+          onPressed: controller.canAddCustomHeader
+              ? controller.addCustomHeader
+              : null,
+        ),
+        if (controller.customHeaders.isNotEmpty) ...[
+          const SizedBox(height: Spacing.md),
+          for (final entry in controller.customHeaders.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.xs),
+              child: Container(
+                padding: const EdgeInsets.only(
+                  left: Spacing.md,
+                  top: Spacing.sm,
+                  bottom: Spacing.sm,
+                  right: Spacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.surfaceBackground,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                  border: Border.all(
+                    color: theme.cardBorder,
+                    width: BorderWidth.thin,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      entry.key,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.buttonPrimary,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        l10n.customHeadersDescription,
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Text(
+                        entry.value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.bodySmall?.copyWith(
                           color: theme.textSecondary,
+                          fontFamily: AppTypography.monospaceFontFamily,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    ConduitIconButton(
+                      icon: usesCupertinoChrome
+                          ? CupertinoIcons.xmark
+                          : Icons.close_rounded,
+                      tooltip: l10n.removeHeader,
+                      onPressed: () => controller.removeCustomHeader(entry.key),
+                      backgroundColor: Colors.transparent,
+                      iconColor: theme.textTertiary,
+                      isCompact: true,
+                    ),
+                  ],
                 ),
-                if (_draftController.customHeaders.isNotEmpty)
-                  Text(
-                    '${_draftController.customHeaders.length}',
-                    style: theme.bodySmall?.copyWith(color: theme.textTertiary),
-                  ),
-              ],
+              ),
             ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-custom-header-name-field'),
-              label: l10n.headerName,
-              hint: 'X-Custom-Header',
-              controller: _draftController.headerName,
-              errorText: _headersError,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => _mutate(() {
-                _headersError = null;
-                _formError = null;
-              }),
-              onSubmitted: (_) =>
-                  _draftController.headerValueFocusNode.requestFocus(),
-            ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-custom-header-value-field'),
-              label: l10n.headerValue,
-              hint: l10n.headerValueHint,
-              controller: _draftController.headerValue,
-              focusNode: _draftController.headerValueFocusNode,
-              textInputAction: TextInputAction.done,
-              autocorrect: false,
-              onChanged: (_) => _mutate(() {
-                _headersError = null;
-                _formError = null;
-              }),
-              onSubmitted: (_) {
-                if (_canAddCustomHeader) {
-                  _addCustomHeader();
-                }
-              },
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(
-              key: const ValueKey<String>('add-direct-custom-header-button'),
-              text: l10n.addHeader,
-              isSecondary: true,
-              isFullWidth: true,
-              useNativeLabel: true,
-              onPressed: _canAddCustomHeader ? () => _addCustomHeader() : null,
-            ),
-            if (_draftController.customHeaders.isNotEmpty) ...[
-              const SizedBox(height: Spacing.md),
-              for (final entry in _draftController.customHeaders.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Container(
-                    padding: const EdgeInsets.only(
-                      left: Spacing.md,
-                      top: Spacing.sm,
-                      bottom: Spacing.sm,
-                      right: Spacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.surfaceBackground,
-                      borderRadius: BorderRadius.circular(
-                        AppBorderRadius.small,
-                      ),
-                      border: Border.all(
-                        color: theme.cardBorder,
-                        width: BorderWidth.thin,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          entry.key,
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.buttonPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.sm),
-                        Expanded(
-                          child: Text(
-                            entry.value,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.textSecondary,
-                              fontFamily: AppTypography.monospaceFontFamily,
-                            ),
-                          ),
-                        ),
-                        ConduitIconButton(
-                          icon: usesCupertinoChrome
-                              ? CupertinoIcons.xmark
-                              : Icons.close_rounded,
-                          tooltip: l10n.removeHeader,
-                          onPressed: () => _removeCustomHeader(entry.key),
-                          backgroundColor: Colors.transparent,
-                          iconColor: theme.textTertiary,
-                          isCompact: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-            const SizedBox(height: Spacing.xl),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-model-prefix-field'),
-              label: l10n.directModelIdPrefix,
-              hint: 'studio',
-              controller: _draftController.modelIdPrefix,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directModelIdPrefixDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-model-tags-field'),
-              label: l10n.directModelTags,
-              hint: 'local, private',
-              controller: _draftController.tags,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directModelTagsDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.xl),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-manual-models-field'),
-              label: l10n.directManualModelIds,
-              hint: 'model-a\nmodel-b',
-              controller: _draftController.models,
-              minLines: 3,
-              maxLines: 8,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directManualModelIdsDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
+        ],
+        const SizedBox(height: Spacing.xl),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-model-prefix-field'),
+          label: l10n.directModelIdPrefix,
+          hint: 'studio',
+          controller: controller.modelIdPrefix,
+          textInputAction: TextInputAction.next,
+          autocorrect: false,
+          onChanged: (_) => controller.markGeneralChanged(),
+        ),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          l10n.directModelIdPrefixDescription,
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.md),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-model-tags-field'),
+          label: l10n.directModelTags,
+          hint: 'local, private',
+          controller: controller.tags,
+          textInputAction: TextInputAction.next,
+          autocorrect: false,
+          onChanged: (_) => controller.markGeneralChanged(),
+        ),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          l10n.directModelTagsDescription,
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.xl),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-manual-models-field'),
+          label: l10n.directManualModelIds,
+          hint: 'model-a\nmodel-b',
+          controller: controller.models,
+          minLines: 3,
+          maxLines: 8,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          autocorrect: false,
+          onChanged: (_) => controller.markGeneralChanged(),
+        ),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          l10n.directManualModelIdsDescription,
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ],
     );
   }
+}
 
-  Widget _buildAdvancedApiBehavior() {
+final class _AdvancedApiBehavior extends StatelessWidget {
+  const _AdvancedApiBehavior({required this.controller});
+
+  final DirectConnectionEditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final isOpenRouter = _providerPreset == kOpenRouterProviderPreset;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -592,7 +589,7 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
           ),
         ),
         const SizedBox(height: Spacing.sm),
-        if (isOpenRouter)
+        if (controller.isOpenRouter)
           Text(
             l10n.directOpenRouterChatCompletionsDescription,
             style: AppTypography.bodySmallStyle.copyWith(
@@ -602,12 +599,9 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
         else ...[
           AdaptiveSegmentedSelector<DirectOpenAiApiMode>(
             key: const ValueKey<String>('direct-openai-api-mode-selector'),
-            value: _openAiApiMode,
+            value: controller.openAiApiMode,
             showIcons: false,
-            onChanged: (value) => _mutate(() {
-              _openAiApiMode = value;
-              _attempt = const ConnectionAttemptState.idle();
-            }),
+            onChanged: controller.setOpenAiApiMode,
             options: [
               (
                 value: DirectOpenAiApiMode.chatCompletions,
@@ -627,7 +621,7 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
           ),
           const SizedBox(height: Spacing.sm),
           Text(
-            _openAiApiMode == DirectOpenAiApiMode.responses
+            controller.openAiApiMode == DirectOpenAiApiMode.responses
                 ? l10n.directResponsesDescription
                 : l10n.directChatCompletionsDescription,
             style: AppTypography.bodySmallStyle.copyWith(
@@ -639,10 +633,10 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
             key: const ValueKey<String>('direct-api-version-field'),
             label: l10n.directApiVersion,
             hint: '2024-10-21',
-            controller: _draftController.apiVersion,
+            controller: controller.apiVersion,
             textInputAction: TextInputAction.next,
             autocorrect: false,
-            onChanged: (_) => _clearTransientState(),
+            onChanged: (_) => controller.markGeneralChanged(),
           ),
           const SizedBox(height: Spacing.sm),
           Text(
@@ -656,3 +650,58 @@ extension _DirectConnectionEditorSections on _DirectConnectionEditorPageState {
     );
   }
 }
+
+final class _ProviderIcon extends StatelessWidget {
+  const _ProviderIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: Alpha.subtle),
+        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: IconSize.small, color: theme.buttonPrimary),
+    );
+  }
+}
+
+String? directDraftValidationMessage(
+  AppLocalizations l10n,
+  DirectDraftValidationIssue? issue,
+) => switch (issue) {
+  DirectDraftValidationIssue.nameRequired => l10n.directConnectionNameRequired,
+  DirectDraftValidationIssue.invalidUrl => l10n.directConnectionUrlInvalid,
+  DirectDraftValidationIssue.invalidOpenRouterUrl =>
+    l10n.directOpenRouterUrlInvalid,
+  DirectDraftValidationIssue.credentialsReentryRequired =>
+    l10n.directConnectionCredentialsReentryRequired,
+  DirectDraftValidationIssue.apiKeyRequired =>
+    l10n.directConnectionApiKeyRequired,
+  DirectDraftValidationIssue.unsupportedAuthentication =>
+    l10n.openWebUiDirectConnectionUnsupportedAuth,
+  null => null,
+};
+
+String? directHeaderValidationMessage(
+  AppLocalizations l10n,
+  DirectHeaderValidationError? error,
+) => switch (error?.issue) {
+  DirectHeaderValidationIssue.nameRequired =>
+    l10n.directConnectionHeaderNameRequired,
+  DirectHeaderValidationIssue.invalidName => l10n.headerNameInvalidChars,
+  DirectHeaderValidationIssue.reservedName => l10n.headerNameReserved(
+    error!.headerName!,
+  ),
+  DirectHeaderValidationIssue.duplicateName => l10n.headerAlreadyExists(
+    error!.headerName!,
+  ),
+  DirectHeaderValidationIssue.invalidValue => l10n.headerValueInvalidChars,
+  null => null,
+};

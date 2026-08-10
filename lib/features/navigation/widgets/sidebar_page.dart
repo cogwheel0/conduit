@@ -593,7 +593,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           ref
               .read(sidebarTabScrollRegistryProvider)
               .scrollToTop(
-                selectedTab.name,
+                selectedTab,
                 duration: context.motionDuration(AnimationDuration.fast),
               ),
         );

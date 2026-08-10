@@ -1,97 +1,157 @@
-part of 'workspace_prompt_editor.dart';
+import 'package:flutter/material.dart';
 
-extension _WorkspacePromptEditorSections on _WorkspacePromptFormState {
-  Widget _nameField(AppLocalizations l10n) {
-    if (_isDetail) {
-      return WorkspaceValueRow(
-        key: const Key('workspace-prompt-name'),
-        label: l10n.workspacePromptName,
-        value: _nameController.text,
-      );
-    }
-    return ConduitInput(
-      key: const Key('workspace-prompt-name'),
-      controller: _nameController,
-      label: l10n.workspacePromptName,
-      enabled: !_fieldsReadOnly,
-      onChanged: _onNameChanged,
-      textInputAction: TextInputAction.next,
-    );
-  }
+import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
+import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
-  Widget _commandField(AppLocalizations l10n) {
-    if (_isDetail) {
-      return WorkspaceValueRow(
-        key: const Key('workspace-prompt-command'),
-        label: l10n.workspacePromptCommand,
-        value: WorkspacePromptCommand.display(_commandController.text),
-      );
-    }
-    final theme = context.conduitTheme;
-    return WorkspaceLabeledField(
-      helperText: l10n.workspacePromptCommandHint,
-      child: ConduitInput(
-        key: const Key('workspace-prompt-command'),
-        controller: _commandController,
-        label: l10n.workspacePromptCommand,
-        enabled: !_fieldsReadOnly,
-        onChanged: _onCommandChanged,
-        errorText: _commandError ? l10n.workspacePromptCommandInvalid : null,
-        prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.xs),
-          child: Text(
-            '/',
-            style: AppTypography.standard.copyWith(color: theme.textSecondary),
-          ),
-        ),
-      ),
-    );
-  }
+final class WorkspacePromptCoreFields extends StatelessWidget {
+  const WorkspacePromptCoreFields({
+    super.key,
+    required this.isDetail,
+    required this.readOnly,
+    required this.commandError,
+    required this.nameController,
+    required this.commandController,
+    required this.tags,
+    required this.onNameChanged,
+    required this.onCommandChanged,
+    required this.onRemoveTag,
+    required this.onAddTag,
+  });
 
-  Widget _tagsField(AppLocalizations l10n) {
+  final bool isDetail;
+  final bool readOnly;
+  final bool commandError;
+  final TextEditingController nameController;
+  final TextEditingController commandController;
+  final List<String> tags;
+  final ValueChanged<String> onNameChanged;
+  final ValueChanged<String> onCommandChanged;
+  final ValueChanged<String> onRemoveTag;
+  final VoidCallback onAddTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (isDetail)
+          WorkspaceValueRow(
+            key: const Key('workspace-prompt-name'),
+            label: l10n.workspacePromptName,
+            value: nameController.text,
+          )
+        else
+          ConduitInput(
+            key: const Key('workspace-prompt-name'),
+            controller: nameController,
+            label: l10n.workspacePromptName,
+            enabled: !readOnly,
+            onChanged: onNameChanged,
+            textInputAction: TextInputAction.next,
+          ),
+        const SizedBox(height: Spacing.md),
+        if (isDetail)
+          WorkspaceValueRow(
+            key: const Key('workspace-prompt-command'),
+            label: l10n.workspacePromptCommand,
+            value: WorkspacePromptCommand.display(commandController.text),
+          )
+        else
+          WorkspaceLabeledField(
+            helperText: l10n.workspacePromptCommandHint,
+            child: ConduitInput(
+              key: const Key('workspace-prompt-command'),
+              controller: commandController,
+              label: l10n.workspacePromptCommand,
+              enabled: !readOnly,
+              onChanged: onCommandChanged,
+              errorText: commandError
+                  ? l10n.workspacePromptCommandInvalid
+                  : null,
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(
+                  left: Spacing.md,
+                  right: Spacing.xs,
+                ),
+                child: Text(
+                  '/',
+                  style: AppTypography.standard.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: Spacing.md),
         Text(l10n.workspacePromptTags, style: theme.label),
         const SizedBox(height: Spacing.xs),
         Wrap(
           spacing: Spacing.xs,
           runSpacing: Spacing.xs,
           children: [
-            for (final tag in _tags)
+            for (final tag in tags)
               InputChip(
                 key: Key('workspace-prompt-tag-$tag'),
                 label: Text(tag),
-                onDeleted: _fieldsReadOnly
-                    ? null
-                    : () => _mutate(() {
-                        _tags = [..._tags]..remove(tag);
-                        _dirty = true;
-                      }),
+                onDeleted: readOnly ? null : () => onRemoveTag(tag),
               ),
-            if (!_fieldsReadOnly)
+            if (!readOnly)
               ActionChip(
                 key: const Key('workspace-prompt-tag-add'),
                 avatar: const Icon(Icons.add, size: IconSize.small),
                 label: Text(l10n.workspacePromptTagAdd),
-                onPressed: () => _addTag(l10n),
+                onPressed: onAddTag,
               ),
           ],
         ),
       ],
     );
   }
+}
 
-  Widget _contentEditor(AppLocalizations l10n) {
+final class WorkspacePromptContentEditor extends StatelessWidget {
+  const WorkspacePromptContentEditor({
+    super.key,
+    required this.isDetail,
+    required this.readOnly,
+    required this.previewMode,
+    required this.controller,
+    required this.onPreviewModeChanged,
+    required this.onContentChanged,
+  });
+
+  final bool isDetail;
+  final bool readOnly;
+  final bool previewMode;
+  final TextEditingController controller;
+  final ValueChanged<bool> onPreviewModeChanged;
+  final VoidCallback onContentChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    if (_isDetail) {
+    if (isDetail) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(l10n.workspacePromptContent, style: theme.headingSmall),
           const SizedBox(height: Spacing.sm),
-          _previewPane(l10n),
+          _PromptPreview(controller: controller),
         ],
       );
     }
@@ -106,10 +166,7 @@ extension _WorkspacePromptEditorSections on _WorkspacePromptFormState {
                 style: theme.headingSmall,
               ),
             ),
-            // The adaptive segmented control renders a native platform view on
-            // iOS 26; a non-flex child in a Row is measured with unbounded
-            // width, which makes the native layer's frame infinite (NaN) and
-            // crashes. Give it a definite width.
+            // Native segmented controls need a finite width on iOS 26.
             SizedBox(
               width: 200,
               child: AdaptiveSegmentedControl(
@@ -119,34 +176,124 @@ extension _WorkspacePromptEditorSections on _WorkspacePromptFormState {
                   l10n.workspacePromptWriteTab,
                   l10n.workspacePromptPreviewTab,
                 ],
-                selectedIndex: _previewMode ? 1 : 0,
-                onValueChanged: (index) =>
-                    _mutate(() => _previewMode = index == 1),
+                selectedIndex: previewMode ? 1 : 0,
+                onValueChanged: (index) => onPreviewModeChanged(index == 1),
               ),
             ),
           ],
         ),
         const SizedBox(height: Spacing.sm),
-        if (_previewMode)
-          _previewPane(l10n)
+        if (previewMode)
+          _PromptPreview(controller: controller)
         else
           AdaptiveTextField(
             key: const Key('workspace-prompt-content'),
-            controller: _contentController,
-            enabled: !_fieldsReadOnly,
+            controller: controller,
+            enabled: !readOnly,
             minLines: 6,
             maxLines: 20,
-            onChanged: (_) => _markDirty(),
+            onChanged: (_) => onContentChanged(),
             style: theme.code?.copyWith(color: theme.textPrimary),
             placeholder: l10n.workspacePromptContentHint,
           ),
       ],
     );
   }
+}
 
-  Widget _previewPane(AppLocalizations l10n) {
+final class WorkspacePromptVersionSection extends StatelessWidget {
+  const WorkspacePromptVersionSection({
+    super.key,
+    required this.readOnly,
+    required this.expanded,
+    required this.isProduction,
+    required this.commitController,
+    required this.onExpandedChanged,
+    required this.onCommitChanged,
+    required this.onProductionChanged,
+  });
+
+  final bool readOnly;
+  final bool expanded;
+  final bool isProduction;
+  final TextEditingController commitController;
+  final ValueChanged<bool> onExpandedChanged;
+  final VoidCallback onCommitChanged;
+  final ValueChanged<bool> onProductionChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return WorkspaceDisclosureSection(
+      key: const Key('workspace-prompt-version-disclosure'),
+      title: l10n.workspacePromptVersionSection,
+      expanded: expanded,
+      onChanged: onExpandedChanged,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ConduitInput(
+            key: const Key('workspace-prompt-commit-message'),
+            controller: commitController,
+            label: l10n.workspacePromptCommitMessage,
+            hint: l10n.workspacePromptCommitMessageHint,
+            enabled: !readOnly,
+            onChanged: (_) => onCommitChanged(),
+          ),
+          const SizedBox(height: Spacing.xs),
+          AdaptiveListTile(
+            key: const Key('workspace-prompt-production-toggle'),
+            padding: EdgeInsets.zero,
+            title: Text(l10n.workspacePromptSetProduction),
+            subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
+            trailing: AdaptiveSwitch(
+              value: isProduction,
+              onChanged: readOnly ? null : onProductionChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class WorkspacePromptAccessTile extends StatelessWidget {
+  const WorkspacePromptAccessTile({
+    super.key,
+    required this.grants,
+    required this.onTap,
+  });
+
+  final List<WorkspaceAccessGrantInput> grants;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final principals = workspaceSharedPrincipals(grants);
+    final isPublic = workspaceGrantsArePublic(grants);
+    return WorkspaceResourceTile(
+      key: const Key('workspace-prompt-access'),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspacePromptManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
+      onTap: onTap,
+    );
+  }
+}
+
+final class _PromptPreview extends StatelessWidget {
+  const _PromptPreview({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final content = _contentController.text.trim();
+    final content = controller.text.trim();
     return Container(
       key: const Key('workspace-prompt-preview'),
       width: double.infinity,
@@ -165,133 +312,88 @@ extension _WorkspacePromptEditorSections on _WorkspacePromptFormState {
           : ConduitMarkdownWidget(data: content),
     );
   }
+}
 
-  Widget _versionSection(AppLocalizations l10n) {
-    return WorkspaceDisclosureSection(
-      key: const Key('workspace-prompt-version-disclosure'),
-      title: l10n.workspacePromptVersionSection,
-      expanded: _versionExpanded,
-      onChanged: (value) => _mutate(() => _versionExpanded = value),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ConduitInput(
-            key: const Key('workspace-prompt-commit-message'),
-            controller: _commitController,
-            label: l10n.workspacePromptCommitMessage,
-            hint: l10n.workspacePromptCommitMessageHint,
-            enabled: !_fieldsReadOnly,
-            onChanged: (_) => _markDirty(),
-          ),
-          const SizedBox(height: Spacing.xs),
-          AdaptiveListTile(
-            key: const Key('workspace-prompt-production-toggle'),
-            padding: EdgeInsets.zero,
-            title: Text(l10n.workspacePromptSetProduction),
-            subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
-            trailing: AdaptiveSwitch(
-              value: _isProduction,
-              onChanged: _fieldsReadOnly
-                  ? null
-                  : (value) => _mutate(() {
-                      _isProduction = value;
-                      _dirty = true;
-                    }),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_grants);
-    final isPublic = workspaceGrantsArePublic(_grants);
-    return WorkspaceResourceTile(
-      key: const Key('workspace-prompt-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
-      title: l10n.workspacePromptManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
-      onTap: _manageAccess,
-    );
-  }
-
-  List<WorkspaceEditorAction> _buildActions(
-    AppLocalizations l10n,
-    WorkspaceCapabilities capabilities,
-  ) {
-    if (_isCreate) {
-      return [
-        if (capabilities.prompts.importItems)
-          WorkspaceEditorAction(
-            label: l10n.workspacePromptImport,
-            icon: Icons.upload_file_outlined,
-            menuKey: const Key('workspace-prompt-action-import'),
-            onSelected: _import,
-          ),
-        if (capabilities.prompts.exportItems)
-          WorkspaceEditorAction(
-            label: l10n.workspacePromptExport,
-            icon: Icons.download_outlined,
-            menuKey: const Key('workspace-prompt-action-export'),
-            onSelected: _export,
-          ),
-      ];
-    }
-    final summary = widget.summary;
-    if (summary == null) return const [];
-    final canWrite = _writeAccess;
+List<WorkspaceEditorAction> buildWorkspacePromptActions({
+  required AppLocalizations l10n,
+  required WorkspaceCapabilities capabilities,
+  required bool isCreate,
+  required bool isEdit,
+  required bool canWrite,
+  required WorkspacePromptSummary? summary,
+  required VoidCallback onImport,
+  required VoidCallback onExport,
+  required VoidCallback onClone,
+  required VoidCallback onUpdateDetails,
+  required VoidCallback onToggleActive,
+  required VoidCallback onManageAccess,
+  required VoidCallback onDelete,
+}) {
+  if (isCreate) {
     return [
-      if (canWrite)
+      if (capabilities.prompts.importItems)
         WorkspaceEditorAction(
-          label: l10n.workspacePromptClone,
-          icon: Icons.copy_outlined,
-          menuKey: const Key('workspace-prompt-action-clone'),
-          onSelected: _clone,
+          label: l10n.workspacePromptImport,
+          icon: Icons.upload_file_outlined,
+          menuKey: const Key('workspace-prompt-action-import'),
+          onSelected: onImport,
         ),
-      if (canWrite && _isEdit)
-        WorkspaceEditorAction(
-          label: l10n.workspacePromptUpdateDetails,
-          icon: Icons.drive_file_rename_outline,
-          menuKey: const Key('workspace-prompt-action-update-details'),
-          onSelected: _updateDetailsOnly,
-        ),
-      if (canWrite)
-        WorkspaceEditorAction(
-          label: summary.isActive
-              ? l10n.workspacePromptDeactivate
-              : l10n.workspacePromptActivate,
-          icon: summary.isActive
-              ? Icons.toggle_on_outlined
-              : Icons.toggle_off_outlined,
-          menuKey: const Key('workspace-prompt-action-toggle'),
-          onSelected: _toggleActive,
-        ),
-      WorkspaceEditorAction(
-        label: l10n.workspacePromptManageAccess,
-        icon: Icons.group_outlined,
-        menuKey: const Key('workspace-prompt-action-access'),
-        onSelected: _manageAccess,
-      ),
       if (capabilities.prompts.exportItems)
         WorkspaceEditorAction(
           label: l10n.workspacePromptExport,
           icon: Icons.download_outlined,
           menuKey: const Key('workspace-prompt-action-export'),
-          onSelected: _export,
-        ),
-      if (canWrite)
-        WorkspaceEditorAction(
-          label: l10n.workspacePromptDelete,
-          icon: Icons.delete_outline,
-          isDestructive: true,
-          menuKey: const Key('workspace-prompt-action-delete'),
-          onSelected: _delete,
+          onSelected: onExport,
         ),
     ];
   }
-
-  // --- Interactions ---------------------------------------------------------
+  if (summary == null) return const [];
+  return [
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: l10n.workspacePromptClone,
+        icon: Icons.copy_outlined,
+        menuKey: const Key('workspace-prompt-action-clone'),
+        onSelected: onClone,
+      ),
+    if (canWrite && isEdit)
+      WorkspaceEditorAction(
+        label: l10n.workspacePromptUpdateDetails,
+        icon: Icons.drive_file_rename_outline,
+        menuKey: const Key('workspace-prompt-action-update-details'),
+        onSelected: onUpdateDetails,
+      ),
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: summary.isActive
+            ? l10n.workspacePromptDeactivate
+            : l10n.workspacePromptActivate,
+        icon: summary.isActive
+            ? Icons.toggle_on_outlined
+            : Icons.toggle_off_outlined,
+        menuKey: const Key('workspace-prompt-action-toggle'),
+        onSelected: onToggleActive,
+      ),
+    WorkspaceEditorAction(
+      label: l10n.workspacePromptManageAccess,
+      icon: Icons.group_outlined,
+      menuKey: const Key('workspace-prompt-action-access'),
+      onSelected: onManageAccess,
+    ),
+    if (capabilities.prompts.exportItems)
+      WorkspaceEditorAction(
+        label: l10n.workspacePromptExport,
+        icon: Icons.download_outlined,
+        menuKey: const Key('workspace-prompt-action-export'),
+        onSelected: onExport,
+      ),
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: l10n.workspacePromptDelete,
+        icon: Icons.delete_outline,
+        isDestructive: true,
+        menuKey: const Key('workspace-prompt-action-delete'),
+        onSelected: onDelete,
+      ),
+  ];
 }

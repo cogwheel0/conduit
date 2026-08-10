@@ -324,95 +324,113 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
       onTap: _interactive ? _handleTap : null,
       excludeSemantics: !widget.preserveTrailingSemantics,
       explicitChildNodes: widget.preserveTrailingSemantics,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: _interactive ? (_) => _setPressed(true) : null,
-        onTapUp: _interactive ? (_) => _setPressed(false) : null,
-        onTapCancel: _interactive ? () => _setPressed(false) : null,
-        onTap: _interactive ? _handleTap : null,
-        child: AnimatedScale(
-          scale: _pressed && !context.reduceMotion ? 0.98 : 1,
-          duration: context.motionDuration(AnimationDuration.buttonPress),
-          curve: Curves.easeOutCubic,
-          child: Opacity(
-            opacity: opacity,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-              child: Padding(
-                padding: widget.padding,
-                child: Row(
-                  children: [
-                    if (widget.leading != null) ...[
-                      if (widget.preserveTrailingSemantics)
-                        ExcludeSemantics(child: widget.leading!)
-                      else
-                        widget.leading!,
-                      const SizedBox(width: Spacing.md),
-                    ],
-                    Expanded(
-                      child: ExcludeSemantics(
-                        excluding: widget.preserveTrailingSemantics,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              widget.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.bodyMediumStyle.copyWith(
-                                color: foreground,
-                                fontWeight: FontWeight.w600,
+      child: FocusableActionDetector(
+        enabled: _interactive,
+        mouseCursor: _interactive
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              _handleTap();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: _interactive ? (_) => _setPressed(true) : null,
+          onTapUp: _interactive ? (_) => _setPressed(false) : null,
+          onTapCancel: _interactive ? () => _setPressed(false) : null,
+          onTap: _interactive ? _handleTap : null,
+          child: AnimatedScale(
+            scale: _pressed && !context.reduceMotion ? 0.98 : 1,
+            duration: context.motionDuration(AnimationDuration.buttonPress),
+            curve: Curves.easeOutCubic,
+            child: Opacity(
+              opacity: opacity,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: TouchTarget.minimum,
+                ),
+                child: Padding(
+                  padding: widget.padding,
+                  child: Row(
+                    children: [
+                      if (widget.leading != null) ...[
+                        if (widget.preserveTrailingSemantics)
+                          ExcludeSemantics(child: widget.leading!)
+                        else
+                          widget.leading!,
+                        const SizedBox(width: Spacing.md),
+                      ],
+                      Expanded(
+                        child: ExcludeSemantics(
+                          excluding: widget.preserveTrailingSemantics,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                widget.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.bodyMediumStyle.copyWith(
+                                  color: foreground,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                            if (widget.subtitle != null &&
-                                widget.subtitle!.isNotEmpty) ...[
-                              const SizedBox(height: Spacing.xxs),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      widget.subtitle!,
-                                      maxLines: widget.subtitleMaxLines,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: AppTypography.bodySmallStyle
-                                          .copyWith(color: theme.textSecondary),
+                              if (widget.subtitle != null &&
+                                  widget.subtitle!.isNotEmpty) ...[
+                                const SizedBox(height: Spacing.xxs),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        widget.subtitle!,
+                                        maxLines: widget.subtitleMaxLines,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppTypography.bodySmallStyle
+                                            .copyWith(
+                                              color: theme.textSecondary,
+                                            ),
+                                      ),
                                     ),
-                                  ),
-                                  if (widget.subtitleTrailing != null) ...[
-                                    const SizedBox(width: Spacing.xs),
-                                    widget.subtitleTrailing!,
+                                    if (widget.subtitleTrailing != null) ...[
+                                      const SizedBox(width: Spacing.xs),
+                                      widget.subtitleTrailing!,
+                                    ],
                                   ],
-                                ],
-                              ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                    if (widget.status != null) ...[
-                      const SizedBox(width: Spacing.sm),
-                      Flexible(
-                        child: widget.preserveTrailingSemantics
-                            ? widget.status!
-                            : ExcludeSemantics(child: widget.status!),
-                      ),
+                      if (widget.status != null) ...[
+                        const SizedBox(width: Spacing.sm),
+                        Flexible(
+                          child: widget.preserveTrailingSemantics
+                              ? widget.status!
+                              : ExcludeSemantics(child: widget.status!),
+                        ),
+                      ],
+                      if (widget.trailing != null) ...[
+                        const SizedBox(width: Spacing.sm),
+                        widget.trailing!,
+                      ] else if (widget.showChevron && _interactive) ...[
+                        const SizedBox(width: Spacing.sm),
+                        Icon(
+                          context.usesCupertinoChrome
+                              ? CupertinoIcons.chevron_right
+                              : Icons.chevron_right,
+                          color: theme.iconSecondary,
+                          size: IconSize.small,
+                        ),
+                      ],
                     ],
-                    if (widget.trailing != null) ...[
-                      const SizedBox(width: Spacing.sm),
-                      widget.trailing!,
-                    ] else if (widget.showChevron && _interactive) ...[
-                      const SizedBox(width: Spacing.sm),
-                      Icon(
-                        context.usesCupertinoChrome
-                            ? CupertinoIcons.chevron_right
-                            : Icons.chevron_right,
-                        color: theme.iconSecondary,
-                        size: IconSize.small,
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -700,6 +718,8 @@ class UtilityStatusBanner extends StatelessWidget {
     };
     return Semantics(
       liveRegion: true,
+      container: true,
+      excludeSemantics: true,
       label: message,
       child: Container(
         width: double.infinity,

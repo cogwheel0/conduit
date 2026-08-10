@@ -4,8 +4,33 @@ import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/direct_connection_profile.dart';
+import '../models/openwebui_direct_connection.dart';
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
+
+enum DirectDraftValidationIssue {
+  nameRequired,
+  invalidUrl,
+  invalidOpenRouterUrl,
+  credentialsReentryRequired,
+  apiKeyRequired,
+  unsupportedAuthentication,
+}
+
+enum DirectHeaderValidationIssue {
+  nameRequired,
+  invalidName,
+  reservedName,
+  duplicateName,
+  invalidValue,
+}
+
+final class DirectHeaderValidationError {
+  const DirectHeaderValidationError(this.issue, {this.headerName});
+
+  final DirectHeaderValidationIssue issue;
+  final String? headerName;
+}
 
 const String kOpenRouterProviderPreset = 'openrouter';
 
@@ -90,8 +115,18 @@ bool requiresDirectOriginCredentialConfirmation({
   return previousHasCredentials && draftHasCredentials;
 }
 
-/// Owns the editable field resources for a direct-connection draft.
-class DirectConnectionEditorController {
+/// Owns all mutable state and validation for a direct-connection draft.
+final class DirectConnectionEditorController extends ChangeNotifier {
+  DirectConnectionEditorController({
+    required this.isOpenWebUi,
+    required this.isNew,
+    this.onDraftChanged,
+  });
+
+  final bool isOpenWebUi;
+  final bool isNew;
+  final VoidCallback? onDraftChanged;
+
   final name = TextEditingController();
   final baseUrl = TextEditingController();
   final apiKey = TextEditingController();
@@ -104,7 +139,62 @@ class DirectConnectionEditorController {
   final headerValueFocusNode = FocusNode();
   final Map<String, String> customHeaders = {};
 
-  void hydrate(DirectConnectionProfile? profile) {
+  DirectConnectionProfile? savedProfile;
+  OpenWebUiDirectConnectionRecord? savedOpenWebUiRecord;
+  String adapterKey = kOpenAiCompatibleAdapterKey;
+  String providerPreset = kOpenAiCompatibleAdapterKey;
+  DirectOpenAiApiMode openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+  DirectAuthenticationMode authentication = DirectAuthenticationMode.bearer;
+  bool enabled = true;
+  bool apiKeyDirty = false;
+  bool headersDirty = false;
+  bool showApiKey = false;
+  bool showAdvancedSettings = false;
+  bool originSecretsConfirmed = false;
+  DirectDraftErrors errors = const DirectDraftErrors();
+  DirectHeaderValidationError? headerError;
+
+  bool get isOllama => adapterKey == kOllamaAdapterKey;
+  bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
+
+  bool get originChanged {
+    final saved = savedProfile;
+    if (saved == null) return false;
+    return DirectConnectionProfile.originOf(saved.baseUrl) !=
+        DirectConnectionProfile.originOf(baseUrl.text);
+  }
+
+  bool get savedHasOriginBoundSecrets {
+    final saved = savedProfile;
+    return saved != null &&
+        ((saved.apiKey?.isNotEmpty ?? false) || saved.customHeaders.isNotEmpty);
+  }
+
+  bool get originBoundSecretsReviewed {
+    final saved = savedProfile;
+    if (saved == null || !originChanged) return true;
+    final apiKeyReviewed = !(saved.apiKey?.isNotEmpty ?? false) || apiKeyDirty;
+    final headersReviewed = saved.customHeaders.isEmpty || headersDirty;
+    return apiKeyReviewed && headersReviewed;
+  }
+
+  bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
+
+  bool get apiKeyRequired => requiresDirectApiKey(
+    authentication: authentication,
+    isOpenWebUi: isOpenWebUi,
+    isNew: isNew,
+    savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
+    apiKeyDirty: apiKeyDirty,
+    originChanged: originChanged,
+  );
+
+  void hydrate(
+    DirectConnectionProfile? profile, {
+    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+  }) {
+    savedProfile = profile;
+    savedOpenWebUiRecord = openWebUiRecord;
     if (profile == null) {
       name.text = 'My provider';
       baseUrl.text = 'https://api.openai.com/v1';
@@ -119,71 +209,237 @@ class DirectConnectionEditorController {
     apiVersion.text = profile.apiVersion ?? '';
     modelIdPrefix.text = profile.modelIdPrefix ?? '';
     tags.text = profile.tags.join(', ');
+    adapterKey = profile.adapterKey;
+    providerPreset = profile.isOpenRouter
+        ? kOpenRouterProviderPreset
+        : profile.adapterKey;
+    openAiApiMode = profile.openAiApiMode;
+    authentication = openWebUiRecord == null
+        ? profile.isOpenRouter
+              ? DirectAuthenticationMode.bearer
+              : (profile.apiKey ?? '').isEmpty
+              ? DirectAuthenticationMode.none
+              : switch (profile.apiKeyAuthMode) {
+                  DirectApiKeyAuthMode.bearer =>
+                    DirectAuthenticationMode.bearer,
+                  DirectApiKeyAuthMode.apiKeyHeader =>
+                    DirectAuthenticationMode.apiKeyHeader,
+                }
+        : switch (openWebUiRecord.authType) {
+            'bearer' => DirectAuthenticationMode.bearer,
+            'none' => DirectAuthenticationMode.none,
+            _ => DirectAuthenticationMode.unsupported,
+          };
+    enabled = profile.enabled;
   }
 
-  DirectDraftBuildResult buildDraft(DirectDraftBuildRequest request) {
-    final name = request.isOpenWebUi
-        ? (request.saved?.name ?? request.openWebUiFallbackName)
-        : this.name.text.trim();
-    final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl.text);
-    String? nameError;
-    String? urlError;
-    String? apiKeyError;
+  void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
+    final savedRecord = savedOpenWebUiRecord;
+    if (record == null ||
+        savedRecord == null ||
+        savedRecord.profile.id != record.profile.id ||
+        savedRecord.contentRevision != record.contentRevision) {
+      return;
+    }
+    savedOpenWebUiRecord = record;
+    savedProfile = record.profile;
+  }
 
-    if (!request.isOpenWebUi && name.isEmpty) {
-      nameError = request.nameRequiredMessage;
+  void setEnabled(bool value) {
+    if (enabled == value) return;
+    enabled = value;
+    _draftChanged();
+  }
+
+  void selectProviderPreset(
+    String value, {
+    required String ollamaDefaultName,
+    required String openRouterDefaultName,
+  }) {
+    if (providerPreset == value) return;
+    providerPreset = value;
+    adapterKey = value == kOllamaAdapterKey
+        ? kOllamaAdapterKey
+        : kOpenAiCompatibleAdapterKey;
+    authentication = DirectAuthenticationMode.bearer;
+    openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+    baseUrl.text = switch (value) {
+      kOllamaAdapterKey => 'https://ollama.com',
+      kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
+      _ => 'https://api.openai.com/v1',
+    };
+    if (isNew &&
+        (name.text == 'My provider' ||
+            name.text == ollamaDefaultName ||
+            name.text == openRouterDefaultName)) {
+      name.text = switch (value) {
+        kOllamaAdapterKey => ollamaDefaultName,
+        kOpenRouterProviderPreset => openRouterDefaultName,
+        _ => 'My provider',
+      };
+    }
+    originSecretsConfirmed = false;
+    _draftChanged();
+  }
+
+  void setAuthentication(DirectAuthenticationMode value) {
+    if (authentication == value ||
+        value == DirectAuthenticationMode.unsupported) {
+      return;
+    }
+    authentication = value;
+    apiKeyDirty = true;
+    originSecretsConfirmed = false;
+    errors = errors.copyWith(clearApiKey: true, clearForm: true);
+    _draftChanged();
+  }
+
+  void setOpenAiApiMode(DirectOpenAiApiMode value) {
+    if (openAiApiMode == value) return;
+    openAiApiMode = value;
+    _draftChanged();
+  }
+
+  void setShowApiKey(bool value) {
+    if (showApiKey == value) return;
+    showApiKey = value;
+    notifyListeners();
+  }
+
+  void setShowAdvancedSettings(bool value) {
+    if (showAdvancedSettings == value) return;
+    showAdvancedSettings = value;
+    notifyListeners();
+  }
+
+  void markGeneralChanged() {
+    errors = const DirectDraftErrors();
+    headerError = null;
+    _draftChanged();
+  }
+
+  void markBaseUrlChanged() {
+    originSecretsConfirmed = false;
+    markGeneralChanged();
+  }
+
+  void markApiKeyChanged() {
+    apiKeyDirty = true;
+    originSecretsConfirmed = false;
+    errors = errors.copyWith(clearApiKey: true, clearForm: true);
+    _draftChanged();
+  }
+
+  void markHeaderInputChanged() {
+    headerError = null;
+    errors = errors.copyWith(clearForm: true);
+    _draftChanged();
+  }
+
+  void markOriginSecretsConfirmed() {
+    originSecretsConfirmed = true;
+    notifyListeners();
+  }
+
+  bool commitPendingCustomHeader() {
+    final hasName = headerName.text.trim().isNotEmpty;
+    final hasValue = headerValue.text.isNotEmpty;
+    if (!hasName && !hasValue) return true;
+    if (!hasName) {
+      showAdvancedSettings = true;
+      headerError = const DirectHeaderValidationError(
+        DirectHeaderValidationIssue.nameRequired,
+      );
+      notifyListeners();
+      return false;
+    }
+    return addCustomHeader();
+  }
+
+  bool addCustomHeader() {
+    if (!canAddCustomHeader) return false;
+    final normalizedName = headerName.text.trim();
+    final error =
+        _validateHeaderName(normalizedName) ??
+        _validateHeaderValue(headerValue.text);
+    if (error != null) {
+      showAdvancedSettings = true;
+      headerError = error;
+      notifyListeners();
+      return false;
+    }
+    customHeaders[normalizedName] = headerValue.text;
+    headerName.clear();
+    headerValue.clear();
+    _markHeadersChanged();
+    return true;
+  }
+
+  void removeCustomHeader(String name) {
+    if (customHeaders.remove(name) == null) return;
+    _markHeadersChanged();
+  }
+
+  DirectDraftBuildResult buildDraft({
+    required bool validateFields,
+    required String openWebUiFallbackName,
+  }) {
+    if (validateFields && !commitPendingCustomHeader()) {
+      return DirectDraftBuildResult(errors: errors);
+    }
+    final draftName = isOpenWebUi
+        ? (savedProfile?.name ?? openWebUiFallbackName)
+        : name.text.trim();
+    final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl.text);
+    DirectDraftValidationIssue? nameIssue;
+    DirectDraftValidationIssue? urlIssue;
+    DirectDraftValidationIssue? apiKeyIssue;
+
+    if (!isOpenWebUi && draftName.isEmpty) {
+      nameIssue = DirectDraftValidationIssue.nameRequired;
     }
     if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {
-      urlError = request.invalidUrlMessage;
-    } else if (request.isOpenRouter &&
-        !isOpenRouterApiBaseUrl(normalizedBaseUrl)) {
-      urlError = request.invalidOpenRouterUrlMessage;
-    } else if (!request.originBoundSecretsReviewed) {
-      urlError = request.credentialsReentryMessage;
+      urlIssue = DirectDraftValidationIssue.invalidUrl;
+    } else if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedBaseUrl)) {
+      urlIssue = DirectDraftValidationIssue.invalidOpenRouterUrl;
+    } else if (!originBoundSecretsReviewed) {
+      urlIssue = DirectDraftValidationIssue.credentialsReentryRequired;
     }
 
-    final existingApiKey = request.saved?.apiKey?.trim() ?? '';
+    final existingApiKey = savedProfile?.apiKey?.trim() ?? '';
     final enteredApiKey = apiKey.text.trim();
-    final effectiveApiKey = switch (request.authentication) {
+    final effectiveApiKey = switch (authentication) {
       DirectAuthenticationMode.none => null,
       DirectAuthenticationMode.bearer ||
       DirectAuthenticationMode.apiKeyHeader =>
-        request.apiKeyDirty || request.originChanged
-            ? enteredApiKey
-            : existingApiKey,
+        apiKeyDirty || originChanged ? enteredApiKey : existingApiKey,
       DirectAuthenticationMode.unsupported => null,
     };
-    if (requiresDirectApiKey(
-          authentication: request.authentication,
-          isOpenWebUi: request.isOpenWebUi,
-          isNew: request.isNew,
-          savedOpenWebUiAuthType: request.savedOpenWebUiAuthType,
-          apiKeyDirty: request.apiKeyDirty,
-          originChanged: request.originChanged,
-        ) &&
-        (effectiveApiKey ?? '').isEmpty) {
-      apiKeyError = request.apiKeyRequiredMessage;
+    if (apiKeyRequired && (effectiveApiKey ?? '').isEmpty) {
+      apiKeyIssue = DirectDraftValidationIssue.apiKeyRequired;
     }
 
-    final errors = DirectDraftErrors(
-      name: nameError,
-      url: urlError,
-      apiKey: apiKeyError,
-      form: request.authentication == DirectAuthenticationMode.unsupported
-          ? request.unsupportedAuthenticationMessage
+    errors = DirectDraftErrors(
+      name: nameIssue,
+      url: urlIssue,
+      apiKey: apiKeyIssue,
+      form: authentication == DirectAuthenticationMode.unsupported
+          ? DirectDraftValidationIssue.unsupportedAuthentication
           : null,
     );
-    if (errors.hasAny) return DirectDraftBuildResult(errors: errors);
+    if (errors.hasAny) {
+      if (validateFields) notifyListeners();
+      return DirectDraftBuildResult(errors: errors);
+    }
 
-    final saved = request.saved;
+    final saved = savedProfile;
     final profile = DirectConnectionProfile(
       id: saved?.id ?? const Uuid().v4(),
-      name: name,
-      adapterKey: request.adapterKey,
+      name: draftName,
+      adapterKey: adapterKey,
       baseUrl: normalizedBaseUrl,
-      openAiApiMode: request.openAiApiMode,
-      apiKeyAuthMode:
-          request.authentication == DirectAuthenticationMode.apiKeyHeader
+      openAiApiMode: openAiApiMode,
+      apiKeyAuthMode: authentication == DirectAuthenticationMode.apiKeyHeader
           ? DirectApiKeyAuthMode.apiKeyHeader
           : DirectApiKeyAuthMode.bearer,
       apiVersion: apiVersion.text.trim().isEmpty
@@ -193,7 +449,7 @@ class DirectConnectionEditorController {
           ? null
           : modelIdPrefix.text.trim(),
       tags: parseDirectModelTags(tags.text),
-      enabled: request.enabled,
+      enabled: enabled,
       apiKey: effectiveApiKey,
       customHeaders: Map<String, String>.from(customHeaders),
       manualModelIds: parseDirectManualModelIds(models.text),
@@ -211,14 +467,66 @@ class DirectConnectionEditorController {
     final safeProfile = secureDirectDraftForEditedOrigin(
       previous: saved,
       draft: profile,
-      secretsConfirmedForNewOrigin: request.originBoundSecretsReviewed,
+      secretsConfirmedForNewOrigin: originBoundSecretsReviewed,
     );
     final profileError = safeProfile.validateOrNull();
-    return profileError == null
-        ? DirectDraftBuildResult(profile: safeProfile, errors: errors)
-        : DirectDraftBuildResult(errors: DirectDraftErrors(form: profileError));
+    if (profileError != null) {
+      errors = DirectDraftErrors(profile: profileError);
+      if (validateFields) notifyListeners();
+      return DirectDraftBuildResult(errors: errors);
+    }
+    return DirectDraftBuildResult(profile: safeProfile, errors: errors);
   }
 
+  DirectHeaderValidationError? _validateHeaderName(String name) {
+    if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
+      return const DirectHeaderValidationError(
+        DirectHeaderValidationIssue.invalidName,
+      );
+    }
+    if (DirectConnectionProfile.reservedHeaderNames.contains(
+      name.toLowerCase(),
+    )) {
+      return DirectHeaderValidationError(
+        DirectHeaderValidationIssue.reservedName,
+        headerName: name,
+      );
+    }
+    final duplicate = customHeaders.keys.any(
+      (existing) => existing.toLowerCase() == name.toLowerCase(),
+    );
+    if (duplicate) {
+      return DirectHeaderValidationError(
+        DirectHeaderValidationIssue.duplicateName,
+        headerName: name,
+      );
+    }
+    return null;
+  }
+
+  DirectHeaderValidationError? _validateHeaderValue(String value) {
+    if (!DirectConnectionProfile.isValidCustomHeaderValue(value)) {
+      return const DirectHeaderValidationError(
+        DirectHeaderValidationIssue.invalidValue,
+      );
+    }
+    return null;
+  }
+
+  void _markHeadersChanged() {
+    headersDirty = true;
+    originSecretsConfirmed = false;
+    headerError = null;
+    errors = errors.copyWith(clearForm: true);
+    _draftChanged();
+  }
+
+  void _draftChanged() {
+    onDraftChanged?.call();
+    notifyListeners();
+  }
+
+  @override
   void dispose() {
     name.dispose();
     baseUrl.dispose();
@@ -230,66 +538,45 @@ class DirectConnectionEditorController {
     headerValue.dispose();
     models.dispose();
     headerValueFocusNode.dispose();
+    super.dispose();
   }
 }
 
-class DirectDraftBuildRequest {
-  const DirectDraftBuildRequest({
-    required this.saved,
-    required this.isOpenWebUi,
-    required this.isNew,
-    required this.savedOpenWebUiAuthType,
-    required this.adapterKey,
-    required this.openAiApiMode,
-    required this.authentication,
-    required this.enabled,
-    required this.apiKeyDirty,
-    required this.originChanged,
-    required this.originBoundSecretsReviewed,
-    required this.isOpenRouter,
-    required this.openWebUiFallbackName,
-    required this.nameRequiredMessage,
-    required this.invalidUrlMessage,
-    required this.invalidOpenRouterUrlMessage,
-    required this.credentialsReentryMessage,
-    required this.apiKeyRequiredMessage,
-    required this.unsupportedAuthenticationMessage,
+final class DirectDraftErrors {
+  const DirectDraftErrors({
+    this.name,
+    this.url,
+    this.apiKey,
+    this.form,
+    this.profile,
   });
 
-  final DirectConnectionProfile? saved;
-  final bool isOpenWebUi;
-  final bool isNew;
-  final String? savedOpenWebUiAuthType;
-  final String adapterKey;
-  final DirectOpenAiApiMode openAiApiMode;
-  final DirectAuthenticationMode authentication;
-  final bool enabled;
-  final bool apiKeyDirty;
-  final bool originChanged;
-  final bool originBoundSecretsReviewed;
-  final bool isOpenRouter;
-  final String openWebUiFallbackName;
-  final String nameRequiredMessage;
-  final String invalidUrlMessage;
-  final String invalidOpenRouterUrlMessage;
-  final String credentialsReentryMessage;
-  final String apiKeyRequiredMessage;
-  final String unsupportedAuthenticationMessage;
-}
-
-class DirectDraftErrors {
-  const DirectDraftErrors({this.name, this.url, this.apiKey, this.form});
-
-  final String? name;
-  final String? url;
-  final String? apiKey;
-  final String? form;
+  final DirectDraftValidationIssue? name;
+  final DirectDraftValidationIssue? url;
+  final DirectDraftValidationIssue? apiKey;
+  final DirectDraftValidationIssue? form;
+  final String? profile;
 
   bool get hasAny =>
-      name != null || url != null || apiKey != null || form != null;
+      name != null ||
+      url != null ||
+      apiKey != null ||
+      form != null ||
+      profile != null;
+
+  DirectDraftErrors copyWith({
+    bool clearApiKey = false,
+    bool clearForm = false,
+  }) => DirectDraftErrors(
+    name: name,
+    url: url,
+    apiKey: clearApiKey ? null : apiKey,
+    form: clearForm ? null : form,
+    profile: clearForm ? null : profile,
+  );
 }
 
-class DirectDraftBuildResult {
+final class DirectDraftBuildResult {
   const DirectDraftBuildResult({this.profile, required this.errors});
 
   final DirectConnectionProfile? profile;

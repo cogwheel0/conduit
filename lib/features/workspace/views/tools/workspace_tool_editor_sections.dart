@@ -1,73 +1,131 @@
-part of 'workspace_tool_editor.dart';
+import 'package:flutter/material.dart';
 
-extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
-  Widget _nameField(AppLocalizations l10n) {
-    if (_isDetail) {
-      return WorkspaceValueRow(
-        key: const Key('workspace-tool-name'),
-        label: l10n.workspaceToolName,
-        value: _nameController.text,
-      );
-    }
-    return ConduitInput(
-      key: const Key('workspace-tool-name'),
-      controller: _nameController,
-      label: l10n.workspaceToolName,
-      hint: l10n.workspaceToolNameHint,
-      enabled: !_fieldsReadOnly,
-      onChanged: _onNameChanged,
-      textInputAction: TextInputAction.next,
+import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_grouped_components.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+
+final class WorkspaceToolCoreFields extends StatelessWidget {
+  const WorkspaceToolCoreFields({
+    super.key,
+    required this.isDetail,
+    required this.fieldsReadOnly,
+    required this.idReadOnly,
+    required this.idError,
+    required this.nameController,
+    required this.idController,
+    required this.descriptionController,
+    required this.onNameChanged,
+    required this.onIdChanged,
+    required this.onDescriptionChanged,
+  });
+
+  final bool isDetail;
+  final bool fieldsReadOnly;
+  final bool idReadOnly;
+  final bool idError;
+  final TextEditingController nameController;
+  final TextEditingController idController;
+  final TextEditingController descriptionController;
+  final ValueChanged<String> onNameChanged;
+  final ValueChanged<String> onIdChanged;
+  final VoidCallback onDescriptionChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (isDetail)
+          WorkspaceValueRow(
+            key: const Key('workspace-tool-name'),
+            label: l10n.workspaceToolName,
+            value: nameController.text,
+          )
+        else
+          ConduitInput(
+            key: const Key('workspace-tool-name'),
+            controller: nameController,
+            label: l10n.workspaceToolName,
+            hint: l10n.workspaceToolNameHint,
+            enabled: !fieldsReadOnly,
+            onChanged: onNameChanged,
+            textInputAction: TextInputAction.next,
+          ),
+        const SizedBox(height: Spacing.md),
+        if (isDetail)
+          WorkspaceValueRow(
+            key: const Key('workspace-tool-id'),
+            label: l10n.workspaceToolId,
+            value: idController.text,
+          )
+        else
+          WorkspaceLabeledField(
+            helperText: l10n.workspaceToolIdHint,
+            child: ConduitInput(
+              key: const Key('workspace-tool-id'),
+              controller: idController,
+              label: l10n.workspaceToolId,
+              enabled: !idReadOnly,
+              onChanged: onIdChanged,
+              errorText: idError ? l10n.workspaceToolIdInvalid : null,
+            ),
+          ),
+        const SizedBox(height: Spacing.md),
+        if (isDetail)
+          WorkspaceValueRow(
+            key: const Key('workspace-tool-description'),
+            label: l10n.workspaceToolDescription,
+            value: descriptionController.text,
+          )
+        else
+          ConduitInput(
+            key: const Key('workspace-tool-description'),
+            controller: descriptionController,
+            label: l10n.workspaceToolDescription,
+            hint: l10n.workspaceToolDescriptionHint,
+            enabled: !fieldsReadOnly,
+            onChanged: (_) => onDescriptionChanged(),
+            textInputAction: TextInputAction.next,
+          ),
+      ],
     );
   }
+}
 
-  Widget _idField(AppLocalizations l10n) {
-    if (_isDetail) {
-      return WorkspaceValueRow(
-        key: const Key('workspace-tool-id'),
-        label: l10n.workspaceToolId,
-        value: _idController.text,
-      );
-    }
-    return WorkspaceLabeledField(
-      helperText: l10n.workspaceToolIdHint,
-      child: ConduitInput(
-        key: const Key('workspace-tool-id'),
-        controller: _idController,
-        label: l10n.workspaceToolId,
-        enabled: !_idReadOnly,
-        onChanged: _onIdChanged,
-        errorText: _idError ? l10n.workspaceToolIdInvalid : null,
-      ),
-    );
-  }
+final class WorkspaceToolContentEditor extends StatelessWidget {
+  const WorkspaceToolContentEditor({
+    super.key,
+    required this.isDetail,
+    required this.readOnly,
+    required this.controller,
+    required this.onChanged,
+  });
 
-  Widget _descriptionField(AppLocalizations l10n) {
-    if (_isDetail) {
-      return WorkspaceValueRow(
-        key: const Key('workspace-tool-description'),
-        label: l10n.workspaceToolDescription,
-        value: _descriptionController.text,
-      );
-    }
-    return ConduitInput(
-      key: const Key('workspace-tool-description'),
-      controller: _descriptionController,
-      label: l10n.workspaceToolDescription,
-      hint: l10n.workspaceToolDescriptionHint,
-      enabled: !_fieldsReadOnly,
-      onChanged: (_) => _markDirty(),
-      textInputAction: TextInputAction.next,
-    );
-  }
+  final bool isDetail;
+  final bool readOnly;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
 
-  Widget _contentEditor(AppLocalizations l10n) {
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(l10n.workspaceToolContent, style: theme.headingSmall),
         const SizedBox(height: Spacing.sm),
-        if (_isDetail)
+        if (isDetail)
           Container(
             key: const Key('workspace-tool-content'),
             width: double.infinity,
@@ -79,26 +137,39 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
               border: Border.all(color: theme.dividerColor),
             ),
             child: SelectableText(
-              _contentController.text,
+              controller.text,
               style: theme.code?.copyWith(color: theme.textPrimary),
             ),
           )
         else
           AdaptiveTextField(
             key: const Key('workspace-tool-content'),
-            controller: _contentController,
-            enabled: !_fieldsReadOnly,
+            controller: controller,
+            enabled: !readOnly,
             minLines: 12,
             maxLines: 32,
-            onChanged: _onContentChanged,
+            onChanged: onChanged,
             style: theme.code?.copyWith(color: theme.textPrimary),
             placeholder: l10n.workspaceToolContentHint,
           ),
       ],
     );
   }
+}
 
-  Widget _incompatibilityBanner(AppLocalizations l10n) {
+final class WorkspaceToolIncompatibilityBanner extends StatelessWidget {
+  const WorkspaceToolIncompatibilityBanner({
+    super.key,
+    required this.requiredVersion,
+    required this.currentServerVersion,
+  });
+
+  final String? requiredVersion;
+  final String? currentServerVersion;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Container(
       key: const Key('workspace-tool-incompatible'),
@@ -122,8 +193,8 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
           Expanded(
             child: Text(
               l10n.workspaceToolIncompatible(
-                _requiredVersion ?? '0.0.0',
-                _currentServerVersion ?? '?',
+                requiredVersion ?? '0.0.0',
+                currentServerVersion ?? '?',
               ),
               style: theme.bodySmall?.copyWith(color: theme.error),
             ),
@@ -132,8 +203,14 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
       ),
     );
   }
+}
 
-  Widget _warning(AppLocalizations l10n) {
+final class WorkspaceToolWarning extends StatelessWidget {
+  const WorkspaceToolWarning({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,10 +230,62 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
       ],
     );
   }
+}
 
-  Widget _manifestSummary(AppLocalizations l10n, WorkspaceToolSummary summary) {
+final class WorkspaceToolDetailsSummary extends StatelessWidget {
+  const WorkspaceToolDetailsSummary({super.key, required this.summary});
+
+  final WorkspaceToolSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ToolManifestSummary(summary: summary),
+        _ToolSpecsSummary(summary: summary),
+      ],
+    );
+  }
+}
+
+final class WorkspaceToolAccessTile extends StatelessWidget {
+  const WorkspaceToolAccessTile({
+    super.key,
+    required this.grants,
+    required this.onTap,
+  });
+
+  final List<WorkspaceAccessGrantInput> grants;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final principals = workspaceSharedPrincipals(grants);
+    final isPublic = workspaceGrantsArePublic(grants);
+    return WorkspaceResourceTile(
+      key: const Key('workspace-tool-access'),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspaceToolManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
+      onTap: onTap,
+    );
+  }
+}
+
+final class _ToolManifestSummary extends StatelessWidget {
+  const _ToolManifestSummary({required this.summary});
+
+  final WorkspaceToolSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
     final manifest = workspaceJsonMap(summary.meta['manifest']);
     if (manifest.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final version = manifest['version']?.toString();
     final requiredVersion = manifest['required_open_webui_version']?.toString();
@@ -188,8 +317,16 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
       ),
     );
   }
+}
 
-  Widget _specsSummary(AppLocalizations l10n, WorkspaceToolSummary summary) {
+final class _ToolSpecsSummary extends StatelessWidget {
+  const _ToolSpecsSummary({required this.summary});
+
+  final WorkspaceToolSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final specs = summary.specs;
     return Padding(
@@ -232,92 +369,85 @@ extension _WorkspaceToolEditorSections on _WorkspaceToolFormState {
       ),
     );
   }
+}
 
-  Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_grants);
-    final isPublic = workspaceGrantsArePublic(_grants);
-    return WorkspaceResourceTile(
-      key: const Key('workspace-tool-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
-      title: l10n.workspaceToolManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
-      onTap: _manageAccess,
-    );
-  }
-
-  List<WorkspaceEditorAction> _buildActions(
-    AppLocalizations l10n,
-    WorkspaceCapabilities capabilities,
-  ) {
-    if (_isCreate) {
-      return [
-        if (capabilities.tools.importItems)
-          WorkspaceEditorAction(
-            label: l10n.workspaceToolImportJson,
-            icon: Icons.data_object_outlined,
-            menuKey: const Key('workspace-tool-action-import-json'),
-            onSelected: _importJson,
-          ),
-        // URL import is admin-only, independent of the tools_import permission.
-        if (_isAdmin)
-          WorkspaceEditorAction(
-            label: l10n.workspaceToolImportUrl,
-            icon: Icons.link_outlined,
-            menuKey: const Key('workspace-tool-action-import-url'),
-            onSelected: _importUrl,
-          ),
-        if (capabilities.tools.exportItems)
-          WorkspaceEditorAction(
-            label: l10n.workspaceToolExport,
-            icon: Icons.download_outlined,
-            menuKey: const Key('workspace-tool-action-export'),
-            onSelected: _export,
-          ),
-      ];
-    }
-    final summary = widget.summary;
-    if (summary == null) return const [];
-    final canWrite = _writeAccess;
+List<WorkspaceEditorAction> buildWorkspaceToolActions({
+  required AppLocalizations l10n,
+  required WorkspaceCapabilities capabilities,
+  required bool isCreate,
+  required bool isAdmin,
+  required bool canWrite,
+  required WorkspaceToolSummary? summary,
+  required VoidCallback onImportJson,
+  required VoidCallback onImportUrl,
+  required VoidCallback onExport,
+  required VoidCallback onClone,
+  required VoidCallback onOpenValves,
+  required VoidCallback onManageAccess,
+  required VoidCallback onDelete,
+}) {
+  if (isCreate) {
     return [
-      if (canWrite)
+      if (capabilities.tools.importItems)
         WorkspaceEditorAction(
-          label: l10n.workspaceToolClone,
-          icon: Icons.copy_outlined,
-          menuKey: const Key('workspace-tool-action-clone'),
-          onSelected: _clone,
+          label: l10n.workspaceToolImportJson,
+          icon: Icons.data_object_outlined,
+          menuKey: const Key('workspace-tool-action-import-json'),
+          onSelected: onImportJson,
         ),
-      if (canWrite)
+      // URL import is admin-only, independent of tools_import permission.
+      if (isAdmin)
         WorkspaceEditorAction(
-          label: l10n.workspaceToolValves,
-          icon: Icons.tune_outlined,
-          menuKey: const Key('workspace-tool-action-valves'),
-          onSelected: _openValves,
+          label: l10n.workspaceToolImportUrl,
+          icon: Icons.link_outlined,
+          menuKey: const Key('workspace-tool-action-import-url'),
+          onSelected: onImportUrl,
         ),
-      WorkspaceEditorAction(
-        label: l10n.workspaceToolManageAccess,
-        icon: Icons.group_outlined,
-        menuKey: const Key('workspace-tool-action-access'),
-        onSelected: _manageAccess,
-      ),
       if (capabilities.tools.exportItems)
         WorkspaceEditorAction(
           label: l10n.workspaceToolExport,
           icon: Icons.download_outlined,
           menuKey: const Key('workspace-tool-action-export'),
-          onSelected: _export,
-        ),
-      if (canWrite)
-        WorkspaceEditorAction(
-          label: l10n.workspaceToolDelete,
-          icon: Icons.delete_outline,
-          isDestructive: true,
-          menuKey: const Key('workspace-tool-action-delete'),
-          onSelected: _delete,
+          onSelected: onExport,
         ),
     ];
   }
-
-  // --- Interactions ---------------------------------------------------------
+  if (summary == null) return const [];
+  return [
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: l10n.workspaceToolClone,
+        icon: Icons.copy_outlined,
+        menuKey: const Key('workspace-tool-action-clone'),
+        onSelected: onClone,
+      ),
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: l10n.workspaceToolValves,
+        icon: Icons.tune_outlined,
+        menuKey: const Key('workspace-tool-action-valves'),
+        onSelected: onOpenValves,
+      ),
+    WorkspaceEditorAction(
+      label: l10n.workspaceToolManageAccess,
+      icon: Icons.group_outlined,
+      menuKey: const Key('workspace-tool-action-access'),
+      onSelected: onManageAccess,
+    ),
+    if (capabilities.tools.exportItems)
+      WorkspaceEditorAction(
+        label: l10n.workspaceToolExport,
+        icon: Icons.download_outlined,
+        menuKey: const Key('workspace-tool-action-export'),
+        onSelected: onExport,
+      ),
+    if (canWrite)
+      WorkspaceEditorAction(
+        label: l10n.workspaceToolDelete,
+        icon: Icons.delete_outline,
+        isDestructive: true,
+        menuKey: const Key('workspace-tool-action-delete'),
+        onSelected: onDelete,
+      ),
+  ];
 }

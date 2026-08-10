@@ -12,12 +12,10 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
-import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../controllers/direct_connection_editor_controller.dart';
 export '../controllers/direct_connection_editor_controller.dart';
@@ -25,8 +23,7 @@ import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
-
-part 'direct_connection_editor_sections.dart';
+import 'direct_connection_editor_sections.dart';
 
 final class _OpenWebUiDirectConnectionOwnershipChanged implements Exception {
   const _OpenWebUiDirectConnectionOwnershipChanged();
@@ -57,39 +54,40 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  final _draftController = DirectConnectionEditorController();
-
-  void _mutate(VoidCallback callback) => setState(callback);
-
-  DirectConnectionProfile? _savedProfile;
-  OpenWebUiDirectConnectionRecord? _savedOpenWebUiRecord;
+  late final DirectConnectionEditorController _draftController;
   String? _openWebUiOwnerServerId;
   String? _openWebUiOwnerAccountId;
   Object? _openWebUiOwnerAuthEpoch;
   bool _openWebUiOwnerCaptured = false;
-  String _adapterKey = kOpenAiCompatibleAdapterKey;
-  String _providerPreset = kOpenAiCompatibleAdapterKey;
-  DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-  DirectAuthenticationMode _authentication = DirectAuthenticationMode.bearer;
-  bool _enabled = true;
   bool _hydrated = false;
-  bool _apiKeyDirty = false;
-  bool _headersDirty = false;
-  bool _showApiKey = false;
-  bool _showAdvancedSettings = false;
   bool _saving = false;
   bool _testing = false;
   bool _deleting = false;
-  bool _originSecretsConfirmed = false;
   ConnectionAttemptState _attempt = const ConnectionAttemptState.idle();
-  String? _nameError;
-  String? _urlError;
-  String? _apiKeyError;
-  String? _headersError;
-  String? _formError;
+  String? _operationError;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftController = DirectConnectionEditorController(
+      isOpenWebUi: widget.isOpenWebUi,
+      isNew: widget.isNew,
+      onDraftChanged: _handleDraftChanged,
+    )..addListener(_handleDraftControllerChanged);
+  }
+
+  void _handleDraftChanged() {
+    _operationError = null;
+    _attempt = const ConnectionAttemptState.idle();
+  }
+
+  void _handleDraftControllerChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
+    _draftController.removeListener(_handleDraftControllerChanged);
     _draftController.dispose();
     super.dispose();
   }
@@ -100,50 +98,15 @@ class _DirectConnectionEditorPageState
   }) {
     if (_hydrated) return;
     _hydrated = true;
-    _savedProfile = profile;
-    _savedOpenWebUiRecord = openWebUiRecord;
-    _draftController.hydrate(profile);
-    if (profile == null) {
-      return;
-    }
-    _adapterKey = profile.adapterKey;
-    _providerPreset = profile.isOpenRouter
-        ? kOpenRouterProviderPreset
-        : profile.adapterKey;
-    _openAiApiMode = profile.openAiApiMode;
-    _authentication = openWebUiRecord == null
-        ? profile.isOpenRouter
-              ? DirectAuthenticationMode.bearer
-              : (profile.apiKey ?? '').isEmpty
-              ? DirectAuthenticationMode.none
-              : switch (profile.apiKeyAuthMode) {
-                  DirectApiKeyAuthMode.bearer =>
-                    DirectAuthenticationMode.bearer,
-                  DirectApiKeyAuthMode.apiKeyHeader =>
-                    DirectAuthenticationMode.apiKeyHeader,
-                }
-        : switch (openWebUiRecord.authType) {
-            'bearer' => DirectAuthenticationMode.bearer,
-            'none' => DirectAuthenticationMode.none,
-            _ => DirectAuthenticationMode.unsupported,
-          };
-    _enabled = profile.enabled;
+    _draftController.hydrate(profile, openWebUiRecord: openWebUiRecord);
   }
 
   void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
-    final savedRecord = _savedOpenWebUiRecord;
-    if (!_hydrated ||
-        record == null ||
-        savedRecord == null ||
-        savedRecord.profile.id != record.profile.id ||
-        savedRecord.contentRevision != record.contentRevision) {
-      return;
-    }
+    if (!_hydrated) return;
     // A pure reindex changes the compare-and-swap revision without changing
     // the raw content. Refresh only that authoritative base; a same-id edit
     // (for example enable/tags) must retain the stale revision and conflict.
-    _savedOpenWebUiRecord = record;
-    _savedProfile = record.profile;
+    _draftController.refreshOpenWebUiRecord(record);
   }
 
   DirectConnectionProfile? _profileById(
@@ -154,19 +117,6 @@ class _DirectConnectionEditorPageState
       if (profile.id == widget.profileId) return profile;
     }
     return null;
-  }
-
-  bool get _originChanged {
-    final saved = _savedProfile;
-    if (saved == null) return false;
-    return DirectConnectionProfile.originOf(saved.baseUrl) !=
-        DirectConnectionProfile.originOf(_draftController.baseUrl.text);
-  }
-
-  bool get _savedHasOriginBoundSecrets {
-    final saved = _savedProfile;
-    return saved != null &&
-        ((saved.apiKey?.isNotEmpty ?? false) || saved.customHeaders.isNotEmpty);
   }
 
   bool get _busy => _saving || _testing || _deleting;
@@ -200,7 +150,7 @@ class _DirectConnectionEditorPageState
     if (!widget.isOpenWebUi || _openWebUiOwnerIsCurrent()) return true;
     if (mounted) {
       setState(() {
-        _formError = AppLocalizations.of(
+        _operationError = AppLocalizations.of(
           context,
         )!.openWebUiDirectConnectionsUnavailable;
       });
@@ -208,160 +158,21 @@ class _DirectConnectionEditorPageState
     return false;
   }
 
-  // Empty header values are valid HTTP and are supported by the persisted
-  // profile model. A name is therefore enough to add a pending header.
-  bool get _canAddCustomHeader =>
-      _draftController.headerName.text.trim().isNotEmpty;
-
-  bool get _originBoundSecretsReviewed {
-    final saved = _savedProfile;
-    if (saved == null || !_originChanged) return true;
-    final apiKeyReviewed = !(saved.apiKey?.isNotEmpty ?? false) || _apiKeyDirty;
-    final headersReviewed = saved.customHeaders.isEmpty || _headersDirty;
-    return apiKeyReviewed && headersReviewed;
-  }
-
   DirectConnectionProfile? _buildDraft({required bool validateFields}) {
     final l10n = AppLocalizations.of(context)!;
-    final pendingHeaderReady = !validateFields || _commitPendingCustomHeader();
-    if (!pendingHeaderReady) return null;
     final result = _draftController.buildDraft(
-      DirectDraftBuildRequest(
-        saved: _savedProfile,
-        isOpenWebUi: widget.isOpenWebUi,
-        isNew: widget.isNew,
-        savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
-        adapterKey: _adapterKey,
-        openAiApiMode: _openAiApiMode,
-        authentication: _authentication,
-        enabled: _enabled,
-        apiKeyDirty: _apiKeyDirty,
-        originChanged: _originChanged,
-        originBoundSecretsReviewed: _originBoundSecretsReviewed,
-        isOpenRouter: _providerPreset == kOpenRouterProviderPreset,
-        openWebUiFallbackName: l10n.openWebUiDirectConnectionFallbackName,
-        nameRequiredMessage: l10n.directConnectionNameRequired,
-        invalidUrlMessage: l10n.directConnectionUrlInvalid,
-        invalidOpenRouterUrlMessage: l10n.directOpenRouterUrlInvalid,
-        credentialsReentryMessage:
-            l10n.directConnectionCredentialsReentryRequired,
-        apiKeyRequiredMessage: l10n.directConnectionApiKeyRequired,
-        unsupportedAuthenticationMessage:
-            l10n.openWebUiDirectConnectionUnsupportedAuth,
-      ),
+      validateFields: validateFields,
+      openWebUiFallbackName: l10n.openWebUiDirectConnectionFallbackName,
     );
-    if (validateFields) {
-      setState(() {
-        _nameError = result.errors.name;
-        _urlError = result.errors.url;
-        _apiKeyError = result.errors.apiKey;
-        _formError = result.errors.form;
-      });
-    }
     return result.profile;
-  }
-
-  void _clearTransientState() {
-    setState(() {
-      _nameError = null;
-      _urlError = null;
-      _apiKeyError = null;
-      _headersError = null;
-      _formError = null;
-      _attempt = const ConnectionAttemptState.idle();
-    });
-  }
-
-  void _invalidateOriginSecretConfirmation() {
-    _originSecretsConfirmed = false;
-    _clearTransientState();
-  }
-
-  String? _validateHeaderName(String source) {
-    final name = source.trim();
-    final l10n = AppLocalizations.of(context)!;
-    if (name.isEmpty) return null;
-    if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
-      return l10n.headerNameInvalidChars;
-    }
-    if (DirectConnectionProfile.reservedHeaderNames.contains(
-      name.toLowerCase(),
-    )) {
-      return l10n.headerNameReserved(name);
-    }
-    final duplicate = _draftController.customHeaders.keys.any(
-      (existing) => existing.toLowerCase() == name.toLowerCase(),
-    );
-    if (duplicate) return l10n.headerAlreadyExists(name);
-    return null;
-  }
-
-  String? _validateHeaderValue(String source) {
-    if (!DirectConnectionProfile.isValidCustomHeaderValue(source)) {
-      return AppLocalizations.of(context)!.headerValueInvalidChars;
-    }
-    return null;
-  }
-
-  bool _commitPendingCustomHeader() {
-    final hasName = _draftController.headerName.text.trim().isNotEmpty;
-    final hasValue = _draftController.headerValue.text.isNotEmpty;
-    if (!hasName && !hasValue) return true;
-    if (!hasName) {
-      setState(() {
-        _showAdvancedSettings = true;
-        _headersError = AppLocalizations.of(
-          context,
-        )!.directConnectionHeaderNameRequired;
-      });
-      return false;
-    }
-    return _addCustomHeader();
-  }
-
-  void _markHeadersChanged() {
-    _headersDirty = true;
-    _originSecretsConfirmed = false;
-    _headersError = null;
-    _formError = null;
-    _attempt = const ConnectionAttemptState.idle();
-  }
-
-  bool _addCustomHeader() {
-    if (!_canAddCustomHeader) return false;
-    final name = _draftController.headerName.text.trim();
-    final value = _draftController.headerValue.text;
-    final error = _validateHeaderName(name) ?? _validateHeaderValue(value);
-    if (error != null) {
-      setState(() {
-        _showAdvancedSettings = true;
-        _headersError = error;
-      });
-      return false;
-    }
-
-    setState(() {
-      _draftController.customHeaders[name] = value;
-      _draftController.headerName.clear();
-      _draftController.headerValue.clear();
-      _markHeadersChanged();
-    });
-    return true;
-  }
-
-  void _removeCustomHeader(String name) {
-    setState(() {
-      _draftController.customHeaders.remove(name);
-      _markHeadersChanged();
-    });
   }
 
   Future<bool> _confirmOriginSecretTransfer(
     DirectConnectionProfile draft,
   ) async {
-    if (_originSecretsConfirmed ||
+    if (_draftController.originSecretsConfirmed ||
         !requiresDirectOriginCredentialConfirmation(
-          previous: _savedProfile,
+          previous: _draftController.savedProfile,
           draft: draft,
         )) {
       return true;
@@ -375,7 +186,7 @@ class _DirectConnectionEditorPageState
       barrierDismissible: false,
     );
     if (confirmed && mounted) {
-      setState(() => _originSecretsConfirmed = true);
+      _draftController.markOriginSecretsConfirmed();
     }
     return confirmed;
   }
@@ -402,7 +213,7 @@ class _DirectConnectionEditorPageState
         final controller = ref.read(
           openWebUiDirectConnectionsProvider.notifier,
         );
-        final authType = switch (_authentication) {
+        final authType = switch (_draftController.authentication) {
           DirectAuthenticationMode.bearer => 'bearer',
           DirectAuthenticationMode.none => 'none',
           DirectAuthenticationMode.apiKeyHeader ||
@@ -411,7 +222,7 @@ class _DirectConnectionEditorPageState
         if (widget.isNew) {
           await controller.add(draft, authType: authType);
         } else {
-          final record = _savedOpenWebUiRecord;
+          final record = _draftController.savedOpenWebUiRecord;
           if (record == null) {
             throw StateError('Open WebUI direct connection not found.');
           }
@@ -426,11 +237,11 @@ class _DirectConnectionEditorPageState
             .read(directConnectionProfilesProvider.notifier)
             .upsert(
               draft,
-              expectedPrevious: _savedProfile,
+              expectedPrevious: _draftController.savedProfile,
               secretsConfirmedForNewOrigin:
-                  !_originChanged ||
-                  !_savedHasOriginBoundSecrets ||
-                  _originSecretsConfirmed,
+                  !_draftController.originChanged ||
+                  !_draftController.savedHasOriginBoundSecrets ||
+                  _draftController.originSecretsConfirmed,
             );
       }
       if (!mounted) return;
@@ -471,7 +282,7 @@ class _DirectConnectionEditorPageState
     final message = AppLocalizations.of(context)!.directConnectionSaveConflict;
     setState(() {
       _saving = false;
-      _formError = message;
+      _operationError = message;
     });
     AdaptiveSnackBar.show(
       context,
@@ -536,7 +347,7 @@ class _DirectConnectionEditorPageState
 
   Future<void> _delete() async {
     if (_busy) return;
-    final saved = _savedProfile;
+    final saved = _draftController.savedProfile;
     if (saved == null) return;
     final l10n = AppLocalizations.of(context)!;
     setState(() => _deleting = true);
@@ -595,7 +406,7 @@ class _DirectConnectionEditorPageState
           throw const _OpenWebUiDirectConnectionOwnershipChanged();
         }
         if (widget.isOpenWebUi) {
-          final record = _savedOpenWebUiRecord;
+          final record = _draftController.savedOpenWebUiRecord;
           if (record == null) {
             throw StateError('Open WebUI direct connection not found.');
           }
@@ -814,8 +625,10 @@ class _DirectConnectionEditorPageState
   Widget _buildForm(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final isOllama = _adapterKey == kOllamaAdapterKey;
-    final isOpenRouter = _providerPreset == kOpenRouterProviderPreset;
+    final formError =
+        _operationError ??
+        directDraftValidationMessage(l10n, _draftController.errors.form) ??
+        _draftController.errors.profile;
     final content = <Widget>[
       UtilityIdentityHeader(
         leading: ConnectionMark(
@@ -846,16 +659,13 @@ class _DirectConnectionEditorPageState
       ),
       const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
-        _buildAvailabilitySection(),
+        DirectConnectionAvailabilitySection(controller: _draftController),
         const SizedBox(height: Spacing.lg),
       ],
-      _buildProviderSection(),
+      DirectConnectionProviderSection(controller: _draftController),
       const SizedBox(height: Spacing.lg),
-      _buildConnectionDetailsSection(
-        isOllama: isOllama,
-        isOpenRouter: isOpenRouter,
-      ),
-      if (_formError != null) ...[
+      DirectConnectionDetailsSection(controller: _draftController),
+      if (formError != null) ...[
         const SizedBox(height: Spacing.lg),
         Container(
           key: const ValueKey<String>('direct-form-error'),
@@ -866,13 +676,13 @@ class _DirectConnectionEditorPageState
             border: Border.all(color: theme.error.withValues(alpha: 0.3)),
           ),
           child: Text(
-            _formError!,
+            formError,
             style: theme.bodySmall?.copyWith(color: theme.error),
           ),
         ),
       ],
       const SizedBox(height: Spacing.lg),
-      _buildAdvancedSettings(),
+      DirectConnectionAdvancedSettingsSection(controller: _draftController),
       if (!widget.isOnboarding) ...[
         const SizedBox(height: Spacing.lg),
         Wrap(
@@ -887,7 +697,8 @@ class _DirectConnectionEditorPageState
               onPressed:
                   _testing ||
                       _deleting ||
-                      _authentication == DirectAuthenticationMode.unsupported
+                      _draftController.authentication ==
+                          DirectAuthenticationMode.unsupported
                   ? null
                   : _save,
             ),
@@ -899,7 +710,8 @@ class _DirectConnectionEditorPageState
               onPressed:
                   _saving ||
                       _deleting ||
-                      _authentication == DirectAuthenticationMode.unsupported
+                      _draftController.authentication ==
+                          DirectAuthenticationMode.unsupported
                   ? null
                   : _testConnection,
             ),
@@ -953,7 +765,7 @@ class _DirectConnectionEditorPageState
                       _testing ||
                           _saving ||
                           _deleting ||
-                          _authentication ==
+                          _draftController.authentication ==
                               DirectAuthenticationMode.unsupported
                       ? null
                       : _connectAndSave,
