@@ -193,7 +193,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
       if (mode != WorkspaceRouteMode.detail && onSave != null)
         AdaptiveAppBarAction(
           title: isSaving ? l10n.workspaceEditorSaving : l10n.save,
-          onPressed: canSave && !isSaving ? () => onSave!() : () {},
+          onPressed: canSave && !isSaving ? () => onSave!() : null,
         ),
       if (this.actions.isNotEmpty)
         AdaptiveAppBarAction(

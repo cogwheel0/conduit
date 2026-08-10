@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../../core/services/performance_profiler.dart';
 import '../../shared/theme/theme_extensions.dart';
 import 'drawer_slot.dart';
+import 'resizable_tablet_sidebar.dart';
 import 'sidebar_layout_constants.dart';
 
 /// Matches the breakpoint used by [ResponsiveDrawerLayout] for its persistent
@@ -66,124 +66,7 @@ class PersistentTabletSidebarScope extends InheritedWidget {
       active != oldWidget.active;
 }
 
-class _TabletSidebarResizeHandle extends StatefulWidget {
-  const _TabletSidebarResizeHandle({
-    required this.active,
-    required this.dividerColor,
-    required this.activeColor,
-    required this.semanticsLabel,
-    required this.semanticsHint,
-    required this.semanticsValue,
-    required this.semanticsIncreasedValue,
-    required this.semanticsDecreasedValue,
-    required this.onDragStart,
-    required this.onDragUpdate,
-    required this.onDragEnd,
-    required this.onDragCancel,
-    required this.onReset,
-    required this.onIncrease,
-    required this.onDecrease,
-  });
-
-  final bool active;
-  final Color dividerColor;
-  final Color activeColor;
-  final String? semanticsLabel;
-  final String? semanticsHint;
-  final String semanticsValue;
-  final String semanticsIncreasedValue;
-  final String semanticsDecreasedValue;
-  final VoidCallback onDragStart;
-  final ValueChanged<double> onDragUpdate;
-  final VoidCallback onDragEnd;
-  final VoidCallback onDragCancel;
-  final VoidCallback onReset;
-  final VoidCallback onIncrease;
-  final VoidCallback onDecrease;
-
-  @override
-  State<_TabletSidebarResizeHandle> createState() =>
-      _TabletSidebarResizeHandleState();
-}
-
-class _TabletSidebarResizeHandleState
-    extends State<_TabletSidebarResizeHandle> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final highlighted = widget.active || _hovered || _focused;
-    final gripColor = highlighted
-        ? widget.activeColor.withValues(alpha: 0.72)
-        : widget.dividerColor;
-    final duration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : AnimationDuration.microInteraction;
-    final dragDirection = Directionality.of(context) == TextDirection.rtl
-        ? -1.0
-        : 1.0;
-
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): dragDirection < 0
-            ? widget.onIncrease
-            : widget.onDecrease,
-        const SingleActivator(LogicalKeyboardKey.arrowRight): dragDirection < 0
-            ? widget.onDecrease
-            : widget.onIncrease,
-      },
-      child: FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.resizeColumn,
-        onShowHoverHighlight: (value) => setState(() => _hovered = value),
-        onShowFocusHighlight: (value) => setState(() => _focused = value),
-        child: Semantics(
-          container: true,
-          focusable: true,
-          label: widget.semanticsLabel,
-          hint: widget.semanticsHint,
-          value: widget.semanticsValue,
-          increasedValue: widget.semanticsIncreasedValue,
-          decreasedValue: widget.semanticsDecreasedValue,
-          onTap: widget.onReset,
-          onIncrease: widget.onIncrease,
-          onDecrease: widget.onDecrease,
-          child: Listener(
-            onPointerCancel: (_) => widget.onDragCancel(),
-            child: GestureDetector(
-              key: const ValueKey<String>('tablet-sidebar-resize-handle'),
-              behavior: HitTestBehavior.translucent,
-              dragStartBehavior: DragStartBehavior.down,
-              onDoubleTap: widget.onReset,
-              onHorizontalDragStart: (_) => widget.onDragStart(),
-              onHorizontalDragUpdate: (details) => widget.onDragUpdate(
-                (details.primaryDelta ?? 0) * dragDirection,
-              ),
-              onHorizontalDragEnd: (_) => widget.onDragEnd(),
-              onHorizontalDragCancel: widget.onDragCancel,
-              child: Center(
-                child: AnimatedContainer(
-                  duration: duration,
-                  curve: Curves.easeOutCubic,
-                  width: highlighted ? 3 : 2,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: gripColor,
-                    borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 enum _DrawerSettleEndpoint { open, closed }
-
-enum _TabletWidthTransition { idle, direct, reset }
 
 class _HorizontalScrollableHit {
   const _HorizontalScrollableHit({required this.isAtOpenGestureLeadingEdge});
@@ -478,15 +361,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   VelocityTracker? _edgeVelocityTracker;
   bool _edgePointerSuppressedByHorizontalScrollable = false;
   double _edgePointerActivationThreshold = _kEdgeOpenTouchSlop;
-  late double _tabletPreferredWidth = _clampConfiguredTabletWidth(
-    widget.tabletDrawerWidth,
-  );
-  double? _tabletResizeStartPreferredWidth;
-  double? _tabletResizeAnchorWidth;
-  double _tabletResizeCumulativeDelta = 0.0;
-  bool _isTabletResizing = false;
-  Timer? _tabletKeyboardCommitTimer;
-  _TabletWidthTransition _tabletWidthTransition = _TabletWidthTransition.idle;
 
   /// Spring description matching iOS navigation drawer physics.
   static final SpringDescription _spring = SpringDescription(
@@ -495,38 +369,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     damping: 44.0,
   );
 
-  /// Duration for tablet animated container transitions.
-  static const Duration _tabletDuration = Duration(milliseconds: 250);
-  static const Duration _tabletResetDuration = Duration(milliseconds: 200);
-  static const double _tabletResizeStep = 20.0;
-  static const double _tabletResizeHandleHitWidth = 44.0;
-
   bool _isTablet(BuildContext context) {
     _cachedIsTablet = usesPersistentTabletSidebar(context);
     return _cachedIsTablet;
   }
-
-  double _clampConfiguredTabletWidth(double width) => width
-      .clamp(widget.tabletDrawerMinWidth, widget.tabletDrawerMaxWidth)
-      .toDouble();
-
-  double _effectiveTabletMaximum(double viewportWidth) {
-    final protectedContentMaximum = math.max(
-      defaultSidebarTabletWidth,
-      viewportWidth - widget.tabletMinimumContentWidth,
-    );
-    return math
-        .min(widget.tabletDrawerMaxWidth, protectedContentMaximum)
-        .clamp(widget.tabletDrawerMinWidth, widget.tabletDrawerMaxWidth)
-        .toDouble();
-  }
-
-  double _effectiveTabletWidth(double viewportWidth) => _tabletPreferredWidth
-      .clamp(
-        widget.tabletDrawerMinWidth,
-        _effectiveTabletMaximum(viewportWidth),
-      )
-      .toDouble();
 
   void _setComposeMobileDrawerChrome(bool value) {
     if (_composeMobileDrawerChrome == value || !mounted) return;
@@ -631,12 +477,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   @override
   void didUpdateWidget(covariant ResponsiveDrawerLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_isTabletResizing &&
-        widget.tabletDrawerWidth != oldWidget.tabletDrawerWidth) {
-      _tabletPreferredWidth = _clampConfiguredTabletWidth(
-        widget.tabletDrawerWidth,
-      );
-    }
     if (!widget.tabletDismissible) {
       final compositionChanged = !_composeTabletDrawerChrome;
       if (!_isTabletDocked || compositionChanged) {
@@ -1206,248 +1046,37 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   void _handleTabletDrawerAnimationEnd() {
     _setComposeTabletDrawerChrome(!widget.tabletDismissible || _isTabletDocked);
-    if (_tabletWidthTransition == _TabletWidthTransition.reset && mounted) {
-      setState(() => _tabletWidthTransition = _TabletWidthTransition.idle);
-    }
-  }
-
-  void _scheduleTabletWidthTransitionIdle() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _isTabletResizing) return;
-      if (_tabletWidthTransition == _TabletWidthTransition.direct) {
-        setState(() => _tabletWidthTransition = _TabletWidthTransition.idle);
-      }
-    });
-  }
-
-  void _beginTabletResize(double viewportWidth) {
-    if (!widget.tabletResizable || !_isTabletDocked) return;
-    final effectiveWidth = _effectiveTabletWidth(viewportWidth);
-    setState(() {
-      _tabletResizeStartPreferredWidth = _tabletPreferredWidth;
-      _tabletResizeAnchorWidth = effectiveWidth;
-      _tabletResizeCumulativeDelta = 0.0;
-      _tabletPreferredWidth = effectiveWidth;
-      _isTabletResizing = true;
-      _tabletWidthTransition = _TabletWidthTransition.direct;
-    });
-  }
-
-  void _updateTabletResize(double delta, double viewportWidth) {
-    if (!_isTabletResizing) return;
-    _tabletResizeCumulativeDelta += delta;
-    final anchorWidth = _tabletResizeAnchorWidth ?? _tabletPreferredWidth;
-    final nextWidth = (anchorWidth + _tabletResizeCumulativeDelta)
-        .clamp(
-          widget.tabletDrawerMinWidth,
-          _effectiveTabletMaximum(viewportWidth),
-        )
-        .toDouble();
-    if (nextWidth == _tabletPreferredWidth) return;
-    setState(() => _tabletPreferredWidth = nextWidth);
-  }
-
-  void _endTabletResize() {
-    if (!_isTabletResizing) return;
-    final committedWidth = _tabletPreferredWidth;
-    setState(() {
-      _isTabletResizing = false;
-      _tabletResizeStartPreferredWidth = null;
-      _tabletResizeAnchorWidth = null;
-      _tabletResizeCumulativeDelta = 0.0;
-      _tabletWidthTransition = _TabletWidthTransition.direct;
-    });
-    widget.onTabletDrawerWidthChanged?.call(committedWidth);
-    _scheduleTabletWidthTransitionIdle();
-  }
-
-  void _cancelTabletResize() {
-    if (!_isTabletResizing) return;
-    final restoredWidth = _tabletResizeStartPreferredWidth;
-    setState(() {
-      if (restoredWidth != null) {
-        _tabletPreferredWidth = restoredWidth;
-      }
-      _isTabletResizing = false;
-      _tabletResizeStartPreferredWidth = null;
-      _tabletResizeAnchorWidth = null;
-      _tabletResizeCumulativeDelta = 0.0;
-      _tabletWidthTransition = _TabletWidthTransition.direct;
-    });
-    _scheduleTabletWidthTransitionIdle();
-  }
-
-  void _adjustTabletWidth(double delta, double viewportWidth) {
-    if (!widget.tabletResizable || !_isTabletDocked) return;
-    final currentWidth = _effectiveTabletWidth(viewportWidth);
-    final nextWidth = (currentWidth + delta)
-        .clamp(
-          widget.tabletDrawerMinWidth,
-          _effectiveTabletMaximum(viewportWidth),
-        )
-        .toDouble();
-    if (nextWidth == currentWidth) return;
-    setState(() {
-      _tabletPreferredWidth = nextWidth;
-      _tabletWidthTransition = _TabletWidthTransition.direct;
-    });
-    _tabletKeyboardCommitTimer?.cancel();
-    _tabletKeyboardCommitTimer = Timer(
-      const Duration(milliseconds: 200),
-      () => widget.onTabletDrawerWidthChanged?.call(nextWidth),
-    );
-    _scheduleTabletWidthTransitionIdle();
-  }
-
-  void _resetTabletWidth(double viewportWidth) {
-    if (!widget.tabletResizable || !_isTabletDocked) return;
-    final resetWidth = _clampConfiguredTabletWidth(defaultSidebarTabletWidth);
-    if (resetWidth == _tabletPreferredWidth) return;
-    final previousEffectiveWidth = _effectiveTabletWidth(viewportWidth);
-    setState(() {
-      _tabletPreferredWidth = resetWidth;
-      _tabletWidthTransition = _TabletWidthTransition.reset;
-    });
-    _tabletKeyboardCommitTimer?.cancel();
-    widget.onTabletDrawerWidthChanged?.call(resetWidth);
-    if (MediaQuery.disableAnimationsOf(context) ||
-        _effectiveTabletWidth(viewportWidth) == previousEffectiveWidth) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _tabletWidthTransition == _TabletWidthTransition.reset) {
-          setState(() => _tabletWidthTransition = _TabletWidthTransition.idle);
-        }
-      });
-    }
-  }
-
-  Duration _tabletLayoutDuration(BuildContext context) {
-    if (_isTabletResizing ||
-        _tabletWidthTransition == _TabletWidthTransition.direct) {
-      return Duration.zero;
-    }
-    if (_tabletWidthTransition == _TabletWidthTransition.reset) {
-      return MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : _tabletResetDuration;
-    }
-    return _tabletDuration;
   }
 
   Widget _buildTabletLayout(ConduitThemeExtension theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final viewportWidth = constraints.hasBoundedWidth
-            ? constraints.maxWidth
-            : MediaQuery.sizeOf(context).width;
-        return _buildTabletLayoutForWidth(theme, viewportWidth);
-      },
+    final drawer = _scopeDrawer(
+      PersistentTabletSidebarScope(
+        active: true,
+        child: widget.drawer is DrawerSlot
+            ? _buildTabletDrawerSlot(theme, widget.drawer as DrawerSlot)
+            : ColoredBox(color: theme.surfaceBackground, child: widget.drawer),
+      ),
+      composeNativeChrome: _composeTabletDrawerChrome,
     );
-  }
-
-  Widget _buildTabletLayoutForWidth(
-    ConduitThemeExtension theme,
-    double viewportWidth,
-  ) {
-    final effectiveWidth = _effectiveTabletWidth(viewportWidth);
-    final targetWidth = widget.tabletDismissible && !_isTabletDocked
-        ? 0.0
-        : effectiveWidth;
-    final duration = _tabletLayoutDuration(context);
-    final showResizeHandle =
-        widget.tabletResizable &&
-        (!widget.tabletDismissible || _isTabletDocked) &&
-        targetWidth > 0;
-    final dividerColor = context.sidebarTheme.border;
-    final effectiveMaximum = _effectiveTabletMaximum(viewportWidth);
-    String resizeSemanticsValue(double width) =>
-        widget.tabletResizeSemanticsValueBuilder?.call(width) ??
-        width.round().toString();
-
-    return Stack(
-      children: [
-        Row(
-          children: [
-            // Persistent drawer
-            AnimatedContainer(
-              key: const ValueKey<String>('tablet-drawer-panel'),
-              duration: duration,
-              curve: Curves.easeOutCubic,
-              onEnd: _handleTabletDrawerAnimationEnd,
-              width: targetWidth,
-              decoration: BoxDecoration(
-                color: theme.surfaceBackground,
-                border: _composeTabletDrawerChrome
-                    ? BorderDirectional(
-                        end: BorderSide(
-                          color: dividerColor,
-                          width: BorderWidth.thin,
-                        ),
-                      )
-                    : null,
-              ),
-              child: ClipRect(
-                child: IgnorePointer(
-                  ignoring: widget.tabletDismissible && !_isTabletDocked,
-                  child: _scopeDrawer(
-                    PersistentTabletSidebarScope(
-                      active: true,
-                      child: widget.drawer is DrawerSlot
-                          ? _buildTabletDrawerSlot(
-                              theme,
-                              widget.drawer as DrawerSlot,
-                            )
-                          : ColoredBox(
-                              color: theme.surfaceBackground,
-                              child: widget.drawer,
-                            ),
-                    ),
-                    composeNativeChrome: _composeTabletDrawerChrome,
-                  ),
-                ),
-              ),
-            ),
-            Expanded(child: widget.child),
-          ],
-        ),
-        if (showResizeHandle)
-          AnimatedPositionedDirectional(
-            key: const ValueKey<String>('tablet-sidebar-resize-position'),
-            duration: duration,
-            curve: Curves.easeOutCubic,
-            start: targetWidth - (_tabletResizeHandleHitWidth / 2),
-            top: 0,
-            bottom: 0,
-            width: _tabletResizeHandleHitWidth,
-            child: _TabletSidebarResizeHandle(
-              active: _isTabletResizing,
-              dividerColor: dividerColor,
-              activeColor: theme.buttonPrimary,
-              semanticsLabel: widget.tabletResizeSemanticsLabel,
-              semanticsHint: widget.tabletResizeSemanticsHint,
-              semanticsValue: resizeSemanticsValue(effectiveWidth),
-              semanticsIncreasedValue: resizeSemanticsValue(
-                (effectiveWidth + _tabletResizeStep)
-                    .clamp(widget.tabletDrawerMinWidth, effectiveMaximum)
-                    .toDouble(),
-              ),
-              semanticsDecreasedValue: resizeSemanticsValue(
-                (effectiveWidth - _tabletResizeStep)
-                    .clamp(widget.tabletDrawerMinWidth, effectiveMaximum)
-                    .toDouble(),
-              ),
-              onDragStart: () => _beginTabletResize(viewportWidth),
-              onDragUpdate: (delta) =>
-                  _updateTabletResize(delta, viewportWidth),
-              onDragEnd: _endTabletResize,
-              onDragCancel: _cancelTabletResize,
-              onReset: () => _resetTabletWidth(viewportWidth),
-              onIncrease: () =>
-                  _adjustTabletWidth(_tabletResizeStep, viewportWidth),
-              onDecrease: () =>
-                  _adjustTabletWidth(-_tabletResizeStep, viewportWidth),
-            ),
-          ),
-      ],
+    return ResizableTabletSidebar(
+      drawer: drawer,
+      content: widget.child,
+      configuredWidth: widget.tabletDrawerWidth,
+      minimumWidth: widget.tabletDrawerMinWidth,
+      maximumWidth: widget.tabletDrawerMaxWidth,
+      minimumContentWidth: widget.tabletMinimumContentWidth,
+      resizable: widget.tabletResizable,
+      dismissible: widget.tabletDismissible,
+      docked: _isTabletDocked,
+      composeDrawerChrome: _composeTabletDrawerChrome,
+      drawerColor: theme.surfaceBackground,
+      dividerColor: context.sidebarTheme.border,
+      activeColor: theme.buttonPrimary,
+      onDrawerAnimationEnd: _handleTabletDrawerAnimationEnd,
+      onWidthChanged: widget.onTabletDrawerWidthChanged,
+      resizeSemanticsLabel: widget.tabletResizeSemanticsLabel,
+      resizeSemanticsHint: widget.tabletResizeSemanticsHint,
+      resizeSemanticsValueBuilder: widget.tabletResizeSemanticsValueBuilder,
     );
   }
 
@@ -1555,7 +1184,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   void dispose() {
-    _tabletKeyboardCommitTimer?.cancel();
     _controller.removeStatusListener(_onControllerStatusChanged);
     _controller.dispose();
     super.dispose();

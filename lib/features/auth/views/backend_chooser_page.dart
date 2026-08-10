@@ -7,7 +7,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
-import '../widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 /// First-run screen letting a fresh install choose its backend: a self-hosted
 /// Open WebUI, direct model APIs, or a Hermes Agent.
@@ -53,12 +53,12 @@ class BackendChooserPage extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: Spacing.xxl),
-                  ConnectionSection(
+                  InsetGroupedSection(
                     title: '',
                     padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
                     child: Column(
                       children: [
-                        ConnectionChoiceRow(
+                        UtilitySelectionRow(
                           leading: const _ProviderLogo(
                             assetName: 'assets/icons/open_webui.png',
                             kind: _ProviderLogoKind.openWebUI,
@@ -71,7 +71,7 @@ class BackendChooserPage extends ConsumerWidget {
                           trailing: _chooserChevron(context),
                           onTap: () => context.go(Routes.serverConnection),
                         ),
-                        ConnectionChoiceRow(
+                        UtilitySelectionRow(
                           leading: const _DirectConnectionIcon(),
                           title: l10n.backendChooserDirectTitle,
                           subtitle: l10n.backendChooserDirectSubtitle,
@@ -88,7 +88,7 @@ class BackendChooserPage extends ConsumerWidget {
                             },
                           ),
                         ),
-                        ConnectionChoiceRow(
+                        UtilitySelectionRow(
                           leading: const _ProviderLogo(
                             assetName: 'assets/icons/hermes_agent.png',
                             kind: _ProviderLogoKind.hermes,

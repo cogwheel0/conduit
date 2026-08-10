@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/providers/app_providers.dart';
@@ -18,110 +16,20 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
-import '../../auth/widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
+import '../controllers/direct_connection_editor_controller.dart';
+export '../controllers/direct_connection_editor_controller.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
 
-enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
-
-const String _openRouterProviderPreset = 'openrouter';
+part 'direct_connection_editor_sections.dart';
 
 final class _OpenWebUiDirectConnectionOwnershipChanged implements Exception {
   const _OpenWebUiDirectConnectionOwnershipChanged();
-}
-
-@visibleForTesting
-Map<String, String> parseDirectCustomHeaders(String source) {
-  final trimmed = source.trim();
-  if (trimmed.isEmpty) return const {};
-  final decoded = jsonDecode(trimmed);
-  if (decoded is! Map) {
-    throw const FormatException('Enter a JSON object.');
-  }
-  final result = <String, String>{};
-  for (final entry in decoded.entries) {
-    if (entry.key is! String || entry.value is! String) {
-      throw const FormatException('Header names and values must be text.');
-    }
-    result[(entry.key as String).trim()] = entry.value as String;
-  }
-  return result;
-}
-
-@visibleForTesting
-List<String> parseDirectManualModelIds(String source) {
-  final seen = <String>{};
-  return [
-    for (final line in source.split(RegExp(r'[\r\n,]+')))
-      if (line.trim().isNotEmpty && seen.add(line.trim())) line.trim(),
-  ];
-}
-
-@visibleForTesting
-List<String> parseDirectModelTags(String source) =>
-    parseDirectManualModelIds(source);
-
-@visibleForTesting
-String normalizeDirectBaseUrl(String source) {
-  var value = source.trim();
-  while (value.endsWith('/') && Uri.tryParse(value)?.path != '/') {
-    value = value.substring(0, value.length - 1);
-  }
-  return value;
-}
-
-@visibleForTesting
-bool requiresDirectApiKey({
-  required DirectAuthenticationMode authentication,
-  required bool isOpenWebUi,
-  required bool isNew,
-  required String? savedOpenWebUiAuthType,
-  required bool apiKeyDirty,
-  required bool originChanged,
-}) {
-  if (authentication != DirectAuthenticationMode.bearer &&
-      authentication != DirectAuthenticationMode.apiKeyHeader) {
-    return false;
-  }
-  final preservesExistingKeylessBearer =
-      isOpenWebUi &&
-      !isNew &&
-      savedOpenWebUiAuthType == 'bearer' &&
-      !apiKeyDirty &&
-      !originChanged;
-  return !preservesExistingKeylessBearer;
-}
-
-@visibleForTesting
-DirectConnectionProfile secureDirectDraftForEditedOrigin({
-  required DirectConnectionProfile? previous,
-  required DirectConnectionProfile draft,
-  required bool secretsConfirmedForNewOrigin,
-}) {
-  if (previous == null) return draft;
-  return DirectConnectionProfile.secureUpdate(
-    previous: previous,
-    next: draft,
-    secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
-  );
-}
-
-@visibleForTesting
-bool requiresDirectOriginCredentialConfirmation({
-  required DirectConnectionProfile? previous,
-  required DirectConnectionProfile draft,
-}) {
-  if (previous == null || previous.origin == draft.origin) return false;
-  final previousHasCredentials =
-      (previous.apiKey?.isNotEmpty ?? false) ||
-      previous.customHeaders.isNotEmpty;
-  final draftHasCredentials =
-      (draft.apiKey?.isNotEmpty ?? false) || draft.customHeaders.isNotEmpty;
-  return previousHasCredentials && draftHasCredentials;
 }
 
 enum DirectEditorEntry { overview, chooser }
@@ -149,17 +57,9 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  final _nameController = TextEditingController();
-  final _baseUrlController = TextEditingController();
-  final _apiKeyController = TextEditingController();
-  final _apiVersionController = TextEditingController();
-  final _modelIdPrefixController = TextEditingController();
-  final _tagsController = TextEditingController();
-  final _headerNameController = TextEditingController();
-  final _headerValueController = TextEditingController();
-  final _modelsController = TextEditingController();
-  final _headerValueFocusNode = FocusNode();
-  final Map<String, String> _customHeaders = {};
+  final _draftController = DirectConnectionEditorController();
+
+  void _mutate(VoidCallback callback) => setState(callback);
 
   DirectConnectionProfile? _savedProfile;
   OpenWebUiDirectConnectionRecord? _savedOpenWebUiRecord;
@@ -190,16 +90,7 @@ class _DirectConnectionEditorPageState
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _baseUrlController.dispose();
-    _apiKeyController.dispose();
-    _apiVersionController.dispose();
-    _modelIdPrefixController.dispose();
-    _tagsController.dispose();
-    _headerNameController.dispose();
-    _headerValueController.dispose();
-    _modelsController.dispose();
-    _headerValueFocusNode.dispose();
+    _draftController.dispose();
     super.dispose();
   }
 
@@ -211,23 +102,13 @@ class _DirectConnectionEditorPageState
     _hydrated = true;
     _savedProfile = profile;
     _savedOpenWebUiRecord = openWebUiRecord;
+    _draftController.hydrate(profile);
     if (profile == null) {
-      _nameController.text = 'My provider';
-      _baseUrlController.text = 'https://api.openai.com/v1';
       return;
     }
-    _nameController.text = profile.name;
-    _baseUrlController.text = profile.baseUrl;
-    _customHeaders
-      ..clear()
-      ..addAll(profile.customHeaders);
-    _modelsController.text = profile.manualModelIds.join('\n');
-    _apiVersionController.text = profile.apiVersion ?? '';
-    _modelIdPrefixController.text = profile.modelIdPrefix ?? '';
-    _tagsController.text = profile.tags.join(', ');
     _adapterKey = profile.adapterKey;
     _providerPreset = profile.isOpenRouter
-        ? _openRouterProviderPreset
+        ? kOpenRouterProviderPreset
         : profile.adapterKey;
     _openAiApiMode = profile.openAiApiMode;
     _authentication = openWebUiRecord == null
@@ -279,7 +160,7 @@ class _DirectConnectionEditorPageState
     final saved = _savedProfile;
     if (saved == null) return false;
     return DirectConnectionProfile.originOf(saved.baseUrl) !=
-        DirectConnectionProfile.originOf(_baseUrlController.text);
+        DirectConnectionProfile.originOf(_draftController.baseUrl.text);
   }
 
   bool get _savedHasOriginBoundSecrets {
@@ -329,7 +210,8 @@ class _DirectConnectionEditorPageState
 
   // Empty header values are valid HTTP and are supported by the persisted
   // profile model. A name is therefore enough to add a pending header.
-  bool get _canAddCustomHeader => _headerNameController.text.trim().isNotEmpty;
+  bool get _canAddCustomHeader =>
+      _draftController.headerName.text.trim().isNotEmpty;
 
   bool get _originBoundSecretsReviewed {
     final saved = _savedProfile;
@@ -341,120 +223,42 @@ class _DirectConnectionEditorPageState
 
   DirectConnectionProfile? _buildDraft({required bool validateFields}) {
     final l10n = AppLocalizations.of(context)!;
-    final name = widget.isOpenWebUi
-        ? (_savedProfile?.name ?? l10n.openWebUiDirectConnectionFallbackName)
-        : _nameController.text.trim();
-    final baseUrl = normalizeDirectBaseUrl(_baseUrlController.text);
-    var valid = true;
-
-    String? nameError;
-    String? urlError;
-    String? apiKeyError;
     final pendingHeaderReady = !validateFields || _commitPendingCustomHeader();
-    if (!pendingHeaderReady) valid = false;
-
-    if (!widget.isOpenWebUi && name.isEmpty) {
-      valid = false;
-      nameError = l10n.directConnectionNameRequired;
-    }
-    if (DirectConnectionProfile.originOf(baseUrl) == null) {
-      valid = false;
-      urlError = l10n.directConnectionUrlInvalid;
-    } else if (_providerPreset == _openRouterProviderPreset &&
-        !isOpenRouterApiBaseUrl(baseUrl)) {
-      valid = false;
-      urlError = l10n.directOpenRouterUrlInvalid;
-    } else if (!_originBoundSecretsReviewed) {
-      valid = false;
-      urlError = l10n.directConnectionCredentialsReentryRequired;
-    }
-
-    final existingApiKey = _savedProfile?.apiKey?.trim() ?? '';
-    final enteredApiKey = _apiKeyController.text.trim();
-    final apiKey = switch (_authentication) {
-      DirectAuthenticationMode.none => null,
-      DirectAuthenticationMode.bearer ||
-      DirectAuthenticationMode.apiKeyHeader =>
-        _apiKeyDirty || _originChanged ? enteredApiKey : existingApiKey,
-      DirectAuthenticationMode.unsupported => null,
-    };
-    final apiKeyRequired = requiresDirectApiKey(
-      authentication: _authentication,
-      isOpenWebUi: widget.isOpenWebUi,
-      isNew: widget.isNew,
-      savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
-      apiKeyDirty: _apiKeyDirty,
-      originChanged: _originChanged,
+    if (!pendingHeaderReady) return null;
+    final result = _draftController.buildDraft(
+      DirectDraftBuildRequest(
+        saved: _savedProfile,
+        isOpenWebUi: widget.isOpenWebUi,
+        isNew: widget.isNew,
+        savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
+        adapterKey: _adapterKey,
+        openAiApiMode: _openAiApiMode,
+        authentication: _authentication,
+        enabled: _enabled,
+        apiKeyDirty: _apiKeyDirty,
+        originChanged: _originChanged,
+        originBoundSecretsReviewed: _originBoundSecretsReviewed,
+        isOpenRouter: _providerPreset == kOpenRouterProviderPreset,
+        openWebUiFallbackName: l10n.openWebUiDirectConnectionFallbackName,
+        nameRequiredMessage: l10n.directConnectionNameRequired,
+        invalidUrlMessage: l10n.directConnectionUrlInvalid,
+        invalidOpenRouterUrlMessage: l10n.directOpenRouterUrlInvalid,
+        credentialsReentryMessage:
+            l10n.directConnectionCredentialsReentryRequired,
+        apiKeyRequiredMessage: l10n.directConnectionApiKeyRequired,
+        unsupportedAuthenticationMessage:
+            l10n.openWebUiDirectConnectionUnsupportedAuth,
+      ),
     );
-    if (apiKeyRequired && (apiKey ?? '').isEmpty) {
-      valid = false;
-      apiKeyError = l10n.directConnectionApiKeyRequired;
-    }
-    if (_authentication == DirectAuthenticationMode.unsupported) {
-      valid = false;
-    }
-
-    final headers = Map<String, String>.from(_customHeaders);
-
     if (validateFields) {
       setState(() {
-        _nameError = nameError;
-        _urlError = urlError;
-        _apiKeyError = apiKeyError;
-        _formError = _authentication == DirectAuthenticationMode.unsupported
-            ? l10n.openWebUiDirectConnectionUnsupportedAuth
-            : null;
+        _nameError = result.errors.name;
+        _urlError = result.errors.url;
+        _apiKeyError = result.errors.apiKey;
+        _formError = result.errors.form;
       });
     }
-    if (!valid) return null;
-
-    final saved = _savedProfile;
-    final profile = DirectConnectionProfile(
-      id: saved?.id ?? const Uuid().v4(),
-      name: name,
-      adapterKey: _adapterKey,
-      baseUrl: baseUrl,
-      openAiApiMode: _openAiApiMode,
-      apiKeyAuthMode: _authentication == DirectAuthenticationMode.apiKeyHeader
-          ? DirectApiKeyAuthMode.apiKeyHeader
-          : DirectApiKeyAuthMode.bearer,
-      apiVersion: _apiVersionController.text.trim().isEmpty
-          ? null
-          : _apiVersionController.text.trim(),
-      modelIdPrefix: _modelIdPrefixController.text.trim().isEmpty
-          ? null
-          : _modelIdPrefixController.text.trim(),
-      tags: parseDirectModelTags(_tagsController.text),
-      enabled: _enabled,
-      apiKey: apiKey,
-      customHeaders: headers,
-      manualModelIds: parseDirectManualModelIds(_modelsController.text),
-      ollamaKeepAliveByModel:
-          saved?.ollamaKeepAliveByModel ?? const <String, String>{},
-      ollamaThinkingByModel:
-          saved?.ollamaThinkingByModel ?? const <String, String>{},
-      allowSelfSignedCertificates: saved?.allowSelfSignedCertificates ?? false,
-      mtlsCertificateChainPem: saved?.mtlsCertificateChainPem,
-      mtlsCertificateLabel: saved?.mtlsCertificateLabel,
-      mtlsPrivateKeyPem: saved?.mtlsPrivateKeyPem,
-      mtlsPrivateKeyLabel: saved?.mtlsPrivateKeyLabel,
-      mtlsPrivateKeyPassword: saved?.mtlsPrivateKeyPassword,
-    );
-    // Apply the origin-binding boundary before this draft can be probed. Save
-    // also enforces it in the repository, but Test connection intentionally
-    // operates on an unpersisted draft and must never inherit TLS material for
-    // a different host.
-    final safeProfile = secureDirectDraftForEditedOrigin(
-      previous: saved,
-      draft: profile,
-      secretsConfirmedForNewOrigin: _originBoundSecretsReviewed,
-    );
-    final profileError = safeProfile.validateOrNull();
-    if (profileError != null) {
-      if (validateFields) setState(() => _formError = profileError);
-      return null;
-    }
-    return safeProfile;
+    return result.profile;
   }
 
   void _clearTransientState() {
@@ -485,7 +289,7 @@ class _DirectConnectionEditorPageState
     )) {
       return l10n.headerNameReserved(name);
     }
-    final duplicate = _customHeaders.keys.any(
+    final duplicate = _draftController.customHeaders.keys.any(
       (existing) => existing.toLowerCase() == name.toLowerCase(),
     );
     if (duplicate) return l10n.headerAlreadyExists(name);
@@ -500,8 +304,8 @@ class _DirectConnectionEditorPageState
   }
 
   bool _commitPendingCustomHeader() {
-    final hasName = _headerNameController.text.trim().isNotEmpty;
-    final hasValue = _headerValueController.text.isNotEmpty;
+    final hasName = _draftController.headerName.text.trim().isNotEmpty;
+    final hasValue = _draftController.headerValue.text.isNotEmpty;
     if (!hasName && !hasValue) return true;
     if (!hasName) {
       setState(() {
@@ -525,8 +329,8 @@ class _DirectConnectionEditorPageState
 
   bool _addCustomHeader() {
     if (!_canAddCustomHeader) return false;
-    final name = _headerNameController.text.trim();
-    final value = _headerValueController.text;
+    final name = _draftController.headerName.text.trim();
+    final value = _draftController.headerValue.text;
     final error = _validateHeaderName(name) ?? _validateHeaderValue(value);
     if (error != null) {
       setState(() {
@@ -537,9 +341,9 @@ class _DirectConnectionEditorPageState
     }
 
     setState(() {
-      _customHeaders[name] = value;
-      _headerNameController.clear();
-      _headerValueController.clear();
+      _draftController.customHeaders[name] = value;
+      _draftController.headerName.clear();
+      _draftController.headerValue.clear();
       _markHeadersChanged();
     });
     return true;
@@ -547,7 +351,7 @@ class _DirectConnectionEditorPageState
 
   void _removeCustomHeader(String name) {
     setState(() {
-      _customHeaders.remove(name);
+      _draftController.customHeaders.remove(name);
       _markHeadersChanged();
     });
   }
@@ -1011,10 +815,10 @@ class _DirectConnectionEditorPageState
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final isOllama = _adapterKey == kOllamaAdapterKey;
-    final isOpenRouter = _providerPreset == _openRouterProviderPreset;
+    final isOpenRouter = _providerPreset == kOpenRouterProviderPreset;
     final content = <Widget>[
-      ConnectionIdentityHeader(
-        mark: ConnectionMark(
+      UtilityIdentityHeader(
+        leading: ConnectionMark(
           child: Icon(
             widget.isOpenWebUi
                 ? (context.usesCupertinoChrome
@@ -1157,660 +961,6 @@ class _DirectConnectionEditorPageState
               ],
             )
           : const SizedBox.shrink(),
-    );
-  }
-
-  Widget _buildAvailabilitySection() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    return ConnectionSection(
-      title: l10n.enabledLabel,
-      child: InkWell(
-        onTap: () => setState(() => _enabled = !_enabled),
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.enabledLabel,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    l10n.directConnectionEnabledSubtitle,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: Spacing.md),
-            AdaptiveSwitch(
-              value: _enabled,
-              onChanged: (value) => setState(() => _enabled = value),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProviderSection() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    if (widget.isOpenWebUi) {
-      return ConnectionSection(
-        title: l10n.directProvider,
-        child: Row(
-          children: [
-            _providerIcon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.cloud
-                  : Icons.cloud_outlined,
-            ),
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.openAICompatible,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    l10n.openWebUiDirectConnectionProviderDescription,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ConnectionSection(
-      key: const ValueKey<String>('direct-provider-preset-selector'),
-      title: l10n.directProvider,
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-      child: Column(
-        children: [
-          ConnectionChoiceRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.chevron_left_slash_chevron_right
-                  : Icons.api_rounded,
-            ),
-            title: l10n.openAICompatible,
-            subtitle: l10n.directChatCompletionsDescription,
-            selected: _providerPreset == kOpenAiCompatibleAdapterKey,
-            showDivider: true,
-            onTap: () => _selectProviderPreset(kOpenAiCompatibleAdapterKey),
-          ),
-          ConnectionChoiceRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.compass
-                  : Icons.explore_outlined,
-            ),
-            title: l10n.openRouterProviderName,
-            subtitle: l10n.directOpenRouterBaseUrlDescription,
-            selected: _providerPreset == _openRouterProviderPreset,
-            showDivider: true,
-            onTap: () => _selectProviderPreset(_openRouterProviderPreset),
-          ),
-          ConnectionChoiceRow(
-            leading: _providerIcon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.desktopcomputer
-                  : Icons.computer_outlined,
-            ),
-            title: l10n.ollama,
-            subtitle: l10n.ollamaCloudBaseUrlDescription,
-            selected: _providerPreset == kOllamaAdapterKey,
-            onTap: () => _selectProviderPreset(kOllamaAdapterKey),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _providerIcon(IconData icon) {
-    final theme = context.conduitTheme;
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: Alpha.subtle),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, size: IconSize.small, color: theme.buttonPrimary),
-    );
-  }
-
-  void _selectProviderPreset(String value) {
-    if (_providerPreset == value) return;
-    final l10n = AppLocalizations.of(context)!;
-    setState(() {
-      _providerPreset = value;
-      _adapterKey = value == kOllamaAdapterKey
-          ? kOllamaAdapterKey
-          : kOpenAiCompatibleAdapterKey;
-      if (value == _openRouterProviderPreset) {
-        _authentication = DirectAuthenticationMode.bearer;
-        _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-      }
-      _attempt = const ConnectionAttemptState.idle();
-      _baseUrlController.text = switch (value) {
-        kOllamaAdapterKey => 'https://ollama.com',
-        _openRouterProviderPreset => kOpenRouterApiBaseUrl,
-        _ => 'https://api.openai.com/v1',
-      };
-      if (value != _openRouterProviderPreset) {
-        _authentication = DirectAuthenticationMode.bearer;
-        _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-      }
-      if (widget.isNew &&
-          (_nameController.text == 'My provider' ||
-              _nameController.text == l10n.ollamaCloudDefaultName ||
-              _nameController.text == l10n.openRouterProviderName)) {
-        _nameController.text = switch (value) {
-          kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
-          _openRouterProviderPreset => l10n.openRouterProviderName,
-          _ => 'My provider',
-        };
-      }
-    });
-  }
-
-  Widget _buildConnectionDetailsSection({
-    required bool isOllama,
-    required bool isOpenRouter,
-  }) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final usesCupertinoChrome = context.usesCupertinoChrome;
-    return ConnectionSection(
-      title: l10n.directConnectionDetailsTitle,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (!widget.isOpenWebUi) ...[
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-connection-name-field'),
-              label: l10n.directConnectionName,
-              hint: isOllama
-                  ? l10n.ollamaCloudDefaultName
-                  : isOpenRouter
-                  ? l10n.openRouterProviderName
-                  : 'My provider',
-              controller: _nameController,
-              errorText: _nameError,
-              isRequired: true,
-              textInputAction: TextInputAction.next,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.md),
-          ],
-          AccessibleFormField(
-            key: const ValueKey<String>('direct-base-url-field'),
-            label: l10n.directApiBaseUrl,
-            hint: isOllama
-                ? l10n.ollamaCloudBaseUrlHint
-                : isOpenRouter
-                ? kOpenRouterApiBaseUrl
-                : 'https://api.openai.com/v1',
-            controller: _baseUrlController,
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.next,
-            autocorrect: false,
-            errorText: _urlError,
-            isRequired: true,
-            onChanged: (_) => _invalidateOriginSecretConfirmation(),
-          ),
-          const SizedBox(height: Spacing.sm),
-          Text(
-            isOllama
-                ? l10n.ollamaCloudBaseUrlDescription
-                : isOpenRouter
-                ? l10n.directOpenRouterBaseUrlDescription
-                : l10n.directBaseUrlDescription,
-            style: AppTypography.bodySmallStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          ),
-          const SizedBox(height: Spacing.lg),
-          Text(
-            l10n.directAuthentication,
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: theme.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: Spacing.sm),
-          Material(
-            type: MaterialType.transparency,
-            child: DropdownButtonFormField<DirectAuthenticationMode>(
-              key: ValueKey<String>(
-                'direct-authentication-selector-$_providerPreset',
-              ),
-              initialValue: _authentication,
-              isExpanded: true,
-              decoration: context.conduitInputStyles.standard(),
-              dropdownColor: theme.surfaceBackground,
-              items: [
-                DropdownMenuItem(
-                  value: DirectAuthenticationMode.bearer,
-                  child: Text(l10n.bearerToken),
-                ),
-                if (!widget.isOpenWebUi && !isOpenRouter)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.apiKeyHeader,
-                    child: Text(l10n.directApiKeyHeader),
-                  ),
-                if (widget.isOpenWebUi || !isOpenRouter)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.none,
-                    child: Text(l10n.noAuthentication),
-                  ),
-                if (_authentication == DirectAuthenticationMode.unsupported)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.unsupported,
-                    enabled: false,
-                    child: Text(l10n.directConnectionUnavailableLabel),
-                  ),
-              ],
-              onChanged: (value) {
-                if (value == null ||
-                    value == DirectAuthenticationMode.unsupported) {
-                  return;
-                }
-                setState(() {
-                  _authentication = value;
-                  _apiKeyDirty = true;
-                  _originSecretsConfirmed = false;
-                  _apiKeyError = null;
-                  _attempt = const ConnectionAttemptState.idle();
-                });
-              },
-            ),
-          ),
-          if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directApiKeyHeaderDescription,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            ),
-          ],
-          if (_authentication == DirectAuthenticationMode.unsupported) ...[
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.openWebUiDirectConnectionUnsupportedAuth,
-              style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
-            ),
-          ],
-          if (_authentication == DirectAuthenticationMode.bearer ||
-              _authentication == DirectAuthenticationMode.apiKeyHeader) ...[
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-api-key-field'),
-              label: l10n.directApiKey,
-              hint: (_savedProfile?.apiKey ?? '').isNotEmpty
-                  ? l10n.directConfiguredReplacePlaceholder
-                  : l10n.directApiKeyPlaceholder,
-              controller: _apiKeyController,
-              obscureText: !_showApiKey,
-              errorText: _apiKeyError,
-              isRequired: requiresDirectApiKey(
-                authentication: _authentication,
-                isOpenWebUi: widget.isOpenWebUi,
-                isNew: widget.isNew,
-                savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
-                apiKeyDirty: _apiKeyDirty,
-                originChanged: _originChanged,
-              ),
-              keyboardType: TextInputType.visiblePassword,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              suffixIcon: IconButton(
-                tooltip: _showApiKey ? l10n.hidePassword : l10n.showPassword,
-                onPressed: () => setState(() => _showApiKey = !_showApiKey),
-                icon: Icon(
-                  _showApiKey
-                      ? (usesCupertinoChrome
-                            ? CupertinoIcons.eye_slash
-                            : Icons.visibility_off)
-                      : (usesCupertinoChrome
-                            ? CupertinoIcons.eye
-                            : Icons.visibility),
-                ),
-              ),
-              onChanged: (_) {
-                _apiKeyDirty = true;
-                _invalidateOriginSecretConfirmation();
-              },
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAdvancedSettings() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final usesCupertinoChrome = context.usesCupertinoChrome;
-    return ConnectionDisclosure(
-      key: const ValueKey<String>('direct-advanced-settings-toggle'),
-      title: l10n.advancedSettings,
-      subtitle: _customHeaders.isEmpty
-          ? null
-          : '${l10n.directCustomHeaders}: ${_customHeaders.length}',
-      leading: Icon(
-        usesCupertinoChrome ? CupertinoIcons.gear_alt : Icons.tune_rounded,
-        color: theme.iconSecondary,
-        size: IconSize.medium,
-      ),
-      expanded: _showAdvancedSettings,
-      onChanged: (value) => setState(() => _showAdvancedSettings = value),
-      child: _buildAdvancedSettingsContent(),
-    );
-  }
-
-  Widget _buildAdvancedSettingsContent() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final usesCupertinoChrome = context.usesCupertinoChrome;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_adapterKey != kOllamaAdapterKey) ...[
-          _buildAdvancedApiBehavior(),
-          const SizedBox(height: Spacing.xl),
-          Divider(height: BorderWidth.thin, color: theme.dividerColor),
-          const SizedBox(height: Spacing.lg),
-        ],
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.directCustomHeaders,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        l10n.customHeadersDescription,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_customHeaders.isNotEmpty)
-                  Text(
-                    '${_customHeaders.length}',
-                    style: theme.bodySmall?.copyWith(color: theme.textTertiary),
-                  ),
-              ],
-            ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-custom-header-name-field'),
-              label: l10n.headerName,
-              hint: 'X-Custom-Header',
-              controller: _headerNameController,
-              errorText: _headersError,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => setState(() {
-                _headersError = null;
-                _formError = null;
-              }),
-              onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
-            ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-custom-header-value-field'),
-              label: l10n.headerValue,
-              hint: l10n.headerValueHint,
-              controller: _headerValueController,
-              focusNode: _headerValueFocusNode,
-              textInputAction: TextInputAction.done,
-              autocorrect: false,
-              onChanged: (_) => setState(() {
-                _headersError = null;
-                _formError = null;
-              }),
-              onSubmitted: (_) {
-                if (_canAddCustomHeader) {
-                  _addCustomHeader();
-                }
-              },
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(
-              key: const ValueKey<String>('add-direct-custom-header-button'),
-              text: l10n.addHeader,
-              isSecondary: true,
-              isFullWidth: true,
-              useNativeLabel: true,
-              onPressed: _canAddCustomHeader ? () => _addCustomHeader() : null,
-            ),
-            if (_customHeaders.isNotEmpty) ...[
-              const SizedBox(height: Spacing.md),
-              for (final entry in _customHeaders.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Container(
-                    padding: const EdgeInsets.only(
-                      left: Spacing.md,
-                      top: Spacing.sm,
-                      bottom: Spacing.sm,
-                      right: Spacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.surfaceBackground,
-                      borderRadius: BorderRadius.circular(
-                        AppBorderRadius.small,
-                      ),
-                      border: Border.all(
-                        color: theme.cardBorder,
-                        width: BorderWidth.thin,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          entry.key,
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.buttonPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: Spacing.sm),
-                        Expanded(
-                          child: Text(
-                            entry.value,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.bodySmall?.copyWith(
-                              color: theme.textSecondary,
-                              fontFamily: AppTypography.monospaceFontFamily,
-                            ),
-                          ),
-                        ),
-                        ConduitIconButton(
-                          icon: usesCupertinoChrome
-                              ? CupertinoIcons.xmark
-                              : Icons.close_rounded,
-                          tooltip: l10n.removeHeader,
-                          onPressed: () => _removeCustomHeader(entry.key),
-                          backgroundColor: Colors.transparent,
-                          iconColor: theme.textTertiary,
-                          isCompact: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-            const SizedBox(height: Spacing.xl),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-model-prefix-field'),
-              label: l10n.directModelIdPrefix,
-              hint: 'studio',
-              controller: _modelIdPrefixController,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directModelIdPrefixDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.md),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-model-tags-field'),
-              label: l10n.directModelTags,
-              hint: 'local, private',
-              controller: _tagsController,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directModelTagsDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.xl),
-            AccessibleFormField(
-              key: const ValueKey<String>('direct-manual-models-field'),
-              label: l10n.directManualModelIds,
-              hint: 'model-a\nmodel-b',
-              controller: _modelsController,
-              minLines: 3,
-              maxLines: 8,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              autocorrect: false,
-              onChanged: (_) => _clearTransientState(),
-            ),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directManualModelIdsDescription,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAdvancedApiBehavior() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final isOpenRouter = _providerPreset == _openRouterProviderPreset;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          l10n.directCompletionApi,
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        if (isOpenRouter)
-          Text(
-            l10n.directOpenRouterChatCompletionsDescription,
-            style: AppTypography.bodySmallStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          )
-        else ...[
-          AdaptiveSegmentedSelector<DirectOpenAiApiMode>(
-            key: const ValueKey<String>('direct-openai-api-mode-selector'),
-            value: _openAiApiMode,
-            showIcons: false,
-            onChanged: (value) => setState(() {
-              _openAiApiMode = value;
-              _attempt = const ConnectionAttemptState.idle();
-            }),
-            options: [
-              (
-                value: DirectOpenAiApiMode.chatCompletions,
-                label: l10n.directChatCompletions,
-                cupertinoIcon: CupertinoIcons.text_bubble,
-                materialIcon: Icons.chat_bubble_outline,
-                enabled: true,
-              ),
-              (
-                value: DirectOpenAiApiMode.responses,
-                label: l10n.directResponses,
-                cupertinoIcon: CupertinoIcons.sparkles,
-                materialIcon: Icons.auto_awesome_outlined,
-                enabled: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.sm),
-          Text(
-            _openAiApiMode == DirectOpenAiApiMode.responses
-                ? l10n.directResponsesDescription
-                : l10n.directChatCompletionsDescription,
-            style: AppTypography.bodySmallStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          ),
-          const SizedBox(height: Spacing.md),
-          AccessibleFormField(
-            key: const ValueKey<String>('direct-api-version-field'),
-            label: l10n.directApiVersion,
-            hint: '2024-10-21',
-            controller: _apiVersionController,
-            textInputAction: TextInputAction.next,
-            autocorrect: false,
-            onChanged: (_) => _clearTransientState(),
-          ),
-          const SizedBox(height: Spacing.sm),
-          Text(
-            l10n.directApiVersionDescription,
-            style: AppTypography.bodySmallStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          ),
-        ],
-      ],
     );
   }
 }

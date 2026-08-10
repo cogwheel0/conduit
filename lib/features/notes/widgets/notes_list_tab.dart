@@ -44,13 +44,20 @@ class NotesListTab extends ConsumerStatefulWidget {
 }
 
 class _NotesListTabState extends ConsumerState<NotesListTab>
-    with AutomaticKeepAliveClientMixin {
+    with
+        AutomaticKeepAliveClientMixin,
+        SidebarTabScrollRegistration<NotesListTab> {
   static final _noteRoutePattern = RegExp(r'^/notes/(.+)$');
 
   String? _activeNoteId;
   bool _isRefreshingEmptyState = false;
   final ScrollController _scrollController = ScrollController();
-  late final SidebarTabScrollRegistry _scrollRegistry;
+
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.notes;
+
+  @override
+  ScrollController get sidebarScrollController => _scrollController;
 
   @override
   bool get wantKeepAlive => true;
@@ -59,12 +66,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   void initState() {
     super.initState();
     _activeNoteId = _parseNoteId(_currentPath);
-    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register(
-      SidebarTabId.notes.name,
-      owner: this,
-      callback: _scrollToTop,
-    );
     NavigationService.router.routeInformationProvider.addListener(
       _onRouteChanged,
     );
@@ -75,23 +76,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
-    _scrollRegistry.unregister(SidebarTabId.notes.name, owner: this);
     _scrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _scrollToTop() async {
-    if (!_scrollController.hasClients) return;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    if (duration == Duration.zero) {
-      _scrollController.jumpTo(0);
-      return;
-    }
-    await _scrollController.animateTo(
-      0,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-    );
   }
 
   String get _currentPath =>

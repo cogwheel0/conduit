@@ -11,7 +11,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
-import '../../auth/widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
@@ -426,8 +426,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
         ),
-      ConnectionIdentityHeader(
-        mark: ConnectionMark(
+      UtilityIdentityHeader(
+        leading: ConnectionMark(
           color: theme.surfaceContainerHighest,
           child: Image.asset(
             'assets/icons/hermes_agent.png',
@@ -449,7 +449,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       ),
       const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
-        ConnectionSection(
+        InsetGroupedSection(
           title: l10n.enabledLabel,
           child: InkWell(
             onTap: () => _setHermesEnabled(!config.enabled),
@@ -488,10 +488,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         ),
         if (config.enabled && _capabilities.jobs) ...[
           const SizedBox(height: Spacing.lg),
-          ConnectionSection(
+          InsetGroupedSection(
             title: l10n.hermesScheduledAgentsTitle,
             padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            child: ConnectionChoiceRow(
+            child: UtilitySelectionRow(
               leading: _badge(context, Icons.schedule),
               title: l10n.hermesScheduledAgentsTitle,
               subtitle: l10n.hermesReviewSchedules,
@@ -510,7 +510,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         ],
         const SizedBox(height: Spacing.lg),
       ],
-      ConnectionSection(
+      InsetGroupedSection(
         title: l10n.hermesConnectionDetailsTitle,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -556,7 +556,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         ),
       ),
       const SizedBox(height: Spacing.lg),
-      ConnectionDisclosure(
+      UtilityDisclosureSection(
         key: const ValueKey<String>('hermes-memory-key-disclosure'),
         title: l10n.hermesMemoryKeyTitle,
         subtitle: l10n.hermesMemoryKeyShortDescription,
@@ -689,7 +689,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   Widget _capabilitiesSection() {
     final caps = _capabilities;
     final l10n = AppLocalizations.of(context)!;
-    return ConnectionSection(
+    return InsetGroupedSection(
       title: l10n.hermesCapabilitiesTitle,
       child: Wrap(
         spacing: Spacing.sm,
@@ -732,7 +732,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final toolsetsAsync = ref.watch(hermesToolsetsProvider);
-    return ConnectionSection(
+    return InsetGroupedSection(
       title: l10n.hermesCapabilityToolsets,
       child: toolsetsAsync.when(
         data: (toolsets) {
@@ -780,7 +780,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final statusAsync = ref.watch(hermesServerStatusProvider);
-    return ConnectionSection(
+    return InsetGroupedSection(
       title: l10n.hermesServerStatusTitle,
       child: statusAsync.when(
         data: (status) {

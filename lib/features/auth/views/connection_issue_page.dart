@@ -14,7 +14,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../widgets/adaptive_auth_scaffold.dart';
-import '../widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 class ConnectionIssuePage extends ConsumerStatefulWidget {
   const ConnectionIssuePage({super.key});
@@ -43,8 +43,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ConnectionIdentityHeader(
-              mark: const OpenWebUiConnectionMark(),
+            UtilityIdentityHeader(
+              leading: const OpenWebUiConnectionMark(),
               title: l10n.backendChooserOpenWebUITitle,
               subtitle: l10n.connectionIssueSubtitle,
             ),
@@ -69,16 +69,16 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
   Widget _buildServerDetails(BuildContext context, ServerConfig server) {
     final host = _resolveHost(server);
 
-    return ConnectionSection(
+    return InsetGroupedSection(
       title: AppLocalizations.of(context)!.openWebUIServer,
       child: Column(
         children: [
-          ConnectionValueRow(
+          UtilityValueRow(
             label: AppLocalizations.of(context)!.serverNameLabel,
             value: host,
           ),
           Divider(color: context.conduitTheme.dividerColor),
-          ConnectionValueRow(
+          UtilityValueRow(
             label: AppLocalizations.of(context)!.serverUrl,
             value: server.url,
             monospace: true,

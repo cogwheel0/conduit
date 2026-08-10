@@ -18,7 +18,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
-import '../widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 /// Whether an SSO page is allowed to expose cookies or localStorage tokens.
 @visibleForTesting

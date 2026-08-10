@@ -16,14 +16,13 @@ import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../../shared/widgets/utility_components.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../core/auth/webview_cookie_helper.dart' show isWebViewSupported;
 import '../widgets/adaptive_auth_scaffold.dart';
-import '../widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 /// Authentication mode options
 enum AuthMode {
@@ -435,14 +434,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ConnectionIdentityHeader(
-          mark: const OpenWebUiConnectionMark(),
+        UtilityIdentityHeader(
+          leading: const OpenWebUiConnectionMark(),
           title: AppLocalizations.of(context)!.backendChooserOpenWebUITitle,
         ),
         const SizedBox(height: Spacing.xl),
-        ConnectionSection(
+        InsetGroupedSection(
           title: AppLocalizations.of(context)!.openWebUIServer,
-          child: ConnectionValueRow(
+          child: UtilityValueRow(
             label: AppLocalizations.of(context)!.serverUrl,
             value: _serverAddressForDisplay(_resolvedServerConfig?.url),
             monospace: true,

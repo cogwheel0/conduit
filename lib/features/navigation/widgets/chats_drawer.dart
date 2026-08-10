@@ -52,12 +52,19 @@ class ChatsDrawer extends ConsumerStatefulWidget {
 }
 
 class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
-    with AutomaticKeepAliveClientMixin {
+    with
+        AutomaticKeepAliveClientMixin,
+        SidebarTabScrollRegistration<ChatsDrawer> {
   @override
   bool get wantKeepAlive => true;
   late final TextEditingController _sidebarSearchController;
   final ScrollController _listController = ScrollController();
-  late final SidebarTabScrollRegistry _scrollRegistry;
+
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.chats;
+
+  @override
+  ScrollController get sidebarScrollController => _listController;
   Timer? _debounce;
   String _query = '';
   bool _isLoadingMoreConversations = false;
@@ -70,12 +77,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   void initState() {
     super.initState();
     _listController.addListener(_onListScrolled);
-    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register(
-      SidebarTabId.chats.name,
-      owner: this,
-      callback: _scrollToTop,
-    );
     _sidebarSearchController = ref.read(sidebarSearchFieldControllerProvider);
     _sidebarSearchController.addListener(_onSearchChanged);
   }
@@ -103,20 +104,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         await ref.read(foldersProvider.future);
       } catch (_) {}
     } catch (_) {}
-  }
-
-  Future<void> _scrollToTop() async {
-    if (!_listController.hasClients) return;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    if (duration == Duration.zero) {
-      _listController.jumpTo(0);
-      return;
-    }
-    await _listController.animateTo(
-      0,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-    );
   }
 
   Future<void> _refreshEmptyStateChats() async {
@@ -453,7 +440,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     _refreshDoneHideTimer?.cancel();
     _listController.removeListener(_onListScrolled);
     _sidebarSearchController.removeListener(_onSearchChanged);
-    _scrollRegistry.unregister(SidebarTabId.chats.name, owner: this);
     _listController.dispose();
     super.dispose();
   }

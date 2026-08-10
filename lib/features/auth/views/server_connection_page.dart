@@ -34,7 +34,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../widgets/adaptive_auth_scaffold.dart';
-import '../widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -1183,8 +1183,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           type: AdaptiveSnackBarType.info,
         );
       },
-      child: ConnectionIdentityHeader(
-        mark: const OpenWebUiConnectionMark(),
+      child: UtilityIdentityHeader(
+        leading: const OpenWebUiConnectionMark(),
         title: l10n.backendChooserOpenWebUITitle,
         subtitle: l10n.enterServerAddress,
         trailing: reviewerMode
@@ -1263,7 +1263,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ConnectionSection(
+        InsetGroupedSection(
           title: l10n.openWebUIServer,
           child: AccessibleFormField(
             key: const ValueKey<String>('server-url-field'),
@@ -1302,7 +1302,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildAdvancedSettings() {
-    return ConnectionDisclosure(
+    return UtilityDisclosureSection(
       key: const ValueKey<String>('advanced-settings-toggle'),
       title: AppLocalizations.of(context)!.advancedSettings,
       leading: Icon(

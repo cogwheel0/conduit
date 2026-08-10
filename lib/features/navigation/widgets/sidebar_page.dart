@@ -592,7 +592,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         unawaited(
           ref
               .read(sidebarTabScrollRegistryProvider)
-              .scrollToTop(selectedTab.name),
+              .scrollToTop(
+                selectedTab.name,
+                duration: context.motionDuration(AnimationDuration.fast),
+              ),
         );
         return;
       }

@@ -31,12 +31,19 @@ class ChannelListTab extends ConsumerStatefulWidget {
 }
 
 class _ChannelListTabState extends ConsumerState<ChannelListTab>
-    with AutomaticKeepAliveClientMixin {
+    with
+        AutomaticKeepAliveClientMixin,
+        SidebarTabScrollRegistration<ChannelListTab> {
   static final _channelRoutePattern = RegExp(r'^/channel/(.+)$');
 
   String? _activeChannelId;
   final ScrollController _scrollController = ScrollController();
-  late final SidebarTabScrollRegistry _scrollRegistry;
+
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.channels;
+
+  @override
+  ScrollController get sidebarScrollController => _scrollController;
 
   @override
   bool get wantKeepAlive => true;
@@ -45,12 +52,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   void initState() {
     super.initState();
     _activeChannelId = _parseChannelId(_currentPath);
-    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register(
-      SidebarTabId.channels.name,
-      owner: this,
-      callback: _scrollToTop,
-    );
     NavigationService.router.routeInformationProvider.addListener(
       _onRouteChanged,
     );
@@ -61,23 +62,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     NavigationService.router.routeInformationProvider.removeListener(
       _onRouteChanged,
     );
-    _scrollRegistry.unregister(SidebarTabId.channels.name, owner: this);
     _scrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _scrollToTop() async {
-    if (!_scrollController.hasClients) return;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    if (duration == Duration.zero) {
-      _scrollController.jumpTo(0);
-      return;
-    }
-    await _scrollController.animateTo(
-      0,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-    );
   }
 
   String get _currentPath =>

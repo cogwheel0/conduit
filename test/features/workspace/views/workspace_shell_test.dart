@@ -16,6 +16,7 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/workspace_page.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -24,6 +25,49 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:mocktail/mocktail.dart';
 
 void main() {
+  testWidgets('compact editor disables invalid and in-progress save actions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Widget harness({required bool canSave, required bool isSaving}) {
+      return MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: WorkspaceEditorScaffold(
+          title: 'Tool',
+          section: WorkspaceSection.tools,
+          mode: WorkspaceRouteMode.create,
+          canSave: canSave,
+          isSaving: isSaving,
+          onSave: () async {},
+          child: const SizedBox.expand(),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(harness(canSave: false, isSaving: false));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.pumpWidget(harness(canSave: true, isSaving: true));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Saving…'))
+          .onPressed,
+      isNull,
+    );
+  });
+
   testWidgets('compact shell shows app bar section menu and collection', (
     tester,
   ) async {

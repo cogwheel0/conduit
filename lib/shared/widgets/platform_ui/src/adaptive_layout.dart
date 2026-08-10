@@ -12,7 +12,7 @@ class AdaptiveAppBarAction {
     this.iosSymbol,
     this.icon,
     this.title,
-    required this.onPressed,
+    this.onPressed,
     this.spacerAfter = ToolbarSpacerType.none,
     this.prominent = false,
     this.tintColor,
@@ -21,7 +21,9 @@ class AdaptiveAppBarAction {
   final String? iosSymbol;
   final IconData? icon;
   final String? title;
-  final VoidCallback onPressed;
+
+  /// Null keeps the action visible while rendering it disabled.
+  final VoidCallback? onPressed;
   final ToolbarSpacerType spacerAfter;
   final bool prominent;
   final Color? tintColor;

@@ -24,38 +24,18 @@ class HermesSessionsTab extends ConsumerStatefulWidget {
   ConsumerState<HermesSessionsTab> createState() => _HermesSessionsTabState();
 }
 
-class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab> {
+class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
+    with SidebarTabScrollRegistration<HermesSessionsTab> {
   final ScrollController _scrollController = ScrollController();
-  late final SidebarTabScrollRegistry _scrollRegistry;
 
   @override
-  void initState() {
-    super.initState();
-    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register(
-      SidebarTabId.hermes.name,
-      owner: this,
-      callback: _scrollToTop,
-    );
-  }
+  SidebarTabId get sidebarTabId => SidebarTabId.hermes;
 
-  Future<void> _scrollToTop() async {
-    if (!_scrollController.hasClients) return;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    if (duration == Duration.zero) {
-      _scrollController.jumpTo(0);
-      return;
-    }
-    await _scrollController.animateTo(
-      0,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-    );
-  }
+  @override
+  ScrollController get sidebarScrollController => _scrollController;
 
   @override
   void dispose() {
-    _scrollRegistry.unregister(SidebarTabId.hermes.name, owner: this);
     _scrollController.dispose();
     super.dispose();
   }

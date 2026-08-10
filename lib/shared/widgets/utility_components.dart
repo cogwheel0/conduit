@@ -231,31 +231,6 @@ class InsetGroupedList extends StatelessWidget {
   }
 }
 
-@immutable
-class UtilityRowPresentation {
-  const UtilityRowPresentation({
-    required this.title,
-    this.subtitle,
-    this.leading,
-    this.status,
-    this.selected = false,
-    this.expanded,
-    this.enabled = true,
-    this.trailing,
-    this.semanticLabel,
-  });
-
-  final String title;
-  final String? subtitle;
-  final Widget? leading;
-  final Widget? status;
-  final bool selected;
-  final bool? expanded;
-  final bool enabled;
-  final Widget? trailing;
-  final String? semanticLabel;
-}
-
 /// Shared utility row with full-row semantics and immediate press feedback.
 class UtilityRow extends ConsumerStatefulWidget {
   const UtilityRow({
@@ -444,6 +419,83 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A selectable [UtilityRow] with the standard animated selection affordance.
+///
+/// Keeping selection presentation here lets provider pickers share the same
+/// haptics, pressed state, semantics, and typography as every utility row.
+class UtilitySelectionRow extends StatelessWidget {
+  const UtilitySelectionRow({
+    super.key,
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+    this.showDivider = false,
+    this.showSelectionIndicator = true,
+    this.trailing,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool showDivider;
+  final bool showSelectionIndicator;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final row = UtilityRow(
+      leading: leading,
+      title: title,
+      subtitle: subtitle,
+      selected: selected,
+      onTap: onTap,
+      semanticLabel: '$title. $subtitle',
+      padding: const EdgeInsets.symmetric(vertical: Spacing.md),
+      trailing:
+          trailing ??
+          (showSelectionIndicator
+              ? AnimatedSwitcher(
+                  duration: context.motionDuration(
+                    AnimationDuration.microInteraction,
+                  ),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeOutCubic,
+                  child: selected
+                      ? Icon(
+                          context.usesCupertinoChrome
+                              ? CupertinoIcons.check_mark_circled_solid
+                              : Icons.check_circle,
+                          key: const ValueKey<String>('selected'),
+                          color: theme.buttonPrimary,
+                          size: IconSize.medium,
+                        )
+                      : const SizedBox.square(
+                          key: ValueKey<String>('unselected'),
+                          dimension: IconSize.medium,
+                        ),
+                )
+              : null),
+    );
+    if (!showDivider) return row;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.dividerColor,
+            width: BorderWidth.thin,
+          ),
+        ),
+      ),
+      child: row,
     );
   }
 }

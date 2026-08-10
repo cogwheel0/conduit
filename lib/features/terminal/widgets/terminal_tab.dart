@@ -49,13 +49,13 @@ class TerminalTab extends ConsumerStatefulWidget {
 }
 
 class _TerminalTabState extends ConsumerState<TerminalTab>
-    with AutomaticKeepAliveClientMixin {
+    with
+        AutomaticKeepAliveClientMixin,
+        SidebarTabScrollRegistration<TerminalTab> {
   final Terminal _terminal = Terminal(maxLines: 5000);
   final TerminalController _terminalController = TerminalController();
   final ScrollController _filesScrollController = ScrollController();
   final ScrollController _portsScrollController = ScrollController();
-  late final SidebarTabScrollRegistry _scrollRegistry;
-
   ProviderSubscription<int>? _refreshSubscription;
   ProviderSubscription<String>? _sessionScopeSubscription;
   ProviderSubscription<AsyncValue<TerminalServerInfo?>>?
@@ -85,12 +85,6 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     super.initState();
     _terminal.onOutput = _handleTerminalOutput;
     _terminal.onResize = _handleTerminalResize;
-    _scrollRegistry = ref.read(sidebarTabScrollRegistryProvider);
-    _scrollRegistry.register(
-      SidebarTabId.terminal.name,
-      owner: this,
-      callback: _scrollToTop,
-    );
 
     _refreshSubscription = ref.listenManual<int>(
       terminalBrowserRefreshTokenProvider,
@@ -198,28 +192,19 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     unawaited(_channel?.sink.close() ?? Future<void>.value());
     _channelSubscription = null;
     _channel = null;
-    _scrollRegistry.unregister(SidebarTabId.terminal.name, owner: this);
     _filesScrollController.dispose();
     _portsScrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _scrollToTop() async {
-    final controller = _filesScrollController.hasClients
-        ? _filesScrollController
-        : _portsScrollController;
-    if (!controller.hasClients) return;
-    final duration = context.motionDuration(AnimationDuration.fast);
-    if (duration == Duration.zero) {
-      controller.jumpTo(0);
-      return;
-    }
-    await controller.animateTo(
-      0,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-    );
-  }
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.terminal;
+
+  @override
+  ScrollController get sidebarScrollController =>
+      _filesScrollController.hasClients
+      ? _filesScrollController
+      : _portsScrollController;
 
   Future<void> _reloadBrowserState() async {
     if (!widget.isActive) {

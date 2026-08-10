@@ -13,7 +13,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
-import '../../auth/widgets/connection_setup_components.dart';
+import '../../../shared/widgets/connection_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
@@ -221,8 +221,8 @@ class DirectConnectionsContent extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final content = <Widget>[
-      ConnectionIdentityHeader(
-        mark: ConnectionMark(
+      UtilityIdentityHeader(
+        leading: ConnectionMark(
           child: Icon(
             context.usesCupertinoChrome
                 ? CupertinoIcons.link
@@ -236,7 +236,7 @@ class DirectConnectionsContent extends StatelessWidget {
       ),
       const SizedBox(height: Spacing.xl),
       if (showHistorySync) ...[
-        ConnectionSection(
+        InsetGroupedSection(
           title: l10n.syncDirectHistory,
           child: InkWell(
             onTap: () => onSyncChanged(!syncWithOpenWebUi),
@@ -654,7 +654,7 @@ class _DirectConnectionTile extends StatelessWidget {
         ? l10n.enabledLabel
         : l10n.disabledLabel;
 
-    return ConnectionChoiceRow(
+    return UtilitySelectionRow(
       leading: SettingsIconBadge(
         icon: isOllama
             ? UiUtils.platformIcon(

@@ -15,7 +15,7 @@ import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/auth/widgets/adaptive_auth_scaffold.dart';
-import 'package:conduit/features/auth/widgets/connection_setup_components.dart';
+import 'package:conduit/shared/widgets/connection_components.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
@@ -426,7 +426,7 @@ void main() {
     check(renderedUrlField.cupertinoDecoration).isNotNull();
     check(renderedUrlField.cupertinoDecoration!.border).isNull();
 
-    final disclosure = tester.widget<ConnectionDisclosure>(toggle);
+    final disclosure = tester.widget<UtilityDisclosureSection>(toggle);
     check(disclosure.contentPadding).equals(EdgeInsets.zero);
 
     expect(find.byIcon(Icons.hub), findsNothing);
