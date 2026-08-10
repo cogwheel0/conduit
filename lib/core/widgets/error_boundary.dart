@@ -93,12 +93,16 @@ class ConduitFriendlyErrorView extends StatelessWidget {
             );
 
             return SingleChildScrollView(
-              child: SizedBox(
-                width: constraints.maxWidth,
-                height: constraints.maxHeight.isFinite
-                    ? constraints.maxHeight
-                    : null,
-                child: Center(child: content),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight.isFinite
+                      ? constraints.maxHeight
+                      : 0,
+                ),
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  child: Center(child: content),
+                ),
               ),
             );
           },

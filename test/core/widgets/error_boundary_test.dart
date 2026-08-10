@@ -1,4 +1,5 @@
 import 'package:conduit/core/widgets/error_boundary.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,8 +91,8 @@ void main() {
         originalFlutterErrorOnError,
       );
 
-      expect(newerHandlerStillActive, isTrue);
-      expect(originalHandlerRestored, isTrue);
+      check(newerHandlerStillActive).equals(true);
+      check(originalHandlerRestored).equals(true);
     });
 
     testWidgets('global builder renders a friendly nonblank fallback', (
