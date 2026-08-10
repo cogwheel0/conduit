@@ -637,6 +637,7 @@ void main() {
     );
 
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump(const Duration(milliseconds: 199));
