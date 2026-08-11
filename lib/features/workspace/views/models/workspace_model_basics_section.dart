@@ -3,13 +3,21 @@ import 'package:flutter/material.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/utility_components.dart';
-import 'workspace_model_editor_contract.dart';
+import '../../providers/workspace_model_relationships.dart';
+import 'workspace_model_editor_controller.dart';
 import 'workspace_model_editor_field.dart';
 
 final class WorkspaceModelBasicsSection extends StatelessWidget {
-  const WorkspaceModelBasicsSection({super.key, required this.model});
+  const WorkspaceModelBasicsSection({
+    super.key,
+    required this.controller,
+    required this.baseModels,
+    required this.onAddTag,
+  });
 
-  final WorkspaceModelBasicsSectionModel model;
+  final WorkspaceModelEditorController controller;
+  final List<WorkspaceRelationshipOption> baseModels;
+  final VoidCallback onAddTag;
 
   @override
   Widget build(BuildContext context) {
@@ -20,30 +28,30 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
         children: [
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-id',
-            controller: model.id,
+            controller: controller.fields.id,
             label: l10n.workspaceModelIdLabel,
-            isDetail: model.isDetail,
-            enabled: !model.readOnly && model.isCreate,
-            onChanged: model.onTextChanged,
+            isDetail: controller.session.isDetail,
+            enabled: !controller.readOnly && controller.session.isCreate,
+            onChanged: controller.markDirty,
           ),
           _baseModelSelector(context, l10n),
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-name',
-            controller: model.name,
+            controller: controller.fields.name,
             label: l10n.workspaceModelName,
-            isDetail: model.isDetail,
-            enabled: !model.readOnly,
-            onChanged: model.onTextChanged,
+            isDetail: controller.session.isDetail,
+            enabled: !controller.readOnly,
+            onChanged: controller.markDirty,
           ),
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-description',
-            controller: model.description,
+            controller: controller.fields.description,
             label: l10n.workspaceModelDescription,
-            isDetail: model.isDetail,
-            enabled: !model.readOnly,
+            isDetail: controller.session.isDetail,
+            enabled: !controller.readOnly,
             minLines: 2,
             maxLines: 4,
-            onChanged: model.onTextChanged,
+            onChanged: controller.markDirty,
           ),
           _tagsField(context, l10n),
         ],
@@ -52,8 +60,8 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
   }
 
   Widget _baseModelSelector(BuildContext context, AppLocalizations l10n) {
-    final selectedId = model.baseModelId;
-    if (model.isDetail) {
+    final selectedId = controller.draft.baseModelId;
+    if (controller.session.isDetail) {
       return UtilityValueRow(
         key: const Key('workspace-model-base'),
         label: l10n.workspaceModelBaseModel,
@@ -62,7 +70,7 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
     }
     final hasSelectedOption =
         selectedId == null ||
-        model.baseModels.any((option) => option.id == selectedId);
+        baseModels.any((option) => option.id == selectedId);
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: DropdownButtonFormField<String?>(
@@ -84,13 +92,13 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
               value: selectedId,
               child: Text(selectedId, overflow: TextOverflow.ellipsis),
             ),
-          for (final option in model.baseModels)
+          for (final option in baseModels)
             DropdownMenuItem<String?>(
               value: option.id,
               child: Text(option.label, overflow: TextOverflow.ellipsis),
             ),
         ],
-        onChanged: model.readOnly ? null : model.onBaseModelChanged,
+        onChanged: controller.readOnly ? null : controller.setBaseModel,
       ),
     );
   }
@@ -108,20 +116,20 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
             spacing: Spacing.xs,
             runSpacing: Spacing.xs,
             children: [
-              for (final tag in model.tags)
+              for (final tag in controller.draft.tags)
                 InputChip(
                   key: Key('workspace-model-tag-$tag'),
                   label: Text(tag),
-                  onDeleted: model.readOnly
+                  onDeleted: controller.readOnly
                       ? null
-                      : () => model.onRemoveTag(tag),
+                      : () => controller.removeTag(tag),
                 ),
-              if (!model.readOnly)
+              if (!controller.readOnly)
                 ActionChip(
                   key: const Key('workspace-model-tag-add'),
                   avatar: const Icon(Icons.add, size: IconSize.small),
                   label: Text(l10n.workspaceModelTagsHint),
-                  onPressed: model.onAddTag,
+                  onPressed: onAddTag,
                 ),
             ],
           ),

@@ -78,6 +78,24 @@ void main() {
     ).equals(DirectHeaderValidationIssue.duplicateName);
   });
 
+  test('custom-header validation publishes only through the owning form', () {
+    final editor = _EditorHarness();
+    addTearDown(editor.dispose);
+    var formNotifications = 0;
+    editor.form.addListener(() => formNotifications++);
+
+    editor.form.headerName.text = 'Authorization';
+    formNotifications = 0;
+    check(editor.form.addCustomHeader()).isFalse();
+    check(formNotifications).equals(2);
+    check(editor.form.headerError).isNotNull();
+
+    formNotifications = 0;
+    editor.form.headerName.text = 'X-Tenant';
+    check(editor.form.headerError).isNull();
+    check(formNotifications).equals(1);
+  });
+
   test('editing pending header text does not review saved origin secrets', () {
     final editor = _EditorHarness(isNew: false);
     addTearDown(editor.dispose);
@@ -94,6 +112,27 @@ void main() {
     editor.form.headerName.text = 'X-Pending';
 
     check(editor.form.originBoundSecretsReviewed).isFalse();
+  });
+
+  test('adding a custom header reviews saved origin-bound headers', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        customHeaders: {'X-Tenant': 'secret'},
+      ),
+    );
+    editor.form.baseUrl.text = 'https://new.example/v1';
+    editor.form.headerName.text = 'X-Replacement-Tenant';
+    editor.form.headerValue.text = 'replacement';
+
+    check(editor.form.originBoundSecretsReviewed).isFalse();
+    check(editor.form.addCustomHeader()).isTrue();
+    check(editor.form.originBoundSecretsReviewed).isTrue();
   });
 
   test(

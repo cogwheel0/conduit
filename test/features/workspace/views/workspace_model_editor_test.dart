@@ -447,6 +447,7 @@ void main() {
       isTrue,
     );
     expect(find.byKey(const Key('workspace-model-params')), findsOneWidget);
+    expect(find.text('Enter a valid JSON object.'), findsWidgets);
   });
 
   testWidgets('activate toggle prompts to discard when the form is dirty', (

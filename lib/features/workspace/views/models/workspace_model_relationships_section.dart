@@ -2,13 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../widgets/workspace_access_grants.dart';
 import '../../widgets/workspace_tiles.dart';
-import 'workspace_model_editor_contract.dart';
+import 'workspace_model_editor_controller.dart';
 
 final class WorkspaceModelRelationshipsSection extends StatelessWidget {
-  const WorkspaceModelRelationshipsSection({super.key, required this.model});
+  const WorkspaceModelRelationshipsSection({
+    super.key,
+    required this.controller,
+    required this.onPick,
+    required this.onManageAccess,
+  });
 
-  final WorkspaceModelRelationshipsSectionModel model;
+  final WorkspaceModelEditorController controller;
+  final ValueChanged<WorkspaceModelRelationshipKind> onPick;
+  final VoidCallback onManageAccess;
 
   @override
   Widget build(BuildContext context) {
@@ -66,10 +74,11 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
     );
   }
 
-  int _count(WorkspaceModelRelationshipKind kind) => model.counts[kind] ?? 0;
+  int _count(WorkspaceModelRelationshipKind kind) =>
+      controller.relationshipCounts[kind] ?? 0;
 
   VoidCallback? _picker(WorkspaceModelRelationshipKind kind) =>
-      model.readOnly ? null : () => model.onPick(kind);
+      controller.readOnly ? null : () => onPick(kind);
 
   Widget _relationshipTile(
     BuildContext context, {
@@ -94,14 +103,18 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
   }
 
   Widget _accessTile(AppLocalizations l10n) {
+    final accessGrants = controller.draft.normalizedAccessGrants;
+    final isPublic = workspaceGrantsArePublic(accessGrants);
     return WorkspaceResourceTile(
       key: const Key('workspace-model-access'),
-      icon: model.accessIsPublic ? Icons.public : Icons.lock_outline,
+      icon: isPublic ? Icons.public : Icons.lock_outline,
       title: l10n.workspaceModelManageAccess,
-      subtitle: model.accessIsPublic
+      subtitle: isPublic
           ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(model.accessPrincipalCount),
-      onTap: model.onManageAccess,
+          : l10n.workspaceModelSelectCount(
+              workspaceSharedPrincipals(accessGrants).length,
+            ),
+      onTap: onManageAccess,
     );
   }
 }

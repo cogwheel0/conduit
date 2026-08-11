@@ -12,10 +12,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     required this.mode,
     required this.onDraftChanged,
   }) {
-    headers = DirectCustomHeadersController(
-      onHeadersChanged: _headersChanged,
-      onInputChanged: _headerInputChanged,
-    );
+    headers = DirectCustomHeadersController(onChanged: _handleHeaderChanged);
     name.addListener(_generalTextChanged);
     baseUrl.addListener(_baseUrlTextChanged);
     apiKey.addListener(_apiKeyTextChanged);
@@ -303,19 +300,17 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     _draftChanged();
   }
 
-  void _headerInputChanged() {
-    _errors = errors.copyWith(clearForm: true);
-    _draftChanged();
-  }
-
-  void _headersChanged() {
-    _originSecretsConfirmed = false;
+  void _handleHeaderChanged(DirectCustomHeadersChange change) {
+    if (change == DirectCustomHeadersChange.collection) {
+      _originSecretsConfirmed = false;
+    }
     _errors = errors.copyWith(clearForm: true);
     _draftChanged();
   }
 
   void _revealAdvancedSettings() {
-    if (!showAdvancedSettings) _showAdvancedSettings = true;
+    if (showAdvancedSettings) return;
+    _showAdvancedSettings = true;
     notifyListeners();
   }
 

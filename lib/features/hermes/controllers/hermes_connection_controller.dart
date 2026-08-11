@@ -4,7 +4,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/models/connection_attempt.dart';
 import '../models/hermes_config.dart';
 
-enum HermesConnectionOperation { idle, testing, saving, finishing, saved }
+enum HermesConnectionOperation { idle, testing, saving, finishing }
 
 extension HermesConnectionOperationState on HermesConnectionOperation {
   bool get isBusy =>
@@ -13,11 +13,7 @@ extension HermesConnectionOperationState on HermesConnectionOperation {
       this == HermesConnectionOperation.finishing;
 }
 
-enum HermesConnectionValidationIssue {
-  invalidUrl,
-  credentialsReentryRequired,
-  persistenceFailed,
-}
+enum HermesConnectionValidationIssue { invalidUrl, credentialsReentryRequired }
 
 enum HermesConnectionOutcome {
   ignored,
@@ -41,6 +37,7 @@ final class HermesConnectionMessages {
   const HermesConnectionMessages({
     required this.connecting,
     required this.connected,
+    required this.saved,
     required this.unreachable,
     required this.persistenceFailed,
     required this.activationFailed,
@@ -48,6 +45,7 @@ final class HermesConnectionMessages {
 
   final String connecting;
   final String connected;
+  final String saved;
   final String unreachable;
   final String persistenceFailed;
   final String activationFailed;
@@ -229,7 +227,10 @@ final class HermesConnectionController extends ChangeNotifier {
     return reachable;
   }
 
-  Future<bool> save(HermesConfig saved) async {
+  Future<bool> save(
+    HermesConfig saved, {
+    required HermesConnectionMessages messages,
+  }) async {
     if (operation.isBusy) return false;
     final draft = _validatedDraft(saved);
     if (draft == null) return false;
@@ -239,14 +240,17 @@ final class HermesConnectionController extends ChangeNotifier {
     try {
       await _gateway.persist(draft);
       if (!_ownsOperation(operationEpoch)) return true;
-      _acceptPersistedDraft(operationEpoch);
+      _acceptPersistedDraft(
+        operationEpoch,
+        attempt: ConnectionAttemptState.connected(messages.saved),
+      );
       return true;
     } catch (_) {
       _publishIfOwned(
         operationEpoch,
         _state.copyWith(
           operation: HermesConnectionOperation.idle,
-          validationIssue: HermesConnectionValidationIssue.persistenceFailed,
+          attempt: ConnectionAttemptState.failed(messages.persistenceFailed),
         ),
       );
       return false;
@@ -336,7 +340,6 @@ final class HermesConnectionController extends ChangeNotifier {
         _publish(
           _state.copyWith(
             operation: HermesConnectionOperation.idle,
-            validationIssue: HermesConnectionValidationIssue.persistenceFailed,
             attempt: ConnectionAttemptState.failed(messages.persistenceFailed),
           ),
         );
@@ -436,13 +439,17 @@ final class HermesConnectionController extends ChangeNotifier {
     );
   }
 
-  void _acceptPersistedDraft(int operationEpoch) {
+  void _acceptPersistedDraft(
+    int operationEpoch, {
+    ConnectionAttemptState? attempt,
+  }) {
     if (!_ownsOperation(operationEpoch)) return;
     apiKey.clear();
     sessionKey.clear();
     _publish(
       _state.copyWith(
-        operation: HermesConnectionOperation.saved,
+        operation: HermesConnectionOperation.idle,
+        attempt: attempt,
         validationIssue: null,
         apiKeyDirty: false,
         sessionKeyDirty: false,

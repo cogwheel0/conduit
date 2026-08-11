@@ -12,6 +12,8 @@ enum DirectHeaderValidationIssue {
   invalidValue,
 }
 
+enum DirectCustomHeadersChange { input, collection }
+
 final class DirectHeaderValidationError {
   const DirectHeaderValidationError(this.issue, {this.headerName});
 
@@ -20,14 +22,13 @@ final class DirectHeaderValidationError {
 }
 
 /// Owns custom-header input, validation, and collection mutations.
-final class DirectCustomHeadersController extends ChangeNotifier {
-  DirectCustomHeadersController({this.onHeadersChanged, this.onInputChanged}) {
+final class DirectCustomHeadersController {
+  DirectCustomHeadersController({required this.onChanged}) {
     name.addListener(_handleInputChanged);
     value.addListener(_handleInputChanged);
   }
 
-  final VoidCallback? onHeadersChanged;
-  final VoidCallback? onInputChanged;
+  final ValueChanged<DirectCustomHeadersChange> onChanged;
   final name = TextEditingController();
   final value = TextEditingController();
   final valueFocusNode = FocusNode();
@@ -35,6 +36,7 @@ final class DirectCustomHeadersController extends ChangeNotifier {
 
   DirectHeaderValidationError? _error;
   bool _dirty = false;
+  bool _updatingInput = false;
 
   UnmodifiableMapView<String, String> get headers =>
       UnmodifiableMapView(_headers);
@@ -50,15 +52,10 @@ final class DirectCustomHeadersController extends ChangeNotifier {
     _error = null;
   }
 
-  void _clearInputError() {
-    if (_error == null) return;
-    _error = null;
-    notifyListeners();
-  }
-
   void _handleInputChanged() {
-    _clearInputError();
-    onInputChanged?.call();
+    if (_updatingInput) return;
+    _error = null;
+    onChanged(DirectCustomHeadersChange.input);
   }
 
   void clearError() {
@@ -73,7 +70,7 @@ final class DirectCustomHeadersController extends ChangeNotifier {
       _error = const DirectHeaderValidationError(
         DirectHeaderValidationIssue.nameRequired,
       );
-      notifyListeners();
+      onChanged(DirectCustomHeadersChange.input);
       return false;
     }
     return add();
@@ -86,12 +83,17 @@ final class DirectCustomHeadersController extends ChangeNotifier {
         _validateName(normalizedName) ?? _validateValue(value.text);
     if (validationError != null) {
       _error = validationError;
-      notifyListeners();
+      onChanged(DirectCustomHeadersChange.input);
       return false;
     }
     _headers[normalizedName] = value.text;
-    name.clear();
-    value.clear();
+    _updatingInput = true;
+    try {
+      name.clear();
+      value.clear();
+    } finally {
+      _updatingInput = false;
+    }
     _markChanged();
     return true;
   }
@@ -139,17 +141,14 @@ final class DirectCustomHeadersController extends ChangeNotifier {
   void _markChanged() {
     _dirty = true;
     _error = null;
-    onHeadersChanged?.call();
-    notifyListeners();
+    onChanged(DirectCustomHeadersChange.collection);
   }
 
-  @override
   void dispose() {
     name.removeListener(_handleInputChanged);
     value.removeListener(_handleInputChanged);
     name.dispose();
     value.dispose();
     valueFocusNode.dispose();
-    super.dispose();
   }
 }

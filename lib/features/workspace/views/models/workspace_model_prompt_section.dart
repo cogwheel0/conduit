@@ -5,13 +5,18 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/utility_components.dart';
 import '../../widgets/workspace_editor_fields.dart';
-import 'workspace_model_editor_contract.dart';
+import 'workspace_model_editor_controller.dart';
 import 'workspace_model_editor_field.dart';
 
 final class WorkspaceModelPromptSection extends StatelessWidget {
-  const WorkspaceModelPromptSection({super.key, required this.model});
+  const WorkspaceModelPromptSection({
+    super.key,
+    required this.controller,
+    required this.onAddSuggestion,
+  });
 
-  final WorkspaceModelPromptSectionModel model;
+  final WorkspaceModelEditorController controller;
+  final VoidCallback onAddSuggestion;
 
   @override
   Widget build(BuildContext context) {
@@ -22,13 +27,13 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
         children: [
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-system',
-            controller: model.system,
+            controller: controller.fields.system,
             label: l10n.workspaceModelSystemPrompt,
-            isDetail: model.isDetail,
-            enabled: !model.readOnly,
+            isDetail: controller.session.isDetail,
+            enabled: !controller.readOnly,
             minLines: 3,
             maxLines: 10,
-            onChanged: model.onTextChanged,
+            onChanged: controller.markDirty,
           ),
           _suggestionPrompts(context, l10n),
         ],
@@ -45,25 +50,29 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
         children: [
           Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
           const SizedBox(height: Spacing.xs),
-          for (var index = 0; index < model.suggestionPrompts.length; index++)
+          for (
+            var index = 0;
+            index < controller.draft.suggestionPrompts.length;
+            index++
+          )
             AdaptiveListTile(
               key: Key('workspace-model-suggestion-$index'),
               padding: EdgeInsets.zero,
-              title: Text(model.suggestionPrompts[index]),
-              trailing: model.readOnly
+              title: Text(controller.draft.suggestionPrompts[index]),
+              trailing: controller.readOnly
                   ? null
                   : IconButton(
                       tooltip: l10n.workspaceModelRemoveSuggestion,
                       icon: const Icon(Icons.close, size: IconSize.small),
-                      onPressed: () => model.onRemoveSuggestion(index),
+                      onPressed: () => controller.removeSuggestion(index),
                     ),
             ),
-          if (!model.readOnly)
+          if (!controller.readOnly)
             Align(
               alignment: Alignment.centerLeft,
               child: WorkspacePlainIconButton(
                 buttonKey: const Key('workspace-model-suggestion-add'),
-                onPressed: model.onAddSuggestion,
+                onPressed: onAddSuggestion,
                 icon: Icons.add,
                 label: l10n.workspaceModelAddSuggestion,
               ),

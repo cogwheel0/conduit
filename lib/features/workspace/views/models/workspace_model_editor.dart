@@ -15,7 +15,6 @@ import 'package:conduit/features/workspace/providers/workspace_model_relationshi
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
@@ -23,18 +22,12 @@ import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 import 'workspace_model_editor_body.dart';
-import 'workspace_model_editor_contract.dart';
-import 'workspace_model_advanced_section.dart';
-import 'workspace_model_avatar.dart';
-import 'workspace_model_basics_section.dart';
+import 'workspace_model_editor_controller.dart';
 import 'workspace_model_export.dart';
-import 'workspace_model_prompt_section.dart';
 import 'workspace_model_relationship_picker.dart';
-import 'workspace_model_relationships_section.dart';
 
 export 'workspace_model_export.dart' show exportWorkspaceModelsToShare;
 
@@ -106,222 +99,60 @@ class _WorkspaceModelForm extends ConsumerStatefulWidget {
 }
 
 class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
-  late WorkspaceModelDraft _draft;
-  late final WorkspaceModelFormBindings _fields;
-
-  TextEditingController get _idController => _fields.id;
-  TextEditingController get _nameController => _fields.name;
-  TextEditingController get _descriptionController => _fields.description;
-  TextEditingController get _systemController => _fields.system;
-  TextEditingController get _stopController => _fields.stop;
-  TextEditingController get _terminalController => _fields.terminal;
-  TextEditingController get _ttsController => _fields.tts;
-  TextEditingController get _defaultFeaturesController =>
-      _fields.defaultFeatures;
-  TextEditingController get _paramsController => _fields.params;
-  TextEditingController get _builtinToolsController => _fields.builtinTools;
-
-  late final WorkspaceEditorSession _session;
-  bool _advancedExpanded = false;
-  String? _paramsError;
-  // True once the user explicitly removes the avatar, so the editor renders the
-  // placeholder instead of re-fetching the still-persisted server image (which
-  // would silently undo the removal on screen until the model is saved).
-  bool _avatarRemoved = false;
+  late final WorkspaceModelEditorController _controller;
+  late final WorkspaceModelRelationshipCoordinator _relationshipCoordinator;
   static const _relationshipPicker = WorkspaceModelRelationshipPicker();
 
-  bool get _readOnly => !widget.writeAccess || _session.isDetail;
+  WorkspaceModelDraft get _draft => _controller.draft;
+  WorkspaceEditorSession get _session => _controller.session;
+  bool get _readOnly => _controller.readOnly;
 
   @override
   void initState() {
     super.initState();
-    _session = WorkspaceEditorSession(widget.mode);
-    _draft = WorkspaceModelDraft.fromSummary(_snapshot());
-    _fields = WorkspaceModelFormBindings(_draft);
-  }
-
-  WorkspaceModelSummary _snapshot() {
-    // Round-trips the incoming draft so the editing copy is independent of the
-    // provider's cached instance.
-    final source = widget.initialDraft;
-    return WorkspaceModelSummary(
-      id: source.id,
-      name: source.name,
-      userId: widget.summary?.userId ?? '',
-      baseModelId: source.baseModelId,
-      meta: source.buildMeta(),
-      params: source.buildParams(),
-      accessGrants: widget.summary?.accessGrants ?? const [],
-      isActive: source.isActive,
+    _controller = WorkspaceModelEditorController(
+      mode: widget.mode,
+      initialDraft: widget.initialDraft,
       writeAccess: widget.writeAccess,
+      summary: widget.summary,
+    )..addListener(_handleControllerChanged);
+    _relationshipCoordinator = WorkspaceModelRelationshipCoordinator(
+      _controller,
     );
   }
 
   @override
   void dispose() {
-    _fields.dispose();
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
     super.dispose();
   }
 
-  void _markDirty() {
-    if (!_session.dirty) setState(() => _session.markDirty());
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _update(void Function() mutate) {
-    setState(() {
-      mutate();
-      _session.markDirty();
-    });
-  }
-
-  Future<void> _pickKnowledge() async {
+  Future<void> _pickRelationship(WorkspaceModelRelationshipKind kind) async {
     final l10n = AppLocalizations.of(context)!;
-    final options = await _loadRelationshipOptions('knowledge', () async {
-      final state = await ref.read(workspaceKnowledgeProvider.future);
-      return state.items
-          .map(
-            (item) => WorkspaceRelationshipOption(
-              id: item.id,
-              label: item.name,
-              subtitle: item.description,
-            ),
-          )
-          .toList();
-    });
-    if (options == null || !mounted) return;
-    final selected = await _relationshipPicker.show(
-      context,
-      title: l10n.workspaceModelKnowledge,
-      options: options,
-      selectedIds: _draft.knowledge.map((item) => item.id).toList(),
+    final result = await _relationshipCoordinator.pick(
+      kind,
+      load: () => _loadRelationshipOptions(kind),
+      present: (options, selectedIds) {
+        if (!mounted) return Future<List<String>?>.value();
+        return _relationshipPicker.show(
+          context,
+          title: _relationshipTitle(l10n, kind),
+          options: options,
+          selectedIds: selectedIds,
+        );
+      },
     );
-    if (selected == null || !mounted) return;
-    _update(() {
-      _draft.knowledge = [
-        for (final id in selected)
-          _draft.knowledge.firstWhere(
-            (item) => item.id == id,
-            orElse: () => WorkspaceModelKnowledgeRef(
-              id: id,
-              name: options
-                  .firstWhere(
-                    (option) => option.id == id,
-                    orElse: () =>
-                        WorkspaceRelationshipOption(id: id, label: id),
-                  )
-                  .label,
-            ),
-          ),
-      ];
-    });
-  }
-
-  Future<void> _pickTools() async {
-    final l10n = AppLocalizations.of(context)!;
-    final options = await _loadRelationshipOptions('tools', () async {
-      final state = await ref.read(workspaceToolsProvider.future);
-      return state.items
-          .map(
-            (tool) =>
-                WorkspaceRelationshipOption(id: tool.id, label: tool.name),
-          )
-          .toList();
-    });
-    if (options == null || !mounted) return;
-    final selected = await _relationshipPicker.show(
-      context,
-      title: l10n.workspaceModelTools,
-      options: options,
-      selectedIds: _draft.toolIds,
-    );
-    if (selected != null && mounted) {
-      _update(() => _draft.toolIds = selected);
-    }
-  }
-
-  Future<void> _pickSkills() async {
-    final l10n = AppLocalizations.of(context)!;
-    final options = await _loadRelationshipOptions('skills', () async {
-      final state = await ref.read(workspaceSkillsProvider.future);
-      return state.items
-          .map(
-            (skill) => WorkspaceRelationshipOption(
-              id: skill.id,
-              label: skill.name,
-              subtitle: skill.description,
-            ),
-          )
-          .toList();
-    });
-    if (options == null || !mounted) return;
-    final selected = await _relationshipPicker.show(
-      context,
-      title: l10n.workspaceModelSkills,
-      options: options,
-      selectedIds: _draft.skillIds,
-    );
-    if (selected != null && mounted) {
-      _update(() => _draft.skillIds = selected);
-    }
-  }
-
-  Future<void> _pickFunctions({
-    required bool isFilter,
-    bool isDefault = false,
-  }) async {
-    final l10n = AppLocalizations.of(context)!;
-    final functions = await _loadRelationshipOptions('functions', () async {
-      final values = await ref.read(workspaceFunctionsProvider.future);
-      return values
-          .where((item) => isFilter ? item.isFilter : item.isAction)
-          .map(
-            (item) => WorkspaceRelationshipOption(
-              id: item.id,
-              label: item.name,
-              subtitle: item.type,
-            ),
-          )
-          .toList();
-    });
-    if (functions == null || !mounted) return;
-    final selectedIds = isFilter
-        ? (isDefault ? _draft.defaultFilterIds : _draft.filterIds)
-        : _draft.actionIds;
-    final title = isFilter
-        ? (isDefault
-              ? l10n.workspaceModelDefaultFilters
-              : l10n.workspaceModelFilters)
-        : l10n.workspaceModelActions;
-    final selected = await _relationshipPicker.show(
-      context,
-      title: title,
-      options: functions,
-      selectedIds: selectedIds,
-    );
-    if (selected == null || !mounted) return;
-    _update(() {
-      if (!isFilter) {
-        _draft.actionIds = selected;
-      } else if (isDefault) {
-        _draft.defaultFilterIds = selected;
-      } else {
-        _draft.filterIds = selected;
-      }
-    });
-  }
-
-  Future<List<WorkspaceRelationshipOption>?> _loadRelationshipOptions(
-    String relationship,
-    Future<List<WorkspaceRelationshipOption>> Function() load,
-  ) async {
-    try {
-      return await load();
-    } catch (error, stackTrace) {
+    if (result.outcome == WorkspaceModelRelationshipPickOutcome.failed) {
       DebugLogger.error(
-        '$relationship relationship load failed',
+        '${kind.name} relationship selection failed',
         scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
+        error: result.error,
+        stackTrace: result.stackTrace,
       );
       if (mounted) {
         AdaptiveSnackBar.show(
@@ -330,74 +161,99 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           type: AdaptiveSnackBarType.error,
         );
       }
-      return null;
     }
   }
 
-  Future<void> _pickRelationship(
+  Future<List<WorkspaceRelationshipOption>> _loadRelationshipOptions(
+    WorkspaceModelRelationshipKind kind,
+  ) async {
+    switch (kind) {
+      case WorkspaceModelRelationshipKind.knowledge:
+        final state = await ref.read(workspaceKnowledgeProvider.future);
+        return state.items
+            .map(
+              (item) => WorkspaceRelationshipOption(
+                id: item.id,
+                label: item.name,
+                subtitle: item.description,
+              ),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.tools:
+        final state = await ref.read(workspaceToolsProvider.future);
+        return state.items
+            .map(
+              (tool) =>
+                  WorkspaceRelationshipOption(id: tool.id, label: tool.name),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.skills:
+        final state = await ref.read(workspaceSkillsProvider.future);
+        return state.items
+            .map(
+              (skill) => WorkspaceRelationshipOption(
+                id: skill.id,
+                label: skill.name,
+                subtitle: skill.description,
+              ),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.filters:
+      case WorkspaceModelRelationshipKind.defaultFilters:
+      case WorkspaceModelRelationshipKind.actions:
+        final functions = await ref.read(workspaceFunctionsProvider.future);
+        final filters = kind != WorkspaceModelRelationshipKind.actions;
+        return functions
+            .where((item) => filters ? item.isFilter : item.isAction)
+            .map(
+              (item) => WorkspaceRelationshipOption(
+                id: item.id,
+                label: item.name,
+                subtitle: item.type,
+              ),
+            )
+            .toList();
+    }
+  }
+
+  String _relationshipTitle(
+    AppLocalizations l10n,
     WorkspaceModelRelationshipKind kind,
   ) => switch (kind) {
-    WorkspaceModelRelationshipKind.knowledge => _pickKnowledge(),
-    WorkspaceModelRelationshipKind.tools => _pickTools(),
-    WorkspaceModelRelationshipKind.skills => _pickSkills(),
-    WorkspaceModelRelationshipKind.filters => _pickFunctions(isFilter: true),
-    WorkspaceModelRelationshipKind.defaultFilters => _pickFunctions(
-      isFilter: true,
-      isDefault: true,
-    ),
-    WorkspaceModelRelationshipKind.actions => _pickFunctions(isFilter: false),
+    WorkspaceModelRelationshipKind.knowledge => l10n.workspaceModelKnowledge,
+    WorkspaceModelRelationshipKind.tools => l10n.workspaceModelTools,
+    WorkspaceModelRelationshipKind.skills => l10n.workspaceModelSkills,
+    WorkspaceModelRelationshipKind.filters => l10n.workspaceModelFilters,
+    WorkspaceModelRelationshipKind.defaultFilters =>
+      l10n.workspaceModelDefaultFilters,
+    WorkspaceModelRelationshipKind.actions => l10n.workspaceModelActions,
   };
 
   // --- Save -----------------------------------------------------------------
 
-  bool _syncTextIntoDraft() {
-    _draft.id = _idController.text.trim();
-    _draft.name = _nameController.text;
-    _draft.description = _descriptionController.text;
-    _draft.system = _systemController.text;
-    _draft.stop = _splitList(_stopController.text);
-    _draft.terminalId = _terminalController.text;
-    _draft.ttsVoice = _ttsController.text;
-    _draft.defaultFeatureIds = _splitList(_defaultFeaturesController.text);
-
-    final params = _parseJsonObject(_paramsController.text);
-    if (params == null) {
-      setState(() {
-        _paramsError = 'params';
-        _advancedExpanded = true;
-      });
+  bool _syncDraftOrShowError() {
+    final synchronized = _controller.syncTextIntoDraft();
+    final message = AppLocalizations.of(context)!.workspaceModelInvalidJson;
+    if (!synchronized) {
+      _controller.setError(message);
       return false;
     }
-    final builtin = _parseJsonObject(_builtinToolsController.text);
-    if (builtin == null) {
-      setState(() {
-        _paramsError = 'builtinTools';
-        _advancedExpanded = true;
-      });
-      return false;
-    }
-    _draft.advancedParams = params;
-    _draft.builtinTools = builtin;
-    if (_paramsError != null) setState(() => _paramsError = null);
+    if (_session.errorMessage == message) _controller.clearError();
     return true;
   }
 
   Future<void> _save() async {
-    if (!_syncTextIntoDraft()) return;
+    if (!_syncDraftOrShowError()) return;
     if (!_draft.isValid) {
-      setState(
-        () => _session.setError(
-          _draft.id.trim().isEmpty
-              ? AppLocalizations.of(context)!.workspaceModelIdRequired
-              : AppLocalizations.of(context)!.workspaceModelNameRequired,
-        ),
+      _controller.setError(
+        _draft.id.trim().isEmpty
+            ? AppLocalizations.of(context)!.workspaceModelIdRequired
+            : AppLocalizations.of(context)!.workspaceModelNameRequired,
       );
       return;
     }
 
-    setState(() {
-      _session.beginOperation(clearError: true);
-    });
+    _controller.beginOperation(clearError: true);
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
     try {
@@ -405,7 +261,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           ? await notifier.create(form)
           : await notifier.updateItem(form);
       if (!mounted) return;
-      _session.markClean();
+      _controller.markClean();
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
       DebugLogger.log(
         'model saved',
@@ -422,7 +278,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        setState(() => _session.endOperation());
+        _controller.endOperation();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -432,10 +288,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(
-        () => _session.finishOperation(
-          errorMessage: AppLocalizations.of(context)!.workspaceModelSaveFailed,
-        ),
+      _controller.finishOperation(
+        errorMessage: AppLocalizations.of(context)!.workspaceModelSaveFailed,
       );
     }
   }
@@ -448,21 +302,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // Abort on invalid params/builtin-tools JSON so the clone is built from the
     // form's actual contents, not stale draft values — matching _save and
     // _toggleHidden.
-    if (!_syncTextIntoDraft()) return;
-    final clone = WorkspaceModelDraft.fromSummary(
-      WorkspaceModelSummary(
-        id: '${_draft.id}-copy',
-        name: '${_draft.name} ${l10n.workspaceModelCloneSuffix}',
-        userId: '',
-        baseModelId: _draft.baseModelId,
-        meta: _draft.buildMeta(),
-        params: _draft.buildParams(),
-        isActive: _draft.isActive,
-      ),
-    );
-    // Clones do not inherit the source's access grants.
-    clone.accessGrants = [];
-    setState(() => _session.beginOperation());
+    if (!_syncDraftOrShowError()) return;
+    final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
+    _controller.beginOperation();
     try {
       final created = await ref
           .read(workspaceModelsProvider.notifier)
@@ -480,7 +322,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _controller.endOperation();
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -505,11 +347,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    setState(() => _session.beginOperation());
+    _controller.beginOperation();
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
-      _session.markClean();
+      _controller.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -526,7 +368,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _controller.endOperation();
     }
   }
 
@@ -537,15 +379,15 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // the same validation as _save (abort on invalid params JSON) and reconcile
     // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
-    if (!_syncTextIntoDraft()) return;
-    _draft.hidden = !_draft.hidden;
-    setState(() => _session.beginOperation());
+    if (!_syncDraftOrShowError()) return;
+    _controller.toggleHidden();
+    _controller.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateItem(_draft.toForm());
       if (!mounted) return;
-      _session.markClean();
+      _controller.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -556,14 +398,14 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _draft.hidden = !_draft.hidden;
+        _controller.toggleHidden();
         _showSnack(
           AppLocalizations.of(context)!.workspaceModelSaveFailed,
           isError: true,
         );
       }
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _controller.endOperation();
     }
   }
 
@@ -583,11 +425,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.beginOperation());
+    _controller.beginOperation();
     try {
       await ref.read(workspaceModelsProvider.notifier).delete(id);
       if (!mounted) return;
-      _session.markClean();
+      _controller.markClean();
       _showSnack(l10n.workspaceModelDeleted);
       if (router.canPop()) {
         router.pop();
@@ -602,7 +444,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _controller.endOperation();
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -626,13 +468,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (grants == null || !mounted) return;
     final id = _draft.id;
     if (_readOnly || id.isEmpty) return;
-    setState(() => _session.beginOperation());
+    _controller.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateAccess(id, _draft.name, grants);
       if (!mounted) return;
-      _update(() => _draft.accessGrants = grants);
+      _controller.replaceAccessGrants(grants);
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -644,12 +486,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _controller.endOperation();
     }
   }
 
   Future<void> _exportSingle() async {
-    _syncTextIntoDraft();
+    if (!_syncDraftOrShowError()) return;
     await exportWorkspaceModelsToShare(
       context,
       models: [_draft.toForm().toJson()],
@@ -725,10 +567,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
     final title = _session.isCreate
         ? l10n.workspaceModelNewTitle
-        : (_nameController.text.trim().isEmpty
+        : (_controller.fields.name.text.trim().isEmpty
               ? l10n.workspaceModels
-              : _nameController.text.trim());
-    final accessGrants = _draft.normalizedAccessGrants;
+              : _controller.fields.name.text.trim());
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -750,78 +591,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       child: AbsorbPointer(
         absorbing: _session.saving,
         child: WorkspaceModelEditorBody(
-          profileImage: _profileImage(l10n),
-          basicsSection: WorkspaceModelBasicsSection(
-            model: WorkspaceModelBasicsSectionModel(
-              id: _fields.id,
-              name: _fields.name,
-              description: _fields.description,
-              baseModelId: _draft.baseModelId,
-              baseModels: baseModels,
-              tags: _draft.tags,
-              isCreate: _session.isCreate,
-              isDetail: _session.isDetail,
-              readOnly: _readOnly,
-              onTextChanged: _markDirty,
-              onBaseModelChanged: (value) =>
-                  _update(() => _draft.baseModelId = value),
-              onRemoveTag: (tag) => _update(() => _draft.tags.remove(tag)),
-              onAddTag: () => _addTag(l10n),
-            ),
-          ),
-          promptSection: WorkspaceModelPromptSection(
-            model: WorkspaceModelPromptSectionModel(
-              system: _fields.system,
-              suggestionPrompts: _draft.suggestionPrompts,
-              isDetail: _session.isDetail,
-              readOnly: _readOnly,
-              onTextChanged: _markDirty,
-              onRemoveSuggestion: (index) =>
-                  _update(() => _draft.suggestionPrompts.removeAt(index)),
-              onAddSuggestion: () => _addSuggestion(l10n),
-            ),
-          ),
-          advancedSection: WorkspaceModelAdvancedSection(
-            model: WorkspaceModelAdvancedSectionModel(
-              stop: _fields.stop,
-              params: _fields.params,
-              terminal: _fields.terminal,
-              tts: _fields.tts,
-              defaultFeatures: _fields.defaultFeatures,
-              builtinTools: _fields.builtinTools,
-              capabilities: _draft.capabilities,
-              isDetail: _session.isDetail,
-              readOnly: _readOnly,
-              paramsError: _paramsError,
-              expanded: _advancedExpanded,
-              onTextChanged: _markDirty,
-              onCapabilityChanged: (capability, value) =>
-                  _update(() => _draft.capabilities[capability] = value),
-              onExpandedChanged: (value) =>
-                  setState(() => _advancedExpanded = value),
-            ),
-          ),
-          relationshipsSection: WorkspaceModelRelationshipsSection(
-            model: WorkspaceModelRelationshipsSectionModel(
-              counts: {
-                WorkspaceModelRelationshipKind.knowledge:
-                    _draft.knowledge.length,
-                WorkspaceModelRelationshipKind.tools: _draft.toolIds.length,
-                WorkspaceModelRelationshipKind.skills: _draft.skillIds.length,
-                WorkspaceModelRelationshipKind.filters: _draft.filterIds.length,
-                WorkspaceModelRelationshipKind.defaultFilters:
-                    _draft.defaultFilterIds.length,
-                WorkspaceModelRelationshipKind.actions: _draft.actionIds.length,
-              },
-              readOnly: _readOnly,
-              accessPrincipalCount: workspaceSharedPrincipals(
-                accessGrants,
-              ).length,
-              accessIsPublic: workspaceGrantsArePublic(accessGrants),
-              onPick: _pickRelationship,
-              onManageAccess: _manageAccess,
-            ),
-          ),
+          controller: _controller,
+          baseModels: baseModels,
+          onPickImage: _pickImage,
+          onAddTag: () => _addTag(l10n),
+          onAddSuggestion: () => _addSuggestion(l10n),
+          onPickRelationship: _pickRelationship,
+          onManageAccess: _manageAccess,
         ),
       ),
     );
@@ -904,53 +680,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     ];
   }
 
-  // --- Profile image --------------------------------------------------------
-
-  Widget _profileImage(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Row(
-      children: [
-        WorkspaceModelAvatar(
-          draftImage: _draft.profileImageUrl,
-          modelId: _draft.id,
-          removed: _avatarRemoved,
-        ),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(l10n.workspaceModelProfileImage, style: theme.label),
-              const SizedBox(height: Spacing.xs),
-              if (!_readOnly)
-                Wrap(
-                  spacing: Spacing.sm,
-                  children: [
-                    WorkspacePlainIconButton(
-                      buttonKey: const Key('workspace-model-image-pick'),
-                      onPressed: _pickImage,
-                      icon: Icons.image_outlined,
-                      label: l10n.workspaceModelChangeImage,
-                    ),
-                    if (_draft.profileImageUrl != null)
-                      WorkspacePlainIconButton(
-                        buttonKey: const Key('workspace-model-image-remove'),
-                        onPressed: () => _update(() {
-                          _draft.profileImageUrl = null;
-                          _avatarRemoved = true;
-                        }),
-                        icon: Icons.close,
-                        label: l10n.workspaceModelRemoveImage,
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   // --- Interactions ---------------------------------------------------------
 
   Future<void> _pickImage() async {
@@ -976,10 +705,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         mime = 'image/png';
       }
       final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
-      _update(() {
-        _draft.profileImageUrl = dataUrl;
-        _avatarRemoved = false;
-      });
+      _controller.setAvatar(dataUrl);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'model image pick failed',
@@ -1001,7 +727,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (value == null) return;
     final tag = value.trim();
     if (tag.isEmpty || _draft.tags.contains(tag)) return;
-    _update(() => _draft.tags.add(tag));
+    _controller.addTag(tag);
   }
 
   Future<void> _addSuggestion(AppLocalizations l10n) async {
@@ -1009,7 +735,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (value == null) return;
     final prompt = value.trim();
     if (prompt.isEmpty) return;
-    _update(() => _draft.suggestionPrompts.add(prompt));
+    _controller.addSuggestion(prompt);
   }
 
   Future<String?> _promptText(String label) {
@@ -1028,23 +754,5 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );
-  }
-
-  static List<String> _splitList(String raw) => raw
-      .split(RegExp(r'[,\n]'))
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList();
-
-  static Map<String, dynamic>? _parseJsonObject(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return <String, dynamic>{};
-    try {
-      final decoded = json.decode(trimmed);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      return null;
-    } catch (_) {
-      return null;
-    }
   }
 }

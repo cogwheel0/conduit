@@ -57,18 +57,108 @@ final class _RiverpodHermesConnectionGateway
       enable: () => notifier.setEnabled(true),
       ensureSessionKey: notifier.ensureSessionKey,
       selectBackend: () => preferredBackend.set(PreferredBackend.hermes),
-      rollback: () async {
-        await preferredBackend.set(previousBackend);
-        await notifier.saveConnection(
+      rollback: () => runHermesOnboardingRollback(
+        previousEnabled: previousConfig.enabled,
+        setEnabled: notifier.setEnabled,
+        restoreConnection: () => notifier.saveConnection(
           baseUrl: previousConfig.baseUrl,
           apiKeyChanged: true,
           apiKey: previousConfig.apiKey,
           sessionKeyChanged: true,
           sessionKey: previousConfig.sessionKey,
-        );
-        await notifier.setEnabled(previousConfig.enabled);
-      },
+        ),
+        restoreBackend: () => preferredBackend.set(previousBackend),
+      ),
     );
+  }
+}
+
+enum HermesConnectionRollbackStep {
+  deactivate,
+  restoreConnection,
+  restoreEnabled,
+  restoreBackend,
+  retryDeactivation,
+}
+
+final class HermesConnectionRollbackFailure {
+  const HermesConnectionRollbackFailure({
+    required this.step,
+    required this.errorType,
+  });
+
+  final HermesConnectionRollbackStep step;
+  final String errorType;
+}
+
+/// Aggregates sanitized rollback failure descriptors without retaining raw
+/// error objects that could carry credential-bearing messages.
+final class HermesConnectionRollbackException implements Exception {
+  HermesConnectionRollbackException(
+    Iterable<HermesConnectionRollbackFailure> failures,
+  ) : failures = List<HermesConnectionRollbackFailure>.unmodifiable(failures);
+
+  final List<HermesConnectionRollbackFailure> failures;
+
+  @override
+  String toString() =>
+      'HermesConnectionRollbackException('
+      '${failures.map((failure) => '${failure.step.name}:${failure.errorType}').join(', ')})';
+}
+
+/// Restores a failed onboarding transaction without allowing one failed
+/// compensation to suppress the remaining independent cleanup steps.
+Future<void> runHermesOnboardingRollback({
+  required bool previousEnabled,
+  required Future<void> Function(bool enabled) setEnabled,
+  required Future<void> Function() restoreConnection,
+  required Future<void> Function() restoreBackend,
+}) async {
+  final failures = <HermesConnectionRollbackFailure>[];
+
+  Future<bool> attempt(
+    HermesConnectionRollbackStep step,
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      failures.add(
+        HermesConnectionRollbackFailure(
+          step: step,
+          errorType: error.runtimeType.toString(),
+        ),
+      );
+      return false;
+    }
+  }
+
+  final deactivated = await attempt(
+    HermesConnectionRollbackStep.deactivate,
+    () => setEnabled(false),
+  );
+  final connectionRestored = await attempt(
+    HermesConnectionRollbackStep.restoreConnection,
+    restoreConnection,
+  );
+  if (connectionRestored) {
+    await attempt(
+      HermesConnectionRollbackStep.restoreEnabled,
+      () => setEnabled(previousEnabled),
+    );
+  } else if (!deactivated) {
+    // The previous connection could not be restored, so retry the fail-closed
+    // state instead of risking re-enabling the replacement configuration.
+    await attempt(
+      HermesConnectionRollbackStep.retryDeactivation,
+      () => setEnabled(false),
+    );
+  }
+  await attempt(HermesConnectionRollbackStep.restoreBackend, restoreBackend);
+
+  if (failures.isNotEmpty) {
+    throw HermesConnectionRollbackException(failures);
   }
 }
 

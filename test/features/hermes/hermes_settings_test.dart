@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _messages = HermesConnectionMessages(
   connecting: 'Connecting',
   connected: 'Connected',
+  saved: 'Saved',
   unreachable: 'Could not connect',
   persistenceFailed: 'Could not save',
   activationFailed: 'Could not activate',
@@ -146,6 +147,7 @@ void main() {
       check(gateway.calls).deepEquals(['probe', 'persist']);
       check(controller.apiKey.text).equals('secret-key');
       check(controller.attempt.message).equals('Could not save');
+      check(controller.validationIssue).isNull();
     },
   );
 
@@ -210,10 +212,12 @@ void main() {
     ).isFalse();
     check(controller.attempt.isVisible).isTrue();
 
-    check(await controller.save(const HermesConfig())).isTrue();
+    check(
+      await controller.save(const HermesConfig(), messages: _messages),
+    ).isTrue();
 
-    check(controller.operation).equals(HermesConnectionOperation.saved);
-    check(controller.attempt.isVisible).isFalse();
+    check(controller.operation).equals(HermesConnectionOperation.idle);
+    check(controller.attempt.message).equals('Saved');
   });
 
   test(
@@ -279,7 +283,7 @@ void main() {
       );
       final controller = _configuredController(gateway);
 
-      final result = controller.save(const HermesConfig());
+      final result = controller.save(const HermesConfig(), messages: _messages);
       await Future<void>.delayed(Duration.zero);
       controller.dispose();
       persist.complete();
@@ -313,6 +317,73 @@ void main() {
 
     check(calls).deepEquals(['persist', 'enable', 'session-key', 'rollback']);
   });
+
+  for (final failedStep in <String>{
+    'deactivate',
+    'restore-connection',
+    'restore-enabled',
+    'restore-backend',
+  }) {
+    test(
+      'onboarding rollback continues safely when $failedStep fails',
+      () async {
+        final calls = <String>[];
+        var enableCall = 0;
+        final injectedError = StateError('$failedStep failed');
+        final expectedStep = switch (failedStep) {
+          'deactivate' => HermesConnectionRollbackStep.deactivate,
+          'restore-connection' =>
+            HermesConnectionRollbackStep.restoreConnection,
+          'restore-enabled' => HermesConnectionRollbackStep.restoreEnabled,
+          'restore-backend' => HermesConnectionRollbackStep.restoreBackend,
+          _ => throw StateError('unexpected test step'),
+        };
+
+        await check(
+          runHermesOnboardingRollback(
+            previousEnabled: true,
+            setEnabled: (enabled) async {
+              enableCall++;
+              final step = enableCall == 1 ? 'deactivate' : 'restore-enabled';
+              calls.add('$step:$enabled');
+              if (failedStep == step) throw injectedError;
+            },
+            restoreConnection: () async {
+              calls.add('restore-connection');
+              if (failedStep == 'restore-connection') {
+                throw injectedError;
+              }
+            },
+            restoreBackend: () async {
+              calls.add('restore-backend');
+              if (failedStep == 'restore-backend') {
+                throw injectedError;
+              }
+            },
+          ),
+        ).throws<HermesConnectionRollbackException>((failure) {
+          failure.has((value) => value.failures, 'failures').length.equals(1);
+          failure
+              .has((value) => value.failures.single.step, 'step')
+              .equals(expectedStep);
+          failure
+              .has((value) => value.failures.single.errorType, 'errorType')
+              .equals(injectedError.runtimeType.toString());
+        });
+
+        check(calls).deepEquals(
+          failedStep == 'restore-connection'
+              ? ['deactivate:false', 'restore-connection', 'restore-backend']
+              : [
+                  'deactivate:false',
+                  'restore-connection',
+                  'restore-enabled:true',
+                  'restore-backend',
+                ],
+        );
+      },
+    );
+  }
 }
 
 HermesConnectionController _configuredController(

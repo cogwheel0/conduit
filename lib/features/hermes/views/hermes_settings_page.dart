@@ -49,6 +49,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       HermesConnectionMessages(
         connecting: l10n.connecting,
         connected: l10n.connectedToServer,
+        saved: l10n.saved,
         unreachable: l10n.couldNotConnectGeneric,
         persistenceFailed: l10n.directConnectionSaveFailed,
         activationFailed: l10n.hermesOnboardingFailed,
@@ -79,7 +80,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _saveSettings() async {
-    await _connectionController.save(ref.read(hermesConfigProvider));
+    final l10n = AppLocalizations.of(context)!;
+    await _connectionController.save(
+      ref.read(hermesConfigProvider),
+      messages: _messages(l10n),
+    );
   }
 
   Future<void> _retrySecrets() =>
@@ -117,8 +122,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         l10n.directConnectionUrlInvalid,
       HermesConnectionValidationIssue.credentialsReentryRequired =>
         l10n.directConnectionCredentialsReentryRequired,
-      HermesConnectionValidationIssue.persistenceFailed =>
-        l10n.directConnectionSaveFailed,
       null => null,
     };
 
@@ -342,13 +345,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                   ? _testConnection
                   : null,
             ),
-            if (_connectionController.operation ==
-                    HermesConnectionOperation.saved &&
-                !_connectionController.attempt.isVisible)
-              ConnectionAttemptBanner(
-                state: ConnectionAttemptState.connected(l10n.saved),
-              )
-            else if (_connectionController.attempt.isVisible)
+            if (_connectionController.attempt.isVisible)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 320),
                 child: ConnectionAttemptBanner(
