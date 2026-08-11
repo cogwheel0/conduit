@@ -197,6 +197,7 @@ final class HermesConnectionController extends ChangeNotifier {
 
     try {
       await _gateway.persist(draft);
+      if (_isDisposed) return true;
       _acceptPersistedDraft();
       operation = HermesConnectionOperation.saved;
       _notifyListeners();

@@ -11,6 +11,7 @@ import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
@@ -122,17 +123,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   // placeholder instead of re-fetching the still-persisted server image (which
   // would silently undo the removal on screen until the model is saved).
   bool _avatarRemoved = false;
+  static const _relationshipPicker = WorkspaceModelRelationshipPicker();
 
   bool get _readOnly => !widget.writeAccess || _session.isDetail;
-
-  WorkspaceModelRelationshipPicker _relationshipPicker(AppLocalizations l10n) =>
-      WorkspaceModelRelationshipPicker(
-        context: context,
-        ref: ref,
-        l10n: l10n,
-        draft: _draft,
-        onMutate: _update,
-      );
 
   @override
   void initState() {
@@ -162,7 +155,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   @override
   void dispose() {
     _fields.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -175,6 +167,166 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       mutate();
       _session.dirty = true;
     });
+  }
+
+  Future<void> _pickKnowledge() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await _loadRelationshipOptions('knowledge', () async {
+      final state = await ref.read(workspaceKnowledgeProvider.future);
+      return state.items
+          .map(
+            (item) => WorkspaceRelationshipOption(
+              id: item.id,
+              label: item.name,
+              subtitle: item.description,
+            ),
+          )
+          .toList();
+    });
+    if (options == null || !mounted) return;
+    final selected = await _relationshipPicker.show(
+      context,
+      title: l10n.workspaceModelKnowledge,
+      options: options,
+      selectedIds: _draft.knowledge.map((item) => item.id).toList(),
+    );
+    if (selected == null || !mounted) return;
+    _update(() {
+      _draft.knowledge = [
+        for (final id in selected)
+          _draft.knowledge.firstWhere(
+            (item) => item.id == id,
+            orElse: () => WorkspaceModelKnowledgeRef(
+              id: id,
+              name: options
+                  .firstWhere(
+                    (option) => option.id == id,
+                    orElse: () =>
+                        WorkspaceRelationshipOption(id: id, label: id),
+                  )
+                  .label,
+            ),
+          ),
+      ];
+    });
+  }
+
+  Future<void> _pickTools() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await _loadRelationshipOptions('tools', () async {
+      final state = await ref.read(workspaceToolsProvider.future);
+      return state.items
+          .map(
+            (tool) =>
+                WorkspaceRelationshipOption(id: tool.id, label: tool.name),
+          )
+          .toList();
+    });
+    if (options == null || !mounted) return;
+    final selected = await _relationshipPicker.show(
+      context,
+      title: l10n.workspaceModelTools,
+      options: options,
+      selectedIds: _draft.toolIds,
+    );
+    if (selected != null && mounted) {
+      _update(() => _draft.toolIds = selected);
+    }
+  }
+
+  Future<void> _pickSkills() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await _loadRelationshipOptions('skills', () async {
+      final state = await ref.read(workspaceSkillsProvider.future);
+      return state.items
+          .map(
+            (skill) => WorkspaceRelationshipOption(
+              id: skill.id,
+              label: skill.name,
+              subtitle: skill.description,
+            ),
+          )
+          .toList();
+    });
+    if (options == null || !mounted) return;
+    final selected = await _relationshipPicker.show(
+      context,
+      title: l10n.workspaceModelSkills,
+      options: options,
+      selectedIds: _draft.skillIds,
+    );
+    if (selected != null && mounted) {
+      _update(() => _draft.skillIds = selected);
+    }
+  }
+
+  Future<void> _pickFunctions({
+    required bool isFilter,
+    bool isDefault = false,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final functions = await _loadRelationshipOptions('functions', () async {
+      final values = await ref.read(workspaceFunctionsProvider.future);
+      return values
+          .where((item) => isFilter ? item.isFilter : item.isAction)
+          .map(
+            (item) => WorkspaceRelationshipOption(
+              id: item.id,
+              label: item.name,
+              subtitle: item.type,
+            ),
+          )
+          .toList();
+    });
+    if (functions == null || !mounted) return;
+    final selectedIds = isFilter
+        ? (isDefault ? _draft.defaultFilterIds : _draft.filterIds)
+        : _draft.actionIds;
+    final title = isFilter
+        ? (isDefault
+              ? l10n.workspaceModelDefaultFilters
+              : l10n.workspaceModelFilters)
+        : l10n.workspaceModelActions;
+    final selected = await _relationshipPicker.show(
+      context,
+      title: title,
+      options: functions,
+      selectedIds: selectedIds,
+    );
+    if (selected == null || !mounted) return;
+    _update(() {
+      if (!isFilter) {
+        _draft.actionIds = selected;
+      } else if (isDefault) {
+        _draft.defaultFilterIds = selected;
+      } else {
+        _draft.filterIds = selected;
+      }
+    });
+  }
+
+  Future<List<WorkspaceRelationshipOption>?> _loadRelationshipOptions(
+    String relationship,
+    Future<List<WorkspaceRelationshipOption>> Function() load,
+  ) async {
+    try {
+      return await load();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        '$relationship relationship load failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.workspaceLoadFailed,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return null;
+    }
   }
 
   // --- Save -----------------------------------------------------------------
@@ -536,10 +688,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _session,
-    builder: (context, _) => _buildContent(context),
-  );
+  Widget build(BuildContext context) => _buildContent(context);
 
   Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -548,6 +697,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         .maybeWhen(
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
+        );
+    final baseModels = ref
+        .watch(workspaceBaseModelsProvider)
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => const <WorkspaceRelationshipOption>[],
         );
     final title = _session.isCreate
         ? l10n.workspaceModelNewTitle
@@ -583,22 +738,20 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           readOnly: _readOnly,
           advancedExpanded: _advancedExpanded,
           paramsError: _paramsError,
+          baseModels: baseModels,
           onChanged: _markDirty,
           onMutate: _update,
           onAdvancedChanged: (value) =>
               setState(() => _advancedExpanded = value),
           onAddTag: () => _addTag(l10n),
           onAddSuggestion: () => _addSuggestion(l10n),
-          onPickKnowledge: _relationshipPicker(l10n).pickKnowledge,
-          onPickTools: _relationshipPicker(l10n).pickTools,
-          onPickSkills: _relationshipPicker(l10n).pickSkills,
-          onPickFilters: () =>
-              _relationshipPicker(l10n).pickFunctions(isFilter: true),
-          onPickDefaultFilters: () => _relationshipPicker(
-            l10n,
-          ).pickFunctions(isFilter: true, isDefault: true),
-          onPickActions: () =>
-              _relationshipPicker(l10n).pickFunctions(isFilter: false),
+          onPickKnowledge: _pickKnowledge,
+          onPickTools: _pickTools,
+          onPickSkills: _pickSkills,
+          onPickFilters: () => _pickFunctions(isFilter: true),
+          onPickDefaultFilters: () =>
+              _pickFunctions(isFilter: true, isDefault: true),
+          onPickActions: () => _pickFunctions(isFilter: false),
           onManageAccess: _manageAccess,
         ),
       ),

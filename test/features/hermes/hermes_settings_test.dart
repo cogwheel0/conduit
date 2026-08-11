@@ -192,6 +192,25 @@ void main() {
     },
   );
 
+  test(
+    'a committed save can finish after the controller is disposed',
+    () async {
+      final persist = Completer<void>();
+      final gateway = _FakeHermesConnectionGateway(
+        onPersist: (_) => persist.future,
+      );
+      final controller = _configuredController(gateway);
+
+      final result = controller.save(const HermesConfig());
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+      persist.complete();
+
+      check(await result).isTrue();
+      check(gateway.calls).deepEquals(['persist']);
+    },
+  );
+
   test('onboarding commit compensates a partial activation', () async {
     final calls = <String>[];
 

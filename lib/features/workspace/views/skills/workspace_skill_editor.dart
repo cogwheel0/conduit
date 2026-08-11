@@ -174,7 +174,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     _idController.dispose();
     _descriptionController.dispose();
     _contentController.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -579,10 +578,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _session,
-    builder: (context, _) => _buildContent(context),
-  );
+  Widget build(BuildContext context) => _buildContent(context);
 
   Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;

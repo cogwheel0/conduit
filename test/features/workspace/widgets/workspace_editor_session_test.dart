@@ -4,17 +4,12 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('session owns mode and publishes meaningful state changes', () {
+  test('session groups route and mutation state', () {
     final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
-    addTearDown(session.dispose);
-    var notifications = 0;
-    session.addListener(() => notifications++);
 
     check(session.isEdit).isTrue();
     check(session.isCreate).isFalse();
     session.dirty = true;
-    session.dirty = true;
-    check(notifications).equals(1);
 
     session.errorMessage = 'stale';
     session.beginSaving();
@@ -25,6 +20,5 @@ void main() {
     check(session.saving).isFalse();
     check(session.dirty).isFalse();
     check(session.errorMessage).equals('failed');
-    check(notifications).equals(4);
   });
 }

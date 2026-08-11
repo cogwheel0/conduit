@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/workspace_model_draft.dart';
 import '../../providers/workspace_model_relationships.dart';
@@ -67,7 +66,7 @@ final class WorkspaceModelFormBindings {
 ///
 /// Persistence and async interactions stay in the parent coordinator; this
 /// widget receives only draft mutations and section-specific callbacks.
-final class WorkspaceModelEditorBody extends ConsumerWidget {
+final class WorkspaceModelEditorBody extends StatelessWidget {
   const WorkspaceModelEditorBody({
     super.key,
     required this.draft,
@@ -78,6 +77,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
     required this.readOnly,
     required this.advancedExpanded,
     required this.paramsError,
+    required this.baseModels,
     required this.onChanged,
     required this.onMutate,
     required this.onAdvancedChanged,
@@ -100,6 +100,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
   final bool readOnly;
   final bool advancedExpanded;
   final String? paramsError;
+  final List<WorkspaceRelationshipOption> baseModels;
   final VoidCallback onChanged;
   final void Function(VoidCallback mutation) onMutate;
   final ValueChanged<bool> onAdvancedChanged;
@@ -114,7 +115,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
   final VoidCallback onManageAccess;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return ListView(
       key: const Key('workspace-model-editor-body'),
@@ -138,7 +139,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
                 label: l10n.workspaceModelIdLabel,
                 enabled: !readOnly && isCreate,
               ),
-              _baseModelSelector(context, ref, l10n),
+              _baseModelSelector(context, l10n),
               _textField(
                 context,
                 key: 'workspace-model-name',
@@ -361,17 +362,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
     );
   }
 
-  Widget _baseModelSelector(
-    BuildContext context,
-    WidgetRef ref,
-    AppLocalizations l10n,
-  ) {
-    final models = ref
-        .watch(workspaceBaseModelsProvider)
-        .maybeWhen(
-          data: (value) => value,
-          orElse: () => const <WorkspaceRelationshipOption>[],
-        );
+  Widget _baseModelSelector(BuildContext context, AppLocalizations l10n) {
     final selectedId = draft.baseModelId;
     if (isDetail) {
       return UtilityValueRow(
@@ -381,7 +372,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
       );
     }
     final hasSelectedOption =
-        selectedId == null || models.any((model) => model.id == selectedId);
+        selectedId == null || baseModels.any((model) => model.id == selectedId);
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: DropdownButtonFormField<String?>(
@@ -403,7 +394,7 @@ final class WorkspaceModelEditorBody extends ConsumerWidget {
               value: selectedId,
               child: Text(selectedId, overflow: TextOverflow.ellipsis),
             ),
-          for (final model in models)
+          for (final model in baseModels)
             DropdownMenuItem<String?>(
               value: model.id,
               child: Text(model.label, overflow: TextOverflow.ellipsis),

@@ -135,7 +135,6 @@ class _WorkspaceKnowledgeFormState
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -344,10 +343,7 @@ class _WorkspaceKnowledgeFormState
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _session,
-    builder: (context, _) => _buildContent(context),
-  );
+  Widget build(BuildContext context) => _buildContent(context);
 
   Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;

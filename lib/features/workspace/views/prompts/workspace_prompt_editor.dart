@@ -141,7 +141,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     _commandController.dispose();
     _contentController.dispose();
     _commitController.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -533,10 +532,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _session,
-    builder: (context, _) => _buildContent(context),
-  );
+  Widget build(BuildContext context) => _buildContent(context);
 
   Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;

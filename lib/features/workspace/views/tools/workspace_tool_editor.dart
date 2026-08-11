@@ -163,7 +163,6 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     _idController.dispose();
     _descriptionController.dispose();
     _contentController.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -550,10 +549,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _session,
-    builder: (context, _) => _buildContent(context),
-  );
+  Widget build(BuildContext context) => _buildContent(context);
 
   Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
