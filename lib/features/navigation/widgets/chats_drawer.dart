@@ -479,12 +479,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
 
     if (mounted) {
-      final mediaQuery = MediaQuery.maybeOf(context);
-      final isTablet =
-          mediaQuery != null && mediaQuery.size.shortestSide >= 600;
-      if (!isTablet) {
-        SidebarDrawerControllerScope.maybeOf(context)?.close();
-      }
+      closeSidebarDrawerIfOverlay(context);
     }
   }
 
@@ -1930,12 +1925,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           return;
         }
         NavigationService.router.go(Routes.chat);
-        final mediaQuery = MediaQuery.maybeOf(context);
-        final isTablet =
-            mediaQuery != null && mediaQuery.size.shortestSide >= 600;
-        if (!isTablet) {
-          SidebarDrawerControllerScope.maybeOf(context)?.close();
-        }
+        closeSidebarDrawerIfOverlay(context);
         return;
       case ConversationSelectionDisposition.canceled:
         return;

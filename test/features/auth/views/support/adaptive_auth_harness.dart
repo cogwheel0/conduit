@@ -8,6 +8,7 @@ import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -135,7 +136,10 @@ class BackendOnboardingHarness {
           path: Routes.directConnectionEditor,
           name: RouteNames.directConnectionEditor,
           builder: (_, state) => DirectConnectionEditorPage(
-            profileId: state.pathParameters['id']!,
+            mode: DirectConnectionEditorMode.fromRoute(
+              profileId: state.pathParameters['id']!,
+              source: DirectConnectionEditorSource.local,
+            ),
             isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
             entry: state.uri.queryParameters['entry'] == 'chooser'
                 ? DirectEditorEntry.chooser

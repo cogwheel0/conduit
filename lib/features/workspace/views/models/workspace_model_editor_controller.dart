@@ -107,14 +107,13 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
     required this.writeAccess,
     WorkspaceModelSummary? summary,
   }) : session = WorkspaceEditorSession(mode) {
-    _draft = WorkspaceModelDraft.fromSummary(
-      _snapshot(
-        initialDraft: initialDraft,
-        summary: summary,
-        writeAccess: writeAccess,
-      ),
+    _draft = initialDraft.deepCopy(
+      accessGrants: summary?.accessGrants
+          .map(WorkspaceAccessGrantInput.fromGrant)
+          .toList(),
     );
     fields = WorkspaceModelFormBindings(_draft);
+    session.addListener(_notify);
   }
 
   final bool writeAccess;
@@ -134,27 +133,7 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
   bool get avatarRemoved => _avatarRemoved;
   bool get isDisposed => _disposed;
 
-  static WorkspaceModelSummary _snapshot({
-    required WorkspaceModelDraft initialDraft,
-    required WorkspaceModelSummary? summary,
-    required bool writeAccess,
-  }) => WorkspaceModelSummary(
-    id: initialDraft.id,
-    name: initialDraft.name,
-    userId: summary?.userId ?? '',
-    baseModelId: initialDraft.baseModelId,
-    meta: initialDraft.buildMeta(),
-    params: initialDraft.buildParams(),
-    accessGrants: summary?.accessGrants ?? const [],
-    isActive: initialDraft.isActive,
-    writeAccess: writeAccess,
-  );
-
-  void markDirty() {
-    if (session.dirty) return;
-    session.markDirty();
-    _notify();
-  }
+  void markDirty() => session.markDirty();
 
   void setBaseModel(String? value) => _mutate(() => _draft.baseModelId = value);
 
@@ -201,37 +180,6 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
     _notify();
   }
 
-  void beginOperation({bool clearError = false}) {
-    session.beginOperation(clearError: clearError);
-    _notify();
-  }
-
-  void endOperation() {
-    session.endOperation();
-    _notify();
-  }
-
-  void finishOperation({String? errorMessage, bool? dirty}) {
-    session.finishOperation(errorMessage: errorMessage, dirty: dirty);
-    _notify();
-  }
-
-  void markClean() {
-    session.markClean();
-    _notify();
-  }
-
-  void setError(String message) {
-    session.setError(message);
-    _notify();
-  }
-
-  void clearError() {
-    if (session.errorMessage == null) return;
-    session.clearError();
-    _notify();
-  }
-
   bool syncTextIntoDraft() {
     _draft.id = fields.id.text.trim();
     _draft.name = fields.name.text;
@@ -262,19 +210,11 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
   }
 
   WorkspaceModelDraft buildClone(String suffix) {
-    final clone = WorkspaceModelDraft.fromSummary(
-      WorkspaceModelSummary(
-        id: '${_draft.id}-copy',
-        name: '${_draft.name} $suffix',
-        userId: '',
-        baseModelId: _draft.baseModelId,
-        meta: _draft.buildMeta(),
-        params: _draft.buildParams(),
-        isActive: _draft.isActive,
-      ),
+    return _draft.deepCopy(
+      id: '${_draft.id}-copy',
+      name: '${_draft.name} $suffix',
+      accessGrants: const [],
     );
-    clone.accessGrants = [];
-    return clone;
   }
 
   List<String> selectedRelationshipIds(WorkspaceModelRelationshipKind kind) =>
@@ -333,15 +273,21 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
         _draft.actionIds = selection;
         break;
     }
-    session.markDirty();
-    _notify();
+    _notifyDraftMutation();
     return true;
   }
 
   void _mutate(VoidCallback mutation) {
     mutation();
-    session.markDirty();
-    _notify();
+    _notifyDraftMutation();
+  }
+
+  void _notifyDraftMutation() {
+    if (session.dirty) {
+      _notify();
+    } else {
+      session.markDirty();
+    }
   }
 
   void _setSyncIssue(WorkspaceModelDraftSyncIssue issue) {
@@ -375,6 +321,8 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    session.removeListener(_notify);
+    session.dispose();
     fields.dispose();
     super.dispose();
   }

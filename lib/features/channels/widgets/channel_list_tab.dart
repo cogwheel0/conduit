@@ -81,10 +81,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _onChannelTap(Channel channel) {
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    if (!isTablet) {
-      SidebarDrawerControllerScope.maybeOf(context)?.close();
-    }
+    closeSidebarDrawerIfOverlay(context);
     NavigationService.router.go('/channel/${channel.id}');
   }
 

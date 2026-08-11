@@ -30,18 +30,14 @@ enum DirectEditorEntry { overview, chooser }
 class DirectConnectionEditorPage extends ConsumerStatefulWidget {
   const DirectConnectionEditorPage({
     super.key,
-    required this.profileId,
+    required this.mode,
     this.isOnboarding = false,
-    this.isOpenWebUi = false,
     this.entry = DirectEditorEntry.overview,
   });
 
-  final String profileId;
+  final DirectConnectionEditorMode mode;
   final bool isOnboarding;
-  final bool isOpenWebUi;
   final DirectEditorEntry entry;
-
-  bool get isNew => profileId == 'new';
 
   @override
   ConsumerState<DirectConnectionEditorPage> createState() =>
@@ -50,10 +46,10 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  late final DirectConnectionEditorMode _mode;
   late final DirectConnectionEditorForm _form;
   late final DirectConnectionEditorWorkflow _workflow;
 
+  DirectConnectionEditorMode get _mode => _workflow.mode;
   DirectConnectionEditorState get _editorState => _workflow.state;
   bool get _saving => _editorState.operation == DirectEditorOperation.saving;
   bool get _testing => _editorState.operation == DirectEditorOperation.testing;
@@ -65,18 +61,13 @@ class _DirectConnectionEditorPageState
   @override
   void initState() {
     super.initState();
-    _mode = DirectConnectionEditorMode(
-      source: widget.isOpenWebUi
-          ? DirectConnectionEditorSource.openWebUi
-          : DirectConnectionEditorSource.local,
-      isNew: widget.isNew,
-    );
+    final mode = widget.mode;
     _form = DirectConnectionEditorForm(
-      mode: _mode,
+      mode: mode,
       onDraftChanged: _handleDraftChanged,
     )..addListener(_handleEditorChanged);
     _workflow = DirectConnectionEditorWorkflow(
-      target: riverpodDirectConnectionEditorTarget(ref, _mode),
+      target: riverpodDirectConnectionEditorTarget(ref, mode),
       form: _form,
     )..addListener(_handleEditorChanged);
   }
@@ -116,9 +107,9 @@ class _DirectConnectionEditorPageState
   DirectConnectionProfile? _profileById(
     List<DirectConnectionProfile> profiles,
   ) {
-    if (widget.isNew) return null;
+    if (_mode.isNew) return null;
     for (final profile in profiles) {
-      if (profile.id == widget.profileId) return profile;
+      if (profile.id == _mode.profileId) return profile;
     }
     return null;
   }
@@ -140,13 +131,13 @@ class _DirectConnectionEditorPageState
   );
 
   bool _openWebUiOwnerIsCurrent() {
-    if (!widget.isOpenWebUi || _editorState.owner == null) return false;
+    if (!_mode.isOpenWebUi || _editorState.owner == null) return false;
     final snapshot = ref.read(openWebUiDirectConnectionsProvider).value;
     return snapshot != null && _matchesCapturedOpenWebUiOwner(snapshot);
   }
 
   bool _operationOwnerIsCurrent() =>
-      !widget.isOpenWebUi || (mounted && _openWebUiOwnerIsCurrent());
+      !_mode.isOpenWebUi || (mounted && _openWebUiOwnerIsCurrent());
 
   DirectEditorMessages _editorMessages() {
     final l10n = AppLocalizations.of(context)!;
@@ -177,7 +168,7 @@ class _DirectConnectionEditorPageState
     return ThemedDialogs.confirm(
       context,
       title: l10n.directConnectionDeleteTitle,
-      message: widget.isOpenWebUi
+      message: _mode.isOpenWebUi
           ? l10n.openWebUiDirectConnectionDeleteMessage(saved.name)
           : l10n.directConnectionDeleteMessage(saved.name),
       confirmText: l10n.delete,
@@ -271,13 +262,13 @@ class _DirectConnectionEditorPageState
 
   @override
   Widget build(BuildContext context) {
-    if (widget.isOpenWebUi) return _buildOpenWebUiEditor();
+    if (_mode.isOpenWebUi) return _buildOpenWebUiEditor();
 
     final l10n = AppLocalizations.of(context)!;
     final profiles = ref.watch(directConnectionProfilesProvider);
     return profiles.when(
       loading: () => _buildEditorScaffold(
-        title: widget.isNew
+        title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: const [
@@ -292,7 +283,7 @@ class _DirectConnectionEditorPageState
         ),
       ),
       error: (_, _) => _buildEditorScaffold(
-        title: widget.isNew
+        title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: [
@@ -304,7 +295,7 @@ class _DirectConnectionEditorPageState
       ),
       data: (items) {
         final profile = _profileById(items);
-        if (!widget.isNew && profile == null) {
+        if (!_mode.isNew && profile == null) {
           return _buildEditorScaffold(
             title: l10n.editDirectConnection,
             children: [
@@ -324,7 +315,7 @@ class _DirectConnectionEditorPageState
     final connections = ref.watch(openWebUiDirectConnectionsProvider);
     return connections.when(
       loading: () => _buildEditorScaffold(
-        title: widget.isNew
+        title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: const [
@@ -339,7 +330,7 @@ class _DirectConnectionEditorPageState
         ),
       ),
       error: (_, _) => _buildEditorScaffold(
-        title: widget.isNew
+        title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: [
@@ -353,7 +344,7 @@ class _DirectConnectionEditorPageState
       data: (snapshot) {
         if (snapshot == null) {
           return _buildEditorScaffold(
-            title: widget.isNew
+            title: _mode.isNew
                 ? l10n.addDirectConnection
                 : l10n.editDirectConnection,
             children: [
@@ -366,7 +357,7 @@ class _DirectConnectionEditorPageState
           _captureOpenWebUiOwner(snapshot);
         } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
           return _buildEditorScaffold(
-            title: widget.isNew
+            title: _mode.isNew
                 ? l10n.addDirectConnection
                 : l10n.editDirectConnection,
             children: [
@@ -375,10 +366,10 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
-        final record = widget.isNew
+        final record = _mode.isNew
             ? null
-            : snapshot.recordByProfileId(widget.profileId);
-        if (!widget.isNew && record == null) {
+            : snapshot.recordByProfileId(_mode.profileId!);
+        if (!_mode.isNew && record == null) {
           return _buildEditorScaffold(
             title: l10n.editDirectConnection,
             children: [
@@ -437,7 +428,7 @@ class _DirectConnectionEditorPageState
       UtilityIdentityHeader(
         leading: ConnectionMark(
           child: Icon(
-            widget.isOpenWebUi
+            _mode.isOpenWebUi
                 ? (context.usesCupertinoChrome
                       ? CupertinoIcons.cloud
                       : Icons.cloud_outlined)
@@ -448,13 +439,13 @@ class _DirectConnectionEditorPageState
             size: IconSize.medium,
           ),
         ),
-        title: widget.isNew
+        title: _mode.isNew
             ? l10n.directConnectProviderTitle
             : l10n.editDirectConnection,
-        subtitle: widget.isOpenWebUi
+        subtitle: _mode.isOpenWebUi
             ? l10n.openWebUiDirectConnectionEditorDescription
             : l10n.backendChooserDirectSubtitle,
-        trailing: widget.isOpenWebUi
+        trailing: _mode.isOpenWebUi
             ? Text(
                 l10n.openWebUiDirectConnectionSourceLabel,
                 style: theme.bodySmall?.copyWith(color: theme.textTertiary),
@@ -527,7 +518,7 @@ class _DirectConnectionEditorPageState
           ],
         ),
       ],
-      if (!widget.isNew) ...[
+      if (!_mode.isNew) ...[
         const SizedBox(height: Spacing.xl),
         ConduitButton(
           text: 'Delete connection',
@@ -540,9 +531,7 @@ class _DirectConnectionEditorPageState
     ];
 
     return _buildEditorScaffold(
-      title: widget.isNew
-          ? l10n.addDirectConnection
-          : l10n.editDirectConnection,
+      title: _mode.isNew ? l10n.addDirectConnection : l10n.editDirectConnection,
       children: [
         for (final (index, child) in content.indexed)
           AbsorbPointer(

@@ -235,17 +235,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     final synchronized = _controller.syncTextIntoDraft();
     final message = AppLocalizations.of(context)!.workspaceModelInvalidJson;
     if (!synchronized) {
-      _controller.setError(message);
+      _session.setError(message);
       return false;
     }
-    if (_session.errorMessage == message) _controller.clearError();
+    if (_session.errorMessage == message) _session.clearError();
     return true;
   }
 
   Future<void> _save() async {
     if (!_syncDraftOrShowError()) return;
     if (!_draft.isValid) {
-      _controller.setError(
+      _session.setError(
         _draft.id.trim().isEmpty
             ? AppLocalizations.of(context)!.workspaceModelIdRequired
             : AppLocalizations.of(context)!.workspaceModelNameRequired,
@@ -253,7 +253,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       return;
     }
 
-    _controller.beginOperation(clearError: true);
+    _session.beginOperation(clearError: true);
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
     try {
@@ -261,7 +261,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           ? await notifier.create(form)
           : await notifier.updateItem(form);
       if (!mounted) return;
-      _controller.markClean();
+      _session.markClean();
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
       DebugLogger.log(
         'model saved',
@@ -278,7 +278,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        _controller.endOperation();
+        _session.endOperation();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -288,7 +288,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      _controller.finishOperation(
+      _session.finishOperation(
         errorMessage: AppLocalizations.of(context)!.workspaceModelSaveFailed,
       );
     }
@@ -304,7 +304,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _toggleHidden.
     if (!_syncDraftOrShowError()) return;
     final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
-    _controller.beginOperation();
+    _session.beginOperation();
     try {
       final created = await ref
           .read(workspaceModelsProvider.notifier)
@@ -322,7 +322,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _controller.endOperation();
+        _session.endOperation();
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -347,11 +347,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    _controller.beginOperation();
+    _session.beginOperation();
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
-      _controller.markClean();
+      _session.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -368,7 +368,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) _controller.endOperation();
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -381,13 +381,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // changes that were already saved here.
     if (!_syncDraftOrShowError()) return;
     _controller.toggleHidden();
-    _controller.beginOperation();
+    _session.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateItem(_draft.toForm());
       if (!mounted) return;
-      _controller.markClean();
+      _session.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -405,7 +405,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) _controller.endOperation();
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -425,11 +425,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _controller.beginOperation();
+    _session.beginOperation();
     try {
       await ref.read(workspaceModelsProvider.notifier).delete(id);
       if (!mounted) return;
-      _controller.markClean();
+      _session.markClean();
       _showSnack(l10n.workspaceModelDeleted);
       if (router.canPop()) {
         router.pop();
@@ -444,7 +444,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _controller.endOperation();
+        _session.endOperation();
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -468,7 +468,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (grants == null || !mounted) return;
     final id = _draft.id;
     if (_readOnly || id.isEmpty) return;
-    _controller.beginOperation();
+    _session.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
@@ -486,7 +486,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
     } finally {
-      if (mounted) _controller.endOperation();
+      if (mounted) _session.endOperation();
     }
   }
 

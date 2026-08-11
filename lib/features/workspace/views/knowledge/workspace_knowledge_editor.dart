@@ -120,7 +120,8 @@ class _WorkspaceKnowledgeFormState
   @override
   void initState() {
     super.initState();
-    _session = WorkspaceEditorSession(widget.mode);
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     _nameController = TextEditingController(text: widget.summary?.name ?? '');
     _descriptionController = TextEditingController(
       text: widget.summary?.description ?? '',
@@ -133,24 +134,28 @@ class _WorkspaceKnowledgeFormState
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.markDirty());
+    _session.markDirty();
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspaceKnowledgeNameRequired));
+      _session.setError(l10n.workspaceKnowledgeNameRequired);
       return;
     }
-    setState(() {
-      _session.beginOperation(clearError: true);
-    });
+    _session.beginOperation(clearError: true);
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
       name: _nameController.text.trim(),
@@ -185,11 +190,7 @@ class _WorkspaceKnowledgeFormState
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(
-        () => _session.finishOperation(
-          errorMessage: l10n.workspaceKnowledgeSaveFailed,
-        ),
-      );
+      _session.finishOperation(errorMessage: l10n.workspaceKnowledgeSaveFailed);
     }
   }
 
@@ -218,7 +219,7 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref
           .read(workspaceKnowledgeProvider.notifier)
@@ -236,7 +237,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -253,7 +254,7 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
       if (!mounted) return;
@@ -270,7 +271,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -315,7 +316,7 @@ class _WorkspaceKnowledgeFormState
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -334,7 +335,7 @@ class _WorkspaceKnowledgeFormState
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
       }
     }

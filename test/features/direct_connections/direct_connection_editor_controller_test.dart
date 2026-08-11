@@ -262,7 +262,14 @@ final class _EditorHarness {
     bool isNew = true,
     _FakeDirectConnectionEditorTarget? target,
   }) {
-    final mode = DirectConnectionEditorMode(source: source, isNew: isNew);
+    final mode =
+        target?.mode ??
+        (isNew
+            ? DirectConnectionEditorMode.create(source: source)
+            : DirectConnectionEditorMode.edit(
+                profileId: 'existing-profile',
+                source: source,
+              ));
     this.target = target ?? _FakeDirectConnectionEditorTarget(mode: mode);
     form = DirectConnectionEditorForm(
       mode: mode,
@@ -297,10 +304,7 @@ String _probeMessage(DirectConnectionProbe probe) =>
 final class _FakeDirectConnectionEditorTarget
     implements DirectConnectionEditorTarget {
   _FakeDirectConnectionEditorTarget({
-    this.mode = const DirectConnectionEditorMode(
-      source: DirectConnectionEditorSource.local,
-      isNew: true,
-    ),
+    this.mode = const DirectConnectionEditorMode.create(),
     this.probeHandler,
     this.saveHandler,
   });

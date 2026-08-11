@@ -148,7 +148,8 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   @override
   void initState() {
     super.initState();
-    _session = WorkspaceEditorSession(widget.mode);
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _idController = TextEditingController(text: summary?.id ?? '');
@@ -170,6 +171,8 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _idController.dispose();
     _descriptionController.dispose();
@@ -177,8 +180,12 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.markDirty());
+    _session.markDirty();
   }
 
   void _onNameChanged(String value) {
@@ -241,26 +248,22 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   /// after surfacing the appropriate inline error.
   String? _validateForm(AppLocalizations l10n) {
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspaceSkillNameRequired));
+      _session.setError(l10n.workspaceSkillNameRequired);
       return null;
     }
     final id = _idController.text.trim();
     if (id.isEmpty) {
-      setState(() {
-        _idErrorText = l10n.workspaceSkillIdRequired;
-        _session.setError(l10n.workspaceSkillIdRequired);
-      });
+      setState(() => _idErrorText = l10n.workspaceSkillIdRequired);
+      _session.setError(l10n.workspaceSkillIdRequired);
       return null;
     }
     if (!WorkspaceSkillContent.isValidId(id)) {
-      setState(() {
-        _idErrorText = l10n.workspaceSkillIdInvalid;
-        _session.setError(l10n.workspaceSkillIdInvalid);
-      });
+      setState(() => _idErrorText = l10n.workspaceSkillIdInvalid);
+      _session.setError(l10n.workspaceSkillIdInvalid);
       return null;
     }
     if (_contentController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspaceSkillContentRequired));
+      _session.setError(l10n.workspaceSkillContentRequired);
       return null;
     }
     return id;
@@ -283,10 +286,8 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final l10n = AppLocalizations.of(context)!;
     final id = _validateForm(l10n);
     if (id == null) return;
-    setState(() {
-      _session.beginOperation(clearError: true);
-      _idErrorText = null;
-    });
+    setState(() => _idErrorText = null);
+    _session.beginOperation(clearError: true);
     final notifier = ref.read(workspaceSkillsProvider.notifier);
     // The update endpoint keys off the existing id; the id field is immutable
     // after create, so submit the summary's id when editing.
@@ -314,7 +315,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         // Edit saved but there is nothing to pop (e.g. deep-linked into /edit):
         // clear the saving lock so the form stays usable and reflects the
         // freshly invalidated detail.
-        setState(() => _session.endOperation());
+        _session.endOperation();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -325,14 +326,14 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       );
       if (!mounted) return;
       final conflict = _isConflict(error);
-      setState(() {
-        _session.finishOperation(
-          errorMessage: conflict
-              ? l10n.workspaceSkillIdTaken
-              : l10n.workspaceSkillSaveFailed,
-        );
-        _idErrorText = conflict ? l10n.workspaceSkillIdTaken : null;
-      });
+      setState(
+        () => _idErrorText = conflict ? l10n.workspaceSkillIdTaken : null,
+      );
+      _session.finishOperation(
+        errorMessage: conflict
+            ? l10n.workspaceSkillIdTaken
+            : l10n.workspaceSkillSaveFailed,
+      );
     }
   }
 
@@ -343,7 +344,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'skill_clone' : '${baseId}_clone';
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     // Clones never inherit the source skill's sharing grants.
     final form = WorkspaceSkillForm(
       id: cloneId,
@@ -371,7 +372,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
       }
     }
@@ -381,7 +382,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspaceSkillsProvider.notifier).toggle(summary.id);
       if (!mounted) return;
@@ -395,7 +396,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       );
       if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -415,7 +416,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspaceSkillsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -434,7 +435,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
       }
     }
@@ -455,13 +456,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     // In create mode (or without write access) the grants are held locally and
     // persisted with the first save.
     if (summary == null || !_writeAccess) {
-      setState(() {
-        _grants = grants;
-        if (summary == null) _session.markDirty();
-      });
+      setState(() => _grants = grants);
+      if (summary == null) _session.markDirty();
       return;
     }
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref
           .read(workspaceSkillsProvider.notifier)
@@ -478,7 +477,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       );
       if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -521,10 +520,10 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       final fmDescription = fm['description']?.trim() ?? '';
       if (fmDescription.isNotEmpty) _descriptionController.text = fmDescription;
       _previewMode = false;
-      _session.markDirty();
-      _session.clearError();
       _idErrorText = null;
     });
+    _session.markDirty();
+    _session.clearError();
     _showSnack(l10n.workspaceSkillImportMarkdownLoaded);
   }
 

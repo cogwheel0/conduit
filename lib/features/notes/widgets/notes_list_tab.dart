@@ -96,10 +96,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
 
   Future<void> _onNoteTap(Note note) async {
     NavigationService.router.go('/notes/${note.id}');
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    if (!isTablet) {
-      SidebarDrawerControllerScope.maybeOf(context)?.close();
-    }
+    closeSidebarDrawerIfOverlay(context);
   }
 
   Future<void> _deleteNote(Note note) =>

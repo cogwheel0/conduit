@@ -11,12 +11,39 @@ enum DirectConnectionEditorSource { local, openWebUi }
 
 @immutable
 final class DirectConnectionEditorMode {
-  const DirectConnectionEditorMode({required this.source, required this.isNew});
+  const DirectConnectionEditorMode.create({
+    this.source = DirectConnectionEditorSource.local,
+  }) : profileId = null;
+
+  const DirectConnectionEditorMode.edit({
+    required String profileId,
+    this.source = DirectConnectionEditorSource.local,
+  }) : assert(profileId != ''),
+       assert(profileId != 'new'),
+       profileId = profileId;
+
+  factory DirectConnectionEditorMode.fromRoute({
+    required String profileId,
+    required DirectConnectionEditorSource source,
+  }) => profileId == 'new'
+      ? DirectConnectionEditorMode.create(source: source)
+      : DirectConnectionEditorMode.edit(profileId: profileId, source: source);
 
   final DirectConnectionEditorSource source;
-  final bool isNew;
+  final String? profileId;
 
+  bool get isNew => profileId == null;
   bool get isOpenWebUi => source == DirectConnectionEditorSource.openWebUi;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DirectConnectionEditorMode &&
+          source == other.source &&
+          profileId == other.profileId;
+
+  @override
+  int get hashCode => Object.hash(source, profileId);
 }
 
 enum DirectDraftValidationIssue {

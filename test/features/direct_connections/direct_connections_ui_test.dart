@@ -67,13 +67,31 @@ void main() {
       ).equals('http://localhost:11434/');
     });
 
+    test('route target canonicalizes create/edit and source state', () {
+      final create = DirectConnectionEditorMode.fromRoute(
+        profileId: 'new',
+        source: DirectConnectionEditorSource.openWebUi,
+      );
+      final edit = DirectConnectionEditorMode.fromRoute(
+        profileId: 'profile-1',
+        source: DirectConnectionEditorSource.local,
+      );
+
+      check(create.isNew).isTrue();
+      check(create.profileId).isNull();
+      check(create.isOpenWebUi).isTrue();
+      check(edit.isNew).isFalse();
+      check(edit.profileId).equals('profile-1');
+      check(edit.isOpenWebUi).isFalse();
+    });
+
     test('preserves only an untouched existing keyless server bearer', () {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          mode: const DirectConnectionEditorMode(
+          mode: const DirectConnectionEditorMode.edit(
+            profileId: 'existing',
             source: DirectConnectionEditorSource.openWebUi,
-            isNew: false,
           ),
           savedOpenWebUiAuthType: 'bearer',
           apiKeyDirty: false,
@@ -83,9 +101,9 @@ void main() {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          mode: const DirectConnectionEditorMode(
+          mode: const DirectConnectionEditorMode.edit(
+            profileId: 'existing',
             source: DirectConnectionEditorSource.openWebUi,
-            isNew: false,
           ),
           savedOpenWebUiAuthType: 'none',
           apiKeyDirty: true,
@@ -95,9 +113,9 @@ void main() {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          mode: const DirectConnectionEditorMode(
+          mode: const DirectConnectionEditorMode.edit(
+            profileId: 'existing',
             source: DirectConnectionEditorSource.openWebUi,
-            isNew: false,
           ),
           savedOpenWebUiAuthType: 'bearer',
           apiKeyDirty: false,
@@ -583,8 +601,10 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionEditorPage(
-            profileId: record.profile.id,
-            isOpenWebUi: true,
+            mode: DirectConnectionEditorMode.edit(
+              profileId: record.profile.id,
+              source: DirectConnectionEditorSource.openWebUi,
+            ),
           ),
         ),
       ),
@@ -622,7 +642,9 @@ void main() {
           theme: ThemeData(platform: TargetPlatform.iOS),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'new'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.create(),
+          ),
         ),
       ),
     );
@@ -783,8 +805,9 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
-            profileId: 'new',
-            isOpenWebUi: true,
+            mode: DirectConnectionEditorMode.create(
+              source: DirectConnectionEditorSource.openWebUi,
+            ),
           ),
         ),
       ),
@@ -847,8 +870,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: accountA.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: accountA.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -926,8 +951,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1037,8 +1064,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: initialRecord.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: initialRecord.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1155,8 +1184,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: initialRecord.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: initialRecord.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1249,8 +1280,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1360,8 +1393,10 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionEditorPage(
-            profileId: snapshot.records.single.profile.id,
-            isOpenWebUi: true,
+            mode: DirectConnectionEditorMode.edit(
+              profileId: snapshot.records.single.profile.id,
+              source: DirectConnectionEditorSource.openWebUi,
+            ),
           ),
         ),
       ),
@@ -1432,8 +1467,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1525,8 +1562,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1602,8 +1641,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1660,8 +1701,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1726,8 +1769,10 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: DirectConnectionEditorPage(
-              profileId: snapshot.records.single.profile.id,
-              isOpenWebUi: true,
+              mode: DirectConnectionEditorMode.edit(
+                profileId: snapshot.records.single.profile.id,
+                source: DirectConnectionEditorSource.openWebUi,
+              ),
             ),
           ),
         ),
@@ -1792,7 +1837,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'lm-studio'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.edit(profileId: 'lm-studio'),
+          ),
         ),
       ),
     );
@@ -1836,7 +1883,11 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'existing-generic'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.edit(
+              profileId: 'existing-generic',
+            ),
+          ),
         ),
       ),
     );
@@ -1950,7 +2001,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'shared-profile'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.edit(profileId: 'shared-profile'),
+          ),
         ),
       ),
     );
@@ -2028,7 +2081,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'home'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.edit(profileId: 'home'),
+          ),
         ),
       ),
     );
@@ -2109,8 +2164,9 @@ void main() {
           routes: [
             GoRoute(
               path: 'edit',
-              builder: (_, _) =>
-                  const DirectConnectionEditorPage(profileId: 'home'),
+              builder: (_, _) => const DirectConnectionEditorPage(
+                mode: DirectConnectionEditorMode.edit(profileId: 'home'),
+              ),
             ),
           ],
         ),
@@ -2195,7 +2251,9 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionEditorPage(profileId: 'home'),
+          home: const DirectConnectionEditorPage(
+            mode: DirectConnectionEditorMode.edit(profileId: 'home'),
+          ),
         ),
       ),
     );
@@ -2252,7 +2310,9 @@ void main() {
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: const DirectConnectionEditorPage(profileId: 'home'),
+            home: const DirectConnectionEditorPage(
+              mode: DirectConnectionEditorMode.edit(profileId: 'home'),
+            ),
           ),
         ),
       );
@@ -2306,7 +2366,10 @@ GoRouter _directOnboardingRouter() => GoRouter(
       path: '/editor/:id',
       name: RouteNames.directConnectionEditor,
       builder: (_, state) => DirectConnectionEditorPage(
-        profileId: state.pathParameters['id']!,
+        mode: DirectConnectionEditorMode.fromRoute(
+          profileId: state.pathParameters['id']!,
+          source: DirectConnectionEditorSource.local,
+        ),
         isOnboarding: true,
       ),
     ),

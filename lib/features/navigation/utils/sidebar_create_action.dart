@@ -156,8 +156,5 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
 }
 
 void _closeSidebarIfNeeded(BuildContext context) {
-  final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
-  if (!isTablet) {
-    SidebarDrawerControllerScope.maybeOf(context)?.close();
-  }
+  closeSidebarDrawerIfOverlay(context);
 }

@@ -114,7 +114,8 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   @override
   void initState() {
     super.initState();
-    _session = WorkspaceEditorSession(widget.mode);
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _commandController = TextEditingController(
@@ -137,6 +138,8 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _commandController.dispose();
     _contentController.dispose();
@@ -144,8 +147,12 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.markDirty());
+    _session.markDirty();
   }
 
   void _onNameChanged(String value) {
@@ -174,23 +181,21 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   /// null after surfacing the appropriate inline error.
   String? _validateForm(AppLocalizations l10n) {
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspacePromptNameRequired));
+      _session.setError(l10n.workspacePromptNameRequired);
       return null;
     }
     final command = WorkspacePromptCommand.strip(_commandController.text);
     if (!WorkspacePromptCommand.isValid(command)) {
-      setState(() {
-        _commandError = true;
-        _session.setError(
-          command.isEmpty
-              ? l10n.workspacePromptCommandRequired
-              : l10n.workspacePromptCommandInvalid,
-        );
-      });
+      setState(() => _commandError = true);
+      _session.setError(
+        command.isEmpty
+            ? l10n.workspacePromptCommandRequired
+            : l10n.workspacePromptCommandInvalid,
+      );
       return null;
     }
     if (_contentController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspacePromptContentRequired));
+      _session.setError(l10n.workspacePromptContentRequired);
       return null;
     }
     return command;
@@ -200,11 +205,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final l10n = AppLocalizations.of(context)!;
     final command = _validateForm(l10n);
     if (command == null) return;
-    setState(() {
-      _session.beginOperation(clearError: true);
-      _commandError = false;
-    });
+    setState(() => _commandError = false);
+    _session.beginOperation(clearError: true);
     final notifier = ref.read(workspacePromptsProvider.notifier);
+    final isCreate = _session.isCreate;
     final commit = _commitController.text.trim();
     final form = WorkspacePromptForm(
       command: command,
@@ -226,19 +230,19 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final router = GoRouter.of(context);
     final rootContext = Navigator.of(context, rootNavigator: true).context;
     try {
-      final WorkspacePromptDetail result = _session.isCreate
+      final WorkspacePromptDetail result = isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      _session.markClean();
+      if (mounted) _session.markClean();
       DebugLogger.log(
         'prompt saved',
         scope: 'workspace/prompts',
-        data: {'id': result.id, 'create': _session.isCreate},
+        data: {'id': result.id, 'create': isCreate},
       );
       if (rootContext.mounted) {
         _showSnack(l10n.workspacePromptSaved, overlayContext: rootContext);
       }
-      if (_session.isCreate) {
+      if (isCreate) {
         router.pushReplacement(
           WorkspaceSection.prompts.routes.detailLocation(result.id),
         );
@@ -247,7 +251,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       } else if (mounted) {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form does not stay stuck behind AbsorbPointer.
-        setState(() => _session.endOperation());
+        _session.endOperation();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -258,14 +262,12 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       );
       if (!mounted) return;
       final commandTaken = _isCommandTaken(error);
-      setState(() {
-        _session.finishOperation(
-          errorMessage: commandTaken
-              ? l10n.workspacePromptCommandTaken
-              : l10n.workspacePromptSaveFailed,
-        );
-        _commandError = commandTaken;
-      });
+      setState(() => _commandError = commandTaken);
+      _session.finishOperation(
+        errorMessage: commandTaken
+            ? l10n.workspacePromptCommandTaken
+            : l10n.workspacePromptSaveFailed,
+      );
     }
   }
 
@@ -276,21 +278,17 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final summary = widget.summary;
     if (summary == null) return;
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspacePromptNameRequired));
+      _session.setError(l10n.workspacePromptNameRequired);
       return;
     }
     final command = WorkspacePromptCommand.strip(_commandController.text);
     if (!WorkspacePromptCommand.isValid(command)) {
-      setState(() {
-        _commandError = true;
-        _session.setError(l10n.workspacePromptCommandInvalid);
-      });
+      setState(() => _commandError = true);
+      _session.setError(l10n.workspacePromptCommandInvalid);
       return;
     }
-    setState(() {
-      _session.beginOperation(clearError: true);
-      _commandError = false;
-    });
+    setState(() => _commandError = false);
+    _session.beginOperation(clearError: true);
     try {
       await ref
           .read(workspacePromptsProvider.notifier)
@@ -311,16 +309,15 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(() {
-        _commandError = _isCommandTaken(error);
-        _session.setError(
-          _isCommandTaken(error)
-              ? l10n.workspacePromptCommandTaken
-              : l10n.workspacePromptSaveFailed,
-        );
-      });
+      final commandTaken = _isCommandTaken(error);
+      setState(() => _commandError = commandTaken);
+      _session.setError(
+        commandTaken
+            ? l10n.workspacePromptCommandTaken
+            : l10n.workspacePromptSaveFailed,
+      );
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -333,7 +330,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final cloneCommand = WorkspacePromptCommand.slugify(
       '$baseCommand-${l10n.workspacePromptCloneSuffix}',
     );
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
       command: cloneCommand.isEmpty ? '$baseCommand-copy' : cloneCommand,
@@ -358,7 +355,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspacePromptSaveFailed, isError: true);
       }
     }
@@ -368,7 +365,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspacePromptsProvider.notifier).toggle(summary.id);
       if (!mounted) return;
@@ -382,7 +379,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       );
       if (mounted) _showSnack(l10n.workspacePromptSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -402,7 +399,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspacePromptsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -421,7 +418,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspacePromptSaveFailed, isError: true);
       }
     }
@@ -442,13 +439,11 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     // In create mode (or without write access) the grants are held locally and
     // persisted with the first save.
     if (summary == null || !_writeAccess) {
-      setState(() {
-        _grants = grants;
-        if (summary == null) _session.markDirty();
-      });
+      setState(() => _grants = grants);
+      if (summary == null) _session.markDirty();
       return;
     }
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref
           .read(workspacePromptsProvider.notifier)
@@ -465,7 +460,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       );
       if (mounted) _showSnack(l10n.workspacePromptSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -526,8 +521,8 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       // current tags too, otherwise stale tags survive the restore.
       _tags = workspaceStringList(snapshot['tags']);
       _previewMode = false;
-      _session.markDirty();
     });
+    _session.markDirty();
     _showSnack(AppLocalizations.of(context)!.workspacePromptHistoryRestored);
   }
 
@@ -608,10 +603,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
                     tags: _tags,
                     onNameChanged: _onNameChanged,
                     onCommandChanged: _onCommandChanged,
-                    onRemoveTag: (tag) => setState(() {
-                      _tags = [..._tags]..remove(tag);
+                    onRemoveTag: (tag) {
+                      setState(() => _tags = [..._tags]..remove(tag));
                       _session.markDirty();
-                    }),
+                    },
                     onAddTag: () => _addTag(l10n),
                   ),
                 ],
@@ -637,10 +632,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
                 onExpandedChanged: (value) =>
                     setState(() => _versionExpanded = value),
                 onCommitChanged: _markDirty,
-                onProductionChanged: (value) => setState(() {
-                  _isProduction = value;
+                onProductionChanged: (value) {
+                  setState(() => _isProduction = value);
                   _session.markDirty();
-                }),
+                },
               ),
             ],
             const SizedBox(height: Spacing.xl),
@@ -677,10 +672,8 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     // (e.g. a live permission revocation removes the route): a setState after
     // dispose throws.
     if (tag.isEmpty || _tags.contains(tag) || !mounted) return;
-    setState(() {
-      _tags = [..._tags, tag];
-      _session.markDirty();
-    });
+    setState(() => _tags = [..._tags, tag]);
+    _session.markDirty();
   }
 
   void _showSnack(

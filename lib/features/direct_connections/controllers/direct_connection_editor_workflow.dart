@@ -169,7 +169,11 @@ typedef DirectDeleteConfirmation =
 
 /// Owns persistence and the save/test/delete operation state machine.
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
-  DirectConnectionEditorWorkflow({required this.target, required this.form});
+  DirectConnectionEditorWorkflow({required this.target, required this.form})
+    : assert(
+        target.mode == form.mode,
+        'The persistence target and form must share one editor mode.',
+      );
 
   final DirectConnectionEditorTarget target;
   final DirectConnectionEditorForm form;
@@ -178,6 +182,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   bool _disposed = false;
 
   DirectConnectionEditorState get state => _state;
+  DirectConnectionEditorMode get mode => target.mode;
 
   void handleDraftChanged() {
     _state = state.copyWith(

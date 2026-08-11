@@ -43,6 +43,7 @@ import '../../features/workspace/providers/workspace_capabilities_provider.dart'
 import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
 import '../../features/direct_connections/models/direct_connection_profile.dart';
+import '../../features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import '../../features/direct_connections/providers/direct_connection_providers.dart';
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
@@ -644,14 +645,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         child: DirectConnectionEditorPage(
-          profileId: state.pathParameters['id']!,
+          mode: DirectConnectionEditorMode.fromRoute(
+            profileId: state.pathParameters['id']!,
+            source:
+                state.uri.queryParameters['source'] ==
+                    openWebUiDirectConnectionSourceQueryValue
+                ? DirectConnectionEditorSource.openWebUi
+                : DirectConnectionEditorSource.local,
+          ),
           isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
           entry: state.uri.queryParameters['entry'] == 'chooser'
               ? DirectEditorEntry.chooser
               : DirectEditorEntry.overview,
-          isOpenWebUi:
-              state.uri.queryParameters['source'] ==
-              openWebUiDirectConnectionSourceQueryValue,
         ),
       ),
     ),

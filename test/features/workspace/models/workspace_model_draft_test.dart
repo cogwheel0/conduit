@@ -75,6 +75,59 @@ void main() {
   });
 
   group('WorkspaceModelDraft.buildMeta / toForm', () {
+    test('deepCopy preserves draft values and nested collection ownership', () {
+      final draft = WorkspaceModelDraft(
+        id: 'model',
+        name: 'Model',
+        description: '  unsaved spacing  ',
+        knowledge: const [
+          WorkspaceModelKnowledgeRef(
+            id: 'knowledge',
+            name: 'Knowledge',
+            raw: {
+              'id': 'knowledge',
+              'metadata': {
+                'labels': ['one'],
+              },
+            },
+          ),
+        ],
+        builtinTools: {
+          'search': {
+            'options': ['safe'],
+          },
+        },
+        advancedParams: {
+          'nested': {
+            'values': [1],
+          },
+        },
+        extraMeta: {
+          'custom': {'enabled': true},
+        },
+      );
+
+      final copy = draft.deepCopy(accessGrants: const []);
+      ((copy.advancedParams['nested'] as Map)['values'] as List).add(2);
+      ((copy.builtinTools['search'] as Map)['options'] as List).add('fast');
+      ((copy.knowledge.single.raw['metadata'] as Map)['labels'] as List).add(
+        'two',
+      );
+      (copy.extraMeta['custom'] as Map)['enabled'] = false;
+
+      check(copy.description).equals('  unsaved spacing  ');
+      check(
+        ((draft.advancedParams['nested'] as Map)['values'] as List),
+      ).deepEquals([1]);
+      check(
+        ((draft.builtinTools['search'] as Map)['options'] as List),
+      ).deepEquals(['safe']);
+      check(
+        ((draft.knowledge.single.raw['metadata'] as Map)['labels'] as List),
+      ).deepEquals(['one']);
+      check((draft.extraMeta['custom'] as Map)['enabled']).equals(true);
+    });
+
     test('emits {name:...} tags and drops empty managed keys', () {
       final draft = WorkspaceModelDraft(id: 'm1', name: 'M1', tags: ['x', 'y']);
       final meta = draft.buildMeta();

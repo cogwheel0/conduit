@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor_controller.dart';
@@ -6,6 +7,60 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('session changes flow through the controller notification stream', () {
+    final controller = WorkspaceModelEditorController(
+      mode: WorkspaceRouteMode.create,
+      initialDraft: WorkspaceModelDraft.empty(),
+      writeAccess: true,
+    );
+    addTearDown(controller.dispose);
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+
+    controller.session.beginOperation();
+    controller.session.setError('failed');
+    controller.session.endOperation();
+
+    check(notifications).equals(3);
+  });
+
+  test('controller copies drafts directly and clones without grants', () {
+    final initial = WorkspaceModelDraft(
+      id: 'model',
+      name: 'Model',
+      description: '  unsaved spacing  ',
+      advancedParams: {
+        'nested': {
+          'values': [1],
+        },
+      },
+      accessGrants: const [
+        WorkspaceAccessGrantInput(
+          principalType: WorkspacePrincipalType.user,
+          principalId: 'user-1',
+          permission: WorkspaceGrantPermission.write,
+        ),
+      ],
+    );
+    final controller = WorkspaceModelEditorController(
+      mode: WorkspaceRouteMode.edit,
+      initialDraft: initial,
+      writeAccess: true,
+    );
+    addTearDown(controller.dispose);
+
+    final clone = controller.buildClone('Copy');
+    ((clone.advancedParams['nested'] as Map)['values'] as List).add(2);
+
+    check(controller.draft.description).equals('  unsaved spacing  ');
+    check(clone.id).equals('model-copy');
+    check(clone.name).equals('Model Copy');
+    check(clone.accessGrants).isEmpty();
+    check(
+      ((controller.draft.advancedParams['nested'] as Map)['values'] as List),
+    ).deepEquals([1]);
+  });
+
   test('controller owns text synchronization and typed JSON failures', () {
     final controller = WorkspaceModelEditorController(
       mode: WorkspaceRouteMode.create,

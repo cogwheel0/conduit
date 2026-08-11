@@ -6,6 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('session groups route and mutation state', () {
     final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+    var notifications = 0;
+    session.addListener(() => notifications++);
 
     check(session.isEdit).isTrue();
     check(session.isCreate).isFalse();
@@ -20,5 +23,21 @@ void main() {
     check(session.saving).isFalse();
     check(session.dirty).isFalse();
     check(session.errorMessage).equals('failed');
+    check(notifications).equals(4);
+  });
+
+  test('session suppresses notifications for no-op mutations', () {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.create);
+    addTearDown(session.dispose);
+    var notifications = 0;
+    session.addListener(() => notifications++);
+
+    session.markClean();
+    session.clearError();
+    session.endOperation();
+    session.markDirty();
+    session.markDirty();
+
+    check(notifications).equals(1);
   });
 }

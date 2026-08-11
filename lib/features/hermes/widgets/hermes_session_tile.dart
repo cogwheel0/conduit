@@ -342,7 +342,6 @@ Future<void> openHermesSession(
 
   if (context.mounted) {
     NavigationService.router.go(Routes.chat);
-    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
-    if (!isTablet) SidebarDrawerControllerScope.maybeOf(context)?.close();
+    closeSidebarDrawerIfOverlay(context);
   }
 }

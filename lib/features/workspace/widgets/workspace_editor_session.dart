@@ -1,10 +1,12 @@
+import 'package:flutter/foundation.dart';
+
 import '../workspace_navigation.dart';
 
-/// Passive route and mutation state owned by a workspace editor widget.
+/// Canonical route and operation state shared by every workspace editor.
 ///
-/// The widget's `setState` call is the single rebuild mechanism; this object
-/// groups related values without publishing a second notification stream.
-final class WorkspaceEditorSession {
+/// Session mutations notify listeners directly so widgets and controllers use
+/// the same rebuild contract.
+final class WorkspaceEditorSession extends ChangeNotifier {
   WorkspaceEditorSession(this.mode);
 
   final WorkspaceRouteMode mode;
@@ -20,24 +22,50 @@ final class WorkspaceEditorSession {
   bool get isDetail => mode == WorkspaceRouteMode.detail;
   bool get isEdit => mode == WorkspaceRouteMode.edit;
 
-  void markDirty() => _dirty = true;
+  void markDirty() {
+    if (_dirty) return;
+    _dirty = true;
+    notifyListeners();
+  }
 
-  void markClean() => _dirty = false;
+  void markClean() {
+    if (!_dirty) return;
+    _dirty = false;
+    notifyListeners();
+  }
 
-  void setError(String message) => _errorMessage = message;
+  void setError(String message) {
+    if (_errorMessage == message) return;
+    _errorMessage = message;
+    notifyListeners();
+  }
 
-  void clearError() => _errorMessage = null;
+  void clearError() {
+    if (_errorMessage == null) return;
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   void beginOperation({bool clearError = false}) {
+    final changed = !_saving || (clearError && _errorMessage != null);
     _saving = true;
     if (clearError) _errorMessage = null;
+    if (changed) notifyListeners();
   }
 
   void finishOperation({String? errorMessage, bool? dirty}) {
+    final nextDirty = dirty ?? _dirty;
+    final changed =
+        _saving || _errorMessage != errorMessage || _dirty != nextDirty;
     _saving = false;
     _errorMessage = errorMessage;
-    if (dirty != null) _dirty = dirty;
+    _dirty = nextDirty;
+    if (changed) notifyListeners();
   }
 
-  void endOperation() => _saving = false;
+  void endOperation() {
+    if (!_saving) return;
+    _saving = false;
+    notifyListeners();
+  }
 }

@@ -14,12 +14,10 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
+import '../controllers/sidebar_tab_behavior_coordinator.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
-import '../../terminal/models/terminal_models.dart';
-import '../../terminal/providers/terminal_providers.dart';
-import '../../terminal/widgets/terminal_sidebar_controls_sheet.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 
@@ -326,7 +324,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     required BuildContext context,
     required AppLocalizations localizations,
     required bool isSearchExpanded,
-    required bool showTerminalPanelPicker,
+    required SidebarTabDescriptor activeTab,
   }) {
     final defaultTint = context.conduitTheme.textPrimary;
     if (isSearchExpanded) {
@@ -340,18 +338,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       ];
     }
 
-    final panelPicker = showTerminalPanelPicker
-        ? <AdaptiveAppBarAction>[
-            AdaptiveAppBarAction(
-              iosSymbol: 'chevron.down.circle',
-              icon: Icons.arrow_drop_down_circle_outlined,
-              tintColor: defaultTint,
-              onPressed: () {
-                unawaited(showTerminalSidebarControlsSheet(context));
-              },
-            ),
-          ]
-        : const <AdaptiveAppBarAction>[];
+    final contextualActions = sidebarTabBehaviorCoordinator
+        .contextualAppBarActions(
+          context: context,
+          descriptor: activeTab,
+          tintColor: defaultTint,
+        );
 
     final createAction = sidebarCreateActionForActiveTab(ref);
     return [
@@ -361,7 +353,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         tintColor: defaultTint,
         onPressed: _openSidebarSearch,
       ),
-      ...panelPicker,
+      ...contextualActions,
       if (createAction != null)
         AdaptiveAppBarAction(
           iosSymbol: createAction.sfSymbol,
@@ -462,15 +454,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final composeNativeIos26Chrome = DrawerChromeCompositionScope.shouldCompose(
       context,
     );
-    final isTerminalTabActive =
-        sidebarTabDescriptor(navigation.selectedTab).selectionPolicy ==
-        SidebarSelectionPolicy.terminal;
-    final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
+    final activeTab = sidebarTabDescriptor(navigation.selectedTab);
     final appBarActions = _sidebarAppBarActions(
       context: context,
       localizations: localizations,
       isSearchExpanded: isSearchExpanded,
-      showTerminalPanelPicker: showTerminalPanelInAppBar,
+      activeTab: activeTab,
     );
 
     void onTap(int index) {
@@ -490,21 +479,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         return;
       }
       ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
-      if (selectedTab.selectionPolicy != SidebarSelectionPolicy.terminal) {
-        ref
-            .read(terminalSidebarPanelProvider.notifier)
-            .setPanel(TerminalSidebarPanel.console);
-      } else {
-        final servers = ref
-            .read(terminalAvailableServersProvider)
-            .asData
-            ?.value;
-        if (servers != null && servers.length == 1) {
-          ref
-              .read(terminalSidebarPanelProvider.notifier)
-              .setPanel(TerminalSidebarPanel.files);
-        }
-      }
+      sidebarTabBehaviorCoordinator.onSelected(ref, selectedTab);
     }
 
     final sidebarTabStack = _SidebarTabStack(

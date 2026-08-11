@@ -267,6 +267,36 @@ void main() {
     },
   );
 
+  testWidgets('tab behavior coordinator owns terminal panel transitions', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final terminalServers = [_defaultTerminalServers().first];
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        terminalServers: terminalServers,
+      ),
+    );
+    await tester.pump();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+    );
+
+    await tester.tap(_sidebarBottomNavTabLabel('Terminal'));
+    await tester.pump();
+    check(
+      container.read(terminalSidebarPanelProvider),
+    ).equals(TerminalSidebarPanel.files);
+
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
+    await tester.pump();
+    check(
+      container.read(terminalSidebarPanelProvider),
+    ).equals(TerminalSidebarPanel.console);
+  });
+
   testWidgets(
     'persisted Notes identity restores notes when notes are enabled',
     (tester) async {

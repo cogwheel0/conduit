@@ -135,7 +135,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   @override
   void initState() {
     super.initState();
-    _session = WorkspaceEditorSession(widget.mode);
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _idController = TextEditingController(text: summary?.id ?? '');
@@ -159,6 +160,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _idController.dispose();
     _descriptionController.dispose();
@@ -166,8 +169,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.markDirty());
+    _session.markDirty();
   }
 
   void _onNameChanged(String value) {
@@ -239,7 +246,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   /// after surfacing the appropriate inline error.
   String? _validateForm(AppLocalizations l10n) {
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspaceToolNameRequired));
+      _session.setError(l10n.workspaceToolNameRequired);
       return null;
     }
     final id = _idController.text.trim();
@@ -247,22 +254,18 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     // it is the immutable, already-validated server id.
     if (_session.isCreate) {
       if (id.isEmpty) {
-        setState(() {
-          _idError = true;
-          _session.setError(l10n.workspaceToolIdRequired);
-        });
+        setState(() => _idError = true);
+        _session.setError(l10n.workspaceToolIdRequired);
         return null;
       }
       if (!WorkspaceToolContent.isValidId(id)) {
-        setState(() {
-          _idError = true;
-          _session.setError(l10n.workspaceToolIdInvalid);
-        });
+        setState(() => _idError = true);
+        _session.setError(l10n.workspaceToolIdInvalid);
         return null;
       }
     }
     if (_contentController.text.trim().isEmpty) {
-      setState(() => _session.setError(l10n.workspaceToolContentRequired));
+      _session.setError(l10n.workspaceToolContentRequired);
       return null;
     }
     return id;
@@ -284,22 +287,18 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final l10n = AppLocalizations.of(context)!;
     // Block save when the declared required version outranks the server.
     if (_isIncompatible) {
-      setState(
-        () => _session.setError(
-          l10n.workspaceToolIncompatible(
-            _requiredVersion ?? '0.0.0',
-            _currentServerVersion ?? '?',
-          ),
+      _session.setError(
+        l10n.workspaceToolIncompatible(
+          _requiredVersion ?? '0.0.0',
+          _currentServerVersion ?? '?',
         ),
       );
       return;
     }
     final id = _validateForm(l10n);
     if (id == null) return;
-    setState(() {
-      _session.beginOperation(clearError: true);
-      _idError = false;
-    });
+    setState(() => _idError = false);
+    _session.beginOperation(clearError: true);
     final notifier = ref.read(workspaceToolsProvider.notifier);
     // The update endpoint keys off the existing id; the id is immutable after
     // create, so submit the summary's id when editing.
@@ -326,7 +325,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        setState(() => _session.endOperation());
+        _session.endOperation();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -337,14 +336,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       );
       if (!mounted) return;
       final conflict = _isConflict(error);
-      setState(() {
-        _session.finishOperation(
-          errorMessage: conflict
-              ? l10n.workspaceToolIdTaken
-              : l10n.workspaceToolSaveFailed,
-        );
-        _idError = conflict;
-      });
+      setState(() => _idError = conflict);
+      _session.finishOperation(
+        errorMessage: conflict
+            ? l10n.workspaceToolIdTaken
+            : l10n.workspaceToolSaveFailed,
+      );
     }
   }
 
@@ -355,7 +352,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'tool_clone' : '${baseId}_clone';
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     // Clones never inherit the source tool's sharing grants.
     final meta = Map<String, dynamic>.from(_meta);
     meta['description'] = _descriptionController.text.trim();
@@ -382,7 +379,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspaceToolSaveFailed, isError: true);
       }
     }
@@ -404,7 +401,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref.read(workspaceToolsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -423,7 +420,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.endOperation());
+        _session.endOperation();
         _showSnack(l10n.workspaceToolSaveFailed, isError: true);
       }
     }
@@ -444,13 +441,11 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     // In create mode (or without write access) grants are held locally and
     // persisted with the first save.
     if (summary == null || !_writeAccess) {
-      setState(() {
-        _grants = grants;
-        if (summary == null) _session.markDirty();
-      });
+      setState(() => _grants = grants);
+      if (summary == null) _session.markDirty();
       return;
     }
-    setState(() => _session.beginOperation());
+    _session.beginOperation();
     try {
       await ref
           .read(workspaceToolsProvider.notifier)
@@ -467,7 +462,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       );
       if (mounted) _showSnack(l10n.workspaceToolSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.endOperation());
+      if (mounted) _session.endOperation();
     }
   }
 
@@ -517,10 +512,10 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       _descriptionController.text = _meta['description']?.toString() ?? '';
       _contentController.text = normalized['content']?.toString() ?? '';
       _idManuallyEdited = true;
-      _session.markDirty();
-      _session.clearError();
       _idError = false;
     });
+    _session.markDirty();
+    _session.clearError();
     _showSnack(l10n.workspaceToolImportUrlLoaded);
   }
 
