@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
@@ -21,8 +20,6 @@ import '../controllers/direct_connection_editor_workflow.dart';
 import '../controllers/riverpod_direct_connection_editor_gateway.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
-import '../models/openwebui_direct_connection.dart';
-import '../providers/direct_connection_providers.dart';
 import 'direct_connection_editor_sections.dart';
 
 enum DirectEditorEntry { overview, chooser }
@@ -46,15 +43,16 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
+  late final DirectConnectionEditorGateway _gateway;
   late final DirectConnectionEditorWorkflow _workflow;
-  ProviderSubscription<AsyncValue<List<DirectConnectionProfile>>>?
-  _profilesSubscription;
-  ProviderSubscription<AsyncValue<OpenWebUiDirectConnectionsSnapshot?>>?
-  _openWebUiSubscription;
+  late final DirectEditorResourceSubscription _resourceSubscription;
+  bool _didFinishInit = false;
 
   DirectConnectionEditorForm get _form => _workflow.form;
 
   DirectConnectionEditorMode get _mode => _workflow.mode;
+  DirectConnectionEditorCapabilities get _capabilities =>
+      _workflow.capabilities;
   DirectConnectionEditorState get _editorState => _workflow.state;
   bool get _saving => _editorState.operation == DirectEditorOperation.saving;
   bool get _testing => _editorState.operation == DirectEditorOperation.testing;
@@ -67,23 +65,14 @@ class _DirectConnectionEditorPageState
   void initState() {
     super.initState();
     final mode = widget.mode;
-    _workflow = DirectConnectionEditorWorkflow(
-      target: riverpodDirectConnectionEditorTarget(ref, mode),
+    _gateway = riverpodDirectConnectionEditorGateway(ref, mode);
+    _workflow = DirectConnectionEditorWorkflow(gateway: _gateway);
+    _resourceSubscription = _gateway.subscribe(
+      _handleResourceState,
+      fireImmediately: true,
     );
-    if (mode.isOpenWebUi) {
-      _openWebUiSubscription = ref.listenManual(
-        openWebUiDirectConnectionsProvider,
-        (_, next) => next.whenData(_hydrateFromOpenWebUiSnapshot),
-        fireImmediately: true,
-      );
-    } else {
-      _profilesSubscription = ref.listenManual(
-        directConnectionProfilesProvider,
-        (_, next) => next.whenData(_hydrateFromLocalProfiles),
-        fireImmediately: true,
-      );
-    }
     _workflow.addListener(_handleEditorChanged);
+    _didFinishInit = true;
   }
 
   void _handleEditorChanged() {
@@ -92,78 +81,29 @@ class _DirectConnectionEditorPageState
 
   @override
   void dispose() {
-    _profilesSubscription?.close();
-    _openWebUiSubscription?.close();
+    _resourceSubscription.close();
     _workflow.removeListener(_handleEditorChanged);
     _workflow.dispose();
     super.dispose();
   }
 
-  void _hydrateFromLocalProfiles(List<DirectConnectionProfile> profiles) {
-    final profile = _profileById(profiles);
-    if (!_mode.isNew && profile == null) return;
-    _workflow.hydrate(profile);
-  }
-
-  void _hydrateFromOpenWebUiSnapshot(
-    OpenWebUiDirectConnectionsSnapshot? snapshot,
-  ) {
-    if (snapshot == null) return;
-    if (_editorState.owner == null) {
-      _captureOpenWebUiOwner(snapshot);
-    } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
-      return;
+  void _handleResourceState(DirectEditorLoadState state) {
+    if (state case DirectEditorLoadData(:final resource)) {
+      _workflow.observeResource(resource);
     }
-    final record = _mode.isNew
-        ? null
-        : snapshot.recordByProfileId(_mode.profileId!);
-    if (!_mode.isNew && record == null) return;
-    _refreshOpenWebUiRecord(record);
-    _workflow.hydrate(record?.profile, openWebUiRecord: record);
+    if (_didFinishInit && mounted) setState(() {});
   }
 
-  void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
-    if (!_editorState.hydrated) return;
-    // A pure reindex changes the compare-and-swap revision without changing
-    // the raw content. Refresh only that authoritative base; a same-id edit
-    // (for example enable/tags) must retain the stale revision and conflict.
-    _workflow.refreshOpenWebUiRecord(record);
+  bool _operationOwnerIsCurrent() {
+    if (!_capabilities.requiresOwnerValidation) return true;
+    if (!mounted) return false;
+    return switch (_gateway.resourceState) {
+      DirectEditorLoadData(:final resource) => _workflow.resourceOwnerMatches(
+        resource,
+      ),
+      _ => false,
+    };
   }
-
-  DirectConnectionProfile? _profileById(
-    List<DirectConnectionProfile> profiles,
-  ) {
-    if (_mode.isNew) return null;
-    for (final profile in profiles) {
-      if (profile.id == _mode.profileId) return profile;
-    }
-    return null;
-  }
-
-  void _captureOpenWebUiOwner(OpenWebUiDirectConnectionsSnapshot snapshot) {
-    _workflow.captureOwner(
-      serverId: snapshot.serverId,
-      accountId: snapshot.accountId,
-      authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
-    );
-  }
-
-  bool _matchesCapturedOpenWebUiOwner(
-    OpenWebUiDirectConnectionsSnapshot snapshot,
-  ) => _workflow.ownerMatches(
-    serverId: snapshot.serverId,
-    accountId: snapshot.accountId,
-    authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
-  );
-
-  bool _openWebUiOwnerIsCurrent() {
-    if (!_mode.isOpenWebUi || _editorState.owner == null) return false;
-    final snapshot = ref.read(openWebUiDirectConnectionsProvider).value;
-    return snapshot != null && _matchesCapturedOpenWebUiOwner(snapshot);
-  }
-
-  bool _operationOwnerIsCurrent() =>
-      !_mode.isOpenWebUi || (mounted && _openWebUiOwnerIsCurrent());
 
   DirectEditorMessages _editorMessages() {
     final l10n = AppLocalizations.of(context)!;
@@ -194,7 +134,7 @@ class _DirectConnectionEditorPageState
     return ThemedDialogs.confirm(
       context,
       title: l10n.directConnectionDeleteTitle,
-      message: _mode.isOpenWebUi
+      message: _capabilities.showsManagedSource
           ? l10n.openWebUiDirectConnectionDeleteMessage(saved.name)
           : l10n.directConnectionDeleteMessage(saved.name),
       confirmText: l10n.delete,
@@ -288,12 +228,9 @@ class _DirectConnectionEditorPageState
 
   @override
   Widget build(BuildContext context) {
-    if (_mode.isOpenWebUi) return _buildOpenWebUiEditor();
-
     final l10n = AppLocalizations.of(context)!;
-    final profiles = ref.watch(directConnectionProfilesProvider);
-    return profiles.when(
-      loading: () => _buildEditorScaffold(
+    return switch (_gateway.resourceState) {
+      DirectEditorLoadLoading() => _buildEditorScaffold(
         title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
@@ -308,103 +245,53 @@ class _DirectConnectionEditorPageState
           useNativeLabel: true,
         ),
       ),
-      error: (_, _) => _buildEditorScaffold(
+      DirectEditorLoadFailure() => _buildEditorScaffold(
         title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: [
           DirectConnectionEditorError(
-            onRetry: () =>
-                ref.read(directConnectionProfilesProvider.notifier).reload(),
+            onRetry: () => unawaited(_gateway.reload()),
           ),
         ],
       ),
-      data: (items) {
-        final profile = _profileById(items);
-        if (!_mode.isNew && profile == null) {
-          return _buildEditorScaffold(
-            title: l10n.editDirectConnection,
-            children: [
-              const SizedBox(height: Spacing.xl),
-              Center(child: Text(l10n.directConnectionNoLongerExists)),
-            ],
-          );
-        }
-        return _buildForm(context);
-      },
-    );
+      DirectEditorLoadData(:final resource) => _buildLoadedResource(
+        context,
+        resource,
+      ),
+    };
   }
 
-  Widget _buildOpenWebUiEditor() {
+  Widget _buildLoadedResource(
+    BuildContext context,
+    DirectEditorResource resource,
+  ) {
     final l10n = AppLocalizations.of(context)!;
-    final connections = ref.watch(openWebUiDirectConnectionsProvider);
-    return connections.when(
-      loading: () => _buildEditorScaffold(
-        title: _mode.isNew
-            ? l10n.addDirectConnection
-            : l10n.editDirectConnection,
-        children: const [
-          SizedBox(height: Spacing.xxl),
-          Center(child: CircularProgressIndicator.adaptive()),
-        ],
-        bottomAction: ConduitButton(
-          text: AppLocalizations.of(context)!.save,
-          isFullWidth: true,
-          isLoading: true,
-          useNativeLabel: true,
-        ),
-      ),
-      error: (_, _) => _buildEditorScaffold(
+    final ownerChanged =
+        _capabilities.requiresOwnerValidation &&
+        !_workflow.resourceOwnerMatches(resource);
+    if (ownerChanged ||
+        resource.availability == DirectEditorResourceAvailability.unavailable) {
+      return _buildEditorScaffold(
         title: _mode.isNew
             ? l10n.addDirectConnection
             : l10n.editDirectConnection,
         children: [
-          DirectConnectionEditorError(
-            onRetry: () => unawaited(
-              ref.read(openWebUiDirectConnectionsProvider.notifier).reload(),
-            ),
-          ),
+          const SizedBox(height: Spacing.xl),
+          Center(child: Text(l10n.openWebUiDirectConnectionsUnavailable)),
         ],
-      ),
-      data: (snapshot) {
-        if (snapshot == null) {
-          return _buildEditorScaffold(
-            title: _mode.isNew
-                ? l10n.addDirectConnection
-                : l10n.editDirectConnection,
-            children: [
-              const SizedBox(height: Spacing.xl),
-              Center(child: Text(l10n.openWebUiDirectConnectionsUnavailable)),
-            ],
-          );
-        }
-        if (_editorState.owner == null ||
-            !_matchesCapturedOpenWebUiOwner(snapshot)) {
-          return _buildEditorScaffold(
-            title: _mode.isNew
-                ? l10n.addDirectConnection
-                : l10n.editDirectConnection,
-            children: [
-              const SizedBox(height: Spacing.xl),
-              Center(child: Text(l10n.openWebUiDirectConnectionsUnavailable)),
-            ],
-          );
-        }
-        final record = _mode.isNew
-            ? null
-            : snapshot.recordByProfileId(_mode.profileId!);
-        if (!_mode.isNew && record == null) {
-          return _buildEditorScaffold(
-            title: l10n.editDirectConnection,
-            children: [
-              const SizedBox(height: Spacing.xl),
-              Center(child: Text(l10n.directConnectionNoLongerExists)),
-            ],
-          );
-        }
-        return _buildForm(context);
-      },
-    );
+      );
+    }
+    if (resource.availability == DirectEditorResourceAvailability.missing) {
+      return _buildEditorScaffold(
+        title: l10n.editDirectConnection,
+        children: [
+          const SizedBox(height: Spacing.xl),
+          Center(child: Text(l10n.directConnectionNoLongerExists)),
+        ],
+      );
+    }
+    return _buildForm(context);
   }
 
   Widget _buildEditorScaffold({
@@ -450,7 +337,7 @@ class _DirectConnectionEditorPageState
       UtilityIdentityHeader(
         leading: ConnectionMark(
           child: Icon(
-            _mode.isOpenWebUi
+            _capabilities.showsManagedSource
                 ? (context.usesCupertinoChrome
                       ? CupertinoIcons.cloud
                       : Icons.cloud_outlined)
@@ -464,10 +351,10 @@ class _DirectConnectionEditorPageState
         title: _mode.isNew
             ? l10n.directConnectProviderTitle
             : l10n.editDirectConnection,
-        subtitle: _mode.isOpenWebUi
+        subtitle: _capabilities.showsManagedSource
             ? l10n.openWebUiDirectConnectionEditorDescription
             : l10n.backendChooserDirectSubtitle,
-        trailing: _mode.isOpenWebUi
+        trailing: _capabilities.showsManagedSource
             ? Text(
                 l10n.openWebUiDirectConnectionSourceLabel,
                 style: theme.bodySmall?.copyWith(color: theme.textTertiary),

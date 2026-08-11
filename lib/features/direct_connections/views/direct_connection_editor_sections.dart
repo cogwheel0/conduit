@@ -68,7 +68,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    if (form.isOpenWebUi) {
+    if (!form.capabilities.editsProvider) {
       return InsetGroupedSection(
         title: l10n.directProvider,
         child: Row(
@@ -175,7 +175,7 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!form.isOpenWebUi) ...[
+          if (form.capabilities.editsName) ...[
             AccessibleFormField(
               key: const ValueKey<String>('direct-connection-name-field'),
               label: l10n.directConnectionName,
@@ -241,12 +241,12 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                   value: DirectAuthenticationMode.bearer,
                   child: Text(l10n.bearerToken),
                 ),
-                if (!form.isOpenWebUi && !isOpenRouter)
+                if (form.canSelectApiKeyHeader)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.apiKeyHeader,
                     child: Text(l10n.directApiKeyHeader),
                   ),
-                if (form.isOpenWebUi || !isOpenRouter)
+                if (form.canSelectNoAuthentication)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.none,
                     child: Text(l10n.noAuthentication),

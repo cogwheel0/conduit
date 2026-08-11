@@ -14,7 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -156,42 +156,26 @@ class _WorkspaceKnowledgeFormState
       _session.setError(l10n.workspaceKnowledgeNameRequired);
       return;
     }
-    if (!_session.beginOperation(clearError: true)) return;
-    final completion = WorkspaceEditorMutationCompletion.capture(
-      context,
-      session: _session,
-      section: WorkspaceSection.knowledge,
-    );
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       accessGrants: _grants,
     );
-    try {
-      final WorkspaceKnowledgeDetail result = completion.isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(widget.summary!.id, form);
-      DebugLogger.log(
-        'knowledge saved',
-        scope: 'workspace/knowledge',
-        data: {'id': result.summary.id, 'create': completion.isCreate},
-      );
-      completion.succeed(
-        resourceId: result.summary.id,
-        message: l10n.workspaceKnowledgeSaved,
-        editorMounted: mounted,
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge save failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      _session.finishOperation(errorMessage: l10n.workspaceKnowledgeSaveFailed);
-    }
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceKnowledgeDetail>(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.knowledge,
+      scope: 'workspace/knowledge',
+      resourceLabel: 'knowledge',
+      successMessage: l10n.workspaceKnowledgeSaved,
+      failureMessage: l10n.workspaceKnowledgeSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) => isCreate
+          ? notifier.create(form)
+          : notifier.updateItem(widget.summary!.id, form),
+      resourceId: (result) => result.summary.id,
+    );
   }
 
   Future<void> _manageAccess() async {

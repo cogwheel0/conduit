@@ -14,7 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -299,46 +299,32 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final id = _validateForm(l10n);
     if (id == null) return;
     setState(() => _idError = false);
-    if (!_session.beginOperation(clearError: true)) return;
-    final completion = WorkspaceEditorMutationCompletion.capture(
-      context,
+    final notifier = ref.read(workspaceToolsProvider.notifier);
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceToolDetail>(
+      context: context,
       session: _session,
       section: WorkspaceSection.tools,
-    );
-    final notifier = ref.read(workspaceToolsProvider.notifier);
-    // The update endpoint keys off the existing id; the id is immutable after
-    // create, so submit the summary's id when editing.
-    final form = _buildForm(id: completion.isCreate ? id : widget.summary!.id);
-    try {
-      final WorkspaceToolDetail result = completion.isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(widget.summary!.id, form);
-      DebugLogger.log(
-        'tool saved',
-        scope: 'workspace/tools',
-        data: {'id': result.id, 'create': completion.isCreate},
-      );
-      completion.succeed(
-        resourceId: result.id,
-        message: l10n.workspaceToolSaved,
-        editorMounted: mounted,
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tool save failed',
-        scope: 'workspace/tools',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      final conflict = _isConflict(error);
-      setState(() => _idError = conflict);
-      _session.finishOperation(
-        errorMessage: conflict
+      scope: 'workspace/tools',
+      resourceLabel: 'tool',
+      successMessage: l10n.workspaceToolSaved,
+      failureMessage: l10n.workspaceToolSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) {
+        // The update endpoint keys off the immutable existing id.
+        final form = _buildForm(id: isCreate ? id : widget.summary!.id);
+        return isCreate
+            ? notifier.create(form)
+            : notifier.updateItem(widget.summary!.id, form);
+      },
+      resourceId: (result) => result.id,
+      errorMessage: (error) {
+        final conflict = _isConflict(error);
+        setState(() => _idError = conflict);
+        return conflict
             ? l10n.workspaceToolIdTaken
-            : l10n.workspaceToolSaveFailed,
-      );
-    }
+            : l10n.workspaceToolSaveFailed;
+      },
+    );
   }
 
   // --- Overflow actions -----------------------------------------------------

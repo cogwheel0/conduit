@@ -16,7 +16,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -254,38 +254,21 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       return;
     }
 
-    if (!_session.beginOperation(clearError: true)) return;
-    final completion = WorkspaceEditorMutationCompletion.capture(
-      context,
-      session: _session,
-      section: WorkspaceSection.models,
-    );
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
-    try {
-      final WorkspaceModelDetail result = completion.isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(form);
-      DebugLogger.log(
-        'model saved',
-        scope: 'workspace/models',
-        data: {'id': result.id, 'create': completion.isCreate},
-      );
-      completion.succeed(
-        resourceId: result.id,
-        message: l10n.workspaceModelSaved,
-        editorMounted: mounted,
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model save failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      _session.finishOperation(errorMessage: l10n.workspaceModelSaveFailed);
-    }
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceModelDetail>(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.models,
+      scope: 'workspace/models',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelSaved,
+      failureMessage: l10n.workspaceModelSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) =>
+          isCreate ? notifier.create(form) : notifier.updateItem(form),
+      resourceId: (result) => result.id,
+    );
   }
 
   // --- Overflow actions -----------------------------------------------------

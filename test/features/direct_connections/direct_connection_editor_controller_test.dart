@@ -301,7 +301,7 @@ final class _EditorHarness {
                 source: source,
               ));
     this.target = target ?? _FakeDirectConnectionEditorTarget(mode: mode);
-    workflow = DirectConnectionEditorWorkflow(target: this.target);
+    workflow = DirectConnectionEditorWorkflow(gateway: this.target);
     form = workflow.form;
   }
 
@@ -328,7 +328,7 @@ String _probeMessage(DirectConnectionProbe probe) =>
     probe.reachable ? 'Connected' : 'Connection failed';
 
 final class _FakeDirectConnectionEditorTarget
-    implements DirectConnectionEditorTarget {
+    implements DirectConnectionEditorGateway {
   _FakeDirectConnectionEditorTarget({
     this.mode = const DirectConnectionEditorMode.create(),
     this.probeHandler,
@@ -337,11 +337,29 @@ final class _FakeDirectConnectionEditorTarget
 
   @override
   final DirectConnectionEditorMode mode;
+  @override
+  DirectConnectionEditorCapabilities get capabilities => mode.capabilities;
+  @override
+  DirectEditorLoadState get resourceState => const DirectEditorLoadData(
+    DirectEditorResource(availability: DirectEditorResourceAvailability.ready),
+  );
   final Future<DirectConnectionProbe> Function(DirectConnectionProfile)?
   probeHandler;
   final Future<void> Function(DirectEditorSaveIntent)? saveHandler;
   DirectConnectionProfile? savedProfile;
   DirectEditorSaveIntent? savedIntent;
+
+  @override
+  DirectEditorResourceSubscription subscribe(
+    DirectEditorResourceListener listener, {
+    bool fireImmediately = false,
+  }) {
+    if (fireImmediately) listener(resourceState);
+    return const _FakeDirectEditorResourceSubscription();
+  }
+
+  @override
+  Future<void> reload() async {}
 
   @override
   void hydrate(
@@ -370,4 +388,12 @@ final class _FakeDirectConnectionEditorTarget
 
   @override
   Future<void> delete(DirectConnectionProfile savedProfile) async {}
+}
+
+final class _FakeDirectEditorResourceSubscription
+    implements DirectEditorResourceSubscription {
+  const _FakeDirectEditorResourceSubscription();
+
+  @override
+  void close() {}
 }

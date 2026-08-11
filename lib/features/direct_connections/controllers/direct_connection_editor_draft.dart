@@ -9,6 +9,45 @@ enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
 enum DirectConnectionEditorSource { local, openWebUi }
 
+/// Source policy consumed by the editor without teaching individual layers
+/// about the backing store that supplies a connection.
+@immutable
+final class DirectConnectionEditorCapabilities {
+  const DirectConnectionEditorCapabilities({
+    required this.editsProvider,
+    required this.editsName,
+    required this.allowsApiKeyHeader,
+    required this.allowsManagedAnonymousAuth,
+    required this.requiresOwnerValidation,
+    required this.showsManagedSource,
+  });
+
+  static const local = DirectConnectionEditorCapabilities(
+    editsProvider: true,
+    editsName: true,
+    allowsApiKeyHeader: true,
+    allowsManagedAnonymousAuth: false,
+    requiresOwnerValidation: false,
+    showsManagedSource: false,
+  );
+
+  static const openWebUi = DirectConnectionEditorCapabilities(
+    editsProvider: false,
+    editsName: false,
+    allowsApiKeyHeader: false,
+    allowsManagedAnonymousAuth: true,
+    requiresOwnerValidation: true,
+    showsManagedSource: true,
+  );
+
+  final bool editsProvider;
+  final bool editsName;
+  final bool allowsApiKeyHeader;
+  final bool allowsManagedAnonymousAuth;
+  final bool requiresOwnerValidation;
+  final bool showsManagedSource;
+}
+
 @immutable
 final class DirectConnectionEditorMode {
   const DirectConnectionEditorMode.create({
@@ -34,6 +73,12 @@ final class DirectConnectionEditorMode {
 
   bool get isNew => profileId == null;
   bool get isOpenWebUi => source == DirectConnectionEditorSource.openWebUi;
+  DirectConnectionEditorCapabilities get capabilities => switch (source) {
+    DirectConnectionEditorSource.local =>
+      DirectConnectionEditorCapabilities.local,
+    DirectConnectionEditorSource.openWebUi =>
+      DirectConnectionEditorCapabilities.openWebUi,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -103,7 +148,7 @@ bool requiresDirectApiKey({
     return false;
   }
   final preservesExistingKeylessBearer =
-      mode.isOpenWebUi &&
+      mode.capabilities.requiresOwnerValidation &&
       !mode.isNew &&
       savedOpenWebUiAuthType == 'bearer' &&
       !apiKeyDirty &&
@@ -231,7 +276,7 @@ final class DirectConnectionDraft {
   }
 
   DirectDraftBuildResult build({required String openWebUiFallbackName}) {
-    final draftName = mode.isOpenWebUi
+    final draftName = !mode.capabilities.editsName
         ? (savedProfile?.name ?? openWebUiFallbackName)
         : name.trim();
     final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl);
@@ -239,7 +284,7 @@ final class DirectConnectionDraft {
     DirectDraftValidationIssue? urlIssue;
     DirectDraftValidationIssue? apiKeyIssue;
 
-    if (!mode.isOpenWebUi && draftName.isEmpty) {
+    if (mode.capabilities.editsName && draftName.isEmpty) {
       nameIssue = DirectDraftValidationIssue.nameRequired;
     }
     if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {

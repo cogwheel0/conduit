@@ -14,7 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -207,9 +207,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final command = _validateForm(l10n);
     if (command == null) return;
     setState(() => _commandError = false);
-    if (!_session.beginOperation(clearError: true)) return;
     final notifier = ref.read(workspacePromptsProvider.notifier);
-    final isCreate = _session.isCreate;
     final commit = _commitController.text.trim();
     final form = WorkspacePromptForm(
       command: command,
@@ -221,41 +219,27 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       commitMessage: commit.isEmpty ? null : commit,
       isProduction: _isProduction,
     );
-    final completion = WorkspaceEditorMutationCompletion.capture(
-      context,
+    await WorkspaceEditorMutationCoordinator.run<WorkspacePromptDetail>(
+      context: context,
       session: _session,
       section: WorkspaceSection.prompts,
-    );
-    try {
-      final WorkspacePromptDetail result = isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(widget.summary!.id, form);
-      DebugLogger.log(
-        'prompt saved',
-        scope: 'workspace/prompts',
-        data: {'id': result.id, 'create': isCreate},
-      );
-      completion.succeed(
-        resourceId: result.id,
-        message: l10n.workspacePromptSaved,
-        editorMounted: mounted,
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt save failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      final commandTaken = _isCommandTaken(error);
-      setState(() => _commandError = commandTaken);
-      _session.finishOperation(
-        errorMessage: commandTaken
+      scope: 'workspace/prompts',
+      resourceLabel: 'prompt',
+      successMessage: l10n.workspacePromptSaved,
+      failureMessage: l10n.workspacePromptSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) => isCreate
+          ? notifier.create(form)
+          : notifier.updateItem(widget.summary!.id, form),
+      resourceId: (result) => result.id,
+      errorMessage: (error) {
+        final commandTaken = _isCommandTaken(error);
+        setState(() => _commandError = commandTaken);
+        return commandTaken
             ? l10n.workspacePromptCommandTaken
-            : l10n.workspacePromptSaveFailed,
-      );
-    }
+            : l10n.workspacePromptSaveFailed;
+      },
+    );
   }
 
   /// Metadata-only update: persists name/command/tags without creating a new

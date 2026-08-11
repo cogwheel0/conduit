@@ -66,7 +66,11 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   DirectHeaderValidationError? get headerError => headers.error;
   bool get isOllama => adapterKey == kOllamaAdapterKey;
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
-  bool get isOpenWebUi => mode.isOpenWebUi;
+  DirectConnectionEditorCapabilities get capabilities => mode.capabilities;
+  bool get canSelectApiKeyHeader =>
+      capabilities.allowsApiKeyHeader && !isOpenRouter;
+  bool get canSelectNoAuthentication =>
+      capabilities.allowsManagedAnonymousAuth || !isOpenRouter;
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
   int get draftRevision => _draftRevision;
 
