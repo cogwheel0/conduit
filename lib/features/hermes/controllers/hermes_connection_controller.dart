@@ -66,12 +66,33 @@ final class HermesConnectionDraft {
   final bool sessionKeyChanged;
 }
 
+enum HermesConnectionCommitStage { persistence, activation, rollback }
+
+final class HermesConnectionCommitException implements Exception {
+  const HermesConnectionCommitException({
+    required this.stage,
+    required this.error,
+    this.rollbackError,
+  });
+
+  final HermesConnectionCommitStage stage;
+  final Object error;
+  final Object? rollbackError;
+}
+
+final class HermesConnectionCommitCancelled implements Exception {
+  const HermesConnectionCommitCancelled();
+}
+
 abstract interface class HermesConnectionGateway {
   Future<bool> probe(HermesConfig draft);
 
   Future<void> persist(HermesConnectionDraft draft);
 
-  Future<void> activate();
+  Future<void> commitOnboarding(
+    HermesConnectionDraft draft, {
+    required bool Function() isCurrent,
+  });
 }
 
 /// Owns the Hermes connection draft, validation, and ordered workflow.
@@ -95,6 +116,7 @@ final class HermesConnectionController extends ChangeNotifier {
   bool sessionKeyDirty = false;
   bool showMemoryKey = false;
   bool _isDisposed = false;
+  int _onboardingEpoch = 0;
 
   bool draftIsUsable(HermesConfig saved) => _validate(saved) == null;
 
@@ -202,6 +224,7 @@ final class HermesConnectionController extends ChangeNotifier {
     }
 
     operation = HermesConnectionOperation.finishing;
+    final onboardingEpoch = ++_onboardingEpoch;
     attempt = ConnectionAttemptState.connecting(messages.connecting);
     _notifyListeners();
 
@@ -214,7 +237,13 @@ final class HermesConnectionController extends ChangeNotifier {
           HermesConnectionOutcome.unreachable,
         );
       }
+      if (!_ownsOnboarding(onboardingEpoch)) {
+        return const HermesConnectionResult(HermesConnectionOutcome.ignored);
+      }
     } catch (error) {
+      if (!_ownsOnboarding(onboardingEpoch)) {
+        return const HermesConnectionResult(HermesConnectionOutcome.ignored);
+      }
       operation = HermesConnectionOperation.idle;
       attempt = ConnectionAttemptState.failed(messages.unreachable);
       _notifyListeners();
@@ -225,33 +254,42 @@ final class HermesConnectionController extends ChangeNotifier {
     _notifyListeners();
 
     try {
-      await _gateway.persist(draft);
-      _acceptPersistedDraft();
-    } catch (error) {
-      operation = HermesConnectionOperation.idle;
-      validationIssue = HermesConnectionValidationIssue.persistenceFailed;
-      attempt = ConnectionAttemptState.failed(messages.persistenceFailed);
-      _notifyListeners();
-      return HermesConnectionResult(
-        HermesConnectionOutcome.persistenceFailed,
-        error,
+      await _gateway.commitOnboarding(
+        draft,
+        isCurrent: () => _ownsOnboarding(onboardingEpoch),
       );
-    }
-
-    try {
-      await _gateway.activate();
-    } catch (error) {
+      if (!_ownsOnboarding(onboardingEpoch)) {
+        return const HermesConnectionResult(HermesConnectionOutcome.ignored);
+      }
+      _acceptPersistedDraft();
+    } on HermesConnectionCommitCancelled {
+      return const HermesConnectionResult(HermesConnectionOutcome.ignored);
+    } on HermesConnectionCommitException catch (failure) {
+      operation = HermesConnectionOperation.idle;
+      if (failure.stage == HermesConnectionCommitStage.persistence) {
+        validationIssue = HermesConnectionValidationIssue.persistenceFailed;
+        attempt = ConnectionAttemptState.failed(messages.persistenceFailed);
+        _notifyListeners();
+        return HermesConnectionResult(
+          HermesConnectionOutcome.persistenceFailed,
+          failure.error,
+        );
+      }
       DebugLogger.error(
         'onboarding-failed',
         scope: 'hermes/onboarding',
-        data: {'errorType': error.runtimeType.toString()},
+        data: {
+          'stage': failure.stage.name,
+          'errorType': failure.error.runtimeType.toString(),
+          if (failure.rollbackError != null)
+            'rollbackErrorType': failure.rollbackError.runtimeType.toString(),
+        },
       );
-      operation = HermesConnectionOperation.idle;
       attempt = ConnectionAttemptState.failed(messages.activationFailed);
       _notifyListeners();
       return HermesConnectionResult(
         HermesConnectionOutcome.activationFailed,
-        error,
+        failure.error,
       );
     }
 
@@ -285,6 +323,16 @@ final class HermesConnectionController extends ChangeNotifier {
       HermesConfig.connectionOrigin(saved.baseUrl) !=
       HermesConfig.connectionOrigin(nextUrl);
 
+  bool _ownsOnboarding(int epoch) => !_isDisposed && epoch == _onboardingEpoch;
+
+  void cancelPendingOperation() {
+    _onboardingEpoch++;
+    if (operation != HermesConnectionOperation.finishing) return;
+    operation = HermesConnectionOperation.idle;
+    attempt = const ConnectionAttemptState.idle();
+    _notifyListeners();
+  }
+
   void _acceptPersistedDraft() {
     apiKey.clear();
     sessionKey.clear();
@@ -307,6 +355,7 @@ final class HermesConnectionController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _onboardingEpoch++;
     url.dispose();
     apiKey.dispose();
     sessionKey.dispose();

@@ -3,15 +3,18 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
-import 'package:flutter/rendering.dart'
-    show RenderBox, RenderEditable, RenderProxyBoxWithHitTestBehavior;
+import 'package:flutter/rendering.dart' show RenderBox, RenderEditable;
 import 'package:flutter/services.dart';
 
-import '../../core/services/performance_profiler.dart';
-import '../../shared/theme/theme_extensions.dart';
-import 'drawer_slot.dart';
-import 'resizable_tablet_sidebar.dart';
-import 'sidebar_layout_constants.dart';
+import '../../../core/services/performance_profiler.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/drawer_slot.dart';
+import '../../../shared/widgets/resizable_tablet_sidebar.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
+
+export '../../../shared/widgets/drawer_gesture_scope.dart'
+    show DrawerOpenGestureExclusion, DrawerOpenGesturePriority;
 
 /// Matches the breakpoint used by [ResponsiveDrawerLayout] for its persistent
 /// tablet presentation. Keeping the decision in one place prevents the
@@ -148,43 +151,6 @@ class _DrawerOpenHorizontalDragGestureRecognizer
 
   @override
   String get debugDescription => 'drawer open horizontal drag';
-}
-
-/// Prevents the full-width drawer-open recognizer from competing with a
-/// descendant that owns non-scroll horizontal gestures, such as rich-text
-/// selection or a document editor.
-class DrawerOpenGestureExclusion extends SingleChildRenderObjectWidget {
-  const DrawerOpenGestureExclusion({super.key, required super.child});
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderDrawerOpenGestureExclusion();
-}
-
-class _RenderDrawerOpenGestureExclusion
-    extends RenderProxyBoxWithHitTestBehavior {
-  _RenderDrawerOpenGestureExclusion()
-    : super(behavior: HitTestBehavior.translucent);
-}
-
-/// Gives a quick rightward drawer drag priority inside an otherwise excluded
-/// gesture owner while still allowing that owner to win gestures such as a
-/// stationary long press.
-///
-/// Place this below the owner's recognizer in the widget tree. For example,
-/// putting it around the child of a [SelectionArea] lets the drawer win an
-/// immediate horizontal drag on every platform, while the selection area's
-/// long-press recognizer still wins before any horizontal movement begins.
-class DrawerOpenGesturePriority extends StatelessWidget {
-  const DrawerOpenGesturePriority({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final layout = ResponsiveDrawerLayout.of(context);
-    return layout?._buildPrioritizedDrawerGestureArena(child) ?? child;
-  }
 }
 
 class DrawerChromeCompositionScope extends InheritedWidget {
@@ -426,7 +392,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     WidgetsBinding.instance.hitTestInView(result, event.position, event.viewId);
     return !result.path.any(
       (entry) =>
-          entry.target is _RenderDrawerOpenGestureExclusion ||
+          entry.target is RenderDrawerOpenGestureExclusion ||
           entry.target is RenderEditable,
     );
   }
@@ -1035,13 +1001,13 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     final scrim = widget.scrimColor ?? context.colorTokens.overlayStrong;
     final isTablet = _isTablet(context);
 
-    if (isTablet) {
-      // Tablet layout: persistent side-by-side
-      return _buildTabletLayout(theme);
-    } else {
-      // Mobile layout: overlay drawer
-      return _buildMobileLayout(theme, scrim);
-    }
+    final layout = isTablet
+        ? _buildTabletLayout(theme)
+        : _buildMobileLayout(theme, scrim);
+    return DrawerGestureScope(
+      buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
+      child: layout,
+    );
   }
 
   void _handleTabletDrawerAnimationEnd() {

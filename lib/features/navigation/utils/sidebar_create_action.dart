@@ -9,7 +9,7 @@ import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';

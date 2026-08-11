@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,32 +6,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit/core/network/image_header_utils.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/raster_media_policy.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
-import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
-import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 
-import 'workspace_model_relationship_sheet.dart';
+import 'workspace_model_editor_body.dart';
+import 'workspace_model_avatar.dart';
+import 'workspace_model_export.dart';
+import 'workspace_model_relationship_picker.dart';
+
+export 'workspace_model_export.dart' show exportWorkspaceModelsToShare;
 
 /// Section-registry entry point for the Models editor. Dispatches to the
 /// create/detail/edit editor based on [WorkspaceEditorArgs.mode].
@@ -139,16 +134,19 @@ class _WorkspaceModelForm extends ConsumerStatefulWidget {
 
 class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   late WorkspaceModelDraft _draft;
-  late final TextEditingController _idController;
-  late final TextEditingController _nameController;
-  late final TextEditingController _descriptionController;
-  late final TextEditingController _systemController;
-  late final TextEditingController _stopController;
-  late final TextEditingController _terminalController;
-  late final TextEditingController _ttsController;
-  late final TextEditingController _defaultFeaturesController;
-  late final TextEditingController _paramsController;
-  late final TextEditingController _builtinToolsController;
+  late final WorkspaceModelFormBindings _fields;
+
+  TextEditingController get _idController => _fields.id;
+  TextEditingController get _nameController => _fields.name;
+  TextEditingController get _descriptionController => _fields.description;
+  TextEditingController get _systemController => _fields.system;
+  TextEditingController get _stopController => _fields.stop;
+  TextEditingController get _terminalController => _fields.terminal;
+  TextEditingController get _ttsController => _fields.tts;
+  TextEditingController get _defaultFeaturesController =>
+      _fields.defaultFeatures;
+  TextEditingController get _paramsController => _fields.params;
+  TextEditingController get _builtinToolsController => _fields.builtinTools;
 
   bool _dirty = false;
   bool _saving = false;
@@ -164,30 +162,20 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
   bool get _readOnly => !widget.writeAccess || _isDetail;
 
+  WorkspaceModelRelationshipPicker _relationshipPicker(AppLocalizations l10n) =>
+      WorkspaceModelRelationshipPicker(
+        context: context,
+        ref: ref,
+        l10n: l10n,
+        draft: _draft,
+        onMutate: _update,
+      );
+
   @override
   void initState() {
     super.initState();
     _draft = WorkspaceModelDraft.fromSummary(_snapshot());
-    _idController = TextEditingController(text: _draft.id);
-    _nameController = TextEditingController(text: _draft.name);
-    _descriptionController = TextEditingController(text: _draft.description);
-    _systemController = TextEditingController(text: _draft.system);
-    _stopController = TextEditingController(text: _draft.stop.join(', '));
-    _terminalController = TextEditingController(text: _draft.terminalId);
-    _ttsController = TextEditingController(text: _draft.ttsVoice);
-    _defaultFeaturesController = TextEditingController(
-      text: _draft.defaultFeatureIds.join(', '),
-    );
-    _paramsController = TextEditingController(
-      text: _draft.advancedParams.isEmpty
-          ? ''
-          : const JsonEncoder.withIndent('  ').convert(_draft.advancedParams),
-    );
-    _builtinToolsController = TextEditingController(
-      text: _draft.builtinTools.isEmpty
-          ? ''
-          : const JsonEncoder.withIndent('  ').convert(_draft.builtinTools),
-    );
+    _fields = WorkspaceModelFormBindings(_draft);
   }
 
   WorkspaceModelSummary _snapshot() {
@@ -209,16 +197,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
   @override
   void dispose() {
-    _idController.dispose();
-    _nameController.dispose();
-    _descriptionController.dispose();
-    _systemController.dispose();
-    _stopController.dispose();
-    _terminalController.dispose();
-    _ttsController.dispose();
-    _defaultFeaturesController.dispose();
-    _paramsController.dispose();
-    _builtinToolsController.dispose();
+    _fields.dispose();
     super.dispose();
   }
 
@@ -617,168 +596,32 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
         absorbing: _saving,
-        child: ListView(
-          key: const Key('workspace-model-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
-          children: [
-            _profileImage(l10n),
-            const SizedBox(height: Spacing.xl),
-            InsetGroupedSection(
-              title: l10n.workspaceModelSectionBasics,
-              child: Column(
-                children: [
-                  _textField(
-                    key: 'workspace-model-id',
-                    controller: _idController,
-                    label: l10n.workspaceModelIdLabel,
-                    enabled: !_readOnly && _isCreate,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _baseModelSelector(l10n),
-                  _textField(
-                    key: 'workspace-model-name',
-                    controller: _nameController,
-                    label: l10n.workspaceModelName,
-                    enabled: !_readOnly,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _textField(
-                    key: 'workspace-model-description',
-                    controller: _descriptionController,
-                    label: l10n.workspaceModelDescription,
-                    enabled: !_readOnly,
-                    minLines: 2,
-                    maxLines: 4,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _tagsField(l10n),
-                ],
-              ),
-            ),
-            const SizedBox(height: Spacing.xl),
-            InsetGroupedSection(
-              title: l10n.workspaceModelSectionPrompt,
-              child: Column(
-                children: [
-                  _textField(
-                    key: 'workspace-model-system',
-                    controller: _systemController,
-                    label: l10n.workspaceModelSystemPrompt,
-                    enabled: !_readOnly,
-                    minLines: 3,
-                    maxLines: 10,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _suggestionPrompts(l10n),
-                ],
-              ),
-            ),
-            const SizedBox(height: Spacing.xl),
-            UtilityDisclosureSection(
-              key: const Key('workspace-model-advanced-disclosure'),
-              title: l10n.workspaceModelSectionAdvanced,
-              expanded: _advancedExpanded,
-              onChanged: (value) => setState(() => _advancedExpanded = value),
-              child: Column(
-                children: [
-                  _textField(
-                    key: 'workspace-model-stop',
-                    controller: _stopController,
-                    label: l10n.workspaceModelStopSequences,
-                    helperText: l10n.workspaceModelStopHint,
-                    enabled: !_readOnly,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _jsonField(
-                    key: 'workspace-model-params',
-                    controller: _paramsController,
-                    label: l10n.workspaceModelAdvancedParams,
-                    helperText: l10n.workspaceModelParamsHint,
-                    hasError: _paramsError == 'params',
-                  ),
-                  _capabilities(l10n),
-                  _textField(
-                    key: 'workspace-model-terminal',
-                    controller: _terminalController,
-                    label: l10n.workspaceModelTerminal,
-                    enabled: !_readOnly,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _textField(
-                    key: 'workspace-model-tts',
-                    controller: _ttsController,
-                    label: l10n.workspaceModelTtsVoice,
-                    enabled: !_readOnly,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _textField(
-                    key: 'workspace-model-default-features',
-                    controller: _defaultFeaturesController,
-                    label: l10n.workspaceModelDefaultFeatures,
-                    enabled: !_readOnly,
-                    onChanged: (_) => _markDirty(),
-                  ),
-                  _jsonField(
-                    key: 'workspace-model-builtin-tools',
-                    controller: _builtinToolsController,
-                    label: l10n.workspaceModelBuiltinTools,
-                    helperText: l10n.workspaceModelParamsHint,
-                    hasError: _paramsError == 'builtinTools',
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(
-              title: l10n.workspaceModelSectionRelationships,
-            ),
-            _knowledgeSelector(l10n),
-            _relationshipTile(
-              keyId: 'workspace-model-tools',
-              label: l10n.workspaceModelTools,
-              count: _draft.toolIds.length,
-              onTap: _readOnly ? null : () => _pickTools(l10n),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-skills',
-              label: l10n.workspaceModelSkills,
-              count: _draft.skillIds.length,
-              onTap: _readOnly ? null : () => _pickSkills(l10n),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-filters',
-              label: l10n.workspaceModelFilters,
-              count: _draft.filterIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: true),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-default-filters',
-              label: l10n.workspaceModelDefaultFilters,
-              count: _draft.defaultFilterIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: true, isDefault: true),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-actions',
-              label: l10n.workspaceModelActions,
-              count: _draft.actionIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: false),
-            ),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAccess),
-            _accessTile(l10n),
-            const SizedBox(height: Spacing.xl),
-          ],
+        child: WorkspaceModelEditorBody(
+          draft: _draft,
+          fields: _fields,
+          profileImage: _profileImage(l10n),
+          isCreate: _isCreate,
+          isDetail: _isDetail,
+          readOnly: _readOnly,
+          advancedExpanded: _advancedExpanded,
+          paramsError: _paramsError,
+          onChanged: _markDirty,
+          onMutate: _update,
+          onAdvancedChanged: (value) =>
+              setState(() => _advancedExpanded = value),
+          onAddTag: () => _addTag(l10n),
+          onAddSuggestion: () => _addSuggestion(l10n),
+          onPickKnowledge: _relationshipPicker(l10n).pickKnowledge,
+          onPickTools: _relationshipPicker(l10n).pickTools,
+          onPickSkills: _relationshipPicker(l10n).pickSkills,
+          onPickFilters: () =>
+              _relationshipPicker(l10n).pickFunctions(isFilter: true),
+          onPickDefaultFilters: () => _relationshipPicker(
+            l10n,
+          ).pickFunctions(isFilter: true, isDefault: true),
+          onPickActions: () =>
+              _relationshipPicker(l10n).pickFunctions(isFilter: false),
+          onManageAccess: _manageAccess,
         ),
       ),
     );
@@ -861,87 +704,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     ];
   }
 
-  // --- Field builders -------------------------------------------------------
-
-  Widget _textField({
-    required String key,
-    required TextEditingController controller,
-    required String label,
-    required bool enabled,
-    String? helperText,
-    int minLines = 1,
-    int maxLines = 1,
-    ValueChanged<String>? onChanged,
-  }) {
-    if (_isDetail) {
-      return UtilityValueRow(
-        key: Key(key),
-        label: label,
-        value: controller.text.trim().isEmpty
-            ? AppLocalizations.of(context)!.workspaceModelBaseModelNone
-            : controller.text,
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: WorkspaceLabeledField(
-        helperText: helperText,
-        child: ConduitInput(
-          key: Key(key),
-          controller: controller,
-          label: label,
-          enabled: enabled,
-          minLines: minLines,
-          maxLines: maxLines < minLines ? minLines : maxLines,
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
-
-  Widget _jsonField({
-    required String key,
-    required TextEditingController controller,
-    required String label,
-    String? helperText,
-    bool hasError = false,
-  }) {
-    if (_isDetail) {
-      return UtilityValueRow(
-        key: Key(key),
-        label: label,
-        value: controller.text.trim().isEmpty
-            ? AppLocalizations.of(context)!.workspaceModelBaseModelNone
-            : controller.text,
-      );
-    }
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: WorkspaceLabeledField(
-        helperText: helperText,
-        child: ConduitInput(
-          key: Key(key),
-          controller: controller,
-          label: label,
-          enabled: !_readOnly,
-          minLines: 2,
-          maxLines: 8,
-          style: theme.code?.copyWith(color: theme.textPrimary),
-          errorText: hasError
-              ? AppLocalizations.of(context)!.workspaceModelInvalidJson
-              : null,
-          onChanged: (_) => _markDirty(),
-        ),
-      ),
-    );
-  }
+  // --- Profile image --------------------------------------------------------
 
   Widget _profileImage(AppLocalizations l10n) {
     final theme = context.conduitTheme;
     return Row(
       children: [
-        _ModelAvatar(
+        WorkspaceModelAvatar(
           draftImage: _draft.profileImageUrl,
           modelId: _draft.id,
           removed: _avatarRemoved,
@@ -982,212 +751,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
   }
 
-  Widget _baseModelSelector(AppLocalizations l10n) {
-    // Base models are the raw `/models/base` options (not the general chat
-    // model list, which also contains already-composed custom models).
-    final models = ref
-        .watch(workspaceBaseModelsProvider)
-        .maybeWhen(
-          data: (value) => value,
-          orElse: () => const <WorkspaceRelationshipOption>[],
-        );
-    // Drive the field from the draft's saved id. A `FormFieldState` only honours
-    // `initialValue` on its first build, so `workspaceBaseModelsProvider`
-    // resolving later must not be what first supplies the id — otherwise the
-    // field is created with `null` (empty options) and stays on "None" even
-    // though `_draft.baseModelId` holds the real id. We seed `initialValue` with
-    // the saved id directly and guarantee it is always a selectable item (adding
-    // a synthetic entry when the async options have not yet arrived or no longer
-    // contain it), so an existing base model renders correctly from build one.
-    final selectedId = _draft.baseModelId;
-    if (_isDetail) {
-      return UtilityValueRow(
-        key: const Key('workspace-model-base'),
-        label: l10n.workspaceModelBaseModel,
-        value: selectedId ?? l10n.workspaceModelBaseModelNone,
-      );
-    }
-    final hasSelectedOption =
-        selectedId == null || models.any((m) => m.id == selectedId);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: DropdownButtonFormField<String?>(
-        key: const Key('workspace-model-base'),
-        initialValue: selectedId,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: l10n.workspaceModelBaseModel,
-          isDense: true,
-          border: const OutlineInputBorder(),
-        ),
-        items: [
-          DropdownMenuItem<String?>(
-            value: null,
-            child: Text(l10n.workspaceModelBaseModelNone),
-          ),
-          if (!hasSelectedOption)
-            DropdownMenuItem<String?>(
-              value: selectedId,
-              child: Text(selectedId, overflow: TextOverflow.ellipsis),
-            ),
-          for (final model in models)
-            DropdownMenuItem<String?>(
-              value: model.id,
-              child: Text(model.label, overflow: TextOverflow.ellipsis),
-            ),
-        ],
-        onChanged: _readOnly
-            ? null
-            : (value) => _update(() => _draft.baseModelId = value),
-      ),
-    );
-  }
-
-  Widget _tagsField(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.workspaceModelTags, style: theme.label),
-          const SizedBox(height: Spacing.xs),
-          Wrap(
-            spacing: Spacing.xs,
-            runSpacing: Spacing.xs,
-            children: [
-              for (final tag in _draft.tags)
-                InputChip(
-                  key: Key('workspace-model-tag-$tag'),
-                  label: Text(tag),
-                  onDeleted: _readOnly
-                      ? null
-                      : () => _update(() => _draft.tags.remove(tag)),
-                ),
-              if (!_readOnly)
-                ActionChip(
-                  key: const Key('workspace-model-tag-add'),
-                  avatar: const Icon(Icons.add, size: IconSize.small),
-                  label: Text(l10n.workspaceModelTagsHint),
-                  onPressed: () => _addTag(l10n),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _suggestionPrompts(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
-          const SizedBox(height: Spacing.xs),
-          for (var i = 0; i < _draft.suggestionPrompts.length; i++)
-            AdaptiveListTile(
-              key: Key('workspace-model-suggestion-$i'),
-              padding: EdgeInsets.zero,
-              title: Text(_draft.suggestionPrompts[i]),
-              trailing: _readOnly
-                  ? null
-                  : IconButton(
-                      tooltip: l10n.workspaceModelRemoveSuggestion,
-                      icon: const Icon(Icons.close, size: IconSize.small),
-                      onPressed: () =>
-                          _update(() => _draft.suggestionPrompts.removeAt(i)),
-                    ),
-            ),
-          if (!_readOnly)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: WorkspacePlainIconButton(
-                buttonKey: const Key('workspace-model-suggestion-add'),
-                onPressed: () => _addSuggestion(l10n),
-                icon: Icons.add,
-                label: l10n.workspaceModelAddSuggestion,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _capabilities(AppLocalizations l10n) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.workspaceModelCapabilities,
-            style: context.conduitTheme.label,
-          ),
-          for (final key in _draft.capabilities.keys)
-            AdaptiveListTile(
-              key: Key('workspace-model-capability-$key'),
-              padding: EdgeInsets.zero,
-              title: Text(key),
-              trailing: AdaptiveSwitch(
-                value: _draft.capabilities[key] ?? false,
-                onChanged: _readOnly
-                    ? null
-                    : (value) =>
-                          _update(() => _draft.capabilities[key] = value),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _relationshipTile({
-    required String keyId,
-    required String label,
-    required int count,
-    VoidCallback? onTap,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.md),
-      child: WorkspaceResourceTile(
-        key: Key(keyId),
-        icon: Icons.account_tree_outlined,
-        title: label,
-        subtitle: count == 0
-            ? l10n.workspaceModelSelectNone
-            : l10n.workspaceModelSelectCount(count),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _knowledgeSelector(AppLocalizations l10n) {
-    return _relationshipTile(
-      keyId: 'workspace-model-knowledge',
-      label: l10n.workspaceModelKnowledge,
-      count: _draft.knowledge.length,
-      onTap: _readOnly ? null : () => _pickKnowledge(l10n),
-    );
-  }
-
-  Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_draft.normalizedAccessGrants);
-    final isPublic = workspaceGrantsArePublic(_draft.normalizedAccessGrants);
-    return WorkspaceResourceTile(
-      key: const Key('workspace-model-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
-      title: l10n.workspaceModelManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
-      onTap: _manageAccess,
-    );
-  }
-
   // --- Interactions ---------------------------------------------------------
 
   Future<void> _pickImage() async {
@@ -1199,7 +762,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       // Cap the avatar's dimensions before base64-embedding it so a large source
       // image does not bloat the draft JSON / spike memory. A downscaled image
       // is always re-encoded as PNG; an unchanged image keeps its source mime.
-      final bounded = await _boundAvatarBytes(bytes);
+      final bounded = await WorkspaceModelAvatarCodec.bound(bytes);
       final String mime;
       if (identical(bounded, bytes)) {
         final ext = (file.extension ?? 'png').toLowerCase();
@@ -1233,47 +796,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
   }
 
-  /// Downscales [bytes] so the longest edge is at most [_avatarMaxEdge],
-  /// re-encoding as PNG. Returns the original [bytes] unchanged when the image
-  /// already fits, and falls back to the original on any decode/encode failure
-  /// so picking an avatar never breaks.
-  static const int _avatarMaxEdge = 512;
-
-  Future<Uint8List> _boundAvatarBytes(Uint8List bytes) async {
-    ui.ImmutableBuffer? buffer;
-    ui.ImageDescriptor? descriptor;
-    ui.Codec? codec;
-    ui.Image? image;
-    try {
-      buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      descriptor = await ui.ImageDescriptor.encoded(buffer);
-      final width = descriptor.width;
-      final height = descriptor.height;
-      final longest = width > height ? width : height;
-      if (longest <= _avatarMaxEdge) {
-        return bytes;
-      }
-      final scale = _avatarMaxEdge / longest;
-      codec = await descriptor.instantiateCodec(
-        targetWidth: (width * scale).round(),
-        targetHeight: (height * scale).round(),
-      );
-      final frame = await codec.getNextFrame();
-      image = frame.image;
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      return data?.buffer.asUint8List() ?? bytes;
-    } catch (_) {
-      return bytes;
-    } finally {
-      // Release every native handle even when a step above throws, disposing
-      // the image/codec/descriptor before the backing buffer.
-      image?.dispose();
-      codec?.dispose();
-      descriptor?.dispose();
-      buffer?.dispose();
-    }
-  }
-
   Future<void> _addTag(AppLocalizations l10n) async {
     final value = await _promptText(l10n.workspaceModelTags);
     if (value == null) return;
@@ -1288,185 +810,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     final prompt = value.trim();
     if (prompt.isEmpty) return;
     _update(() => _draft.suggestionPrompts.add(prompt));
-  }
-
-  Future<void> _pickKnowledge(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceKnowledgeProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (item) => WorkspaceRelationshipOption(
-                    id: item.id,
-                    label: item.name,
-                    subtitle: item.description,
-                  ),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelKnowledge,
-      options: options,
-      selectedIds: _draft.knowledge.map((ref) => ref.id).toList(),
-    );
-    if (selected == null) return;
-    _update(() {
-      _draft.knowledge = [
-        for (final id in selected)
-          _draft.knowledge.firstWhere(
-            (ref) => ref.id == id,
-            orElse: () => WorkspaceModelKnowledgeRef(
-              id: id,
-              name: options
-                  .firstWhere(
-                    (option) => option.id == id,
-                    orElse: () =>
-                        WorkspaceRelationshipOption(id: id, label: id),
-                  )
-                  .label,
-            ),
-          ),
-      ];
-    });
-  }
-
-  Future<void> _pickTools(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceToolsProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (t) => WorkspaceRelationshipOption(id: t.id, label: t.name),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tools relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelTools,
-      options: options,
-      selectedIds: _draft.toolIds,
-    );
-    if (selected != null) _update(() => _draft.toolIds = selected);
-  }
-
-  Future<void> _pickSkills(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceSkillsProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (s) => WorkspaceRelationshipOption(
-                    id: s.id,
-                    label: s.name,
-                    subtitle: s.description,
-                  ),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skills relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelSkills,
-      options: options,
-      selectedIds: _draft.skillIds,
-    );
-    if (selected != null) _update(() => _draft.skillIds = selected);
-  }
-
-  Future<void> _pickFunctions(
-    AppLocalizations l10n, {
-    required bool isFilter,
-    bool isDefault = false,
-  }) async {
-    final List<WorkspaceFunctionRef> functions;
-    try {
-      functions = await ref.read(workspaceFunctionsProvider.future);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'functions relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final options = functions
-        .where((fn) => isFilter ? fn.isFilter : fn.isAction)
-        .map(
-          (fn) => WorkspaceRelationshipOption(
-            id: fn.id,
-            label: fn.name,
-            subtitle: fn.type,
-          ),
-        )
-        .toList();
-    final current = isFilter
-        ? (isDefault ? _draft.defaultFilterIds : _draft.filterIds)
-        : _draft.actionIds;
-    final title = isFilter
-        ? (isDefault
-              ? l10n.workspaceModelDefaultFilters
-              : l10n.workspaceModelFilters)
-        : l10n.workspaceModelActions;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: title,
-      options: options,
-      selectedIds: current,
-    );
-    if (selected == null) return;
-    _update(() {
-      if (isFilter) {
-        if (isDefault) {
-          _draft.defaultFilterIds = selected;
-        } else {
-          _draft.filterIds = selected;
-        }
-      } else {
-        _draft.actionIds = selected;
-      }
-    });
   }
 
   Future<String?> _promptText(String label) {
@@ -1502,156 +845,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       return null;
     } catch (_) {
       return null;
-    }
-  }
-}
-
-/// Renders the model's current profile image: from an inline draft data/URL, or
-/// lazily fetched from the dedicated profile-image endpoint for saved models.
-class _ModelAvatar extends ConsumerStatefulWidget {
-  const _ModelAvatar({
-    required this.draftImage,
-    required this.modelId,
-    this.removed = false,
-  });
-
-  final String? draftImage;
-  final String modelId;
-
-  /// When true the user has explicitly removed the avatar this session, so the
-  /// persisted server image must not be re-fetched until the model is saved.
-  final bool removed;
-
-  @override
-  ConsumerState<_ModelAvatar> createState() => _ModelAvatarState();
-}
-
-class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
-  // Memoized profile-image request, keyed by the model id it was issued for, so
-  // parent rebuilds (e.g. every keystroke in the form) reuse the in-flight /
-  // resolved future instead of firing a fresh request and flickering the avatar.
-  Future<List<int>?>? _imageFuture;
-  String? _fetchedModelId;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final decodeTarget = RasterMediaPolicy.forBox(
-      context,
-      profile: RasterDecodeProfile.avatar,
-      logicalWidth: 56,
-      logicalHeight: 56,
-    );
-    final draftImage = widget.draftImage;
-    final modelId = widget.modelId;
-    final placeholder = Container(
-      key: const Key('workspace-model-avatar-placeholder'),
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: theme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-      ),
-      child: Icon(Icons.smart_toy_outlined, color: theme.iconSecondary),
-    );
-
-    Widget wrap(Widget child) => ClipRRect(
-      borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-      child: SizedBox(width: 56, height: 56, child: child),
-    );
-
-    final inline = draftImage;
-    if (inline != null && inline.startsWith('data:image')) {
-      try {
-        final bytes = base64Decode(inline.split(',').last);
-        return wrap(
-          Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(bytes),
-              decodeTarget,
-            ),
-            fit: BoxFit.cover,
-          ),
-        );
-      } catch (_) {
-        return placeholder;
-      }
-    }
-    if (inline != null && inline.startsWith('http')) {
-      final api = ref.watch(apiServiceProvider);
-      // Draft URLs are user-controlled and can redirect off-origin. Send only
-      // the public product identity; server credentials and custom proxy
-      // headers must never follow them.
-      final headers = imageUrlIsServerOrigin(api?.serverConfig.url, inline)
-          ? ConduitUserAgent.mergeHeaders()
-          : null;
-      return wrap(
-        Image(
-          image: RasterMediaPolicy.resizeProvider(
-            NetworkImage(inline, headers: headers),
-            decodeTarget,
-          ),
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => placeholder,
-        ),
-      );
-    }
-    // A fresh model or an explicit removal both render the placeholder without
-    // reaching for the persisted server image.
-    if (modelId.isEmpty || widget.removed) return placeholder;
-
-    if (_fetchedModelId != modelId) {
-      _fetchedModelId = modelId;
-      _imageFuture = ref
-          .read(apiServiceProvider)
-          ?.getWorkspaceModelProfileImage(modelId);
-    }
-
-    return FutureBuilder<List<int>?>(
-      future: _imageFuture,
-      builder: (context, snapshot) {
-        final data = snapshot.data;
-        if (data == null || data.isEmpty) return placeholder;
-        return wrap(
-          Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(Uint8List.fromList(data)),
-              decodeTarget,
-            ),
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => placeholder,
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Shares one or more model definitions as a JSON file via the OS share sheet.
-Future<void> exportWorkspaceModelsToShare(
-  BuildContext context, {
-  required List<Map<String, dynamic>> models,
-  required String filename,
-}) async {
-  final l10n = AppLocalizations.of(context)!;
-  try {
-    await WorkspaceExportController().shareJson(
-      filename: filename,
-      data: models,
-    );
-  } catch (error, stackTrace) {
-    DebugLogger.error(
-      'model export share failed',
-      scope: 'workspace/models',
-      error: error,
-      stackTrace: stackTrace,
-    );
-    if (context.mounted) {
-      AdaptiveSnackBar.show(
-        context,
-        message: l10n.workspaceModelExportFailed,
-        type: AdaptiveSnackBarType.error,
-      );
     }
   }
 }

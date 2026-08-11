@@ -14,7 +14,7 @@ import 'dart:io' show Platform;
 import 'dart:collection';
 import 'dart:math' as math;
 
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/responsive_drawer_layout.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';

@@ -11,7 +11,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../models/sidebar_navigation_model.dart';

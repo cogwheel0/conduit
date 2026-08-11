@@ -26,7 +26,7 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';

@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
-import 'package:conduit/shared/widgets/responsive_drawer_layout.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 
 const _mobileSize = Size(390, 844);
@@ -649,6 +649,37 @@ void main() {
       360,
     );
     expect(committedWidths, [360]);
+  });
+
+  testWidgets('pointer resize supersedes a pending keyboard commit', (
+    tester,
+  ) async {
+    final committedWidths = <double>[];
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        tabletResizable: true,
+        onTabletDrawerWidthChanged: committedWidths.add,
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    final handle = find.byKey(
+      const ValueKey<String>('tablet-sidebar-resize-handle'),
+    );
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(100, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(committedWidths, [440]);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(committedWidths, [440]);
   });
 
   testWidgets('dismissed tablet drawer releases chrome after closing', (

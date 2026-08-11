@@ -8,7 +8,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
 import '../../navigation/widgets/conversation_tile.dart';

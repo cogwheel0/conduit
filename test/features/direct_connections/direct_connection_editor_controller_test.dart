@@ -79,4 +79,28 @@ void main() {
       controller.headerError?.issue,
     ).equals(DirectHeaderValidationIssue.duplicateName);
   });
+
+  test('editing pending header text does not review saved origin secrets', () {
+    final controller = DirectConnectionEditorController(
+      isOpenWebUi: false,
+      isNew: false,
+    );
+    addTearDown(controller.dispose);
+    controller.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        customHeaders: {'X-Tenant': 'secret'},
+      ),
+    );
+    controller.baseUrl.text = 'https://new.example/v1';
+    controller.markBaseUrlChanged();
+
+    controller.headerName.text = 'X-Pending';
+    controller.markHeaderInputChanged();
+
+    check(controller.originBoundSecretsReviewed).isFalse();
+  });
 }

@@ -115,6 +115,8 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
 
   void _beginResize(double viewportWidth) {
     if (!widget.resizable || !widget.docked) return;
+    _keyboardCommitTimer?.cancel();
+    _keyboardCommitTimer = null;
     final effectiveWidth = _effectiveWidth(viewportWidth);
     setState(() {
       _resizeStartPreferredWidth = _preferredWidth;

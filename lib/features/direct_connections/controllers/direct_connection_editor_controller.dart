@@ -5,6 +5,11 @@ import 'package:uuid/uuid.dart';
 
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
+import 'direct_connection_form_bindings.dart';
+import 'direct_custom_headers_controller.dart';
+
+export 'direct_custom_headers_controller.dart'
+    show DirectHeaderValidationError, DirectHeaderValidationIssue;
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
@@ -15,21 +20,6 @@ enum DirectDraftValidationIssue {
   credentialsReentryRequired,
   apiKeyRequired,
   unsupportedAuthentication,
-}
-
-enum DirectHeaderValidationIssue {
-  nameRequired,
-  invalidName,
-  reservedName,
-  duplicateName,
-  invalidValue,
-}
-
-final class DirectHeaderValidationError {
-  const DirectHeaderValidationError(this.issue, {this.headerName});
-
-  final DirectHeaderValidationIssue issue;
-  final String? headerName;
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
@@ -121,38 +111,56 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     required this.isOpenWebUi,
     required this.isNew,
     this.onDraftChanged,
-  });
+  }) {
+    headers = DirectCustomHeadersController(onHeadersChanged: _headersChanged);
+  }
 
   final bool isOpenWebUi;
   final bool isNew;
   final VoidCallback? onDraftChanged;
 
-  final name = TextEditingController();
-  final baseUrl = TextEditingController();
-  final apiKey = TextEditingController();
-  final apiVersion = TextEditingController();
-  final modelIdPrefix = TextEditingController();
-  final tags = TextEditingController();
-  final headerName = TextEditingController();
-  final headerValue = TextEditingController();
-  final models = TextEditingController();
-  final headerValueFocusNode = FocusNode();
-  final Map<String, String> customHeaders = {};
+  final fields = DirectConnectionFormBindings();
+  late final DirectCustomHeadersController headers;
 
-  DirectConnectionProfile? savedProfile;
-  OpenWebUiDirectConnectionRecord? savedOpenWebUiRecord;
-  String adapterKey = kOpenAiCompatibleAdapterKey;
-  String providerPreset = kOpenAiCompatibleAdapterKey;
-  DirectOpenAiApiMode openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-  DirectAuthenticationMode authentication = DirectAuthenticationMode.bearer;
-  bool enabled = true;
-  bool apiKeyDirty = false;
-  bool headersDirty = false;
-  bool showApiKey = false;
-  bool showAdvancedSettings = false;
-  bool originSecretsConfirmed = false;
-  DirectDraftErrors errors = const DirectDraftErrors();
-  DirectHeaderValidationError? headerError;
+  TextEditingController get name => fields.name;
+  TextEditingController get baseUrl => fields.baseUrl;
+  TextEditingController get apiKey => fields.apiKey;
+  TextEditingController get apiVersion => fields.apiVersion;
+  TextEditingController get modelIdPrefix => fields.modelIdPrefix;
+  TextEditingController get tags => fields.tags;
+  TextEditingController get models => fields.models;
+  TextEditingController get headerName => headers.name;
+  TextEditingController get headerValue => headers.value;
+  FocusNode get headerValueFocusNode => headers.valueFocusNode;
+  Map<String, String> get customHeaders => headers.headers;
+
+  DirectConnectionProfile? _savedProfile;
+  OpenWebUiDirectConnectionRecord? _savedOpenWebUiRecord;
+  String _adapterKey = kOpenAiCompatibleAdapterKey;
+  String _providerPreset = kOpenAiCompatibleAdapterKey;
+  DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+  DirectAuthenticationMode _authentication = DirectAuthenticationMode.bearer;
+  bool _enabled = true;
+  bool _apiKeyDirty = false;
+  bool _showApiKey = false;
+  bool _showAdvancedSettings = false;
+  bool _originSecretsConfirmed = false;
+  DirectDraftErrors _errors = const DirectDraftErrors();
+
+  DirectConnectionProfile? get savedProfile => _savedProfile;
+  OpenWebUiDirectConnectionRecord? get savedOpenWebUiRecord =>
+      _savedOpenWebUiRecord;
+  String get adapterKey => _adapterKey;
+  String get providerPreset => _providerPreset;
+  DirectOpenAiApiMode get openAiApiMode => _openAiApiMode;
+  DirectAuthenticationMode get authentication => _authentication;
+  bool get enabled => _enabled;
+  bool get apiKeyDirty => _apiKeyDirty;
+  bool get showApiKey => _showApiKey;
+  bool get showAdvancedSettings => _showAdvancedSettings;
+  bool get originSecretsConfirmed => _originSecretsConfirmed;
+  DirectDraftErrors get errors => _errors;
+  DirectHeaderValidationError? get headerError => headers.error;
 
   bool get isOllama => adapterKey == kOllamaAdapterKey;
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
@@ -174,7 +182,7 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     final saved = savedProfile;
     if (saved == null || !originChanged) return true;
     final apiKeyReviewed = !(saved.apiKey?.isNotEmpty ?? false) || apiKeyDirty;
-    final headersReviewed = saved.customHeaders.isEmpty || headersDirty;
+    final headersReviewed = saved.customHeaders.isEmpty || headers.isDirty;
     return apiKeyReviewed && headersReviewed;
   }
 
@@ -193,8 +201,8 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     DirectConnectionProfile? profile, {
     OpenWebUiDirectConnectionRecord? openWebUiRecord,
   }) {
-    savedProfile = profile;
-    savedOpenWebUiRecord = openWebUiRecord;
+    _savedProfile = profile;
+    _savedOpenWebUiRecord = openWebUiRecord;
     if (profile == null) {
       name.text = 'My provider';
       baseUrl.text = 'https://api.openai.com/v1';
@@ -202,19 +210,17 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     }
     name.text = profile.name;
     baseUrl.text = profile.baseUrl;
-    customHeaders
-      ..clear()
-      ..addAll(profile.customHeaders);
+    headers.hydrate(profile.customHeaders);
     models.text = profile.manualModelIds.join('\n');
     apiVersion.text = profile.apiVersion ?? '';
     modelIdPrefix.text = profile.modelIdPrefix ?? '';
     tags.text = profile.tags.join(', ');
-    adapterKey = profile.adapterKey;
-    providerPreset = profile.isOpenRouter
+    _adapterKey = profile.adapterKey;
+    _providerPreset = profile.isOpenRouter
         ? kOpenRouterProviderPreset
         : profile.adapterKey;
-    openAiApiMode = profile.openAiApiMode;
-    authentication = openWebUiRecord == null
+    _openAiApiMode = profile.openAiApiMode;
+    _authentication = openWebUiRecord == null
         ? profile.isOpenRouter
               ? DirectAuthenticationMode.bearer
               : (profile.apiKey ?? '').isEmpty
@@ -230,7 +236,7 @@ final class DirectConnectionEditorController extends ChangeNotifier {
             'none' => DirectAuthenticationMode.none,
             _ => DirectAuthenticationMode.unsupported,
           };
-    enabled = profile.enabled;
+    _enabled = profile.enabled;
   }
 
   void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
@@ -241,13 +247,13 @@ final class DirectConnectionEditorController extends ChangeNotifier {
         savedRecord.contentRevision != record.contentRevision) {
       return;
     }
-    savedOpenWebUiRecord = record;
-    savedProfile = record.profile;
+    _savedOpenWebUiRecord = record;
+    _savedProfile = record.profile;
   }
 
   void setEnabled(bool value) {
     if (enabled == value) return;
-    enabled = value;
+    _enabled = value;
     _draftChanged();
   }
 
@@ -257,12 +263,12 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     required String openRouterDefaultName,
   }) {
     if (providerPreset == value) return;
-    providerPreset = value;
-    adapterKey = value == kOllamaAdapterKey
+    _providerPreset = value;
+    _adapterKey = value == kOllamaAdapterKey
         ? kOllamaAdapterKey
         : kOpenAiCompatibleAdapterKey;
-    authentication = DirectAuthenticationMode.bearer;
-    openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+    _authentication = DirectAuthenticationMode.bearer;
+    _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
     baseUrl.text = switch (value) {
       kOllamaAdapterKey => 'https://ollama.com',
       kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
@@ -278,7 +284,7 @@ final class DirectConnectionEditorController extends ChangeNotifier {
         _ => 'My provider',
       };
     }
-    originSecretsConfirmed = false;
+    _originSecretsConfirmed = false;
     _draftChanged();
   }
 
@@ -287,98 +293,75 @@ final class DirectConnectionEditorController extends ChangeNotifier {
         value == DirectAuthenticationMode.unsupported) {
       return;
     }
-    authentication = value;
-    apiKeyDirty = true;
-    originSecretsConfirmed = false;
-    errors = errors.copyWith(clearApiKey: true, clearForm: true);
+    _authentication = value;
+    _apiKeyDirty = true;
+    _originSecretsConfirmed = false;
+    _errors = errors.copyWith(clearApiKey: true, clearForm: true);
     _draftChanged();
   }
 
   void setOpenAiApiMode(DirectOpenAiApiMode value) {
     if (openAiApiMode == value) return;
-    openAiApiMode = value;
+    _openAiApiMode = value;
     _draftChanged();
   }
 
   void setShowApiKey(bool value) {
     if (showApiKey == value) return;
-    showApiKey = value;
+    _showApiKey = value;
     notifyListeners();
   }
 
   void setShowAdvancedSettings(bool value) {
     if (showAdvancedSettings == value) return;
-    showAdvancedSettings = value;
+    _showAdvancedSettings = value;
     notifyListeners();
   }
 
   void markGeneralChanged() {
-    errors = const DirectDraftErrors();
-    headerError = null;
+    _errors = const DirectDraftErrors();
+    headers.clearError();
     _draftChanged();
   }
 
   void markBaseUrlChanged() {
-    originSecretsConfirmed = false;
+    _originSecretsConfirmed = false;
     markGeneralChanged();
   }
 
   void markApiKeyChanged() {
-    apiKeyDirty = true;
-    originSecretsConfirmed = false;
-    errors = errors.copyWith(clearApiKey: true, clearForm: true);
+    _apiKeyDirty = true;
+    _originSecretsConfirmed = false;
+    _errors = errors.copyWith(clearApiKey: true, clearForm: true);
     _draftChanged();
   }
 
   void markHeaderInputChanged() {
-    headerError = null;
-    errors = errors.copyWith(clearForm: true);
+    _errors = errors.copyWith(clearForm: true);
+    headers.markInputChanged();
     _draftChanged();
   }
 
   void markOriginSecretsConfirmed() {
-    originSecretsConfirmed = true;
+    _originSecretsConfirmed = true;
     notifyListeners();
   }
 
   bool commitPendingCustomHeader() {
-    final hasName = headerName.text.trim().isNotEmpty;
-    final hasValue = headerValue.text.isNotEmpty;
-    if (!hasName && !hasValue) return true;
-    if (!hasName) {
-      showAdvancedSettings = true;
-      headerError = const DirectHeaderValidationError(
-        DirectHeaderValidationIssue.nameRequired,
-      );
-      notifyListeners();
-      return false;
+    final committed = headers.commitPending();
+    if (!committed) {
+      _revealAdvancedSettings();
     }
-    return addCustomHeader();
+    return committed;
   }
 
   bool addCustomHeader() {
-    if (!canAddCustomHeader) return false;
-    final normalizedName = headerName.text.trim();
-    final error =
-        _validateHeaderName(normalizedName) ??
-        _validateHeaderValue(headerValue.text);
-    if (error != null) {
-      showAdvancedSettings = true;
-      headerError = error;
-      notifyListeners();
-      return false;
-    }
-    customHeaders[normalizedName] = headerValue.text;
-    headerName.clear();
-    headerValue.clear();
-    _markHeadersChanged();
-    return true;
+    final added = headers.add();
+    if (!added && headers.error != null) _revealAdvancedSettings();
+    return added;
   }
 
-  void removeCustomHeader(String name) {
-    if (customHeaders.remove(name) == null) return;
-    _markHeadersChanged();
-  }
+  void removeCustomHeader(String name) => headers.remove(name);
 
   DirectDraftBuildResult buildDraft({
     required bool validateFields,
@@ -419,7 +402,7 @@ final class DirectConnectionEditorController extends ChangeNotifier {
       apiKeyIssue = DirectDraftValidationIssue.apiKeyRequired;
     }
 
-    errors = DirectDraftErrors(
+    _errors = DirectDraftErrors(
       name: nameIssue,
       url: urlIssue,
       apiKey: apiKeyIssue,
@@ -471,73 +454,33 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     );
     final profileError = safeProfile.validateOrNull();
     if (profileError != null) {
-      errors = DirectDraftErrors(profile: profileError);
+      _errors = DirectDraftErrors(profile: profileError);
       if (validateFields) notifyListeners();
       return DirectDraftBuildResult(errors: errors);
     }
     return DirectDraftBuildResult(profile: safeProfile, errors: errors);
   }
 
-  DirectHeaderValidationError? _validateHeaderName(String name) {
-    if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
-      return const DirectHeaderValidationError(
-        DirectHeaderValidationIssue.invalidName,
-      );
-    }
-    if (DirectConnectionProfile.reservedHeaderNames.contains(
-      name.toLowerCase(),
-    )) {
-      return DirectHeaderValidationError(
-        DirectHeaderValidationIssue.reservedName,
-        headerName: name,
-      );
-    }
-    final duplicate = customHeaders.keys.any(
-      (existing) => existing.toLowerCase() == name.toLowerCase(),
-    );
-    if (duplicate) {
-      return DirectHeaderValidationError(
-        DirectHeaderValidationIssue.duplicateName,
-        headerName: name,
-      );
-    }
-    return null;
-  }
-
-  DirectHeaderValidationError? _validateHeaderValue(String value) {
-    if (!DirectConnectionProfile.isValidCustomHeaderValue(value)) {
-      return const DirectHeaderValidationError(
-        DirectHeaderValidationIssue.invalidValue,
-      );
-    }
-    return null;
-  }
-
-  void _markHeadersChanged() {
-    headersDirty = true;
-    originSecretsConfirmed = false;
-    headerError = null;
-    errors = errors.copyWith(clearForm: true);
+  void _headersChanged() {
+    _originSecretsConfirmed = false;
+    _errors = errors.copyWith(clearForm: true);
     _draftChanged();
   }
 
-  void _draftChanged() {
-    onDraftChanged?.call();
+  void _revealAdvancedSettings() {
+    if (!showAdvancedSettings) _showAdvancedSettings = true;
     notifyListeners();
+  }
+
+  void _draftChanged({bool notify = true}) {
+    onDraftChanged?.call();
+    if (notify) notifyListeners();
   }
 
   @override
   void dispose() {
-    name.dispose();
-    baseUrl.dispose();
-    apiKey.dispose();
-    apiVersion.dispose();
-    modelIdPrefix.dispose();
-    tags.dispose();
-    headerName.dispose();
-    headerValue.dispose();
-    models.dispose();
-    headerValueFocusNode.dispose();
+    fields.dispose();
+    headers.dispose();
     super.dispose();
   }
 }

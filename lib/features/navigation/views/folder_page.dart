@@ -35,7 +35,7 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';

@@ -26,7 +26,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../navigation/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';

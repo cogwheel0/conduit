@@ -3,15 +3,15 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/services/platform_service.dart';
-import '../../core/services/settings_service.dart';
-import '../../features/chat/providers/chat_providers.dart';
-import '../../features/navigation/providers/sidebar_providers.dart';
-import '../../features/navigation/widgets/sidebar_page.dart';
-import '../../l10n/app_localizations.dart';
-import '../../shared/theme/theme_extensions.dart';
+import '../../../core/services/platform_service.dart';
+import '../../../core/services/settings_service.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
+import '../../chat/providers/chat_providers.dart';
+import '../providers/sidebar_providers.dart';
 import 'responsive_drawer_layout.dart';
-import 'sidebar_layout_constants.dart';
+import 'sidebar_page.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.

@@ -18,7 +18,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';

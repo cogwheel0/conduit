@@ -67,6 +67,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     }
   }
 
+  void _leaveOnboarding() {
+    _connectionController.cancelPendingOperation();
+    context.go(Routes.backendChooser);
+  }
+
   @override
   void dispose() {
     _connectionController.removeListener(_handleConnectionChanged);
@@ -369,7 +374,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         title: l10n.backendChooserHermesTitle,
         backLabel: l10n.back,
         backButtonKey: const ValueKey<String>('hermes-onboarding-back-button'),
-        onBack: () => context.go(Routes.backendChooser),
+        onBack: _leaveOnboarding,
         bottomAction: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_connection_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _messages = HermesConnectionMessages(
@@ -168,6 +169,53 @@ void main() {
       check(await result).isTrue();
     },
   );
+
+  test(
+    'disposed onboarding cannot persist or activate after a late probe',
+    () async {
+      final probe = Completer<bool>();
+      final gateway = _FakeHermesConnectionGateway(
+        onProbe: (_) => probe.future,
+      );
+      final controller = _configuredController(gateway);
+
+      final result = controller.finishOnboarding(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+      await Future<void>.delayed(Duration.zero);
+      controller.dispose();
+      probe.complete(true);
+
+      check((await result).outcome).equals(HermesConnectionOutcome.ignored);
+      check(gateway.calls).deepEquals(['probe']);
+    },
+  );
+
+  test('onboarding commit compensates a partial activation', () async {
+    final calls = <String>[];
+
+    await check(
+      runHermesOnboardingCommit(
+        isCurrent: () => true,
+        persist: () async => calls.add('persist'),
+        enable: () async => calls.add('enable'),
+        ensureSessionKey: () async {
+          calls.add('session-key');
+          throw StateError('secure storage unavailable');
+        },
+        selectBackend: () async => calls.add('select-backend'),
+        rollback: () async => calls.add('rollback'),
+      ),
+    ).throws<HermesConnectionCommitException>((failure) {
+      failure
+          .has((value) => value.stage, 'stage')
+          .equals(HermesConnectionCommitStage.activation);
+      failure.has((value) => value.error, 'error').isA<StateError>();
+    });
+
+    check(calls).deepEquals(['persist', 'enable', 'session-key', 'rollback']);
+  });
 }
 
 HermesConnectionController _configuredController(
@@ -215,8 +263,26 @@ final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
   }
 
   @override
-  Future<void> activate() async {
-    calls.add('activate');
-    await onActivate?.call();
+  Future<void> commitOnboarding(
+    HermesConnectionDraft draft, {
+    required bool Function() isCurrent,
+  }) async {
+    try {
+      await runHermesOnboardingCommit(
+        isCurrent: isCurrent,
+        persist: () async {
+          await persist(draft);
+        },
+        enable: () async {},
+        ensureSessionKey: () async => 'session-key',
+        selectBackend: () async {
+          calls.add('activate');
+          await onActivate?.call();
+        },
+        rollback: () async {},
+      );
+    } on HermesConnectionCommitException {
+      rethrow;
+    }
   }
 }
