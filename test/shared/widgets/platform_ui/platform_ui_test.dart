@@ -65,6 +65,28 @@ void main() {
     });
   });
 
+  test('adaptive navigation rejects empty and out-of-range configurations', () {
+    check(
+      () => AdaptiveBottomNavigationBar(
+        items: const [],
+        selectedIndex: 0,
+        onTap: (_) {},
+      ),
+    ).throws<ArgumentError>();
+    check(
+      () => AdaptiveBottomNavigationBar(
+        items: const [
+          AdaptiveNavigationDestination(
+            icon: AdaptiveNavigationIcon.symbol('bubble.left'),
+            label: 'Chats',
+          ),
+        ],
+        selectedIndex: 1,
+        onTap: (_) {},
+      ),
+    ).throws<RangeError>();
+  });
+
   testWidgets('application root follows the Flutter platform family', (
     tester,
   ) async {
@@ -258,10 +280,13 @@ void main() {
           bottomNavigationBar: AdaptiveBottomNavigationBar(
             items: const [
               AdaptiveNavigationDestination(
-                icon: 'bubble.left',
+                icon: AdaptiveNavigationIcon.symbol('bubble.left'),
                 label: 'Chats',
               ),
-              AdaptiveNavigationDestination(icon: 'doc.text', label: 'Notes'),
+              AdaptiveNavigationDestination(
+                icon: AdaptiveNavigationIcon.symbol('doc.text'),
+                label: 'Notes',
+              ),
             ],
             selectedIndex: 0,
             onTap: (_) {},
@@ -289,10 +314,13 @@ void main() {
           bottomNavigationBar: AdaptiveBottomNavigationBar(
             items: const [
               AdaptiveNavigationDestination(
-                icon: 'bubble.left',
+                icon: AdaptiveNavigationIcon.symbol('bubble.left'),
                 label: 'Chats',
               ),
-              AdaptiveNavigationDestination(icon: 'doc.text', label: 'Notes'),
+              AdaptiveNavigationDestination(
+                icon: AdaptiveNavigationIcon.symbol('doc.text'),
+                label: 'Notes',
+              ),
             ],
             selectedIndex: 0,
             onTap: (_) {},

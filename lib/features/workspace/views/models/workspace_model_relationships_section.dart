@@ -2,19 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
-import '../../widgets/workspace_access_grants.dart';
 import '../../widgets/workspace_tiles.dart';
 import 'workspace_model_editor_contract.dart';
 
 final class WorkspaceModelRelationshipsSection extends StatelessWidget {
-  const WorkspaceModelRelationshipsSection({
-    super.key,
-    required this.state,
-    required this.intents,
-  });
+  const WorkspaceModelRelationshipsSection({super.key, required this.model});
 
-  final WorkspaceModelEditorViewState state;
-  final WorkspaceModelEditorIntents intents;
+  final WorkspaceModelRelationshipsSectionModel model;
 
   @override
   Widget build(BuildContext context) {
@@ -27,43 +21,43 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
           context,
           keyId: 'workspace-model-knowledge',
           label: l10n.workspaceModelKnowledge,
-          count: state.draft.knowledge.length,
-          onTap: state.readOnly ? null : intents.onPickKnowledge,
+          count: _count(WorkspaceModelRelationshipKind.knowledge),
+          onTap: _picker(WorkspaceModelRelationshipKind.knowledge),
         ),
         _relationshipTile(
           context,
           keyId: 'workspace-model-tools',
           label: l10n.workspaceModelTools,
-          count: state.draft.toolIds.length,
-          onTap: state.readOnly ? null : intents.onPickTools,
+          count: _count(WorkspaceModelRelationshipKind.tools),
+          onTap: _picker(WorkspaceModelRelationshipKind.tools),
         ),
         _relationshipTile(
           context,
           keyId: 'workspace-model-skills',
           label: l10n.workspaceModelSkills,
-          count: state.draft.skillIds.length,
-          onTap: state.readOnly ? null : intents.onPickSkills,
+          count: _count(WorkspaceModelRelationshipKind.skills),
+          onTap: _picker(WorkspaceModelRelationshipKind.skills),
         ),
         _relationshipTile(
           context,
           keyId: 'workspace-model-filters',
           label: l10n.workspaceModelFilters,
-          count: state.draft.filterIds.length,
-          onTap: state.readOnly ? null : intents.onPickFilters,
+          count: _count(WorkspaceModelRelationshipKind.filters),
+          onTap: _picker(WorkspaceModelRelationshipKind.filters),
         ),
         _relationshipTile(
           context,
           keyId: 'workspace-model-default-filters',
           label: l10n.workspaceModelDefaultFilters,
-          count: state.draft.defaultFilterIds.length,
-          onTap: state.readOnly ? null : intents.onPickDefaultFilters,
+          count: _count(WorkspaceModelRelationshipKind.defaultFilters),
+          onTap: _picker(WorkspaceModelRelationshipKind.defaultFilters),
         ),
         _relationshipTile(
           context,
           keyId: 'workspace-model-actions',
           label: l10n.workspaceModelActions,
-          count: state.draft.actionIds.length,
-          onTap: state.readOnly ? null : intents.onPickActions,
+          count: _count(WorkspaceModelRelationshipKind.actions),
+          onTap: _picker(WorkspaceModelRelationshipKind.actions),
         ),
         const SizedBox(height: Spacing.xl),
         WorkspaceSectionHeader(title: l10n.workspaceModelSectionAccess),
@@ -71,6 +65,11 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
       ],
     );
   }
+
+  int _count(WorkspaceModelRelationshipKind kind) => model.counts[kind] ?? 0;
+
+  VoidCallback? _picker(WorkspaceModelRelationshipKind kind) =>
+      model.readOnly ? null : () => model.onPick(kind);
 
   Widget _relationshipTile(
     BuildContext context, {
@@ -95,20 +94,14 @@ final class WorkspaceModelRelationshipsSection extends StatelessWidget {
   }
 
   Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(
-      state.draft.normalizedAccessGrants,
-    );
-    final isPublic = workspaceGrantsArePublic(
-      state.draft.normalizedAccessGrants,
-    );
     return WorkspaceResourceTile(
       key: const Key('workspace-model-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: model.accessIsPublic ? Icons.public : Icons.lock_outline,
       title: l10n.workspaceModelManageAccess,
-      subtitle: isPublic
+      subtitle: model.accessIsPublic
           ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
-      onTap: intents.onManageAccess,
+          : l10n.workspaceModelSelectCount(model.accessPrincipalCount),
+      onTap: model.onManageAccess,
     );
   }
 }

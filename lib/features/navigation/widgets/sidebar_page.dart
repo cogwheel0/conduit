@@ -265,15 +265,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         _SidebarNavigationItem(
           label: descriptor.label(localizations),
           destination: AdaptiveNavigationDestination(
-            // ImageIcon keeps the alpha-mask asset tintable on Cupertino and
-            // is also recognized by the native iOS tab-bar asset extractor.
-            // Let Cupertino supply size so selected/unselected icons match.
             icon: descriptor.assetName == null
-                ? descriptor.sfSymbol
-                : ImageIcon(AssetImage(descriptor.assetName!)),
+                ? AdaptiveNavigationIcon.symbol(descriptor.sfSymbol)
+                : AdaptiveNavigationIcon.asset(descriptor.assetName!),
             selectedIcon: descriptor.assetName == null
-                ? descriptor.selectedSfSymbol
-                : ImageIcon(AssetImage(descriptor.assetName!)),
+                ? AdaptiveNavigationIcon.symbol(descriptor.selectedSfSymbol)
+                : AdaptiveNavigationIcon.asset(descriptor.assetName!),
             label: descriptor.label(localizations),
           ),
           descriptor: descriptor,

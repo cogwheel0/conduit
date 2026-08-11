@@ -67,7 +67,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   void _leaveOnboarding() {
-    _connectionController.cancelPendingOperation();
+    _connectionController.cancelPendingOnboarding();
     context.go(Routes.backendChooser);
   }
 

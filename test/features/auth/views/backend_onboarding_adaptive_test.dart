@@ -5,6 +5,7 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
+import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
@@ -15,6 +16,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/adaptive_auth_harness.dart';
@@ -137,66 +139,103 @@ void main() {
     },
   );
 
-  testWidgets('Direct onboarding opens the editor and returns to the chooser', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => PlatformUiCapabilities.debugPlatformOverride = null);
-    usePhoneViewport(tester);
-    await initializeBackendOnboardingStorage();
-    addTearDown(PreferencesStore.debugReset);
-    final harness = BackendOnboardingHarness();
-    addTearDown(harness.dispose);
+  testWidgets(
+    'Direct onboarding opens the overview and returns to the chooser',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => PlatformUiCapabilities.debugPlatformOverride = null);
+      usePhoneViewport(tester);
+      await initializeBackendOnboardingStorage();
+      addTearDown(PreferencesStore.debugReset);
+      final harness = BackendOnboardingHarness();
+      addTearDown(harness.dispose);
 
-    await tester.pumpWidget(
-      harness.build(initialLocation: Routes.backendChooser),
-    );
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.backendChooser),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('Connect directly'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect directly'));
+      await tester.pumpAndSettle();
 
-    final route = harness.router.routeInformationProvider.value.uri;
-    check(route.path).equals('${Routes.directConnections}/new');
-    check(route.queryParameters['onboarding']).equals('true');
-    check(route.queryParameters['entry']).equals('chooser');
-    check(harness.router.canPop()).isFalse();
-    expect(find.byType(UtilityPageScaffold), findsOneWidget);
-    expect(
-      tester
-          .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
-          .maxWidth,
-      480,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('direct-editor-back-button')),
-      findsOneWidget,
-    );
-    expect(find.text('Connect a provider'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('direct-editor-save-button')),
-      findsOneWidget,
-    );
-    final navigationBarBottom = tester
-        .getBottomLeft(find.byType(CupertinoNavigationBar))
-        .dy;
-    final identityTitleTop = tester
-        .getTopLeft(find.text('Connect a provider'))
-        .dy;
-    check(identityTitleTop - navigationBarBottom).isLessOrEqual(Spacing.lg);
+      final route = harness.router.routeInformationProvider.value.uri;
+      check(route.path).equals(Routes.directConnections);
+      check(route.queryParameters['onboarding']).equals('true');
+      check(harness.router.canPop()).isFalse();
+      expect(find.byType(UtilityPageScaffold), findsOneWidget);
+      expect(
+        tester
+            .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+            .maxWidth,
+        480,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
+        findsOneWidget,
+      );
+      expect(find.text('Direct Connections'), findsWidgets);
+      expect(
+        find.byKey(const ValueKey<String>('finish-direct-onboarding-button')),
+        findsOneWidget,
+      );
+      final navigationBarBottom = tester
+          .getBottomLeft(find.byType(CupertinoNavigationBar))
+          .dy;
+      final identityTitleTop = tester
+          .getTopLeft(find.text('Direct Connections').last)
+          .dy;
+      check(identityTitleTop - navigationBarBottom).isLessOrEqual(Spacing.lg);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('direct-editor-back-button')),
-    );
-    await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
+      );
+      await tester.pumpAndSettle();
 
-    check(
-      harness.router.routeInformationProvider.value.uri.path,
-    ).equals(Routes.backendChooser);
-    expect(find.byType(BackendChooserPage), findsOneWidget);
-    await harness.unmount(tester);
-  });
+      check(
+        harness.router.routeInformationProvider.value.uri.path,
+      ).equals(Routes.backendChooser);
+      expect(find.byType(BackendChooserPage), findsOneWidget);
+      await harness.unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'Direct onboarding opens retained profiles instead of forcing a new one',
+    (tester) async {
+      usePhoneViewport(tester);
+      await initializeBackendOnboardingStorage();
+      addTearDown(PreferencesStore.debugReset);
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          DirectConnectionProfile(
+            id: 'retained-direct',
+            name: 'Retained Direct',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://direct.example/v1',
+            apiKey: 'secret-key',
+          ),
+        ]).encode(),
+      });
+      final harness = BackendOnboardingHarness();
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.backendChooser),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Connect directly'));
+      await tester.pumpAndSettle();
+
+      final route = harness.router.routeInformationProvider.value.uri;
+      check(route.path).equals(Routes.directConnections);
+      check(route.queryParameters['onboarding']).equals('true');
+      expect(find.text('Retained Direct'), findsOneWidget);
+      expect(find.text('Connect a provider'), findsNothing);
+      await harness.unmount(tester);
+    },
+  );
 
   testWidgets('Direct onboarding editor uses adaptive fields and navigation', (
     tester,

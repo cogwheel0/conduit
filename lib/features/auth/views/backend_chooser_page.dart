@@ -80,12 +80,8 @@ class BackendChooserPage extends ConsumerWidget {
                           showSelectionIndicator: false,
                           trailing: _chooserChevron(context),
                           onTap: () => context.goNamed(
-                            RouteNames.directConnectionEditor,
-                            pathParameters: const {'id': 'new'},
-                            queryParameters: const {
-                              'onboarding': 'true',
-                              'entry': 'chooser',
-                            },
+                            RouteNames.directConnections,
+                            queryParameters: const {'onboarding': 'true'},
                           ),
                         ),
                         UtilitySelectionRow(

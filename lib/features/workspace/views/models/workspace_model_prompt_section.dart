@@ -9,14 +9,9 @@ import 'workspace_model_editor_contract.dart';
 import 'workspace_model_editor_field.dart';
 
 final class WorkspaceModelPromptSection extends StatelessWidget {
-  const WorkspaceModelPromptSection({
-    super.key,
-    required this.state,
-    required this.intents,
-  });
+  const WorkspaceModelPromptSection({super.key, required this.model});
 
-  final WorkspaceModelEditorViewState state;
-  final WorkspaceModelEditorIntents intents;
+  final WorkspaceModelPromptSectionModel model;
 
   @override
   Widget build(BuildContext context) {
@@ -27,13 +22,13 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
         children: [
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-system',
-            controller: state.fields.system,
+            controller: model.system,
             label: l10n.workspaceModelSystemPrompt,
-            isDetail: state.isDetail,
-            enabled: !state.readOnly,
+            isDetail: model.isDetail,
+            enabled: !model.readOnly,
             minLines: 3,
             maxLines: 10,
-            onChanged: intents.onChanged,
+            onChanged: model.onTextChanged,
           ),
           _suggestionPrompts(context, l10n),
         ],
@@ -50,31 +45,25 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
         children: [
           Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
           const SizedBox(height: Spacing.xs),
-          for (
-            var index = 0;
-            index < state.draft.suggestionPrompts.length;
-            index++
-          )
+          for (var index = 0; index < model.suggestionPrompts.length; index++)
             AdaptiveListTile(
               key: Key('workspace-model-suggestion-$index'),
               padding: EdgeInsets.zero,
-              title: Text(state.draft.suggestionPrompts[index]),
-              trailing: state.readOnly
+              title: Text(model.suggestionPrompts[index]),
+              trailing: model.readOnly
                   ? null
                   : IconButton(
                       tooltip: l10n.workspaceModelRemoveSuggestion,
                       icon: const Icon(Icons.close, size: IconSize.small),
-                      onPressed: () => intents.onMutate(
-                        () => state.draft.suggestionPrompts.removeAt(index),
-                      ),
+                      onPressed: () => model.onRemoveSuggestion(index),
                     ),
             ),
-          if (!state.readOnly)
+          if (!model.readOnly)
             Align(
               alignment: Alignment.centerLeft,
               child: WorkspacePlainIconButton(
                 buttonKey: const Key('workspace-model-suggestion-add'),
-                onPressed: intents.onAddSuggestion,
+                onPressed: model.onAddSuggestion,
                 icon: Icons.add,
                 label: l10n.workspaceModelAddSuggestion,
               ),

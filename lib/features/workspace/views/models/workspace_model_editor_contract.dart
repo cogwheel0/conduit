@@ -54,54 +54,120 @@ final class WorkspaceModelFormBindings {
   }
 }
 
-/// Immutable presentation inputs shared by model-editor sections.
-@immutable
-final class WorkspaceModelEditorViewState {
-  const WorkspaceModelEditorViewState({
-    required this.draft,
-    required this.fields,
+/// Narrow inputs and intents owned by the Basics section.
+final class WorkspaceModelBasicsSectionModel {
+  WorkspaceModelBasicsSectionModel({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.baseModelId,
+    required List<WorkspaceRelationshipOption> baseModels,
+    required List<String> tags,
     required this.isCreate,
     required this.isDetail,
     required this.readOnly,
-    required this.paramsError,
-    required this.baseModels,
-  });
+    required this.onTextChanged,
+    required this.onBaseModelChanged,
+    required this.onRemoveTag,
+    required this.onAddTag,
+  }) : baseModels = List.unmodifiable(baseModels),
+       tags = List.unmodifiable(tags);
 
-  final WorkspaceModelDraft draft;
-  final WorkspaceModelFormBindings fields;
+  final TextEditingController id;
+  final TextEditingController name;
+  final TextEditingController description;
+  final String? baseModelId;
+  final List<WorkspaceRelationshipOption> baseModels;
+  final List<String> tags;
   final bool isCreate;
   final bool isDetail;
   final bool readOnly;
-  final String? paramsError;
-  final List<WorkspaceRelationshipOption> baseModels;
+  final VoidCallback onTextChanged;
+  final ValueChanged<String?> onBaseModelChanged;
+  final ValueChanged<String> onRemoveTag;
+  final VoidCallback onAddTag;
 }
 
-/// User intents consumed by the independently rendered model-editor sections.
-@immutable
-final class WorkspaceModelEditorIntents {
-  const WorkspaceModelEditorIntents({
-    required this.onChanged,
-    required this.onMutate,
-    required this.onAddTag,
+/// Narrow inputs and intents owned by the Prompt section.
+final class WorkspaceModelPromptSectionModel {
+  WorkspaceModelPromptSectionModel({
+    required this.system,
+    required List<String> suggestionPrompts,
+    required this.isDetail,
+    required this.readOnly,
+    required this.onTextChanged,
+    required this.onRemoveSuggestion,
     required this.onAddSuggestion,
-    required this.onPickKnowledge,
-    required this.onPickTools,
-    required this.onPickSkills,
-    required this.onPickFilters,
-    required this.onPickDefaultFilters,
-    required this.onPickActions,
-    required this.onManageAccess,
-  });
+  }) : suggestionPrompts = List.unmodifiable(suggestionPrompts);
 
-  final VoidCallback onChanged;
-  final void Function(VoidCallback mutation) onMutate;
-  final VoidCallback onAddTag;
+  final TextEditingController system;
+  final List<String> suggestionPrompts;
+  final bool isDetail;
+  final bool readOnly;
+  final VoidCallback onTextChanged;
+  final ValueChanged<int> onRemoveSuggestion;
   final VoidCallback onAddSuggestion;
-  final VoidCallback onPickKnowledge;
-  final VoidCallback onPickTools;
-  final VoidCallback onPickSkills;
-  final VoidCallback onPickFilters;
-  final VoidCallback onPickDefaultFilters;
-  final VoidCallback onPickActions;
+}
+
+/// Narrow inputs and intents owned by the Advanced section.
+final class WorkspaceModelAdvancedSectionModel {
+  WorkspaceModelAdvancedSectionModel({
+    required this.stop,
+    required this.params,
+    required this.terminal,
+    required this.tts,
+    required this.defaultFeatures,
+    required this.builtinTools,
+    required Map<String, bool> capabilities,
+    required this.isDetail,
+    required this.readOnly,
+    required this.paramsError,
+    required this.expanded,
+    required this.onTextChanged,
+    required this.onCapabilityChanged,
+    required this.onExpandedChanged,
+  }) : capabilities = Map.unmodifiable(capabilities);
+
+  final TextEditingController stop;
+  final TextEditingController params;
+  final TextEditingController terminal;
+  final TextEditingController tts;
+  final TextEditingController defaultFeatures;
+  final TextEditingController builtinTools;
+  final Map<String, bool> capabilities;
+  final bool isDetail;
+  final bool readOnly;
+  final String? paramsError;
+  final bool expanded;
+  final VoidCallback onTextChanged;
+  final void Function(String capability, bool value) onCapabilityChanged;
+  final ValueChanged<bool> onExpandedChanged;
+}
+
+enum WorkspaceModelRelationshipKind {
+  knowledge,
+  tools,
+  skills,
+  filters,
+  defaultFilters,
+  actions,
+}
+
+/// Narrow inputs and intents owned by the Relationships section.
+final class WorkspaceModelRelationshipsSectionModel {
+  WorkspaceModelRelationshipsSectionModel({
+    required Map<WorkspaceModelRelationshipKind, int> counts,
+    required this.readOnly,
+    required this.accessPrincipalCount,
+    required this.accessIsPublic,
+    required this.onPick,
+    required this.onManageAccess,
+  }) : counts = Map.unmodifiable(counts);
+
+  final Map<WorkspaceModelRelationshipKind, int> counts;
+  final bool readOnly;
+  final int accessPrincipalCount;
+  final bool accessIsPublic;
+  final ValueChanged<WorkspaceModelRelationshipKind> onPick;
   final VoidCallback onManageAccess;
 }

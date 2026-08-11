@@ -28,9 +28,13 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 import 'workspace_model_editor_body.dart';
 import 'workspace_model_editor_contract.dart';
+import 'workspace_model_advanced_section.dart';
 import 'workspace_model_avatar.dart';
+import 'workspace_model_basics_section.dart';
 import 'workspace_model_export.dart';
+import 'workspace_model_prompt_section.dart';
 import 'workspace_model_relationship_picker.dart';
+import 'workspace_model_relationships_section.dart';
 
 export 'workspace_model_export.dart' show exportWorkspaceModelsToShare;
 
@@ -329,6 +333,20 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       return null;
     }
   }
+
+  Future<void> _pickRelationship(
+    WorkspaceModelRelationshipKind kind,
+  ) => switch (kind) {
+    WorkspaceModelRelationshipKind.knowledge => _pickKnowledge(),
+    WorkspaceModelRelationshipKind.tools => _pickTools(),
+    WorkspaceModelRelationshipKind.skills => _pickSkills(),
+    WorkspaceModelRelationshipKind.filters => _pickFunctions(isFilter: true),
+    WorkspaceModelRelationshipKind.defaultFilters => _pickFunctions(
+      isFilter: true,
+      isDefault: true,
+    ),
+    WorkspaceModelRelationshipKind.actions => _pickFunctions(isFilter: false),
+  };
 
   // --- Save -----------------------------------------------------------------
 
@@ -710,6 +728,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceModels
               : _nameController.text.trim());
+    final accessGrants = _draft.normalizedAccessGrants;
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -731,33 +750,78 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       child: AbsorbPointer(
         absorbing: _session.saving,
         child: WorkspaceModelEditorBody(
-          state: WorkspaceModelEditorViewState(
-            draft: _draft,
-            fields: _fields,
-            isCreate: _session.isCreate,
-            isDetail: _session.isDetail,
-            readOnly: _readOnly,
-            paramsError: _paramsError,
-            baseModels: baseModels,
-          ),
-          intents: WorkspaceModelEditorIntents(
-            onChanged: _markDirty,
-            onMutate: _update,
-            onAddTag: () => _addTag(l10n),
-            onAddSuggestion: () => _addSuggestion(l10n),
-            onPickKnowledge: _pickKnowledge,
-            onPickTools: _pickTools,
-            onPickSkills: _pickSkills,
-            onPickFilters: () => _pickFunctions(isFilter: true),
-            onPickDefaultFilters: () =>
-                _pickFunctions(isFilter: true, isDefault: true),
-            onPickActions: () => _pickFunctions(isFilter: false),
-            onManageAccess: _manageAccess,
-          ),
           profileImage: _profileImage(l10n),
-          advancedExpanded: _advancedExpanded,
-          onAdvancedChanged: (value) =>
-              setState(() => _advancedExpanded = value),
+          basicsSection: WorkspaceModelBasicsSection(
+            model: WorkspaceModelBasicsSectionModel(
+              id: _fields.id,
+              name: _fields.name,
+              description: _fields.description,
+              baseModelId: _draft.baseModelId,
+              baseModels: baseModels,
+              tags: _draft.tags,
+              isCreate: _session.isCreate,
+              isDetail: _session.isDetail,
+              readOnly: _readOnly,
+              onTextChanged: _markDirty,
+              onBaseModelChanged: (value) =>
+                  _update(() => _draft.baseModelId = value),
+              onRemoveTag: (tag) => _update(() => _draft.tags.remove(tag)),
+              onAddTag: () => _addTag(l10n),
+            ),
+          ),
+          promptSection: WorkspaceModelPromptSection(
+            model: WorkspaceModelPromptSectionModel(
+              system: _fields.system,
+              suggestionPrompts: _draft.suggestionPrompts,
+              isDetail: _session.isDetail,
+              readOnly: _readOnly,
+              onTextChanged: _markDirty,
+              onRemoveSuggestion: (index) =>
+                  _update(() => _draft.suggestionPrompts.removeAt(index)),
+              onAddSuggestion: () => _addSuggestion(l10n),
+            ),
+          ),
+          advancedSection: WorkspaceModelAdvancedSection(
+            model: WorkspaceModelAdvancedSectionModel(
+              stop: _fields.stop,
+              params: _fields.params,
+              terminal: _fields.terminal,
+              tts: _fields.tts,
+              defaultFeatures: _fields.defaultFeatures,
+              builtinTools: _fields.builtinTools,
+              capabilities: _draft.capabilities,
+              isDetail: _session.isDetail,
+              readOnly: _readOnly,
+              paramsError: _paramsError,
+              expanded: _advancedExpanded,
+              onTextChanged: _markDirty,
+              onCapabilityChanged: (capability, value) =>
+                  _update(() => _draft.capabilities[capability] = value),
+              onExpandedChanged: (value) =>
+                  setState(() => _advancedExpanded = value),
+            ),
+          ),
+          relationshipsSection: WorkspaceModelRelationshipsSection(
+            model: WorkspaceModelRelationshipsSectionModel(
+              counts: {
+                WorkspaceModelRelationshipKind.knowledge:
+                    _draft.knowledge.length,
+                WorkspaceModelRelationshipKind.tools: _draft.toolIds.length,
+                WorkspaceModelRelationshipKind.skills: _draft.skillIds.length,
+                WorkspaceModelRelationshipKind.filters: _draft.filterIds.length,
+                WorkspaceModelRelationshipKind.defaultFilters:
+                    _draft.defaultFilterIds.length,
+                WorkspaceModelRelationshipKind.actions: _draft.actionIds.length,
+              },
+              readOnly: _readOnly,
+              accessPrincipalCount: workspaceSharedPrincipals(
+                accessGrants,
+              ).length,
+              accessIsPublic: workspaceGrantsArePublic(accessGrants),
+              onPick: _pickRelationship,
+              onManageAccess: _manageAccess,
+            ),
+          ),
         ),
       ),
     );

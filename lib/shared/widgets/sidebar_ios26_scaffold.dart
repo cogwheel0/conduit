@@ -31,14 +31,25 @@ class SidebarIos26Scaffold extends StatelessWidget {
         route?.animation?.status == AnimationStatus.reverse;
     final composeNativeViews = showNativeView && routeAllowsNativeView;
     final navigation = bottomNavigationBar;
-    final destinations =
-        navigation?.items ?? const <AdaptiveNavigationDestination>[];
-    final hasBottomNavigation =
-        destinations.length >= 2 &&
-        destinations.length <= 5 &&
-        navigation?.selectedIndex != null &&
-        navigation?.onTap != null;
     final safePadding = MediaQuery.paddingOf(context);
+    final renderedBottomNavigation = switch (navigation) {
+      final navigation?
+          when navigation.items.length >= 2 && navigation.items.length <= 5 =>
+        navigation.renderer == AdaptiveBottomNavigationRenderer.fullWidth
+            ? buildAdaptiveCupertinoTabBar(navigation)
+            : composeNativeViews
+            ? buildAdaptiveNativeTabBar(
+                navigation,
+                tint:
+                    navigation.selectedItemColor ??
+                    CupertinoTheme.of(context).primaryColor,
+              )
+            : SizedBox(
+                height: safePadding.bottom + _nativeTabBarPlaceholderHeight,
+              ),
+      _ => null,
+    };
+    final hasBottomNavigation = renderedBottomNavigation != null;
     final textColor = CupertinoColors.label.resolveFrom(context);
     final hasNavigationBar = leading != null || actions?.isNotEmpty == true;
     final toolbarActions = actions ?? const <AdaptiveAppBarAction>[];
@@ -70,26 +81,12 @@ class SidebarIos26Scaffold extends StatelessWidget {
             style: TextStyle(color: textColor, fontSize: 17),
             child: body,
           ),
-          if (hasBottomNavigation)
+          if (renderedBottomNavigation != null)
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child:
-                  navigation!.renderer ==
-                      AdaptiveBottomNavigationRenderer.fullWidth
-                  ? buildAdaptiveCupertinoTabBar(navigation)
-                  : composeNativeViews
-                  ? buildAdaptiveNativeTabBar(
-                      navigation,
-                      tint:
-                          navigation.selectedItemColor ??
-                          CupertinoTheme.of(context).primaryColor,
-                    )
-                  : SizedBox(
-                      height:
-                          safePadding.bottom + _nativeTabBarPlaceholderHeight,
-                    ),
+              child: renderedBottomNavigation,
             ),
         ],
       ),

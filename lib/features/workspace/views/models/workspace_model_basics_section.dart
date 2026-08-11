@@ -7,14 +7,9 @@ import 'workspace_model_editor_contract.dart';
 import 'workspace_model_editor_field.dart';
 
 final class WorkspaceModelBasicsSection extends StatelessWidget {
-  const WorkspaceModelBasicsSection({
-    super.key,
-    required this.state,
-    required this.intents,
-  });
+  const WorkspaceModelBasicsSection({super.key, required this.model});
 
-  final WorkspaceModelEditorViewState state;
-  final WorkspaceModelEditorIntents intents;
+  final WorkspaceModelBasicsSectionModel model;
 
   @override
   Widget build(BuildContext context) {
@@ -25,30 +20,30 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
         children: [
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-id',
-            controller: state.fields.id,
+            controller: model.id,
             label: l10n.workspaceModelIdLabel,
-            isDetail: state.isDetail,
-            enabled: !state.readOnly && state.isCreate,
-            onChanged: intents.onChanged,
+            isDetail: model.isDetail,
+            enabled: !model.readOnly && model.isCreate,
+            onChanged: model.onTextChanged,
           ),
           _baseModelSelector(context, l10n),
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-name',
-            controller: state.fields.name,
+            controller: model.name,
             label: l10n.workspaceModelName,
-            isDetail: state.isDetail,
-            enabled: !state.readOnly,
-            onChanged: intents.onChanged,
+            isDetail: model.isDetail,
+            enabled: !model.readOnly,
+            onChanged: model.onTextChanged,
           ),
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-description',
-            controller: state.fields.description,
+            controller: model.description,
             label: l10n.workspaceModelDescription,
-            isDetail: state.isDetail,
-            enabled: !state.readOnly,
+            isDetail: model.isDetail,
+            enabled: !model.readOnly,
             minLines: 2,
             maxLines: 4,
-            onChanged: intents.onChanged,
+            onChanged: model.onTextChanged,
           ),
           _tagsField(context, l10n),
         ],
@@ -57,8 +52,8 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
   }
 
   Widget _baseModelSelector(BuildContext context, AppLocalizations l10n) {
-    final selectedId = state.draft.baseModelId;
-    if (state.isDetail) {
+    final selectedId = model.baseModelId;
+    if (model.isDetail) {
       return UtilityValueRow(
         key: const Key('workspace-model-base'),
         label: l10n.workspaceModelBaseModel,
@@ -67,7 +62,7 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
     }
     final hasSelectedOption =
         selectedId == null ||
-        state.baseModels.any((model) => model.id == selectedId);
+        model.baseModels.any((option) => option.id == selectedId);
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: DropdownButtonFormField<String?>(
@@ -89,16 +84,13 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
               value: selectedId,
               child: Text(selectedId, overflow: TextOverflow.ellipsis),
             ),
-          for (final model in state.baseModels)
+          for (final option in model.baseModels)
             DropdownMenuItem<String?>(
-              value: model.id,
-              child: Text(model.label, overflow: TextOverflow.ellipsis),
+              value: option.id,
+              child: Text(option.label, overflow: TextOverflow.ellipsis),
             ),
         ],
-        onChanged: state.readOnly
-            ? null
-            : (value) =>
-                  intents.onMutate(() => state.draft.baseModelId = value),
+        onChanged: model.readOnly ? null : model.onBaseModelChanged,
       ),
     );
   }
@@ -116,22 +108,20 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
             spacing: Spacing.xs,
             runSpacing: Spacing.xs,
             children: [
-              for (final tag in state.draft.tags)
+              for (final tag in model.tags)
                 InputChip(
                   key: Key('workspace-model-tag-$tag'),
                   label: Text(tag),
-                  onDeleted: state.readOnly
+                  onDeleted: model.readOnly
                       ? null
-                      : () => intents.onMutate(
-                          () => state.draft.tags.remove(tag),
-                        ),
+                      : () => model.onRemoveTag(tag),
                 ),
-              if (!state.readOnly)
+              if (!model.readOnly)
                 ActionChip(
                   key: const Key('workspace-model-tag-add'),
                   avatar: const Icon(Icons.add, size: IconSize.small),
                   label: Text(l10n.workspaceModelTagsHint),
-                  onPressed: intents.onAddTag,
+                  onPressed: model.onAddTag,
                 ),
             ],
           ),

@@ -171,6 +171,52 @@ void main() {
   );
 
   test(
+    'editing the draft invalidates an in-flight connection result',
+    () async {
+      final probe = Completer<bool>();
+      final controller = _configuredController(
+        _FakeHermesConnectionGateway(onProbe: (_) => probe.future),
+      );
+      addTearDown(controller.dispose);
+
+      final result = controller.testConnection(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(controller.operation).equals(HermesConnectionOperation.testing);
+
+      controller.url.text = 'https://replacement.example/v1';
+      controller.markUrlChanged();
+      probe.complete(true);
+
+      check(await result).isTrue();
+      check(controller.operation).equals(HermesConnectionOperation.idle);
+      check(controller.attempt.isVisible).isFalse();
+    },
+  );
+
+  test('successful save clears a stale connection-test result', () async {
+    final controller = _configuredController(
+      _FakeHermesConnectionGateway(probeResult: false),
+    );
+    addTearDown(controller.dispose);
+
+    check(
+      await controller.testConnection(
+        saved: const HermesConfig(),
+        messages: _messages,
+      ),
+    ).isFalse();
+    check(controller.attempt.isVisible).isTrue();
+
+    check(await controller.save(const HermesConfig())).isTrue();
+
+    check(controller.operation).equals(HermesConnectionOperation.saved);
+    check(controller.attempt.isVisible).isFalse();
+  });
+
+  test(
     'disposed onboarding cannot persist or activate after a late probe',
     () async {
       final probe = Completer<bool>();
@@ -191,6 +237,38 @@ void main() {
       check(gateway.calls).deepEquals(['probe']);
     },
   );
+
+  test('cancelled onboarding still surfaces a rollback failure', () async {
+    final commitStarted = Completer<void>();
+    final releaseCommit = Completer<void>();
+    final rollbackError = StateError('rollback failed');
+    final gateway = _FakeHermesConnectionGateway(
+      onCommit: (_, _) async {
+        commitStarted.complete();
+        await releaseCommit.future;
+        throw HermesConnectionCommitException(
+          stage: HermesConnectionCommitStage.rollback,
+          error: const HermesConnectionCommitCancelled(),
+          rollbackError: rollbackError,
+        );
+      },
+    );
+    final controller = _configuredController(gateway);
+    addTearDown(controller.dispose);
+
+    final result = controller.finishOnboarding(
+      saved: const HermesConfig(),
+      messages: _messages,
+    );
+    await commitStarted.future;
+    controller.cancelPendingOnboarding();
+    releaseCommit.complete();
+
+    final failure = await result;
+    check(failure.outcome).equals(HermesConnectionOutcome.activationFailed);
+    check(failure.error).identicalTo(rollbackError);
+    check(controller.operation).equals(HermesConnectionOperation.idle);
+  });
 
   test(
     'a committed save can finish after the controller is disposed',
@@ -256,12 +334,18 @@ final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
     this.onProbe,
     this.onPersist,
     this.onActivate,
+    this.onCommit,
   });
 
   final bool probeResult;
   final Future<bool> Function(HermesConfig draft)? onProbe;
   final Future<void> Function(HermesConnectionDraft draft)? onPersist;
   final Future<void> Function()? onActivate;
+  final Future<void> Function(
+    HermesConnectionDraft draft,
+    bool Function() isCurrent,
+  )?
+  onCommit;
   final List<String> calls = [];
   HermesConfig? probedDraft;
   HermesConnectionDraft? persistedDraft;
@@ -286,6 +370,10 @@ final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
     HermesConnectionDraft draft, {
     required bool Function() isCurrent,
   }) async {
+    if (onCommit case final callback?) {
+      await callback(draft, isCurrent);
+      return;
+    }
     try {
       await runHermesOnboardingCommit(
         isCurrent: isCurrent,
