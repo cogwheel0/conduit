@@ -46,11 +46,16 @@ final class WorkspaceEditorSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  void beginOperation({bool clearError = false}) {
-    final changed = !_saving || (clearError && _errorMessage != null);
+  /// Acquires the editor's mutation lock.
+  ///
+  /// Returns false while another mutation owns the session so callers cannot
+  /// start overlapping save, clone, delete, toggle, or access operations.
+  bool beginOperation({bool clearError = false}) {
+    if (_saving) return false;
     _saving = true;
     if (clearError) _errorMessage = null;
-    if (changed) notifyListeners();
+    notifyListeners();
+    return true;
   }
 
   void finishOperation({String? errorMessage, bool? dirty}) {

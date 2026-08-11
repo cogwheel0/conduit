@@ -207,7 +207,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final command = _validateForm(l10n);
     if (command == null) return;
     setState(() => _commandError = false);
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     final notifier = ref.read(workspacePromptsProvider.notifier);
     final isCreate = _session.isCreate;
     final commit = _commitController.text.trim();
@@ -275,7 +275,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       return;
     }
     setState(() => _commandError = false);
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     try {
       await ref
           .read(workspacePromptsProvider.notifier)
@@ -317,7 +317,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final cloneCommand = WorkspacePromptCommand.slugify(
       '$baseCommand-${l10n.workspacePromptCloneSuffix}',
     );
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
       command: cloneCommand.isEmpty ? '$baseCommand-copy' : cloneCommand,
@@ -352,7 +352,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspacePromptsProvider.notifier).toggle(summary.id);
       if (!mounted) return;
@@ -386,7 +386,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspacePromptsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -430,7 +430,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref
           .read(workspacePromptsProvider.notifier)

@@ -288,7 +288,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final id = _validateForm(l10n);
     if (id == null) return;
     setState(() => _idErrorText = null);
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     final completion = WorkspaceEditorMutationCompletion.capture(
       context,
       session: _session,
@@ -339,7 +339,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'skill_clone' : '${baseId}_clone';
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     // Clones never inherit the source skill's sharing grants.
     final form = WorkspaceSkillForm(
       id: cloneId,
@@ -377,7 +377,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceSkillsProvider.notifier).toggle(summary.id);
       if (!mounted) return;
@@ -411,7 +411,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceSkillsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -455,7 +455,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref
           .read(workspaceSkillsProvider.notifier)

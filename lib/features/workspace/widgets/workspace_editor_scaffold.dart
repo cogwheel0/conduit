@@ -199,7 +199,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
         AdaptiveAppBarAction(
           iosSymbol: 'ellipsis',
           icon: Icons.more_vert,
-          onPressed: () => _showActions(context),
+          onPressed: isSaving ? null : () => _showActions(context),
         ),
     ];
     return AdaptiveAppBar(
@@ -256,7 +256,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
                         ? TextStyle(color: sheetContext.conduitTheme.error)
                         : null,
                   ),
-                  onTap: item.onSelected == null
+                  onTap: isSaving || item.onSelected == null
                       ? null
                       : () => Navigator.of(sheetContext).pop(item),
                 ),
@@ -316,6 +316,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
           if (actions.isNotEmpty)
             PopupMenuButton<WorkspaceEditorAction>(
               key: const Key('workspace-editor-overflow'),
+              enabled: !isSaving,
               tooltip: l10n.workspaceEditorMoreActions,
               icon: const Icon(Icons.more_vert),
               onSelected: (action) => action.onSelected?.call(),
@@ -324,7 +325,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
                   PopupMenuItem<WorkspaceEditorAction>(
                     key: action.menuKey,
                     value: action,
-                    enabled: action.onSelected != null,
+                    enabled: !isSaving && action.onSelected != null,
                     child: Row(
                       children: [
                         if (action.icon != null) ...[

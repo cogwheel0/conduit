@@ -47,6 +47,10 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
   late final DirectConnectionEditorWorkflow _workflow;
+  ProviderSubscription<AsyncValue<List<DirectConnectionProfile>>>?
+  _profilesSubscription;
+  ProviderSubscription<AsyncValue<OpenWebUiDirectConnectionsSnapshot?>>?
+  _openWebUiSubscription;
 
   DirectConnectionEditorForm get _form => _workflow.form;
 
@@ -65,7 +69,21 @@ class _DirectConnectionEditorPageState
     final mode = widget.mode;
     _workflow = DirectConnectionEditorWorkflow(
       target: riverpodDirectConnectionEditorTarget(ref, mode),
-    )..addListener(_handleEditorChanged);
+    );
+    if (mode.isOpenWebUi) {
+      _openWebUiSubscription = ref.listenManual(
+        openWebUiDirectConnectionsProvider,
+        (_, next) => next.whenData(_hydrateFromOpenWebUiSnapshot),
+        fireImmediately: true,
+      );
+    } else {
+      _profilesSubscription = ref.listenManual(
+        directConnectionProfilesProvider,
+        (_, next) => next.whenData(_hydrateFromLocalProfiles),
+        fireImmediately: true,
+      );
+    }
+    _workflow.addListener(_handleEditorChanged);
   }
 
   void _handleEditorChanged() {
@@ -74,18 +92,34 @@ class _DirectConnectionEditorPageState
 
   @override
   void dispose() {
+    _profilesSubscription?.close();
+    _openWebUiSubscription?.close();
     _workflow.removeListener(_handleEditorChanged);
     _workflow.dispose();
     super.dispose();
   }
 
-  void _hydrate(
-    DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
-  }) {
-    if (_editorState.hydrated) return;
-    _workflow.markHydrated();
-    _form.hydrate(profile, openWebUiRecord: openWebUiRecord);
+  void _hydrateFromLocalProfiles(List<DirectConnectionProfile> profiles) {
+    final profile = _profileById(profiles);
+    if (!_mode.isNew && profile == null) return;
+    _workflow.hydrate(profile);
+  }
+
+  void _hydrateFromOpenWebUiSnapshot(
+    OpenWebUiDirectConnectionsSnapshot? snapshot,
+  ) {
+    if (snapshot == null) return;
+    if (_editorState.owner == null) {
+      _captureOpenWebUiOwner(snapshot);
+    } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
+      return;
+    }
+    final record = _mode.isNew
+        ? null
+        : snapshot.recordByProfileId(_mode.profileId!);
+    if (!_mode.isNew && record == null) return;
+    _refreshOpenWebUiRecord(record);
+    _workflow.hydrate(record?.profile, openWebUiRecord: record);
   }
 
   void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
@@ -296,7 +330,6 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
-        _hydrate(profile);
         return _buildForm(context);
       },
     );
@@ -345,9 +378,8 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
-        if (_editorState.owner == null) {
-          _captureOpenWebUiOwner(snapshot);
-        } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
+        if (_editorState.owner == null ||
+            !_matchesCapturedOpenWebUiOwner(snapshot)) {
           return _buildEditorScaffold(
             title: _mode.isNew
                 ? l10n.addDirectConnection
@@ -370,8 +402,6 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
-        _refreshOpenWebUiRecord(record);
-        _hydrate(record?.profile, openWebUiRecord: record);
         return _buildForm(context);
       },
     );

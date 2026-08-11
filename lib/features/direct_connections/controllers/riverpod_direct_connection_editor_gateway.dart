@@ -11,17 +11,10 @@ import 'direct_connection_editor_workflow.dart';
 DirectConnectionEditorTarget riverpodDirectConnectionEditorTarget(
   WidgetRef ref,
   DirectConnectionEditorMode mode,
-) => switch (mode.source) {
-  DirectConnectionEditorSource.local => _RiverpodLocalEditorTarget(ref, mode),
-  DirectConnectionEditorSource.openWebUi => _RiverpodOpenWebUiEditorTarget(
-    ref,
-    mode,
-  ),
-};
+) => _RiverpodEditorTarget(ref, mode);
 
-/// Shared Riverpod-backed I/O used by both concrete editor targets.
-abstract base class _RiverpodEditorTarget
-    implements DirectConnectionEditorTarget {
+/// Executes source-specific editor commands against Riverpod controllers.
+final class _RiverpodEditorTarget implements DirectConnectionEditorTarget {
   const _RiverpodEditorTarget(this.ref, this.mode);
 
   final WidgetRef ref;
@@ -32,6 +25,100 @@ abstract base class _RiverpodEditorTarget
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
       ref.read(directConnectionProfilesProvider.notifier).probe(profile);
+
+  @override
+  Future<void> save(DirectEditorSaveCommand command) async {
+    try {
+      switch (command) {
+        case DirectEditorCreateLocalCommand(
+          :final draft,
+          :final secretsConfirmedForNewOrigin,
+        ):
+          await _saveLocal(
+            draft,
+            previous: null,
+            secretsConfirmed: secretsConfirmedForNewOrigin,
+          );
+        case DirectEditorUpdateLocalCommand(
+          :final draft,
+          :final previousProfile,
+          :final secretsConfirmedForNewOrigin,
+        ):
+          await _saveLocal(
+            draft,
+            previous: previousProfile,
+            secretsConfirmed: secretsConfirmedForNewOrigin,
+          );
+        case DirectEditorCreateOpenWebUiCommand(
+          :final draft,
+          :final authentication,
+        ):
+          await ref
+              .read(openWebUiDirectConnectionsProvider.notifier)
+              .add(draft, authType: _authType(authentication));
+        case DirectEditorUpdateOpenWebUiCommand(
+          :final draft,
+          :final previousRecord,
+          :final authentication,
+        ):
+          await ref
+              .read(openWebUiDirectConnectionsProvider.notifier)
+              .updateConnection(
+                previousRecord,
+                draft,
+                authType: _authType(authentication),
+              );
+      }
+    } on DirectConnectionProfileConflictException catch (error, stackTrace) {
+      Error.throwWithStackTrace(DirectEditorSaveConflict(error), stackTrace);
+    } on OpenWebUiDirectConnectionConflictException catch (error, stackTrace) {
+      Error.throwWithStackTrace(DirectEditorSaveConflict(error), stackTrace);
+    }
+  }
+
+  Future<void> _saveLocal(
+    DirectConnectionProfile draft, {
+    required DirectConnectionProfile? previous,
+    required bool secretsConfirmed,
+  }) => ref
+      .read(directConnectionProfilesProvider.notifier)
+      .upsert(
+        draft,
+        expectedPrevious: previous,
+        secretsConfirmedForNewOrigin: secretsConfirmed,
+      );
+
+  String? _authType(DirectAuthenticationMode authentication) =>
+      switch (authentication) {
+        DirectAuthenticationMode.bearer => 'bearer',
+        DirectAuthenticationMode.none => 'none',
+        DirectAuthenticationMode.apiKeyHeader ||
+        DirectAuthenticationMode.unsupported => null,
+      };
+
+  @override
+  Future<void> delete(DirectEditorDeleteCommand command) async {
+    try {
+      switch (command) {
+        case DirectEditorDeleteLocalCommand(:final profileId):
+          await ref
+              .read(directConnectionProfilesProvider.notifier)
+              .remove(profileId);
+        case DirectEditorDeleteOpenWebUiCommand(:final record):
+          await ref
+              .read(openWebUiDirectConnectionsProvider.notifier)
+              .delete(record);
+      }
+    } on OpenWebUiDirectConnectionCommitUncertainException catch (
+      error,
+      stackTrace
+    ) {
+      Error.throwWithStackTrace(
+        DirectEditorDeletionCommitUncertain(error),
+        stackTrace,
+      );
+    }
+  }
 
   @override
   Future<bool> clearDirectPreferenceIfLastUsable(String profileId) async {
@@ -76,74 +163,4 @@ abstract base class _RiverpodEditorTarget
       );
     }
   }
-}
-
-final class _RiverpodLocalEditorTarget extends _RiverpodEditorTarget {
-  const _RiverpodLocalEditorTarget(super.ref, super.mode);
-
-  @override
-  Future<void> save(DirectEditorSaveRequest request) => ref
-      .read(directConnectionProfilesProvider.notifier)
-      .upsert(
-        request.draft,
-        expectedPrevious: request.previousProfile,
-        secretsConfirmedForNewOrigin: request.secretsConfirmedForNewOrigin,
-      );
-
-  @override
-  Future<void> delete(DirectEditorDeleteRequest request) => ref
-      .read(directConnectionProfilesProvider.notifier)
-      .remove(request.profile.id);
-
-  @override
-  bool isConflict(Object error) =>
-      error is DirectConnectionProfileConflictException;
-
-  @override
-  bool deletionMayHaveCommitted(Object error) => false;
-}
-
-final class _RiverpodOpenWebUiEditorTarget extends _RiverpodEditorTarget {
-  const _RiverpodOpenWebUiEditorTarget(super.ref, super.mode);
-
-  @override
-  Future<void> save(DirectEditorSaveRequest request) async {
-    final controller = ref.read(openWebUiDirectConnectionsProvider.notifier);
-    final authType = switch (request.authentication) {
-      DirectAuthenticationMode.bearer => 'bearer',
-      DirectAuthenticationMode.none => 'none',
-      DirectAuthenticationMode.apiKeyHeader ||
-      DirectAuthenticationMode.unsupported => null,
-    };
-    if (mode.isNew) {
-      await controller.add(request.draft, authType: authType);
-      return;
-    }
-    final record = request.previousOpenWebUiRecord;
-    if (record == null) {
-      throw StateError('Open WebUI direct connection not found.');
-    }
-    await controller.updateConnection(
-      record,
-      request.draft,
-      authType: authType,
-    );
-  }
-
-  @override
-  Future<void> delete(DirectEditorDeleteRequest request) {
-    final record = request.openWebUiRecord;
-    if (record == null) {
-      throw StateError('Open WebUI direct connection not found.');
-    }
-    return ref.read(openWebUiDirectConnectionsProvider.notifier).delete(record);
-  }
-
-  @override
-  bool isConflict(Object error) =>
-      error is OpenWebUiDirectConnectionConflictException;
-
-  @override
-  bool deletionMayHaveCommitted(Object error) =>
-      error is OpenWebUiDirectConnectionCommitUncertainException;
 }

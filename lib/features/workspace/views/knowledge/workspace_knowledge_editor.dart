@@ -156,7 +156,7 @@ class _WorkspaceKnowledgeFormState
       _session.setError(l10n.workspaceKnowledgeNameRequired);
       return;
     }
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     final completion = WorkspaceEditorMutationCompletion.capture(
       context,
       session: _session,
@@ -219,7 +219,7 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref
           .read(workspaceKnowledgeProvider.notifier)
@@ -254,7 +254,7 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
       if (!mounted) return;
@@ -316,7 +316,7 @@ class _WorkspaceKnowledgeFormState
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
       if (!mounted) return;

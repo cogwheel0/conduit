@@ -25,7 +25,7 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:mocktail/mocktail.dart';
 
 void main() {
-  testWidgets('compact editor disables invalid and in-progress save actions', (
+  testWidgets('compact editor disables save and overflow actions while busy', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -44,6 +44,7 @@ void main() {
           canSave: canSave,
           isSaving: isSaving,
           onSave: () async {},
+          actions: [WorkspaceEditorAction(label: 'Delete', onSelected: () {})],
           child: const SizedBox.expand(),
         ),
       );
@@ -66,6 +67,48 @@ void main() {
           .onPressed,
       isNull,
     );
+    final compactShell = tester.widget<AdaptiveRouteShell>(
+      find.byType(AdaptiveRouteShell),
+    );
+    check(compactShell.appBar!.actions!.last.onPressed).isNull();
+  });
+
+  testWidgets('desktop editor disables overflow actions while busy', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: WorkspaceEditorScaffold(
+            title: 'Tool',
+            section: WorkspaceSection.tools,
+            mode: WorkspaceRouteMode.edit,
+            isSaving: true,
+            onSave: () async {},
+            actions: [
+              WorkspaceEditorAction(label: 'Delete', onSelected: () {}),
+            ],
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    check(
+      tester
+          .widget<PopupMenuButton<WorkspaceEditorAction>>(
+            find.byKey(const Key('workspace-editor-overflow')),
+          )
+          .enabled,
+    ).isFalse();
   });
 
   testWidgets('compact shell shows app bar section menu and collection', (

@@ -20,7 +20,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   }
 
   final DirectConnectionEditorMode mode;
-  final _DraftChangeNotifier _draftChanges = _DraftChangeNotifier();
+  int _draftRevision = 0;
 
   late final DirectCustomHeadersController headers;
 
@@ -68,12 +68,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
   bool get isOpenWebUi => mode.isOpenWebUi;
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
-
-  void addDraftListener(VoidCallback listener) =>
-      _draftChanges.addListener(listener);
-
-  void removeDraftListener(VoidCallback listener) =>
-      _draftChanges.removeListener(listener);
+  int get draftRevision => _draftRevision;
 
   bool get originChanged {
     final saved = savedProfile;
@@ -318,7 +313,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   }
 
   void _draftChanged() {
-    _draftChanges.notify();
+    _draftRevision += 1;
     notifyListeners();
   }
 
@@ -348,11 +343,6 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     tags.dispose();
     models.dispose();
     headers.dispose();
-    _draftChanges.dispose();
     super.dispose();
   }
-}
-
-final class _DraftChangeNotifier extends ChangeNotifier {
-  void notify() => notifyListeners();
 }

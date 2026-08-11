@@ -255,7 +255,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       return;
     }
 
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     final completion = WorkspaceEditorMutationCompletion.capture(
       context,
       session: _session,
@@ -299,7 +299,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _toggleHidden.
     if (!_syncDraftOrShowError()) return;
     final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       final created = await ref
           .read(workspaceModelsProvider.notifier)
@@ -342,7 +342,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
@@ -375,8 +375,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
     if (!_syncDraftOrShowError()) return;
+    if (!_session.beginOperation()) return;
     _controller.toggleHidden();
-    _session.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
@@ -420,7 +420,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceModelsProvider.notifier).delete(id);
       if (!mounted) return;
@@ -468,7 +468,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
     final id = _draft.id;
     if (id.isEmpty) return;
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref
           .read(workspaceModelsProvider.notifier)

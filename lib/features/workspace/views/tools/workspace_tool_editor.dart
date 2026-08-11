@@ -299,7 +299,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final id = _validateForm(l10n);
     if (id == null) return;
     setState(() => _idError = false);
-    _session.beginOperation(clearError: true);
+    if (!_session.beginOperation(clearError: true)) return;
     final completion = WorkspaceEditorMutationCompletion.capture(
       context,
       session: _session,
@@ -348,7 +348,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'tool_clone' : '${baseId}_clone';
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     // Clones never inherit the source tool's sharing grants.
     final meta = Map<String, dynamic>.from(_meta);
     meta['description'] = _descriptionController.text.trim();
@@ -397,7 +397,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref.read(workspaceToolsProvider.notifier).delete(summary.id);
       if (!mounted) return;
@@ -441,7 +441,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    _session.beginOperation();
+    if (!_session.beginOperation()) return;
     try {
       await ref
           .read(workspaceToolsProvider.notifier)

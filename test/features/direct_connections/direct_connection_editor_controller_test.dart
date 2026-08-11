@@ -191,6 +191,7 @@ void main() {
     check(result.outcome).equals(DirectEditorActionOutcome.succeeded);
     check(target.savedProfile).isNotNull();
     check(target.savedProfile!.name).equals('My provider');
+    check(target.savedCommand).isA<DirectEditorCreateLocalCommand>();
   });
 
   test('owner identity is captured once and includes auth epoch identity', () {
@@ -238,7 +239,7 @@ void main() {
       var notifications = 0;
       editor.workflow.addListener(() => notifications++);
 
-      editor.workflow.markHydrated();
+      editor.workflow.hydrate(null);
       editor.workflow.captureOwner(
         serverId: 'server',
         accountId: 'account',
@@ -246,11 +247,9 @@ void main() {
       );
       check(editor.workflow.state.hydrated).isTrue();
       check(editor.workflow.state.owner).isNotNull();
-      check(notifications).equals(0);
-      await Future<void>.delayed(Duration.zero);
-      check(notifications).equals(1);
-      editor.form.name.text = 'Updated provider';
       check(notifications).equals(2);
+      editor.form.name.text = 'Updated provider';
+      check(notifications).equals(3);
     },
   );
 
@@ -336,8 +335,9 @@ final class _FakeDirectConnectionEditorTarget
   final DirectConnectionEditorMode mode;
   final Future<DirectConnectionProbe> Function(DirectConnectionProfile)?
   probeHandler;
-  final Future<void> Function(DirectEditorSaveRequest)? saveHandler;
+  final Future<void> Function(DirectEditorSaveCommand)? saveHandler;
   DirectConnectionProfile? savedProfile;
+  DirectEditorSaveCommand? savedCommand;
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
@@ -345,9 +345,10 @@ final class _FakeDirectConnectionEditorTarget
       Future.value(const DirectConnectionProbe(reachable: true));
 
   @override
-  Future<void> save(DirectEditorSaveRequest request) async {
-    savedProfile = request.draft;
-    await saveHandler?.call(request);
+  Future<void> save(DirectEditorSaveCommand command) async {
+    savedCommand = command;
+    savedProfile = command.draft;
+    await saveHandler?.call(command);
   }
 
   @override
@@ -358,12 +359,5 @@ final class _FakeDirectConnectionEditorTarget
   Future<void> restoreDirectPreference() async {}
 
   @override
-  Future<void> delete(DirectEditorDeleteRequest request) async {}
-
-  @override
-  bool isConflict(Object error) =>
-      error is DirectConnectionProfileConflictException;
-
-  @override
-  bool deletionMayHaveCommitted(Object error) => false;
+  Future<void> delete(DirectEditorDeleteCommand command) async {}
 }

@@ -15,15 +15,28 @@ void main() {
     session.markDirty();
 
     session.setError('stale');
-    session.beginOperation(clearError: true);
+    check(session.beginOperation(clearError: true)).isTrue();
     check(session.saving).isTrue();
     check(session.errorMessage).isNull();
+
+    check(session.beginOperation()).isFalse();
+    check(session.saving).isTrue();
 
     session.finishOperation(errorMessage: 'failed', dirty: false);
     check(session.saving).isFalse();
     check(session.dirty).isFalse();
     check(session.errorMessage).equals('failed');
     check(notifications).equals(4);
+  });
+
+  test('session rejects a second mutation until the owner finishes', () {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+
+    check(session.beginOperation()).isTrue();
+    check(session.beginOperation(clearError: true)).isFalse();
+    session.endOperation();
+    check(session.beginOperation()).isTrue();
   });
 
   test('session suppresses notifications for no-op mutations', () {

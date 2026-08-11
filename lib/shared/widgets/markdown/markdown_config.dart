@@ -734,44 +734,37 @@ class ConduitMarkdown {
         );
         return Container(
           margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-          constraints: const BoxConstraints(maxWidth: 480),
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 480),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image(
-                image: RasterMediaPolicy.resizeProvider(
-                  CachedNetworkImageProvider(
-                    url,
-                    cacheKey: cacheKey,
-                    cacheManager: cacheManager,
-                    headers: headers,
-                  ),
-                  decodeTarget,
+            child: Image(
+              image: RasterMediaPolicy.resizeProvider(
+                CachedNetworkImageProvider(
+                  url,
+                  cacheKey: cacheKey,
+                  cacheManager: cacheManager,
+                  headers: headers,
                 ),
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.contain,
-                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                  final loaded = wasSynchronouslyLoaded || frame != null;
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      placeholder,
-                      AnimatedOpacity(
-                        opacity: loaded ? 1 : 0,
-                        duration: context.motionDuration(
-                          AnimationDuration.microInteraction,
-                        ),
-                        curve: Curves.easeOutCubic,
-                        child: child,
-                      ),
-                    ],
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) =>
-                    Center(child: buildImageError(context, theme)),
+                decodeTarget,
               ),
+              width: double.infinity,
+              fit: BoxFit.contain,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                final loaded = wasSynchronouslyLoaded || frame != null;
+                if (!loaded) {
+                  return AspectRatio(aspectRatio: 16 / 9, child: placeholder);
+                }
+                return AnimatedOpacity(
+                  opacity: 1,
+                  duration: context.motionDuration(
+                    AnimationDuration.microInteraction,
+                  ),
+                  curve: Curves.easeOutCubic,
+                  child: child,
+                );
+              },
+              errorBuilder: (context, error, stackTrace) =>
+                  Center(child: buildImageError(context, theme)),
             ),
           ),
         );
