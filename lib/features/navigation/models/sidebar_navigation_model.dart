@@ -23,25 +23,6 @@ final class SidebarTabAvailability {
   final bool channelsEnabled;
 }
 
-/// Resolves visible destinations without importing feature widgets.
-List<SidebarTabId> visibleSidebarTabs(SidebarTabAvailability availability) => [
-  if (!availability.hermesOnly) SidebarTabId.chats,
-  if (availability.hermesOnly || availability.hermesEnabled)
-    SidebarTabId.hermes,
-  if (availability.hasOpenWebUi &&
-      !availability.hermesOnly &&
-      availability.notesEnabled)
-    SidebarTabId.notes,
-  if (availability.hasOpenWebUi &&
-      !availability.hermesOnly &&
-      availability.terminalEnabled)
-    SidebarTabId.terminal,
-  if (availability.hasOpenWebUi &&
-      !availability.hermesOnly &&
-      availability.channelsEnabled)
-    SidebarTabId.channels,
-];
-
 SidebarTabId resolveSidebarTabSelection({
   required SidebarTabId persistedTab,
   required int? legacyIndex,

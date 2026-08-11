@@ -15,59 +15,56 @@ import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../notes/providers/notes_providers.dart';
-import '../providers/sidebar_providers.dart';
-import '../widgets/sidebar_tab_registry.dart';
 
-class SidebarCreateActionSpec {
-  const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
+typedef SidebarCreateActionHandler =
+    Future<void> Function(BuildContext context, WidgetRef ref);
+typedef SidebarCreateActionIconBuilder = IconData Function();
 
-  final IconData icon;
+final class SidebarCreateAction {
+  const SidebarCreateAction({
+    required SidebarCreateActionIconBuilder iconBuilder,
+    required this.sfSymbol,
+    required SidebarCreateActionHandler handler,
+  }) : _iconBuilder = iconBuilder,
+       _handler = handler;
+
   final String sfSymbol;
+  final SidebarCreateActionIconBuilder _iconBuilder;
+  final SidebarCreateActionHandler _handler;
+
+  IconData get icon => _iconBuilder();
+
+  Future<void> run(BuildContext context, WidgetRef ref) =>
+      _handler(context, ref);
 }
 
-SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
-  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
-  final kind = sidebarTabDescriptor(selectedTab).createAction;
-  if (kind == null) {
-    return null;
-  }
-  return switch (kind) {
-    SidebarCreateActionKind.chat ||
-    SidebarCreateActionKind.hermesChat => SidebarCreateActionSpec(
-      icon: UiUtils.newChatIcon,
-      sfSymbol: 'square.and.pencil',
-    ),
-    SidebarCreateActionKind.note => SidebarCreateActionSpec(
-      icon: UiUtils.newNoteIcon,
-      sfSymbol: 'doc.badge.plus',
-    ),
-    SidebarCreateActionKind.channel => SidebarCreateActionSpec(
-      icon: UiUtils.newChannelIcon,
-      sfSymbol: 'number',
-    ),
-  };
-}
+IconData _newChatIcon() => UiUtils.newChatIcon;
+IconData _newNoteIcon() => UiUtils.newNoteIcon;
+IconData _newChannelIcon() => UiUtils.newChannelIcon;
 
-Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
-  final selectedTab = ref.read(sidebarNavigationSnapshotProvider).selectedTab;
-  final kind = sidebarTabDescriptor(selectedTab).createAction;
-  switch (kind) {
-    case null:
-      return;
-    case SidebarCreateActionKind.chat:
-      await _startNewChat(context, ref);
-      break;
-    case SidebarCreateActionKind.hermesChat:
-      await _startNewHermesChat(context, ref);
-      break;
-    case SidebarCreateActionKind.note:
-      await _createNote(context, ref);
-      break;
-    case SidebarCreateActionKind.channel:
-      await _createChannel(context, ref);
-      break;
-  }
-}
+const chatSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChatIcon,
+  sfSymbol: 'square.and.pencil',
+  handler: _startNewChat,
+);
+
+const hermesChatSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChatIcon,
+  sfSymbol: 'square.and.pencil',
+  handler: _startNewHermesChat,
+);
+
+const noteSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newNoteIcon,
+  sfSymbol: 'doc.badge.plus',
+  handler: _createNote,
+);
+
+const channelSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChannelIcon,
+  sfSymbol: 'number',
+  handler: _createChannel,
+);
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();

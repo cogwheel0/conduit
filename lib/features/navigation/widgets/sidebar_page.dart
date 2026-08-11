@@ -14,10 +14,8 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
-import '../controllers/sidebar_tab_behavior_coordinator.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
-import '../utils/sidebar_create_action.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 
@@ -338,14 +336,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       ];
     }
 
-    final contextualActions = sidebarTabBehaviorCoordinator
-        .contextualAppBarActions(
-          context: context,
-          descriptor: activeTab,
-          tintColor: defaultTint,
-        );
+    final contextualActions = activeTab.behavior.contextualActions(
+      context,
+      defaultTint,
+    );
 
-    final createAction = sidebarCreateActionForActiveTab(ref);
+    final createAction = activeTab.createAction;
     return [
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
@@ -359,7 +355,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           iosSymbol: createAction.sfSymbol,
           icon: createAction.icon,
           tintColor: defaultTint,
-          onPressed: () => runSidebarCreateAction(context, ref),
+          onPressed: () => createAction.run(context, ref),
         ),
     ];
   }
@@ -479,7 +475,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         return;
       }
       ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
-      sidebarTabBehaviorCoordinator.onSelected(ref, selectedTab);
+      selectedTab.behavior.onSelected(ref);
     }
 
     final sidebarTabStack = _SidebarTabStack(

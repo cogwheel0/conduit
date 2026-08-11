@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -12,6 +11,9 @@ import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../models/sidebar_navigation_model.dart';
+import '../widgets/sidebar_tab_registry.dart';
+
+export 'sidebar_search_providers.dart';
 
 part 'sidebar_providers.g.dart';
 
@@ -76,7 +78,7 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
     terminalEnabled: ref.watch(terminalTabVisibleProvider),
     channelsEnabled: ref.watch(channelsFeatureEnabledProvider),
   );
-  final tabs = visibleSidebarTabs(availability);
+  final tabs = visibleSidebarTabIds(availability);
   final persistedTab = ref.watch(sidebarActiveTabProvider);
   final legacyIndex = ref
       .read(sidebarActiveTabProvider.notifier)
@@ -141,28 +143,4 @@ class SidebarTabletWidth extends _$SidebarTabletWidth {
   }
 
   void reset() => setWidth(defaultSidebarTabletWidth);
-}
-
-/// Whether the sidebar header search field is expanded (full bar vs icon + avatar).
-@Riverpod(keepAlive: true)
-class SidebarHeaderSearchExpanded extends _$SidebarHeaderSearchExpanded {
-  @override
-  bool build() => false;
-
-  void setExpanded(bool value) => state = value;
-}
-
-/// Shared with [ChatsDrawer], [NotesListTab], and [ChannelListTab] for list search.
-@Riverpod(keepAlive: true)
-TextEditingController sidebarSearchFieldController(Ref ref) {
-  final c = TextEditingController();
-  ref.onDispose(c.dispose);
-  return c;
-}
-
-@Riverpod(keepAlive: true)
-FocusNode sidebarSearchFieldFocusNode(Ref ref) {
-  final n = FocusNode(debugLabel: 'sidebar_header_search');
-  ref.onDispose(n.dispose);
-  return n;
 }

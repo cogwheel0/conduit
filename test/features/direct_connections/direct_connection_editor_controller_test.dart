@@ -7,6 +7,7 @@ import 'package:conduit/features/direct_connections/controllers/direct_connectio
 import 'package:conduit/features/direct_connections/controllers/direct_custom_headers_controller.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -191,7 +192,10 @@ void main() {
     check(result.outcome).equals(DirectEditorActionOutcome.succeeded);
     check(target.savedProfile).isNotNull();
     check(target.savedProfile!.name).equals('My provider');
-    check(target.savedCommand).isA<DirectEditorCreateLocalCommand>();
+    check(target.savedIntent).isNotNull();
+    check(
+      target.savedIntent!.authentication,
+    ).equals(DirectAuthenticationMode.none);
   });
 
   test('owner identity is captured once and includes auth epoch identity', () {
@@ -335,9 +339,15 @@ final class _FakeDirectConnectionEditorTarget
   final DirectConnectionEditorMode mode;
   final Future<DirectConnectionProbe> Function(DirectConnectionProfile)?
   probeHandler;
-  final Future<void> Function(DirectEditorSaveCommand)? saveHandler;
+  final Future<void> Function(DirectEditorSaveIntent)? saveHandler;
   DirectConnectionProfile? savedProfile;
-  DirectEditorSaveCommand? savedCommand;
+  DirectEditorSaveIntent? savedIntent;
+
+  @override
+  void hydrate(
+    DirectConnectionProfile? profile, {
+    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+  }) {}
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
@@ -345,10 +355,10 @@ final class _FakeDirectConnectionEditorTarget
       Future.value(const DirectConnectionProbe(reachable: true));
 
   @override
-  Future<void> save(DirectEditorSaveCommand command) async {
-    savedCommand = command;
-    savedProfile = command.draft;
-    await saveHandler?.call(command);
+  Future<void> save(DirectEditorSaveIntent intent) async {
+    savedIntent = intent;
+    savedProfile = intent.draft;
+    await saveHandler?.call(intent);
   }
 
   @override
@@ -359,5 +369,5 @@ final class _FakeDirectConnectionEditorTarget
   Future<void> restoreDirectPreference() async {}
 
   @override
-  Future<void> delete(DirectEditorDeleteCommand command) async {}
+  Future<void> delete(DirectConnectionProfile savedProfile) async {}
 }

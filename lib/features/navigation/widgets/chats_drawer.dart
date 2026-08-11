@@ -28,7 +28,7 @@ import 'folder_tree_guides.dart';
 import 'drawer_section_notifiers.dart';
 import 'folder_icon.dart';
 import '../providers/conversation_selection_provider.dart';
-import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_search_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../models/sidebar_navigation_model.dart';
 

@@ -127,7 +127,7 @@ class _DirectConnectionEditorPageState
     // A pure reindex changes the compare-and-swap revision without changing
     // the raw content. Refresh only that authoritative base; a same-id edit
     // (for example enable/tags) must retain the stale revision and conflict.
-    _form.refreshOpenWebUiRecord(record);
+    _workflow.refreshOpenWebUiRecord(record);
   }
 
   DirectConnectionProfile? _profileById(

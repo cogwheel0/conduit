@@ -18,7 +18,7 @@ import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../../navigation/providers/sidebar_providers.dart';
+import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';

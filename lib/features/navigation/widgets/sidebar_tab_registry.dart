@@ -5,20 +5,20 @@ import '../../channels/widgets/channel_list_tab.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import '../../terminal/widgets/terminal_tab.dart';
+import '../controllers/sidebar_tab_behavior.dart';
 import '../models/sidebar_navigation_model.dart';
+import '../utils/sidebar_create_action.dart';
 import 'chats_drawer.dart';
 
 const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
 
-enum SidebarCreateActionKind { chat, hermesChat, note, channel }
-
-enum SidebarSelectionPolicy { standard, terminal }
-
 typedef SidebarTabLabelBuilder = String Function(AppLocalizations l10n);
 typedef SidebarTabBodyBuilder =
     Widget Function({required bool showBottomNavigation, required bool active});
+typedef SidebarTabVisibilityPredicate =
+    bool Function(SidebarTabAvailability availability);
 
-/// Presentation and composition metadata consumed only by the sidebar UI.
+/// Canonical visibility, presentation, and behavior for a sidebar destination.
 @immutable
 final class SidebarTabDescriptor {
   const SidebarTabDescriptor({
@@ -30,9 +30,10 @@ final class SidebarTabDescriptor {
     required this.selectedMaterialIcon,
     required this.sfSymbol,
     required this.selectedSfSymbol,
+    required this.isVisible,
     this.assetName,
     this.createAction,
-    this.selectionPolicy = SidebarSelectionPolicy.standard,
+    this.behavior = standardSidebarTabBehavior,
   });
 
   final SidebarTabId id;
@@ -43,9 +44,10 @@ final class SidebarTabDescriptor {
   final IconData selectedMaterialIcon;
   final String sfSymbol;
   final String selectedSfSymbol;
+  final SidebarTabVisibilityPredicate isVisible;
   final String? assetName;
-  final SidebarCreateActionKind? createAction;
-  final SidebarSelectionPolicy selectionPolicy;
+  final SidebarCreateAction? createAction;
+  final SidebarTabBehavior behavior;
 
   String label(AppLocalizations l10n) => labelBuilder(l10n);
   String searchHint(AppLocalizations l10n) => searchHintBuilder(l10n);
@@ -86,6 +88,27 @@ Widget _channelsBody({
   required bool active,
 }) => const ChannelListTab();
 
+bool _chatsVisible(SidebarTabAvailability availability) =>
+    !availability.hermesOnly;
+
+bool _hermesVisible(SidebarTabAvailability availability) =>
+    availability.hermesOnly || availability.hermesEnabled;
+
+bool _notesVisible(SidebarTabAvailability availability) =>
+    availability.hasOpenWebUi &&
+    !availability.hermesOnly &&
+    availability.notesEnabled;
+
+bool _terminalVisible(SidebarTabAvailability availability) =>
+    availability.hasOpenWebUi &&
+    !availability.hermesOnly &&
+    availability.terminalEnabled;
+
+bool _channelsVisible(SidebarTabAvailability availability) =>
+    availability.hasOpenWebUi &&
+    !availability.hermesOnly &&
+    availability.channelsEnabled;
+
 const sidebarTabRegistry = <SidebarTabDescriptor>[
   SidebarTabDescriptor(
     id: SidebarTabId.chats,
@@ -96,7 +119,8 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     selectedMaterialIcon: Icons.chat_bubble,
     sfSymbol: 'bubble.left',
     selectedSfSymbol: 'bubble.left.fill',
-    createAction: SidebarCreateActionKind.chat,
+    isVisible: _chatsVisible,
+    createAction: chatSidebarCreateAction,
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.hermes,
@@ -107,8 +131,9 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     selectedMaterialIcon: Icons.smart_toy,
     sfSymbol: 'sparkles',
     selectedSfSymbol: 'sparkles',
+    isVisible: _hermesVisible,
     assetName: 'assets/icons/hermes_agent.png',
-    createAction: SidebarCreateActionKind.hermesChat,
+    createAction: hermesChatSidebarCreateAction,
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.notes,
@@ -119,7 +144,8 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     selectedMaterialIcon: Icons.note,
     sfSymbol: 'doc.text',
     selectedSfSymbol: 'doc.text.fill',
-    createAction: SidebarCreateActionKind.note,
+    isVisible: _notesVisible,
+    createAction: noteSidebarCreateAction,
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.terminal,
@@ -130,7 +156,8 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     selectedMaterialIcon: Icons.terminal,
     sfSymbol: 'terminal',
     selectedSfSymbol: 'terminal',
-    selectionPolicy: SidebarSelectionPolicy.terminal,
+    isVisible: _terminalVisible,
+    behavior: terminalSidebarTabBehavior,
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.channels,
@@ -141,9 +168,16 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     selectedMaterialIcon: Icons.tag,
     sfSymbol: 'number',
     selectedSfSymbol: 'number',
-    createAction: SidebarCreateActionKind.channel,
+    isVisible: _channelsVisible,
+    createAction: channelSidebarCreateAction,
   ),
 ];
 
 SidebarTabDescriptor sidebarTabDescriptor(SidebarTabId id) =>
     sidebarTabRegistry.firstWhere((descriptor) => descriptor.id == id);
+
+List<SidebarTabId> visibleSidebarTabIds(SidebarTabAvailability availability) =>
+    [
+      for (final descriptor in sidebarTabRegistry)
+        if (descriptor.isVisible(availability)) descriptor.id,
+    ];

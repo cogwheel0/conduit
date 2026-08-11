@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
-import '../controllers/hermes_connection_controller.dart';
+import '../models/hermes_connection_contract.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_api_service.dart';

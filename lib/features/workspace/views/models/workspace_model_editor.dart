@@ -28,7 +28,7 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'workspace_model_editor_body.dart';
 import 'workspace_model_editor_controller.dart';
 import 'workspace_model_export.dart';
-import 'workspace_model_relationship_picker.dart';
+import 'workspace_model_relationship_sheet.dart';
 
 export 'workspace_model_export.dart' show exportWorkspaceModelsToShare;
 
@@ -102,7 +102,6 @@ class _WorkspaceModelForm extends ConsumerStatefulWidget {
 class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   late final WorkspaceModelEditorController _controller;
   late final WorkspaceModelRelationshipCoordinator _relationshipCoordinator;
-  static const _relationshipPicker = WorkspaceModelRelationshipPicker();
 
   WorkspaceModelDraft get _draft => _controller.draft;
   WorkspaceEditorSession get _session => _controller.session;
@@ -140,7 +139,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       load: () => _loadRelationshipOptions(kind),
       present: (options, selectedIds) {
         if (!mounted) return Future<List<String>?>.value();
-        return _relationshipPicker.show(
+        return WorkspaceRelationshipSheet.show(
           context,
           title: _relationshipTitle(l10n, kind),
           options: options,

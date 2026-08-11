@@ -143,16 +143,17 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     });
   }
 
-  void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
+  bool refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
     final savedRecord = savedOpenWebUiRecord;
     if (record == null ||
         savedRecord == null ||
         savedRecord.profile.id != record.profile.id ||
         savedRecord.contentRevision != record.contentRevision) {
-      return;
+      return false;
     }
     _savedOpenWebUiRecord = record;
     _savedProfile = record.profile;
+    return true;
   }
 
   void setEnabled(bool value) {

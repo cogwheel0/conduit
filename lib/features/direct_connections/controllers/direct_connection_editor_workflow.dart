@@ -72,68 +72,16 @@ final class DirectConnectionEditorState {
 }
 
 @immutable
-sealed class DirectEditorSaveCommand {
-  const DirectEditorSaveCommand(this.draft);
+final class DirectEditorSaveIntent {
+  const DirectEditorSaveIntent({
+    required this.draft,
+    required this.authentication,
+    required this.secretsConfirmedForNewOrigin,
+  });
 
   final DirectConnectionProfile draft;
-}
-
-final class DirectEditorCreateLocalCommand extends DirectEditorSaveCommand {
-  const DirectEditorCreateLocalCommand(
-    super.draft, {
-    required this.secretsConfirmedForNewOrigin,
-  });
-
-  final bool secretsConfirmedForNewOrigin;
-}
-
-final class DirectEditorUpdateLocalCommand extends DirectEditorSaveCommand {
-  const DirectEditorUpdateLocalCommand(
-    super.draft, {
-    required this.previousProfile,
-    required this.secretsConfirmedForNewOrigin,
-  });
-
-  final DirectConnectionProfile previousProfile;
-  final bool secretsConfirmedForNewOrigin;
-}
-
-final class DirectEditorCreateOpenWebUiCommand extends DirectEditorSaveCommand {
-  const DirectEditorCreateOpenWebUiCommand(
-    super.draft, {
-    required this.authentication,
-  });
-
   final DirectAuthenticationMode authentication;
-}
-
-final class DirectEditorUpdateOpenWebUiCommand extends DirectEditorSaveCommand {
-  const DirectEditorUpdateOpenWebUiCommand(
-    super.draft, {
-    required this.previousRecord,
-    required this.authentication,
-  });
-
-  final OpenWebUiDirectConnectionRecord previousRecord;
-  final DirectAuthenticationMode authentication;
-}
-
-@immutable
-sealed class DirectEditorDeleteCommand {
-  const DirectEditorDeleteCommand();
-}
-
-final class DirectEditorDeleteLocalCommand extends DirectEditorDeleteCommand {
-  const DirectEditorDeleteLocalCommand(this.profileId);
-
-  final String profileId;
-}
-
-final class DirectEditorDeleteOpenWebUiCommand
-    extends DirectEditorDeleteCommand {
-  const DirectEditorDeleteOpenWebUiCommand(this.record);
-
-  final OpenWebUiDirectConnectionRecord record;
+  final bool secretsConfirmedForNewOrigin;
 }
 
 sealed class DirectEditorPersistenceException implements Exception {
@@ -151,20 +99,29 @@ final class DirectEditorDeletionCommitUncertain
   const DirectEditorDeletionCommitUncertain(super.cause);
 }
 
+final class DirectEditorTargetUnavailable implements Exception {
+  const DirectEditorTargetUnavailable();
+}
+
 /// Canonical persistence contract for one concrete editor target.
 abstract interface class DirectConnectionEditorTarget {
   DirectConnectionEditorMode get mode;
 
+  void hydrate(
+    DirectConnectionProfile? profile, {
+    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+  });
+
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile);
 
-  Future<void> save(DirectEditorSaveCommand command);
+  Future<void> save(DirectEditorSaveIntent intent);
 
   /// Clears a direct preference only when [profileId] is the last usable one.
   Future<bool> clearDirectPreferenceIfLastUsable(String profileId);
 
   Future<void> restoreDirectPreference();
 
-  Future<void> delete(DirectEditorDeleteCommand command);
+  Future<void> delete(DirectConnectionProfile savedProfile);
 }
 
 enum DirectEditorActionOutcome {
@@ -250,9 +207,17 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     OpenWebUiDirectConnectionRecord? openWebUiRecord,
   }) {
     if (state.hydrated) return;
+    target.hydrate(profile, openWebUiRecord: openWebUiRecord);
     form.hydrate(profile, openWebUiRecord: openWebUiRecord);
     _observedDraftRevision = form.draftRevision;
     _publish(state.copyWith(hydrated: true));
+  }
+
+  /// Advances the OpenWebUI compare-and-swap base for a pure reindex without
+  /// replacing the user's draft or accepting a concurrent content edit.
+  void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
+    if (!state.hydrated || !form.refreshOpenWebUiRecord(record)) return;
+    target.hydrate(record!.profile, openWebUiRecord: record);
   }
 
   void captureOwner({
@@ -323,11 +288,17 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     }
     if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
 
-    final command = _buildSaveCommand(draft);
-    if (command == null) return _unavailable(messages);
+    final intent = DirectEditorSaveIntent(
+      draft: draft,
+      authentication: form.authentication,
+      secretsConfirmedForNewOrigin:
+          !form.originChanged ||
+          !form.savedHasOriginBoundSecrets ||
+          form.originSecretsConfirmed,
+    );
 
     try {
-      await target.save(command);
+      await target.save(intent);
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation(clearError: true);
       return DirectEditorActionResult(
@@ -337,6 +308,8 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     } on DirectEditorSaveConflict catch (error) {
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       return _conflict(messages, error.cause);
+    } on DirectEditorTargetUnavailable {
+      return _unavailable(messages);
     } catch (error) {
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation(error: messages.saveFailed);
@@ -459,9 +432,6 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         DirectEditorActionOutcome.cancelled,
       );
     }
-    final command = _buildDeleteCommand(saved);
-    if (command == null) return _unavailable(messages);
-
     var clearedDirectPreference = false;
     try {
       clearedDirectPreference = await target.clearDirectPreferenceIfLastUsable(
@@ -471,12 +441,15 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         if (clearedDirectPreference) await target.restoreDirectPreference();
         return _unavailable(messages);
       }
-      await target.delete(command);
+      await target.delete(saved);
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation(clearError: true);
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.succeeded,
       );
+    } on DirectEditorTargetUnavailable {
+      if (clearedDirectPreference) await target.restoreDirectPreference();
+      return _unavailable(messages);
     } catch (error) {
       final deletionMayHaveCommitted =
           error is DirectEditorDeletionCommitUncertain;
@@ -491,55 +464,6 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       );
     }
   }
-
-  DirectEditorSaveCommand? _buildSaveCommand(DirectConnectionProfile draft) {
-    final secretsConfirmed =
-        !form.originChanged ||
-        !form.savedHasOriginBoundSecrets ||
-        form.originSecretsConfirmed;
-    return switch (mode.source) {
-      DirectConnectionEditorSource.local when mode.isNew =>
-        DirectEditorCreateLocalCommand(
-          draft,
-          secretsConfirmedForNewOrigin: secretsConfirmed,
-        ),
-      DirectConnectionEditorSource.local => switch (form.savedProfile) {
-        final previous? => DirectEditorUpdateLocalCommand(
-          draft,
-          previousProfile: previous,
-          secretsConfirmedForNewOrigin: secretsConfirmed,
-        ),
-        null => null,
-      },
-      DirectConnectionEditorSource.openWebUi when mode.isNew =>
-        DirectEditorCreateOpenWebUiCommand(
-          draft,
-          authentication: form.authentication,
-        ),
-      DirectConnectionEditorSource.openWebUi =>
-        switch (form.savedOpenWebUiRecord) {
-          final previous? => DirectEditorUpdateOpenWebUiCommand(
-            draft,
-            previousRecord: previous,
-            authentication: form.authentication,
-          ),
-          null => null,
-        },
-    };
-  }
-
-  DirectEditorDeleteCommand? _buildDeleteCommand(
-    DirectConnectionProfile saved,
-  ) => switch (mode.source) {
-    DirectConnectionEditorSource.local => DirectEditorDeleteLocalCommand(
-      saved.id,
-    ),
-    DirectConnectionEditorSource.openWebUi =>
-      switch (form.savedOpenWebUiRecord) {
-        final record? => DirectEditorDeleteOpenWebUiCommand(record),
-        null => null,
-      },
-  };
 
   bool _beginOperation(DirectEditorOperation operation) {
     if (state.isBusy || operation == DirectEditorOperation.idle) return false;
