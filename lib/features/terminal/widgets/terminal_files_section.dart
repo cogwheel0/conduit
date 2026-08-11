@@ -15,14 +15,14 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../controllers/terminal_browser_controller.dart';
+import '../controllers/terminal_coordinator.dart';
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 import 'terminal_section_components.dart';
 
 class TerminalFilesSection extends StatelessWidget {
   const TerminalFilesSection({
-    required this.browserController,
+    required this.coordinator,
     required this.scrollController,
     required this.selectedServer,
     required this.currentPath,
@@ -32,7 +32,7 @@ class TerminalFilesSection extends StatelessWidget {
     super.key,
   });
 
-  final TerminalBrowserController browserController;
+  final TerminalCoordinator coordinator;
   final ScrollController scrollController;
   final TerminalServerInfo? selectedServer;
   final String currentPath;
@@ -127,7 +127,7 @@ class TerminalFilesSection extends StatelessWidget {
             iosIcon: CupertinoIcons.arrow_up,
             materialIcon: Icons.arrow_upward_rounded,
             onPressed: canGoUp
-                ? () => browserController.navigateTo(parentPath)
+                ? () => coordinator.navigateTo(parentPath)
                 : null,
           ),
           const SizedBox(width: Spacing.sm),
@@ -183,11 +183,11 @@ class TerminalFilesSection extends StatelessWidget {
     AppLocalizations l10n,
     String? action,
   ) async {
-    final operationContext = browserController.captureOperationContext();
+    final operationContext = coordinator.captureOperationContext();
     if (operationContext == null) return;
     switch (action) {
       case 'upload':
-        await browserController.pickAndUploadFile(operationContext);
+        await coordinator.pickAndUploadFile(operationContext);
       case 'new-folder':
         final folderName = await ThemedDialogs.promptTextInput(
           context,
@@ -195,12 +195,12 @@ class TerminalFilesSection extends StatelessWidget {
           hintText: l10n.terminalFolderNameHint,
         );
         if (folderName != null && context.mounted) {
-          await browserController.createFolder(operationContext, folderName);
+          await coordinator.createFolder(operationContext, folderName);
         }
       case 'home':
-        await browserController.navigateTo('/');
+        await coordinator.navigateTo('/');
       case 'refresh':
-        await browserController.reload();
+        await coordinator.reloadBrowser();
       case null:
         return;
     }
@@ -274,13 +274,13 @@ class TerminalFilesSection extends StatelessWidget {
     TerminalFileEntry entry,
   ) async {
     if (entry.isDirectory) {
-      await browserController.navigateTo(entry.path);
+      await coordinator.navigateTo(entry.path);
       return;
     }
 
-    final operationContext = browserController.captureOperationContext();
+    final operationContext = coordinator.captureOperationContext();
     if (operationContext == null) return;
-    final preview = await browserController.readEntry(operationContext, entry);
+    final preview = await coordinator.readEntry(operationContext, entry);
     if (preview == null || !context.mounted) {
       return;
     }
@@ -297,7 +297,7 @@ class TerminalFilesSection extends StatelessWidget {
           text: l10n.download,
           onPressed: () {
             Navigator.of(context).pop();
-            browserController.downloadEntry(operationContext, entry);
+            coordinator.downloadEntry(operationContext, entry);
           },
           isPrimary: true,
         ),
@@ -311,11 +311,11 @@ class TerminalFilesSection extends StatelessWidget {
     TerminalFileEntry entry,
     String? action,
   ) async {
-    final operationContext = browserController.captureOperationContext();
+    final operationContext = coordinator.captureOperationContext();
     if (operationContext == null) return;
     switch (action) {
       case 'download':
-        await browserController.downloadEntry(operationContext, entry);
+        await coordinator.downloadEntry(operationContext, entry);
       case 'rename':
         final newName = await ThemedDialogs.promptTextInput(
           context,
@@ -324,7 +324,7 @@ class TerminalFilesSection extends StatelessWidget {
           initialValue: sanitizeUtf16(entry.name),
         );
         if (newName != null && context.mounted) {
-          await browserController.renameEntry(operationContext, entry, newName);
+          await coordinator.renameEntry(operationContext, entry, newName);
         }
       case 'delete':
         final confirmed = await ThemedDialogs.confirm(
@@ -334,7 +334,7 @@ class TerminalFilesSection extends StatelessWidget {
           isDestructive: true,
         );
         if (confirmed && context.mounted) {
-          await browserController.deleteEntry(operationContext, entry);
+          await coordinator.deleteEntry(operationContext, entry);
         }
       case null:
         return;

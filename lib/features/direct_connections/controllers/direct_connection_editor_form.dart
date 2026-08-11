@@ -124,7 +124,8 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
           ? kOpenRouterProviderPreset
           : profile.adapterKey;
       _openAiApiMode = profile.openAiApiMode;
-      _authentication = authentication ?? _authenticationForProfile(profile);
+      _authentication =
+          authentication ?? directAuthenticationForProfile(profile);
       _savedAuthentication = _authentication;
       _enabled = profile.enabled;
     });
@@ -313,18 +314,6 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       _updatingTextFields = false;
     }
   }
-
-  DirectAuthenticationMode _authenticationForProfile(
-    DirectConnectionProfile profile,
-  ) => profile.isOpenRouter
-      ? DirectAuthenticationMode.bearer
-      : (profile.apiKey ?? '').isEmpty
-      ? DirectAuthenticationMode.none
-      : switch (profile.apiKeyAuthMode) {
-          DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
-          DirectApiKeyAuthMode.apiKeyHeader =>
-            DirectAuthenticationMode.apiKeyHeader,
-        };
 
   @override
   void dispose() {

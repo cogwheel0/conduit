@@ -43,10 +43,7 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  late final DirectConnectionEditorGateway _gateway;
   late final DirectConnectionEditorWorkflow _workflow;
-  late final DirectEditorResourceSubscription _resourceSubscription;
-  bool _didFinishInit = false;
 
   DirectConnectionEditorForm get _form => _workflow.form;
 
@@ -64,14 +61,10 @@ class _DirectConnectionEditorPageState
   void initState() {
     super.initState();
     final mode = widget.mode;
-    _gateway = riverpodDirectConnectionEditorGateway(ref, mode);
-    _workflow = DirectConnectionEditorWorkflow(gateway: _gateway);
-    _resourceSubscription = _gateway.subscribe(
-      _handleResourceState,
-      fireImmediately: true,
+    _workflow = DirectConnectionEditorWorkflow(
+      gateway: riverpodDirectConnectionEditorGateway(ref, mode),
     );
     _workflow.addListener(_handleEditorChanged);
-    _didFinishInit = true;
   }
 
   void _handleEditorChanged() {
@@ -80,28 +73,9 @@ class _DirectConnectionEditorPageState
 
   @override
   void dispose() {
-    _resourceSubscription.close();
     _workflow.removeListener(_handleEditorChanged);
     _workflow.dispose();
     super.dispose();
-  }
-
-  void _handleResourceState(DirectEditorLoadState state) {
-    if (state case DirectEditorLoadData(:final resource)) {
-      _workflow.observeResource(resource);
-    }
-    if (_didFinishInit && mounted) setState(() {});
-  }
-
-  bool _operationOwnerIsCurrent() {
-    if (!_policy.requiresOwnerValidation) return true;
-    if (!mounted) return false;
-    return switch (_gateway.resourceState) {
-      DirectEditorLoadData(:final resource) => _workflow.resourceOwnerMatches(
-        resource,
-      ),
-      _ => false,
-    };
   }
 
   DirectEditorMessages _editorMessages() {
@@ -145,7 +119,6 @@ class _DirectConnectionEditorPageState
     final result = await _workflow.save(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
-      ownerIsCurrent: _operationOwnerIsCurrent,
     );
     _handleSaveResult(result);
   }
@@ -155,7 +128,6 @@ class _DirectConnectionEditorPageState
     await _workflow.testConnection(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
-      ownerIsCurrent: _operationOwnerIsCurrent,
     );
   }
 
@@ -164,7 +136,6 @@ class _DirectConnectionEditorPageState
     final result = await _workflow.connectAndSave(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
-      ownerIsCurrent: _operationOwnerIsCurrent,
     );
     _handleSaveResult(result);
   }
@@ -173,7 +144,6 @@ class _DirectConnectionEditorPageState
     final result = await _workflow.delete(
       messages: _editorMessages(),
       confirmDelete: _confirmDelete,
-      ownerIsCurrent: _operationOwnerIsCurrent,
     );
     if (!mounted) return;
     if (result.succeeded) {
@@ -228,7 +198,7 @@ class _DirectConnectionEditorPageState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return switch (_gateway.resourceState) {
+    return switch (_workflow.resourceState) {
       DirectEditorLoadLoading() => _buildEditorScaffold(
         title: _mode.isNew
             ? l10n.addDirectConnection
@@ -250,7 +220,7 @@ class _DirectConnectionEditorPageState
             : l10n.editDirectConnection,
         children: [
           DirectConnectionEditorError(
-            onRetry: () => unawaited(_gateway.reload()),
+            onRetry: () => unawaited(_workflow.reload()),
           ),
         ],
       ),

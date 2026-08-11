@@ -5,6 +5,7 @@ import '../../channels/widgets/channel_list_tab.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import '../../terminal/widgets/terminal_tab.dart';
+import '../../terminal/controllers/terminal_sidebar_tab_behavior.dart';
 import '../controllers/sidebar_tab_behavior.dart';
 import '../models/sidebar_navigation_model.dart';
 import '../utils/sidebar_create_action.dart';

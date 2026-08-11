@@ -474,6 +474,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         );
         return;
       }
+      final previousTab = tabs[activeIndex];
+      previousTab.behavior.onDeselected(ref);
       ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
       selectedTab.behavior.onSelected(ref);
     }

@@ -50,7 +50,7 @@ final class DirectEditorResource {
     this.profile,
     this.authentication,
     this.owner,
-  });
+  }) : assert(profile == null || authentication != null);
 
   final DirectEditorResourceAvailability availability;
   final DirectConnectionProfile? profile;
@@ -134,6 +134,14 @@ final class DirectEditorSaveIntent {
   final bool secretsConfirmedForNewOrigin;
 }
 
+@immutable
+final class DirectEditorDeleteIntent {
+  const DirectEditorDeleteIntent({required this.profile, required this.owner});
+
+  final DirectConnectionProfile profile;
+  final DirectEditorOwner? owner;
+}
+
 sealed class DirectEditorPersistenceException implements Exception {
   const DirectEditorPersistenceException(this.cause);
 
@@ -178,12 +186,9 @@ abstract interface class DirectConnectionEditorGateway {
 
   Future<void> save(DirectEditorSaveIntent intent);
 
-  /// Clears a direct preference only when [profileId] is the last usable one.
-  Future<bool> clearDirectPreferenceIfLastUsable(String profileId);
+  bool ownerIsCurrent(DirectEditorOwner? owner);
 
-  Future<void> restoreDirectPreference();
-
-  Future<void> delete(DirectConnectionProfile savedProfile);
+  Future<void> delete(DirectEditorDeleteIntent intent);
 }
 
 enum DirectEditorActionOutcome {
@@ -228,7 +233,6 @@ final class DirectEditorMessages {
   final String Function(DirectConnectionProbe probe) probeMessage;
 }
 
-typedef DirectEditorOwnerCheck = bool Function();
 typedef DirectCredentialTransferConfirmation =
     Future<bool> Function(DirectConnectionProfile draft);
 typedef DirectDeleteConfirmation =
@@ -236,21 +240,42 @@ typedef DirectDeleteConfirmation =
 
 /// Owns persistence and the save/test/delete operation state machine.
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
-  DirectConnectionEditorWorkflow({required this.gateway})
-    : form = DirectConnectionEditorForm(mode: gateway.mode) {
+  DirectConnectionEditorWorkflow({
+    required DirectConnectionEditorGateway gateway,
+  }) : _gateway = gateway,
+       form = DirectConnectionEditorForm(mode: gateway.mode),
+       _resourceState = gateway.resourceState {
     form.addListener(_handleFormChanged);
+    _resourceSubscription = gateway.subscribe(
+      _handleResourceState,
+      fireImmediately: true,
+    );
   }
 
-  final DirectConnectionEditorGateway gateway;
+  final DirectConnectionEditorGateway _gateway;
   final DirectConnectionEditorForm form;
+  late final DirectEditorResourceSubscription _resourceSubscription;
 
   DirectConnectionEditorState _state = const DirectConnectionEditorState();
+  DirectEditorLoadState _resourceState;
   bool _disposed = false;
   int _observedDraftRevision = 0;
 
   DirectConnectionEditorState get state => _state;
-  DirectConnectionEditorMode get mode => gateway.mode;
-  DirectConnectionEditorPolicy get policy => gateway.policy;
+  DirectEditorLoadState get resourceState => _resourceState;
+  DirectConnectionEditorMode get mode => _gateway.mode;
+  DirectConnectionEditorPolicy get policy => _gateway.policy;
+
+  Future<void> reload() => _gateway.reload();
+
+  void _handleResourceState(DirectEditorLoadState next) {
+    if (_disposed) return;
+    _resourceState = next;
+    if (next case DirectEditorLoadData(:final resource)) {
+      observeResource(resource);
+    }
+    notifyListeners();
+  }
 
   void _handleFormChanged() {
     if (_disposed) return;
@@ -286,7 +311,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       return true;
     }
     if (state.hydrated) {
-      if (gateway.refreshBaseline(resource)) {
+      if (_gateway.refreshBaseline(resource)) {
         form.refreshBaseline(
           resource.profile,
           authentication: resource.authentication,
@@ -307,14 +332,16 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       DirectEditorResource(
         availability: DirectEditorResourceAvailability.ready,
         profile: profile,
-        authentication: authentication,
+        authentication:
+            authentication ??
+            (profile == null ? null : directAuthenticationForProfile(profile)),
       ),
     );
   }
 
   void _hydrateResource(DirectEditorResource resource) {
     if (state.hydrated) return;
-    gateway.hydrate(resource);
+    _gateway.hydrate(resource);
     form.hydrate(resource.profile, authentication: resource.authentication);
     _observedDraftRevision = form.draftRevision;
     _publish(state.copyWith(hydrated: true));
@@ -352,13 +379,14 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   bool resourceOwnerMatches(DirectEditorResource resource) {
     if (!policy.requiresOwnerValidation) return true;
     final owner = resource.owner;
-    return owner != null && state.owner?.matchesOwner(owner) == true;
+    return owner != null &&
+        state.owner?.matchesOwner(owner) == true &&
+        _gateway.ownerIsCurrent(state.owner);
   }
 
   Future<DirectEditorActionResult> save({
     required DirectEditorMessages messages,
     required DirectCredentialTransferConfirmation confirmCredentialTransfer,
-    required DirectEditorOwnerCheck ownerIsCurrent,
     DirectConnectionProfile? testedDraft,
   }) async {
     if (state.isBusy) {
@@ -366,7 +394,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         DirectEditorActionOutcome.cancelled,
       );
     }
-    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_operationOwnerIsCurrent()) return _unavailable(messages);
     if (!_beginOperation(DirectEditorOperation.saving)) {
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.cancelled,
@@ -392,7 +420,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         DirectEditorActionOutcome.cancelled,
       );
     }
-    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+    if (!_canContinue()) return _unavailable(messages);
 
     final intent = DirectEditorSaveIntent(
       draft: draft,
@@ -404,20 +432,20 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     );
 
     try {
-      await gateway.save(intent);
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      await _gateway.save(intent);
+      if (!_canContinue()) return _unavailable(messages);
       _finishOperation(clearError: true);
       return DirectEditorActionResult(
         DirectEditorActionOutcome.succeeded,
         profile: draft,
       );
     } on DirectEditorSaveConflict catch (error) {
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (!_canContinue()) return _unavailable(messages);
       return _conflict(messages, error.cause);
     } on DirectEditorTargetUnavailable {
       return _unavailable(messages);
     } catch (error) {
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (!_canContinue()) return _unavailable(messages);
       _finishOperation(error: messages.saveFailed);
       return DirectEditorActionResult(
         DirectEditorActionOutcome.failed,
@@ -429,14 +457,13 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   Future<DirectEditorActionResult> testConnection({
     required DirectEditorMessages messages,
     required DirectCredentialTransferConfirmation confirmCredentialTransfer,
-    required DirectEditorOwnerCheck ownerIsCurrent,
   }) async {
     if (state.isBusy) {
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.cancelled,
       );
     }
-    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_operationOwnerIsCurrent()) return _unavailable(messages);
     if (!_beginOperation(DirectEditorOperation.testing)) {
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.cancelled,
@@ -460,11 +487,11 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         DirectEditorActionOutcome.cancelled,
       );
     }
-    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+    if (!_canContinue()) return _unavailable(messages);
     _setAttempt(ConnectionAttemptState.connecting(messages.connecting));
     try {
-      final probe = await gateway.probe(draft);
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      final probe = await _gateway.probe(draft);
+      if (!_canContinue()) return _unavailable(messages);
       final message = messages.probeMessage(probe);
       _finishOperation(
         attempt: probe.reachable
@@ -478,7 +505,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         profile: probe.reachable ? draft : null,
       );
     } catch (error) {
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (!_canContinue()) return _unavailable(messages);
       _finishOperation(
         attempt: ConnectionAttemptState.failed(messages.reachFailed),
       );
@@ -492,18 +519,15 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   Future<DirectEditorActionResult> connectAndSave({
     required DirectEditorMessages messages,
     required DirectCredentialTransferConfirmation confirmCredentialTransfer,
-    required DirectEditorOwnerCheck ownerIsCurrent,
   }) async {
     final tested = await testConnection(
       messages: messages,
       confirmCredentialTransfer: confirmCredentialTransfer,
-      ownerIsCurrent: ownerIsCurrent,
     );
     if (!tested.succeeded || tested.profile == null) return tested;
     return save(
       messages: messages,
       confirmCredentialTransfer: confirmCredentialTransfer,
-      ownerIsCurrent: ownerIsCurrent,
       testedDraft: tested.profile,
     );
   }
@@ -511,7 +535,6 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   Future<DirectEditorActionResult> delete({
     required DirectEditorMessages messages,
     required DirectDeleteConfirmation confirmDelete,
-    required DirectEditorOwnerCheck ownerIsCurrent,
   }) async {
     if (state.isBusy) {
       return const DirectEditorActionResult(
@@ -524,45 +547,33 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
         DirectEditorActionOutcome.invalidDraft,
       );
     }
-    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_operationOwnerIsCurrent()) return _unavailable(messages);
     if (!_beginOperation(DirectEditorOperation.deleting)) {
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.cancelled,
       );
     }
     final confirmed = await confirmDelete(saved);
-    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+    if (!_canContinue()) return _unavailable(messages);
     if (!confirmed) {
       _finishOperation();
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.cancelled,
       );
     }
-    var clearedDirectPreference = false;
     try {
-      clearedDirectPreference = await gateway.clearDirectPreferenceIfLastUsable(
-        saved.id,
+      await _gateway.delete(
+        DirectEditorDeleteIntent(profile: saved, owner: state.owner),
       );
-      if (!_canContinue(ownerIsCurrent)) {
-        if (clearedDirectPreference) await gateway.restoreDirectPreference();
-        return _unavailable(messages);
-      }
-      await gateway.delete(saved);
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (!_canContinue()) return _unavailable(messages);
       _finishOperation(clearError: true);
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.succeeded,
       );
     } on DirectEditorTargetUnavailable {
-      if (clearedDirectPreference) await gateway.restoreDirectPreference();
       return _unavailable(messages);
     } catch (error) {
-      final deletionMayHaveCommitted =
-          error is DirectEditorDeletionCommitUncertain;
-      if (clearedDirectPreference && !deletionMayHaveCommitted) {
-        await gateway.restoreDirectPreference();
-      }
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (!_canContinue()) return _unavailable(messages);
       _finishOperation();
       return DirectEditorActionResult(
         DirectEditorActionOutcome.failed,
@@ -630,8 +641,13 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     );
   }
 
-  bool _canContinue(DirectEditorOwnerCheck ownerIsCurrent) =>
-      !_disposed && ownerIsCurrent();
+  bool _operationOwnerIsCurrent() {
+    if (_disposed) return false;
+    if (!policy.requiresOwnerValidation) return true;
+    return state.owner != null && _gateway.ownerIsCurrent(state.owner);
+  }
+
+  bool _canContinue() => !_disposed && _operationOwnerIsCurrent();
 
   void _publish(DirectConnectionEditorState next) {
     if (identical(next, _state)) return;
@@ -642,6 +658,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _resourceSubscription.close();
     form.removeListener(_handleFormChanged);
     form.dispose();
     super.dispose();

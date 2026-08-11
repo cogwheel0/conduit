@@ -202,20 +202,21 @@ class TerminalBrowserController extends ChangeNotifier {
     TerminalBrowserOperationContext operationContext,
     TerminalFileEntry entry,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
-    try {
-      final downloaded = await operationContext.service.downloadFile(
-        operationContext.server,
-        entry.path,
-        sessionScopeId: operationContext.sessionScopeId,
-      );
-      if (!_isCurrentOperationContext(operationContext)) return;
-      await _platformGateway.shareDownload(downloaded);
-    } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
-        _onFailure(TerminalBrowserFailure.download);
-      }
-    }
+    await _runMutation(
+      operationContext,
+      failure: TerminalBrowserFailure.download,
+      reloadAfterward: false,
+      mutate: () async {
+        final downloaded = await operationContext.service.downloadFile(
+          operationContext.server,
+          entry.path,
+          sessionScopeId: operationContext.sessionScopeId,
+        );
+        if (_isCurrentOperationContext(operationContext)) {
+          await _platformGateway.shareDownload(downloaded);
+        }
+      },
+    );
   }
 
   Future<void> renameEntry(
@@ -223,9 +224,10 @@ class TerminalBrowserController extends ChangeNotifier {
     TerminalFileEntry entry,
     String newName,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
-    try {
-      await operationContext.service.moveEntry(
+    await _runMutation(
+      operationContext,
+      failure: TerminalBrowserFailure.rename,
+      mutate: () => operationContext.service.moveEntry(
         operationContext.server,
         _pathWithoutTrailingSlash(entry.path),
         _pathWithoutTrailingSlash(
@@ -236,84 +238,67 @@ class TerminalBrowserController extends ChangeNotifier {
           ),
         ),
         sessionScopeId: operationContext.sessionScopeId,
-      );
-      if (_isCurrentOperationContext(operationContext)) {
-        await reload();
-      }
-    } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
-        _onFailure(TerminalBrowserFailure.rename);
-      }
-    }
+      ),
+    );
   }
 
   Future<void> deleteEntry(
     TerminalBrowserOperationContext operationContext,
     TerminalFileEntry entry,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
-    try {
-      await operationContext.service.deleteEntry(
+    await _runMutation(
+      operationContext,
+      failure: TerminalBrowserFailure.delete,
+      mutate: () => operationContext.service.deleteEntry(
         operationContext.server,
         _pathWithoutTrailingSlash(entry.path),
         sessionScopeId: operationContext.sessionScopeId,
-      );
-      if (_isCurrentOperationContext(operationContext)) {
-        await reload();
-      }
-    } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
-        _onFailure(TerminalBrowserFailure.delete);
-      }
-    }
+      ),
+    );
   }
 
   Future<void> pickAndUploadFile(
     TerminalBrowserOperationContext operationContext,
   ) async {
     if (!_isCurrentOperationContext(operationContext)) return;
+    TerminalUploadFile? pickedFile;
     try {
-      final pickedFile = await _platformGateway.pickUploadFile();
-      if (pickedFile == null || !_isCurrentOperationContext(operationContext)) {
-        return;
-      }
-
-      await operationContext.service.uploadFile(
-        operationContext.server,
-        operationContext.currentPath,
-        pickedFile.path,
-        pickedFile.name,
-        sessionScopeId: operationContext.sessionScopeId,
-      );
-      if (_isCurrentOperationContext(operationContext)) {
-        await reload();
-      }
+      pickedFile = await _platformGateway.pickUploadFile();
     } catch (_) {
       if (_isCurrentOperationContext(operationContext)) {
         _onFailure(TerminalBrowserFailure.upload);
       }
+      return;
     }
+    if (pickedFile == null) return;
+    final upload = pickedFile;
+    await _runMutation(
+      operationContext,
+      failure: TerminalBrowserFailure.upload,
+      mutate: () => operationContext.service.uploadFile(
+        operationContext.server,
+        operationContext.currentPath,
+        upload.path,
+        upload.name,
+        sessionScopeId: operationContext.sessionScopeId,
+      ),
+    );
   }
 
   Future<void> createFolder(
     TerminalBrowserOperationContext operationContext,
     String folderName,
   ) async {
-    if (!_isCurrentOperationContext(operationContext)) return;
-    try {
-      await operationContext.service.createDirectory(
+    await _runMutation(
+      operationContext,
+      failure: TerminalBrowserFailure.createFolder,
+      requestRefresh: true,
+      mutate: () => operationContext.service.createDirectory(
         operationContext.server,
         joinTerminalPath(operationContext.currentPath, folderName),
         sessionScopeId: operationContext.sessionScopeId,
-      );
-      if (!_isCurrentOperationContext(operationContext)) return;
-      _gateway.requestRefresh();
-      await reload();
-    } catch (_) {
-      if (_isCurrentOperationContext(operationContext)) {
-        _onFailure(TerminalBrowserFailure.createFolder);
-      }
-    }
+      ),
+    );
   }
 
   Future<void> openPort(TerminalListeningPort port) async {
@@ -371,6 +356,26 @@ class TerminalBrowserController extends ChangeNotifier {
         operationContext.server,
         operationContext.sessionScopeId,
       );
+
+  Future<void> _runMutation(
+    TerminalBrowserOperationContext operationContext, {
+    required TerminalBrowserFailure failure,
+    required Future<void> Function() mutate,
+    bool reloadAfterward = true,
+    bool requestRefresh = false,
+  }) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
+    try {
+      await mutate();
+      if (!_isCurrentOperationContext(operationContext)) return;
+      if (requestRefresh) _gateway.requestRefresh();
+      if (reloadAfterward) await reload();
+    } catch (_) {
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(failure);
+      }
+    }
+  }
 
   void _setLoadingFiles(bool value) {
     if (_loadingFiles == value) {

@@ -238,22 +238,25 @@ void main() {
 
 final class _TerminalControllerHarness {
   _TerminalControllerHarness(this.gateway) {
+    bool isCurrentContext(TerminalServerInfo server, String scope) =>
+        gateway.isActive &&
+        gateway.selectedServer?.selectionId == server.selectionId &&
+        gateway.sessionScopeId == scope;
     session = TerminalSessionController(
       gateway: gateway,
-      isCurrentContext: (server, scope) =>
-          context.isCurrentContext(server, scope),
+      isCurrentContext: isCurrentContext,
     );
     browser = TerminalBrowserController(
       gateway: gateway,
       platformGateway: const _FakeTerminalPlatformGateway(),
-      isCurrentContext: (server, scope) =>
-          context.isCurrentContext(server, scope),
+      isCurrentContext: isCurrentContext,
       onFailure: (_) {},
     );
     context = TerminalContextController(
       gateway: gateway,
       sessionController: session,
       browserController: browser,
+      isCurrentContext: isCurrentContext,
       disconnectedLabel: () => 'Disconnected',
       onFailure: failures.add,
     );

@@ -14,17 +14,20 @@ final class TerminalContextController extends ChangeNotifier {
     required TerminalContextGateway gateway,
     required TerminalSessionController sessionController,
     required TerminalBrowserController browserController,
+    required TerminalContextValidator isCurrentContext,
     required String Function() disconnectedLabel,
     required void Function(TerminalContextFailure failure) onFailure,
   }) : _gateway = gateway,
        _sessionController = sessionController,
        _browserController = browserController,
+       _isCurrentContext = isCurrentContext,
        _disconnectedLabel = disconnectedLabel,
        _onFailure = onFailure;
 
   final TerminalContextGateway _gateway;
   final TerminalSessionController _sessionController;
   final TerminalBrowserController _browserController;
+  final TerminalContextValidator _isCurrentContext;
   final String Function() _disconnectedLabel;
   final void Function(TerminalContextFailure failure) _onFailure;
 
@@ -35,12 +38,6 @@ final class TerminalContextController extends ChangeNotifier {
   int _syncGeneration = 0;
 
   bool get terminalSupported => _terminalSupported;
-
-  bool isCurrentContext(TerminalServerInfo server, String sessionScopeId) =>
-      !_disposed &&
-      _gateway.isActive &&
-      _gateway.selectedServer?.selectionId == server.selectionId &&
-      _gateway.sessionScopeId == sessionScopeId;
 
   Future<void> reloadBrowser() async {
     if (_disposed || !_gateway.isActive) return;
@@ -171,7 +168,7 @@ final class TerminalContextController extends ChangeNotifier {
     String sessionScopeId,
   ) =>
       syncGeneration == _syncGeneration &&
-      isCurrentContext(server, sessionScopeId);
+      _isCurrentContext(server, sessionScopeId);
 
   void _setTerminalSupported(bool value) {
     if (_terminalSupported == value) return;

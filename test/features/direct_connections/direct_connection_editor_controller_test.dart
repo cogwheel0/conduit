@@ -150,7 +150,6 @@ void main() {
       final testFuture = editor.workflow.testConnection(
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
-        ownerIsCurrent: () => true,
       );
       check(
         editor.workflow.state.operation,
@@ -159,7 +158,6 @@ void main() {
       final concurrentSave = await editor.workflow.save(
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
-        ownerIsCurrent: () => true,
       );
       check(concurrentSave.outcome).equals(DirectEditorActionOutcome.cancelled);
 
@@ -185,7 +183,6 @@ void main() {
     final result = await editor.workflow.save(
       messages: _messages,
       confirmCredentialTransfer: (_) async => true,
-      ownerIsCurrent: () => true,
     );
 
     check(result.outcome).equals(DirectEditorActionOutcome.succeeded);
@@ -270,7 +267,6 @@ void main() {
       final result = editor.workflow.save(
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
-        ownerIsCurrent: () => true,
       );
       await Future<void>.delayed(Duration.zero);
       editor.dispose();
@@ -379,14 +375,10 @@ final class _FakeDirectConnectionEditorTarget
   }
 
   @override
-  Future<bool> clearDirectPreferenceIfLastUsable(String profileId) async =>
-      false;
+  bool ownerIsCurrent(DirectEditorOwner? owner) => true;
 
   @override
-  Future<void> restoreDirectPreference() async {}
-
-  @override
-  Future<void> delete(DirectConnectionProfile savedProfile) async {}
+  Future<void> delete(DirectEditorDeleteIntent intent) async {}
 }
 
 final class _FakeDirectEditorResourceSubscription

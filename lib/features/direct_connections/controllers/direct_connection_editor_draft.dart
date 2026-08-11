@@ -7,6 +7,19 @@ import '../models/direct_connection_profile.dart';
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
+/// Canonical authentication mode encoded by a locally persisted profile.
+DirectAuthenticationMode directAuthenticationForProfile(
+  DirectConnectionProfile profile,
+) => profile.isOpenRouter
+    ? DirectAuthenticationMode.bearer
+    : (profile.apiKey ?? '').isEmpty
+    ? DirectAuthenticationMode.none
+    : switch (profile.apiKeyAuthMode) {
+        DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
+        DirectApiKeyAuthMode.apiKeyHeader =>
+          DirectAuthenticationMode.apiKeyHeader,
+      };
+
 enum DirectConnectionEditorSource { local, openWebUi }
 
 /// Explicit behavior policy for the backing source of an editor resource.

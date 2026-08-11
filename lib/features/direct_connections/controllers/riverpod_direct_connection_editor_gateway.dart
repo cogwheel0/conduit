@@ -61,7 +61,28 @@ abstract base class _RiverpodEditorGateway
       ref.read(directConnectionProfilesProvider.notifier).probe(profile);
 
   @override
-  Future<bool> clearDirectPreferenceIfLastUsable(String profileId) async {
+  Future<void> delete(DirectEditorDeleteIntent intent) async {
+    final clearedDirectPreference = await _clearDirectPreferenceIfLastUsable(
+      intent.profile.id,
+    );
+    if (!ownerIsCurrent(intent.owner)) {
+      if (clearedDirectPreference) await _restoreDirectPreference();
+      throw const DirectEditorTargetUnavailable();
+    }
+    try {
+      await deleteStoredProfile(intent.profile);
+    } catch (error, stackTrace) {
+      if (clearedDirectPreference &&
+          error is! DirectEditorDeletionCommitUncertain) {
+        await _restoreDirectPreference();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile);
+
+  Future<bool> _clearDirectPreferenceIfLastUsable(String profileId) async {
     final profiles = await ref.read(
       effectiveDirectConnectionProfilesFutureProvider.future,
     );
@@ -88,8 +109,7 @@ abstract base class _RiverpodEditorGateway
     }
   }
 
-  @override
-  Future<void> restoreDirectPreference() async {
+  Future<void> _restoreDirectPreference() async {
     try {
       await ref
           .read(preferredBackendProvider.notifier)
@@ -136,7 +156,9 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
           ? DirectEditorResourceAvailability.missing
           : DirectEditorResourceAvailability.ready,
       profile: profile,
-      authentication: profile == null ? null : _localAuthentication(profile),
+      authentication: profile == null
+          ? null
+          : directAuthenticationForProfile(profile),
     );
   }
 
@@ -187,7 +209,10 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
   }
 
   @override
-  Future<void> delete(DirectConnectionProfile savedProfile) => ref
+  bool ownerIsCurrent(DirectEditorOwner? owner) => true;
+
+  @override
+  Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile) => ref
       .read(directConnectionProfilesProvider.notifier)
       .remove(savedProfile.id);
 }
@@ -294,7 +319,19 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
   }
 
   @override
-  Future<void> delete(DirectConnectionProfile savedProfile) async {
+  bool ownerIsCurrent(DirectEditorOwner? owner) {
+    final snapshot = ref.read(openWebUiDirectConnectionsProvider).asData?.value;
+    return owner != null &&
+        snapshot != null &&
+        owner.matches(
+          serverId: snapshot.serverId,
+          accountId: snapshot.accountId,
+          authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+        );
+  }
+
+  @override
+  Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile) async {
     final previous = _previousRecord;
     if (previous == null) throw const DirectEditorTargetUnavailable();
     try {
@@ -320,18 +357,6 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
         DirectAuthenticationMode.unsupported => null,
       };
 }
-
-DirectAuthenticationMode _localAuthentication(
-  DirectConnectionProfile profile,
-) => profile.isOpenRouter
-    ? DirectAuthenticationMode.bearer
-    : (profile.apiKey ?? '').isEmpty
-    ? DirectAuthenticationMode.none
-    : switch (profile.apiKeyAuthMode) {
-        DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
-        DirectApiKeyAuthMode.apiKeyHeader =>
-          DirectAuthenticationMode.apiKeyHeader,
-      };
 
 DirectAuthenticationMode _openWebUiAuthentication(String authType) =>
     switch (authType) {

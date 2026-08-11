@@ -12,8 +12,7 @@ import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../controllers/terminal_browser_controller.dart';
 import '../controllers/terminal_context_controller.dart';
-import '../controllers/terminal_controller_gateways.dart';
-import '../controllers/terminal_session_controller.dart';
+import '../controllers/terminal_coordinator.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import 'terminal_console_section.dart';
@@ -36,16 +35,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   final ScrollController _filesScrollController = ScrollController();
   final ScrollController _portsScrollController = ScrollController();
 
-  late final TerminalSessionController _sessionController;
-  late final TerminalBrowserController _browserController;
-  late final TerminalContextController _contextController;
-
-  ProviderSubscription<int>? _refreshSubscription;
-  ProviderSubscription<String>? _sessionScopeSubscription;
-  ProviderSubscription<AsyncValue<TerminalServerInfo?>>?
-  _selectedServerSubscription;
-  ProviderSubscription<AsyncValue<List<TerminalServerInfo>>>?
-  _singleServerDefaultPanelSubscription;
+  late final TerminalCoordinator _coordinator;
 
   bool _fullscreen = false;
 
@@ -55,73 +45,18 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   @override
   void initState() {
     super.initState();
-    final gateway = RiverpodTerminalControllerGateway(
+    _coordinator = TerminalCoordinator(
       ref: ref,
       isActive: () => mounted && widget.isActive,
-    );
-    _sessionController = TerminalSessionController(
-      gateway: gateway,
-      isCurrentContext: (server, sessionScopeId) =>
-          _contextController.isCurrentContext(server, sessionScopeId),
-    );
-    _browserController = TerminalBrowserController(
-      gateway: gateway,
-      platformGateway: const DefaultTerminalBrowserPlatformGateway(),
-      isCurrentContext: (server, sessionScopeId) =>
-          _contextController.isCurrentContext(server, sessionScopeId),
-      onFailure: _handleBrowserFailure,
-    );
-    _contextController = TerminalContextController(
-      gateway: gateway,
-      sessionController: _sessionController,
-      browserController: _browserController,
       disconnectedLabel: () =>
           AppLocalizations.of(context)!.terminalDisconnectedStatus,
-      onFailure: _handleContextFailure,
+      onBrowserFailure: _handleBrowserFailure,
+      onContextFailure: _handleContextFailure,
     );
-    _browserController.addListener(_handleControllerChanged);
-    _contextController.addListener(_handleControllerChanged);
-
-    _refreshSubscription = ref.listenManual<int>(
-      terminalBrowserRefreshTokenProvider,
-      (previous, next) {
-        if (previous != next && widget.isActive) {
-          unawaited(_contextController.reloadBrowser());
-        }
-      },
-    );
-    _sessionScopeSubscription = ref.listenManual<String>(
-      terminalSessionScopeIdProvider,
-      (previous, next) {
-        if (widget.isActive) {
-          unawaited(_contextController.sync(force: true));
-        }
-      },
-    );
-    _selectedServerSubscription = ref
-        .listenManual<AsyncValue<TerminalServerInfo?>>(
-          terminalSelectedServerProvider,
-          (_, next) => next.whenData((_) {
-            if (widget.isActive) {
-              unawaited(_contextController.sync(force: true));
-            }
-          }),
-        );
-    _singleServerDefaultPanelSubscription = ref.listenManual(
-      terminalAvailableServersProvider,
-      (previous, next) => _handleSingleServerDefaultPanel(next),
-    );
+    _coordinator.addListener(_handleControllerChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _handleSingleServerDefaultPanel(
-        ref.read(terminalAvailableServersProvider),
-      );
-      if (widget.isActive) {
-        unawaited(_contextController.sync(force: true));
-      }
+      if (mounted) _coordinator.start();
     });
   }
 
@@ -133,26 +68,18 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     }
 
     if (widget.isActive) {
-      unawaited(_contextController.sync(force: true));
+      _coordinator.activate();
       return;
     }
 
-    unawaited(_contextController.deactivate());
+    _coordinator.deactivate();
   }
 
   @override
   void dispose() {
-    _refreshSubscription?.close();
-    _sessionScopeSubscription?.close();
-    _selectedServerSubscription?.close();
-    _singleServerDefaultPanelSubscription?.close();
-    _browserController
+    _coordinator
       ..removeListener(_handleControllerChanged)
       ..dispose();
-    _contextController
-      ..removeListener(_handleControllerChanged)
-      ..dispose();
-    _sessionController.dispose();
     _filesScrollController.dispose();
     _portsScrollController.dispose();
     super.dispose();
@@ -173,29 +100,6 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     }
   }
 
-  void _handleSingleServerDefaultPanel(
-    AsyncValue<List<TerminalServerInfo>> next,
-  ) {
-    if (!next.hasValue) {
-      return;
-    }
-
-    final shouldShowFiles = next.requireValue.length == 1;
-    _singleServerDefaultPanelSubscription?.close();
-    _singleServerDefaultPanelSubscription = null;
-    if (!shouldShowFiles) {
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        ref
-            .read(terminalSidebarPanelProvider.notifier)
-            .setPanel(TerminalSidebarPanel.files);
-      }
-    });
-  }
-
   Future<void> _openFullscreen() async {
     if (_fullscreen) {
       return;
@@ -210,8 +114,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         buildPlatformPageRoute<void>(
           fullscreenDialog: true,
           builder: (_) => TerminalFullscreenPage(
-            terminal: _sessionController.terminal,
-            controller: _sessionController.terminalController,
+            terminal: _coordinator.terminal,
+            controller: _coordinator.terminalController,
           ),
         ),
       );
@@ -291,34 +195,31 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
           child: sidebarPanel == TerminalSidebarPanel.console
               ? TerminalConsoleSection(
-                  terminal: _sessionController.terminal,
-                  terminalController: _sessionController.terminalController,
+                  terminal: _coordinator.terminal,
+                  terminalController: _coordinator.terminalController,
                   portsScrollController: _portsScrollController,
                   selectedServer: selectedServer,
                   connectionState: connectionState,
                   ports: ports,
                   noServersConfigured: noServersConfigured,
-                  loadingPorts: _browserController.loadingPorts,
-                  terminalSupported: _contextController.terminalSupported,
+                  loadingPorts: _coordinator.loadingPorts,
+                  terminalSupported: _coordinator.terminalSupported,
                   fullscreen: _fullscreen,
                   onConnect: selectedServer == null
                       ? null
-                      : () => unawaited(_contextController.connect()),
-                  onDisconnect: () => unawaited(
-                    _sessionController.disconnect(showClosedBanner: false),
-                  ),
+                      : () => unawaited(_coordinator.connect()),
+                  onDisconnect: () => unawaited(_coordinator.disconnect()),
                   onOpenFullscreen: () => unawaited(_openFullscreen()),
-                  onOpenPort: (port) =>
-                      unawaited(_browserController.openPort(port)),
+                  onOpenPort: (port) => unawaited(_coordinator.openPort(port)),
                 )
               : TerminalFilesSection(
-                  browserController: _browserController,
+                  coordinator: _coordinator,
                   scrollController: _filesScrollController,
                   selectedServer: selectedServer,
                   currentPath: currentPath,
                   entries: filteredEntries,
                   noServersConfigured: noServersConfigured,
-                  loading: _browserController.loadingFiles,
+                  loading: _coordinator.loadingFiles,
                 ),
         );
       },
