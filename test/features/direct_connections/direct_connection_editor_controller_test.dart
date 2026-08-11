@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_controller.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/shared/models/connection_attempt.dart';
+import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -9,6 +12,7 @@ void main() {
     final controller = DirectConnectionEditorController(
       isOpenWebUi: false,
       isNew: true,
+      gateway: _FakeDirectConnectionEditorGateway(),
     );
     addTearDown(controller.dispose);
     controller.hydrate(null);
@@ -38,6 +42,7 @@ void main() {
     final controller = DirectConnectionEditorController(
       isOpenWebUi: false,
       isNew: true,
+      gateway: _FakeDirectConnectionEditorGateway(),
     );
     addTearDown(controller.dispose);
     controller.hydrate(null);
@@ -61,6 +66,7 @@ void main() {
     final controller = DirectConnectionEditorController(
       isOpenWebUi: false,
       isNew: true,
+      gateway: _FakeDirectConnectionEditorGateway(),
     );
     addTearDown(controller.dispose);
 
@@ -85,6 +91,7 @@ void main() {
     final controller = DirectConnectionEditorController(
       isOpenWebUi: false,
       isNew: false,
+      gateway: _FakeDirectConnectionEditorGateway(),
     );
     addTearDown(controller.dispose);
     controller.hydrate(
@@ -97,40 +104,81 @@ void main() {
       ),
     );
     controller.baseUrl.text = 'https://new.example/v1';
-    controller.markBaseUrlChanged();
 
     controller.headerName.text = 'X-Pending';
-    controller.markHeaderInputChanged();
 
     check(controller.originBoundSecretsReviewed).isFalse();
   });
 
-  test('editor state admits one operation and resets stale feedback', () {
+  test(
+    'editor workflow admits one operation and resets stale feedback',
+    () async {
+      final probe = Completer<DirectConnectionProbe>();
+      final gateway = _FakeDirectConnectionEditorGateway(
+        probeHandler: (_) => probe.future,
+      );
+      final controller = DirectConnectionEditorController(
+        isOpenWebUi: false,
+        isNew: true,
+        gateway: gateway,
+      );
+      addTearDown(controller.dispose);
+      controller.hydrate(null);
+      controller.setAuthentication(DirectAuthenticationMode.none);
+
+      final testFuture = controller.testConnection(
+        messages: _messages,
+        confirmCredentialTransfer: (_) async => true,
+        ownerIsCurrent: () => true,
+      );
+      check(controller.state.operation).equals(DirectEditorOperation.testing);
+
+      final concurrentSave = await controller.save(
+        messages: _messages,
+        confirmCredentialTransfer: (_) async => true,
+        ownerIsCurrent: () => true,
+      );
+      check(concurrentSave.outcome).equals(DirectEditorActionOutcome.cancelled);
+
+      probe.complete(const DirectConnectionProbe(reachable: false));
+      final testResult = await testFuture;
+      check(testResult.outcome).equals(DirectEditorActionOutcome.unreachable);
+      check(controller.state.operation).equals(DirectEditorOperation.idle);
+      check(controller.state.attempt.isVisible).isTrue();
+
+      controller.name.text = 'Updated provider';
+      check(controller.state.operationError).isNull();
+      check(controller.state.attempt.isVisible).isFalse();
+    },
+  );
+
+  test('save workflow validates and delegates persistence', () async {
+    final gateway = _FakeDirectConnectionEditorGateway();
     final controller = DirectConnectionEditorController(
       isOpenWebUi: false,
       isNew: true,
+      gateway: gateway,
     );
     addTearDown(controller.dispose);
+    controller.hydrate(null);
+    controller.setAuthentication(DirectAuthenticationMode.none);
 
-    check(controller.beginOperation(DirectEditorOperation.saving)).isTrue();
-    check(controller.beginOperation(DirectEditorOperation.testing)).isFalse();
-    check(controller.state.operation).equals(DirectEditorOperation.saving);
+    final result = await controller.save(
+      messages: _messages,
+      confirmCredentialTransfer: (_) async => true,
+      ownerIsCurrent: () => true,
+    );
 
-    controller.finishOperation(error: 'failed');
-    controller.setAttempt(ConnectionAttemptState.failed('unreachable'));
-    check(controller.state.operationError).equals('failed');
-    check(controller.state.attempt.isVisible).isTrue();
-
-    controller.markGeneralChanged();
-    check(controller.state.operation).equals(DirectEditorOperation.idle);
-    check(controller.state.operationError).isNull();
-    check(controller.state.attempt.isVisible).isFalse();
+    check(result.outcome).equals(DirectEditorActionOutcome.succeeded);
+    check(gateway.savedLocal).isNotNull();
+    check(gateway.savedLocal!.name).equals('My provider');
   });
 
   test('owner identity is captured once and includes auth epoch identity', () {
     final controller = DirectConnectionEditorController(
       isOpenWebUi: true,
       isNew: true,
+      gateway: _FakeDirectConnectionEditorGateway(),
     );
     addTearDown(controller.dispose);
     final epoch = Object();
@@ -161,4 +209,61 @@ void main() {
       ),
     ).isFalse();
   });
+}
+
+const _messages = DirectEditorMessages(
+  openWebUiFallbackName: 'Open WebUI connection',
+  connecting: 'Connecting',
+  reachFailed: 'Connection failed',
+  saveConflict: 'Save conflict',
+  saveFailed: 'Save failed',
+  unavailable: 'Unavailable',
+  probeMessage: _probeMessage,
+);
+
+String _probeMessage(DirectConnectionProbe probe) =>
+    probe.reachable ? 'Connected' : 'Connection failed';
+
+final class _FakeDirectConnectionEditorGateway
+    implements DirectConnectionEditorGateway {
+  _FakeDirectConnectionEditorGateway({this.probeHandler});
+
+  final Future<DirectConnectionProbe> Function(DirectConnectionProfile)?
+  probeHandler;
+  DirectConnectionProfile? savedLocal;
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
+      probeHandler?.call(profile) ??
+      Future.value(const DirectConnectionProbe(reachable: true));
+
+  @override
+  Future<void> saveLocal({
+    required DirectConnectionProfile draft,
+    required DirectConnectionProfile? expectedPrevious,
+    required bool secretsConfirmedForNewOrigin,
+  }) async {
+    savedLocal = draft;
+  }
+
+  @override
+  Future<void> saveOpenWebUi({
+    required DirectConnectionProfile draft,
+    required OpenWebUiDirectConnectionRecord? previous,
+    required bool isNew,
+    required String? authType,
+  }) async {}
+
+  @override
+  Future<bool> clearDirectPreferenceIfLastUsable(String profileId) async =>
+      false;
+
+  @override
+  Future<void> restoreDirectPreference() async {}
+
+  @override
+  Future<void> deleteLocal(String profileId) async {}
+
+  @override
+  Future<void> deleteOpenWebUi(OpenWebUiDirectConnectionRecord record) async {}
 }

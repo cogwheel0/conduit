@@ -79,25 +79,18 @@ class WorkspaceToolEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return const _WorkspaceToolForm(
-        mode: WorkspaceRouteMode.create,
-        summary: null,
-      );
-    }
-
-    final id = toolId;
-    final detail = id == null || id.isEmpty
-        ? null
-        : ref.watch(workspaceToolDetailProvider(id));
-    return WorkspaceResourceEditorHost<WorkspaceToolSummary>(
+    return WorkspaceResourceEditorRoute<WorkspaceToolSummary>(
       title: l10n.workspaceTools,
       section: WorkspaceSection.tools,
       mode: mode,
-      resourceId: id,
-      detail: detail,
+      resourceId: toolId,
       errorMessage: l10n.workspaceLoadFailed,
-      onRetry: () => ref.invalidate(workspaceToolDetailProvider(id!)),
+      createBuilder: () => const _WorkspaceToolForm(
+        mode: WorkspaceRouteMode.create,
+        summary: null,
+      ),
+      detailLoader: (ref, id) => ref.watch(workspaceToolDetailProvider(id)),
+      onRetry: (ref, id) => ref.invalidate(workspaceToolDetailProvider(id)),
       builder: (value) => _WorkspaceToolForm(
         key: ValueKey('workspace-tool-form-${value.id}-${mode.name}'),
         mode: mode,
@@ -128,24 +121,16 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
 
   bool _idManuallyEdited = false;
   late final WorkspaceEditorSession _session;
-  bool get _dirty => _session.dirty;
-  set _dirty(bool value) => _session.dirty = value;
-  bool get _saving => _session.saving;
-  set _saving(bool value) => _session.saving = value;
   bool _detailsExpanded = false;
-  String? get _errorMessage => _session.errorMessage;
-  set _errorMessage(String? value) => _session.errorMessage = value;
   bool _idError = false;
 
-  bool get _isCreate => _session.isCreate;
-  bool get _isDetail => _session.isDetail;
-
-  bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
+  bool get _writeAccess =>
+      _session.isCreate || (widget.summary?.writeAccess ?? false);
 
   /// Fields are editable only in create/edit modes with write access. Detail is
   /// a read-only view. The id is additionally immutable once a tool exists.
-  bool get _fieldsReadOnly => !_writeAccess || _isDetail;
-  bool get _idReadOnly => _fieldsReadOnly || !_isCreate;
+  bool get _fieldsReadOnly => !_writeAccess || _session.isDetail;
+  bool get _idReadOnly => _fieldsReadOnly || !_session.isCreate;
 
   @override
   void initState() {
@@ -178,15 +163,16 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     _idController.dispose();
     _descriptionController.dispose();
     _contentController.dispose();
+    _session.dispose();
     super.dispose();
   }
 
   void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+    if (!_session.dirty) setState(() => _session.dirty = true);
   }
 
   void _onNameChanged(String value) {
-    if (_isCreate && !_idManuallyEdited) {
+    if (_session.isCreate && !_idManuallyEdited) {
       _idController.text = WorkspaceToolContent.nameToId(value);
     }
     _markDirty();
@@ -199,7 +185,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   }
 
   void _onContentChanged(String value) {
-    if (_isCreate) _applyFrontmatterPrefill(value);
+    if (_session.isCreate) _applyFrontmatterPrefill(value);
     // Recompute compatibility as the declared version changes.
     setState(() {});
     _markDirty();
@@ -254,30 +240,30 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   /// after surfacing the appropriate inline error.
   String? _validateForm(AppLocalizations l10n) {
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceToolNameRequired);
+      setState(() => _session.errorMessage = l10n.workspaceToolNameRequired);
       return null;
     }
     final id = _idController.text.trim();
     // The id is only editable (and therefore validated) in create mode; on edit
     // it is the immutable, already-validated server id.
-    if (_isCreate) {
+    if (_session.isCreate) {
       if (id.isEmpty) {
         setState(() {
           _idError = true;
-          _errorMessage = l10n.workspaceToolIdRequired;
+          _session.errorMessage = l10n.workspaceToolIdRequired;
         });
         return null;
       }
       if (!WorkspaceToolContent.isValidId(id)) {
         setState(() {
           _idError = true;
-          _errorMessage = l10n.workspaceToolIdInvalid;
+          _session.errorMessage = l10n.workspaceToolIdInvalid;
         });
         return null;
       }
     }
     if (_contentController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceToolContentRequired);
+      setState(() => _session.errorMessage = l10n.workspaceToolContentRequired);
       return null;
     }
     return id;
@@ -300,7 +286,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     // Block save when the declared required version outranks the server.
     if (_isIncompatible) {
       setState(
-        () => _errorMessage = l10n.workspaceToolIncompatible(
+        () => _session.errorMessage = l10n.workspaceToolIncompatible(
           _requiredVersion ?? '0.0.0',
           _currentServerVersion ?? '?',
         ),
@@ -310,28 +296,28 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final id = _validateForm(l10n);
     if (id == null) return;
     setState(() {
-      _saving = true;
-      _errorMessage = null;
+      _session.saving = true;
+      _session.errorMessage = null;
       _idError = false;
     });
     final notifier = ref.read(workspaceToolsProvider.notifier);
     // The update endpoint keys off the existing id; the id is immutable after
     // create, so submit the summary's id when editing.
-    final form = _buildForm(id: _isCreate ? id : widget.summary!.id);
+    final form = _buildForm(id: _session.isCreate ? id : widget.summary!.id);
     try {
-      final WorkspaceToolDetail result = _isCreate
+      final WorkspaceToolDetail result = _session.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       DebugLogger.log(
         'tool saved',
         scope: 'workspace/tools',
-        data: {'id': result.id, 'create': _isCreate},
+        data: {'id': result.id, 'create': _session.isCreate},
       );
       _showSnack(l10n.workspaceToolSaved);
       final router = GoRouter.of(context);
-      if (_isCreate) {
+      if (_session.isCreate) {
         router.pushReplacement(
           WorkspaceSection.tools.routes.detailLocation(result.id),
         );
@@ -340,7 +326,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -351,9 +337,9 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       );
       if (!mounted) return;
       setState(() {
-        _saving = false;
+        _session.saving = false;
         _idError = _isConflict(error);
-        _errorMessage = _isConflict(error)
+        _session.errorMessage = _isConflict(error)
             ? l10n.workspaceToolIdTaken
             : l10n.workspaceToolSaveFailed;
       });
@@ -367,7 +353,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'tool_clone' : '${baseId}_clone';
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     // Clones never inherit the source tool's sharing grants.
     final meta = Map<String, dynamic>.from(_meta);
     meta['description'] = _descriptionController.text.trim();
@@ -394,7 +380,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
         _showSnack(l10n.workspaceToolSaveFailed, isError: true);
       }
     }
@@ -416,11 +402,11 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref.read(workspaceToolsProvider.notifier).delete(summary.id);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       _showSnack(l10n.workspaceToolDeleted);
       if (router.canPop()) {
         router.pop();
@@ -435,7 +421,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
         _showSnack(l10n.workspaceToolSaveFailed, isError: true);
       }
     }
@@ -458,11 +444,11 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     if (summary == null || !_writeAccess) {
       setState(() {
         _grants = grants;
-        if (summary == null) _dirty = true;
+        if (summary == null) _session.dirty = true;
       });
       return;
     }
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref
           .read(workspaceToolsProvider.notifier)
@@ -479,7 +465,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       );
       if (mounted) _showSnack(l10n.workspaceToolSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -529,8 +515,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       _descriptionController.text = _meta['description']?.toString() ?? '';
       _contentController.text = normalized['content']?.toString() ?? '';
       _idManuallyEdited = true;
-      _dirty = true;
-      _errorMessage = null;
+      _session.dirty = true;
+      _session.errorMessage = null;
       _idError = false;
     });
     _showSnack(l10n.workspaceToolImportUrlLoaded);
@@ -564,7 +550,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _session,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     final capabilities = ref
@@ -573,7 +564,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
-    final title = _isCreate
+    final title = _session.isCreate
         ? l10n.workspaceToolCreateTitle
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceTools
@@ -583,21 +574,21 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       title: title,
       section: WorkspaceSection.tools,
       mode: widget.mode,
-      isDirty: _dirty && !_saving,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _fieldsReadOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_fieldsReadOnly && !_isIncompatible,
       onSave: _fieldsReadOnly ? null : _save,
-      onEdit: _isDetail && _writeAccess
+      onEdit: _session.isDetail && _writeAccess
           ? () => context.push(
               WorkspaceSection.tools.routes.editLocation(summary!.id),
             )
           : null,
-      errorMessage: _errorMessage,
+      errorMessage: _session.errorMessage,
       actions: buildWorkspaceToolActions(
         l10n: l10n,
         capabilities: capabilities,
-        isCreate: _isCreate,
+        isCreate: _session.isCreate,
         isAdmin: _isAdmin,
         canWrite: _writeAccess,
         summary: summary,
@@ -611,7 +602,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       ),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
+        absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-tool-editor-body'),
           padding: EdgeInsets.fromLTRB(
@@ -627,7 +618,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   WorkspaceToolCoreFields(
-                    isDetail: _isDetail,
+                    isDetail: _session.isDetail,
                     fieldsReadOnly: _fieldsReadOnly,
                     idReadOnly: _idReadOnly,
                     idError: _idError,
@@ -648,7 +639,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
                 currentServerVersion: _currentServerVersion,
               ),
             WorkspaceToolContentEditor(
-              isDetail: _isDetail,
+              isDetail: _session.isDetail,
               readOnly: _fieldsReadOnly,
               controller: _contentController,
               onChanged: _onContentChanged,

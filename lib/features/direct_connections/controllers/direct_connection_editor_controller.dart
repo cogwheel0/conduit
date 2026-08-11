@@ -1,17 +1,18 @@
-import 'dart:convert';
-
 import 'package:flutter/widgets.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
+import '../services/direct_connection_profile_store.dart';
+import '../services/openwebui_direct_connection_store.dart';
 import 'direct_custom_headers_controller.dart';
+import 'direct_connection_editor_draft.dart';
+import 'direct_connection_editor_workflow.dart';
 
 export 'direct_custom_headers_controller.dart'
     show DirectHeaderValidationError, DirectHeaderValidationIssue;
-
-enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
+export 'direct_connection_editor_draft.dart';
+export 'direct_connection_editor_workflow.dart';
 
 enum DirectEditorOperation { idle, saving, testing, deleting }
 
@@ -77,109 +78,29 @@ final class DirectConnectionEditorState {
   );
 }
 
-enum DirectDraftValidationIssue {
-  nameRequired,
-  invalidUrl,
-  invalidOpenRouterUrl,
-  credentialsReentryRequired,
-  apiKeyRequired,
-  unsupportedAuthentication,
-}
-
-const String kOpenRouterProviderPreset = 'openrouter';
-
-Map<String, String> parseDirectCustomHeaders(String source) {
-  final trimmed = source.trim();
-  if (trimmed.isEmpty) return const {};
-  final decoded = jsonDecode(trimmed);
-  if (decoded is! Map) throw const FormatException('Enter a JSON object.');
-  final result = <String, String>{};
-  for (final entry in decoded.entries) {
-    if (entry.key is! String || entry.value is! String) {
-      throw const FormatException('Header names and values must be text.');
-    }
-    result[(entry.key as String).trim()] = entry.value as String;
-  }
-  return result;
-}
-
-List<String> parseDirectManualModelIds(String source) {
-  final seen = <String>{};
-  return [
-    for (final line in source.split(RegExp(r'[\r\n,]+')))
-      if (line.trim().isNotEmpty && seen.add(line.trim())) line.trim(),
-  ];
-}
-
-List<String> parseDirectModelTags(String source) =>
-    parseDirectManualModelIds(source);
-
-String normalizeDirectBaseUrl(String source) {
-  var value = source.trim();
-  while (value.endsWith('/') && Uri.tryParse(value)?.path != '/') {
-    value = value.substring(0, value.length - 1);
-  }
-  return value;
-}
-
-bool requiresDirectApiKey({
-  required DirectAuthenticationMode authentication,
-  required bool isOpenWebUi,
-  required bool isNew,
-  required String? savedOpenWebUiAuthType,
-  required bool apiKeyDirty,
-  required bool originChanged,
-}) {
-  if (authentication != DirectAuthenticationMode.bearer &&
-      authentication != DirectAuthenticationMode.apiKeyHeader) {
-    return false;
-  }
-  final preservesExistingKeylessBearer =
-      isOpenWebUi &&
-      !isNew &&
-      savedOpenWebUiAuthType == 'bearer' &&
-      !apiKeyDirty &&
-      !originChanged;
-  return !preservesExistingKeylessBearer;
-}
-
-DirectConnectionProfile secureDirectDraftForEditedOrigin({
-  required DirectConnectionProfile? previous,
-  required DirectConnectionProfile draft,
-  required bool secretsConfirmedForNewOrigin,
-}) {
-  if (previous == null) return draft;
-  return DirectConnectionProfile.secureUpdate(
-    previous: previous,
-    next: draft,
-    secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
-  );
-}
-
-bool requiresDirectOriginCredentialConfirmation({
-  required DirectConnectionProfile? previous,
-  required DirectConnectionProfile draft,
-}) {
-  if (previous == null || previous.origin == draft.origin) return false;
-  final previousHasCredentials =
-      (previous.apiKey?.isNotEmpty ?? false) ||
-      previous.customHeaders.isNotEmpty;
-  final draftHasCredentials =
-      (draft.apiKey?.isNotEmpty ?? false) || draft.customHeaders.isNotEmpty;
-  return previousHasCredentials && draftHasCredentials;
-}
-
-/// Owns all mutable state and validation for a direct-connection draft.
+/// Owns the direct draft and the complete save/test/delete state machine.
 final class DirectConnectionEditorController extends ChangeNotifier {
   DirectConnectionEditorController({
     required this.isOpenWebUi,
     required this.isNew,
+    required this.gateway,
   }) {
-    headers = DirectCustomHeadersController(onHeadersChanged: _headersChanged);
+    headers = DirectCustomHeadersController(
+      onHeadersChanged: _headersChanged,
+      onInputChanged: _headerInputChanged,
+    );
+    name.addListener(_generalTextChanged);
+    baseUrl.addListener(_baseUrlTextChanged);
+    apiKey.addListener(_apiKeyTextChanged);
+    apiVersion.addListener(_generalTextChanged);
+    modelIdPrefix.addListener(_generalTextChanged);
+    tags.addListener(_generalTextChanged);
+    models.addListener(_generalTextChanged);
   }
 
   final bool isOpenWebUi;
   final bool isNew;
+  final DirectConnectionEditorGateway gateway;
 
   late final DirectCustomHeadersController headers;
 
@@ -206,6 +127,8 @@ final class DirectConnectionEditorController extends ChangeNotifier {
   bool _showApiKey = false;
   bool _showAdvancedSettings = false;
   bool _originSecretsConfirmed = false;
+  bool _updatingTextFields = false;
+  bool _disposed = false;
   DirectDraftErrors _errors = const DirectDraftErrors();
   DirectConnectionEditorState _state = const DirectConnectionEditorState();
 
@@ -252,13 +175,13 @@ final class DirectConnectionEditorController extends ChangeNotifier {
 
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
 
-  bool beginOperation(DirectEditorOperation operation) {
+  bool _beginOperation(DirectEditorOperation operation) {
     if (state.isBusy || operation == DirectEditorOperation.idle) return false;
     _publish(state.copyWith(operation: operation));
     return true;
   }
 
-  void finishOperation({
+  void _finishOperation({
     ConnectionAttemptState? attempt,
     String? error,
     bool clearError = false,
@@ -273,12 +196,8 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     );
   }
 
-  void setAttempt(ConnectionAttemptState attempt) {
+  void _setAttempt(ConnectionAttemptState attempt) {
     _publish(state.copyWith(attempt: attempt));
-  }
-
-  void setOperationError(String error) {
-    _publish(state.copyWith(operationError: error));
   }
 
   void captureOwner({
@@ -330,42 +249,44 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     DirectConnectionProfile? profile, {
     OpenWebUiDirectConnectionRecord? openWebUiRecord,
   }) {
-    _savedProfile = profile;
-    _savedOpenWebUiRecord = openWebUiRecord;
-    if (profile == null) {
-      name.text = 'My provider';
-      baseUrl.text = 'https://api.openai.com/v1';
-      return;
-    }
-    name.text = profile.name;
-    baseUrl.text = profile.baseUrl;
-    headers.hydrate(profile.customHeaders);
-    models.text = profile.manualModelIds.join('\n');
-    apiVersion.text = profile.apiVersion ?? '';
-    modelIdPrefix.text = profile.modelIdPrefix ?? '';
-    tags.text = profile.tags.join(', ');
-    _adapterKey = profile.adapterKey;
-    _providerPreset = profile.isOpenRouter
-        ? kOpenRouterProviderPreset
-        : profile.adapterKey;
-    _openAiApiMode = profile.openAiApiMode;
-    _authentication = openWebUiRecord == null
-        ? profile.isOpenRouter
-              ? DirectAuthenticationMode.bearer
-              : (profile.apiKey ?? '').isEmpty
-              ? DirectAuthenticationMode.none
-              : switch (profile.apiKeyAuthMode) {
-                  DirectApiKeyAuthMode.bearer =>
-                    DirectAuthenticationMode.bearer,
-                  DirectApiKeyAuthMode.apiKeyHeader =>
-                    DirectAuthenticationMode.apiKeyHeader,
-                }
-        : switch (openWebUiRecord.authType) {
-            'bearer' => DirectAuthenticationMode.bearer,
-            'none' => DirectAuthenticationMode.none,
-            _ => DirectAuthenticationMode.unsupported,
-          };
-    _enabled = profile.enabled;
+    _updateTextFields(() {
+      _savedProfile = profile;
+      _savedOpenWebUiRecord = openWebUiRecord;
+      if (profile == null) {
+        name.text = 'My provider';
+        baseUrl.text = 'https://api.openai.com/v1';
+        return;
+      }
+      name.text = profile.name;
+      baseUrl.text = profile.baseUrl;
+      headers.hydrate(profile.customHeaders);
+      models.text = profile.manualModelIds.join('\n');
+      apiVersion.text = profile.apiVersion ?? '';
+      modelIdPrefix.text = profile.modelIdPrefix ?? '';
+      tags.text = profile.tags.join(', ');
+      _adapterKey = profile.adapterKey;
+      _providerPreset = profile.isOpenRouter
+          ? kOpenRouterProviderPreset
+          : profile.adapterKey;
+      _openAiApiMode = profile.openAiApiMode;
+      _authentication = openWebUiRecord == null
+          ? profile.isOpenRouter
+                ? DirectAuthenticationMode.bearer
+                : (profile.apiKey ?? '').isEmpty
+                ? DirectAuthenticationMode.none
+                : switch (profile.apiKeyAuthMode) {
+                    DirectApiKeyAuthMode.bearer =>
+                      DirectAuthenticationMode.bearer,
+                    DirectApiKeyAuthMode.apiKeyHeader =>
+                      DirectAuthenticationMode.apiKeyHeader,
+                  }
+          : switch (openWebUiRecord.authType) {
+              'bearer' => DirectAuthenticationMode.bearer,
+              'none' => DirectAuthenticationMode.none,
+              _ => DirectAuthenticationMode.unsupported,
+            };
+      _enabled = profile.enabled;
+    });
   }
 
   void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
@@ -398,21 +319,23 @@ final class DirectConnectionEditorController extends ChangeNotifier {
         : kOpenAiCompatibleAdapterKey;
     _authentication = DirectAuthenticationMode.bearer;
     _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-    baseUrl.text = switch (value) {
-      kOllamaAdapterKey => 'https://ollama.com',
-      kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
-      _ => 'https://api.openai.com/v1',
-    };
-    if (isNew &&
-        (name.text == 'My provider' ||
-            name.text == ollamaDefaultName ||
-            name.text == openRouterDefaultName)) {
-      name.text = switch (value) {
-        kOllamaAdapterKey => ollamaDefaultName,
-        kOpenRouterProviderPreset => openRouterDefaultName,
-        _ => 'My provider',
+    _updateTextFields(() {
+      baseUrl.text = switch (value) {
+        kOllamaAdapterKey => 'https://ollama.com',
+        kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
+        _ => 'https://api.openai.com/v1',
       };
-    }
+      if (isNew &&
+          (name.text == 'My provider' ||
+              name.text == ollamaDefaultName ||
+              name.text == openRouterDefaultName)) {
+        name.text = switch (value) {
+          kOllamaAdapterKey => ollamaDefaultName,
+          kOpenRouterProviderPreset => openRouterDefaultName,
+          _ => 'My provider',
+        };
+      }
+    });
     _originSecretsConfirmed = false;
     _draftChanged();
   }
@@ -447,33 +370,30 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void markGeneralChanged() {
+  void _generalTextChanged() {
+    if (_updatingTextFields) return;
     _errors = const DirectDraftErrors();
     headers.clearError();
     _draftChanged();
   }
 
-  void markBaseUrlChanged() {
+  void _baseUrlTextChanged() {
+    if (_updatingTextFields) return;
     _originSecretsConfirmed = false;
-    markGeneralChanged();
+    _generalTextChanged();
   }
 
-  void markApiKeyChanged() {
+  void _apiKeyTextChanged() {
+    if (_updatingTextFields) return;
     _apiKeyDirty = true;
     _originSecretsConfirmed = false;
     _errors = errors.copyWith(clearApiKey: true, clearForm: true);
     _draftChanged();
   }
 
-  void markHeaderInputChanged() {
+  void _headerInputChanged() {
     _errors = errors.copyWith(clearForm: true);
-    headers.markInputChanged();
     _draftChanged();
-  }
-
-  void markOriginSecretsConfirmed() {
-    _originSecretsConfirmed = true;
-    notifyListeners();
   }
 
   bool commitPendingCustomHeader() {
@@ -499,95 +419,313 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     if (validateFields && !commitPendingCustomHeader()) {
       return DirectDraftBuildResult(errors: errors);
     }
-    final draftName = isOpenWebUi
-        ? (savedProfile?.name ?? openWebUiFallbackName)
-        : name.text.trim();
-    final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl.text);
-    DirectDraftValidationIssue? nameIssue;
-    DirectDraftValidationIssue? urlIssue;
-    DirectDraftValidationIssue? apiKeyIssue;
-
-    if (!isOpenWebUi && draftName.isEmpty) {
-      nameIssue = DirectDraftValidationIssue.nameRequired;
-    }
-    if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {
-      urlIssue = DirectDraftValidationIssue.invalidUrl;
-    } else if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedBaseUrl)) {
-      urlIssue = DirectDraftValidationIssue.invalidOpenRouterUrl;
-    } else if (!originBoundSecretsReviewed) {
-      urlIssue = DirectDraftValidationIssue.credentialsReentryRequired;
-    }
-
-    final existingApiKey = savedProfile?.apiKey?.trim() ?? '';
-    final enteredApiKey = apiKey.text.trim();
-    final effectiveApiKey = switch (authentication) {
-      DirectAuthenticationMode.none => null,
-      DirectAuthenticationMode.bearer ||
-      DirectAuthenticationMode.apiKeyHeader =>
-        apiKeyDirty || originChanged ? enteredApiKey : existingApiKey,
-      DirectAuthenticationMode.unsupported => null,
-    };
-    if (apiKeyRequired && (effectiveApiKey ?? '').isEmpty) {
-      apiKeyIssue = DirectDraftValidationIssue.apiKeyRequired;
-    }
-
-    _errors = DirectDraftErrors(
-      name: nameIssue,
-      url: urlIssue,
-      apiKey: apiKeyIssue,
-      form: authentication == DirectAuthenticationMode.unsupported
-          ? DirectDraftValidationIssue.unsupportedAuthentication
-          : null,
-    );
-    if (errors.hasAny) {
-      if (validateFields) notifyListeners();
-      return DirectDraftBuildResult(errors: errors);
-    }
-
-    final saved = savedProfile;
-    final profile = DirectConnectionProfile(
-      id: saved?.id ?? const Uuid().v4(),
-      name: draftName,
+    final draft = DirectConnectionDraft(
+      isOpenWebUi: isOpenWebUi,
+      isNew: isNew,
+      savedProfile: savedProfile,
+      savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
       adapterKey: adapterKey,
-      baseUrl: normalizedBaseUrl,
+      providerPreset: providerPreset,
       openAiApiMode: openAiApiMode,
-      apiKeyAuthMode: authentication == DirectAuthenticationMode.apiKeyHeader
-          ? DirectApiKeyAuthMode.apiKeyHeader
-          : DirectApiKeyAuthMode.bearer,
-      apiVersion: apiVersion.text.trim().isEmpty
-          ? null
-          : apiVersion.text.trim(),
-      modelIdPrefix: modelIdPrefix.text.trim().isEmpty
-          ? null
-          : modelIdPrefix.text.trim(),
-      tags: parseDirectModelTags(tags.text),
+      authentication: authentication,
       enabled: enabled,
-      apiKey: effectiveApiKey,
-      customHeaders: Map<String, String>.from(customHeaders),
-      manualModelIds: parseDirectManualModelIds(models.text),
-      ollamaKeepAliveByModel:
-          saved?.ollamaKeepAliveByModel ?? const <String, String>{},
-      ollamaThinkingByModel:
-          saved?.ollamaThinkingByModel ?? const <String, String>{},
-      allowSelfSignedCertificates: saved?.allowSelfSignedCertificates ?? false,
-      mtlsCertificateChainPem: saved?.mtlsCertificateChainPem,
-      mtlsCertificateLabel: saved?.mtlsCertificateLabel,
-      mtlsPrivateKeyPem: saved?.mtlsPrivateKeyPem,
-      mtlsPrivateKeyLabel: saved?.mtlsPrivateKeyLabel,
-      mtlsPrivateKeyPassword: saved?.mtlsPrivateKeyPassword,
+      apiKeyDirty: apiKeyDirty,
+      originBoundSecretsReviewed: originBoundSecretsReviewed,
+      name: name.text,
+      baseUrl: baseUrl.text,
+      apiKey: apiKey.text,
+      apiVersion: apiVersion.text,
+      modelIdPrefix: modelIdPrefix.text,
+      tags: tags.text,
+      models: models.text,
+      customHeaders: customHeaders,
     );
-    final safeProfile = secureDirectDraftForEditedOrigin(
-      previous: saved,
-      draft: profile,
-      secretsConfirmedForNewOrigin: originBoundSecretsReviewed,
-    );
-    final profileError = safeProfile.validateOrNull();
-    if (profileError != null) {
-      _errors = DirectDraftErrors(profile: profileError);
-      if (validateFields) notifyListeners();
-      return DirectDraftBuildResult(errors: errors);
+    final result = draft.build(openWebUiFallbackName: openWebUiFallbackName);
+    _errors = result.errors;
+    if (validateFields && errors.hasAny) notifyListeners();
+    return result;
+  }
+
+  Future<DirectEditorActionResult> save({
+    required DirectEditorMessages messages,
+    required DirectCredentialTransferConfirmation confirmCredentialTransfer,
+    required DirectEditorOwnerCheck ownerIsCurrent,
+    DirectConnectionProfile? testedDraft,
+  }) async {
+    if (state.isBusy) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
     }
-    return DirectDraftBuildResult(profile: safeProfile, errors: errors);
+    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_beginOperation(DirectEditorOperation.saving)) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    final draft =
+        testedDraft ??
+        buildDraft(
+          validateFields: true,
+          openWebUiFallbackName: messages.openWebUiFallbackName,
+        ).profile;
+    if (draft == null) {
+      _finishOperation();
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.invalidDraft,
+      );
+    }
+    if (!await _confirmCredentialTransfer(draft, confirmCredentialTransfer)) {
+      if (!_disposed) _finishOperation();
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+
+    try {
+      if (isOpenWebUi) {
+        await gateway.saveOpenWebUi(
+          draft: draft,
+          previous: savedOpenWebUiRecord,
+          isNew: isNew,
+          authType: switch (authentication) {
+            DirectAuthenticationMode.bearer => 'bearer',
+            DirectAuthenticationMode.none => 'none',
+            DirectAuthenticationMode.apiKeyHeader ||
+            DirectAuthenticationMode.unsupported => null,
+          },
+        );
+      } else {
+        await gateway.saveLocal(
+          draft: draft,
+          expectedPrevious: savedProfile,
+          secretsConfirmedForNewOrigin:
+              !originChanged ||
+              !savedHasOriginBoundSecrets ||
+              originSecretsConfirmed,
+        );
+      }
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      _finishOperation(clearError: true);
+      return DirectEditorActionResult(
+        DirectEditorActionOutcome.succeeded,
+        profile: draft,
+      );
+    } on DirectConnectionProfileConflictException catch (error) {
+      return _conflict(messages, error);
+    } on OpenWebUiDirectConnectionConflictException catch (error) {
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      return _conflict(messages, error);
+    } catch (error) {
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      _finishOperation(error: messages.saveFailed);
+      return DirectEditorActionResult(
+        DirectEditorActionOutcome.failed,
+        error: error,
+      );
+    }
+  }
+
+  Future<DirectEditorActionResult> testConnection({
+    required DirectEditorMessages messages,
+    required DirectCredentialTransferConfirmation confirmCredentialTransfer,
+    required DirectEditorOwnerCheck ownerIsCurrent,
+  }) async {
+    if (state.isBusy) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_beginOperation(DirectEditorOperation.testing)) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    final draft = buildDraft(
+      validateFields: true,
+      openWebUiFallbackName: messages.openWebUiFallbackName,
+    ).profile;
+    if (draft == null) {
+      _finishOperation();
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.invalidDraft,
+      );
+    }
+    if (!await _confirmCredentialTransfer(draft, confirmCredentialTransfer)) {
+      if (!_disposed) _finishOperation();
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+    _setAttempt(ConnectionAttemptState.connecting(messages.connecting));
+    try {
+      final probe = await gateway.probe(draft);
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      final message = messages.probeMessage(probe);
+      _finishOperation(
+        attempt: probe.reachable
+            ? ConnectionAttemptState.connected(message)
+            : ConnectionAttemptState.failed(message),
+      );
+      return DirectEditorActionResult(
+        probe.reachable
+            ? DirectEditorActionOutcome.succeeded
+            : DirectEditorActionOutcome.unreachable,
+        profile: probe.reachable ? draft : null,
+      );
+    } catch (error) {
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      _finishOperation(
+        attempt: ConnectionAttemptState.failed(messages.reachFailed),
+      );
+      return DirectEditorActionResult(
+        DirectEditorActionOutcome.failed,
+        error: error,
+      );
+    }
+  }
+
+  Future<DirectEditorActionResult> connectAndSave({
+    required DirectEditorMessages messages,
+    required DirectCredentialTransferConfirmation confirmCredentialTransfer,
+    required DirectEditorOwnerCheck ownerIsCurrent,
+  }) async {
+    final tested = await testConnection(
+      messages: messages,
+      confirmCredentialTransfer: confirmCredentialTransfer,
+      ownerIsCurrent: ownerIsCurrent,
+    );
+    if (!tested.succeeded || tested.profile == null) return tested;
+    return save(
+      messages: messages,
+      confirmCredentialTransfer: confirmCredentialTransfer,
+      ownerIsCurrent: ownerIsCurrent,
+      testedDraft: tested.profile,
+    );
+  }
+
+  Future<DirectEditorActionResult> delete({
+    required DirectEditorMessages messages,
+    required DirectDeleteConfirmation confirmDelete,
+    required DirectEditorOwnerCheck ownerIsCurrent,
+  }) async {
+    if (state.isBusy) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    final saved = savedProfile;
+    if (saved == null) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.invalidDraft,
+      );
+    }
+    if (!ownerIsCurrent()) return _unavailable(messages);
+    if (!_beginOperation(DirectEditorOperation.deleting)) {
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+    final confirmed = await confirmDelete(saved);
+    if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+    if (!confirmed) {
+      _finishOperation();
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.cancelled,
+      );
+    }
+
+    var clearedDirectPreference = false;
+    try {
+      clearedDirectPreference = await gateway.clearDirectPreferenceIfLastUsable(
+        saved.id,
+      );
+      if (!_canContinue(ownerIsCurrent)) {
+        if (clearedDirectPreference) {
+          await gateway.restoreDirectPreference();
+        }
+        return _unavailable(messages);
+      }
+      if (isOpenWebUi) {
+        final record = savedOpenWebUiRecord;
+        if (record == null) {
+          throw StateError('Open WebUI direct connection not found.');
+        }
+        await gateway.deleteOpenWebUi(record);
+      } else {
+        await gateway.deleteLocal(saved.id);
+      }
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      _finishOperation(clearError: true);
+      return const DirectEditorActionResult(
+        DirectEditorActionOutcome.succeeded,
+      );
+    } catch (error) {
+      final deletionMayHaveCommitted =
+          isOpenWebUi &&
+          error is OpenWebUiDirectConnectionCommitUncertainException;
+      if (clearedDirectPreference && !deletionMayHaveCommitted) {
+        await gateway.restoreDirectPreference();
+      }
+      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      _finishOperation();
+      return DirectEditorActionResult(
+        DirectEditorActionOutcome.failed,
+        error: error,
+      );
+    }
+  }
+
+  Future<bool> _confirmCredentialTransfer(
+    DirectConnectionProfile draft,
+    DirectCredentialTransferConfirmation confirm,
+  ) async {
+    if (originSecretsConfirmed ||
+        !requiresDirectOriginCredentialConfirmation(
+          previous: savedProfile,
+          draft: draft,
+        )) {
+      return true;
+    }
+    final confirmed = await confirm(draft);
+    if (confirmed && !_disposed) {
+      _originSecretsConfirmed = true;
+      notifyListeners();
+    }
+    return confirmed;
+  }
+
+  DirectEditorActionResult _conflict(
+    DirectEditorMessages messages,
+    Object error,
+  ) {
+    _finishOperation(error: messages.saveConflict);
+    return DirectEditorActionResult(
+      DirectEditorActionOutcome.conflict,
+      error: error,
+    );
+  }
+
+  DirectEditorActionResult _unavailable(DirectEditorMessages messages) {
+    if (!_disposed) _finishOperation(error: messages.unavailable);
+    return const DirectEditorActionResult(
+      DirectEditorActionOutcome.unavailable,
+    );
+  }
+
+  bool _canContinue(DirectEditorOwnerCheck ownerIsCurrent) =>
+      !_disposed && ownerIsCurrent();
+
+  void _updateTextFields(VoidCallback update) {
+    _updatingTextFields = true;
+    try {
+      update();
+    } finally {
+      _updatingTextFields = false;
+    }
   }
 
   void _headersChanged() {
@@ -617,6 +755,14 @@ final class DirectConnectionEditorController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    name.removeListener(_generalTextChanged);
+    baseUrl.removeListener(_baseUrlTextChanged);
+    apiKey.removeListener(_apiKeyTextChanged);
+    apiVersion.removeListener(_generalTextChanged);
+    modelIdPrefix.removeListener(_generalTextChanged);
+    tags.removeListener(_generalTextChanged);
+    models.removeListener(_generalTextChanged);
     name.dispose();
     baseUrl.dispose();
     apiKey.dispose();
@@ -627,45 +773,4 @@ final class DirectConnectionEditorController extends ChangeNotifier {
     headers.dispose();
     super.dispose();
   }
-}
-
-final class DirectDraftErrors {
-  const DirectDraftErrors({
-    this.name,
-    this.url,
-    this.apiKey,
-    this.form,
-    this.profile,
-  });
-
-  final DirectDraftValidationIssue? name;
-  final DirectDraftValidationIssue? url;
-  final DirectDraftValidationIssue? apiKey;
-  final DirectDraftValidationIssue? form;
-  final String? profile;
-
-  bool get hasAny =>
-      name != null ||
-      url != null ||
-      apiKey != null ||
-      form != null ||
-      profile != null;
-
-  DirectDraftErrors copyWith({
-    bool clearApiKey = false,
-    bool clearForm = false,
-  }) => DirectDraftErrors(
-    name: name,
-    url: url,
-    apiKey: clearApiKey ? null : apiKey,
-    form: clearForm ? null : form,
-    profile: clearForm ? null : profile,
-  );
-}
-
-final class DirectDraftBuildResult {
-  const DirectDraftBuildResult({this.profile, required this.errors});
-
-  final DirectConnectionProfile? profile;
-  final DirectDraftErrors errors;
 }

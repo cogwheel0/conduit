@@ -1,6 +1,46 @@
-import 'sidebar_tab_descriptor.dart';
+import 'package:flutter/foundation.dart';
 
-export 'sidebar_tab_descriptor.dart';
+/// Stable, persistence-safe identity for a sidebar destination.
+enum SidebarTabId { chats, hermes, terminal, notes, channels }
+
+/// Data-only capability snapshot used to decide which destinations exist.
+@immutable
+final class SidebarTabAvailability {
+  const SidebarTabAvailability({
+    required this.hermesOnly,
+    required this.hasOpenWebUi,
+    required this.hermesEnabled,
+    required this.notesEnabled,
+    required this.terminalEnabled,
+    required this.channelsEnabled,
+  });
+
+  final bool hermesOnly;
+  final bool hasOpenWebUi;
+  final bool hermesEnabled;
+  final bool notesEnabled;
+  final bool terminalEnabled;
+  final bool channelsEnabled;
+}
+
+/// Resolves visible destinations without importing feature widgets.
+List<SidebarTabId> visibleSidebarTabs(SidebarTabAvailability availability) => [
+  if (!availability.hermesOnly) SidebarTabId.chats,
+  if (availability.hermesOnly || availability.hermesEnabled)
+    SidebarTabId.hermes,
+  if (availability.hasOpenWebUi &&
+      !availability.hermesOnly &&
+      availability.notesEnabled)
+    SidebarTabId.notes,
+  if (availability.hasOpenWebUi &&
+      !availability.hermesOnly &&
+      availability.terminalEnabled)
+    SidebarTabId.terminal,
+  if (availability.hasOpenWebUi &&
+      !availability.hermesOnly &&
+      availability.channelsEnabled)
+    SidebarTabId.channels,
+];
 
 SidebarTabId resolveSidebarTabSelection({
   required SidebarTabId persistedTab,
@@ -21,17 +61,15 @@ SidebarTabId resolveSidebarTabSelection({
 /// while asynchronous server capabilities are changing.
 final class SidebarNavigationSnapshot {
   SidebarNavigationSnapshot({
-    required List<SidebarTabDescriptor> tabs,
+    required List<SidebarTabId> tabs,
     required this.selectedTab,
     this.isLegacySelection = false,
   }) : tabs = List.unmodifiable(tabs);
 
-  final List<SidebarTabDescriptor> tabs;
+  final List<SidebarTabId> tabs;
   final SidebarTabId selectedTab;
   final bool isLegacySelection;
 
-  List<SidebarTabId> get tabIds => [for (final tab in tabs) tab.id];
-  int get selectedIndex => tabs.indexWhere((tab) => tab.id == selectedTab);
-  SidebarTabDescriptor get selectedDescriptor => tabs[selectedIndex];
-  bool isVisible(SidebarTabId tab) => tabs.any((item) => item.id == tab);
+  int get selectedIndex => tabs.indexOf(selectedTab);
+  bool isVisible(SidebarTabId tab) => tabs.contains(tab);
 }

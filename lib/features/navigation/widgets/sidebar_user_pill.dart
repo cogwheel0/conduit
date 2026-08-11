@@ -33,6 +33,7 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+import 'sidebar_tab_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -256,10 +257,8 @@ String sidebarProfileFallbackRouteName({
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
-  return ref
-      .watch(sidebarNavigationSnapshotProvider)
-      .selectedDescriptor
-      .searchHint(l10n);
+  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
+  return sidebarTabDescriptor(selectedTab).searchHint(l10n);
 }
 
 /// Builds one stable native glass avatar button on iOS 26 and Flutter

@@ -54,25 +54,20 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return const _WorkspaceKnowledgeForm(
-        mode: WorkspaceRouteMode.create,
-        summary: null,
-      );
-    }
-
-    final id = knowledgeId;
-    final detail = id == null || id.isEmpty
-        ? null
-        : ref.watch(workspaceKnowledgeDetailProvider(id));
-    return WorkspaceResourceEditorHost<WorkspaceKnowledgeDetail>(
+    return WorkspaceResourceEditorRoute<WorkspaceKnowledgeDetail>(
       title: l10n.workspaceKnowledge,
       section: WorkspaceSection.knowledge,
       mode: mode,
-      resourceId: id,
-      detail: detail,
+      resourceId: knowledgeId,
       errorMessage: l10n.workspaceLoadFailed,
-      onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id!)),
+      createBuilder: () => const _WorkspaceKnowledgeForm(
+        mode: WorkspaceRouteMode.create,
+        summary: null,
+      ),
+      detailLoader: (ref, id) =>
+          ref.watch(workspaceKnowledgeDetailProvider(id)),
+      onRetry: (ref, id) =>
+          ref.invalidate(workspaceKnowledgeDetailProvider(id)),
       builder: (value) => _WorkspaceKnowledgeForm(
         key: ValueKey(
           'workspace-knowledge-form-${value.summary.id}-${mode.name}',
@@ -102,21 +97,13 @@ class _WorkspaceKnowledgeFormState
   late List<WorkspaceAccessGrantInput> _grants;
 
   late final WorkspaceEditorSession _session;
-  bool get _dirty => _session.dirty;
-  set _dirty(bool value) => _session.dirty = value;
-  bool get _saving => _session.saving;
-  set _saving(bool value) => _session.saving = value;
-  String? get _errorMessage => _session.errorMessage;
-  set _errorMessage(String? value) => _session.errorMessage = value;
-
-  bool get _isCreate => _session.isCreate;
-  bool get _isDetail => _session.isDetail;
   bool get _isExternal => widget.summary?.isExternal ?? false;
-  bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
+  bool get _writeAccess =>
+      _session.isCreate || (widget.summary?.writeAccess ?? false);
 
   /// Metadata fields are editable only in create/edit modes with write access on
   /// a local base. Detail is read-only for fields (edit via the Edit button).
-  bool get _fieldsReadOnly => _isExternal || !_writeAccess || _isDetail;
+  bool get _fieldsReadOnly => _isExternal || !_writeAccess || _session.isDetail;
 
   /// The file browser is manageable in both detail and edit for local, writable
   /// bases; external/connected bases are always read-only.
@@ -148,22 +135,25 @@ class _WorkspaceKnowledgeFormState
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _session.dispose();
     super.dispose();
   }
 
   void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+    if (!_session.dirty) setState(() => _session.dirty = true);
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceKnowledgeNameRequired);
+      setState(
+        () => _session.errorMessage = l10n.workspaceKnowledgeNameRequired,
+      );
       return;
     }
     setState(() {
-      _saving = true;
-      _errorMessage = null;
+      _session.saving = true;
+      _session.errorMessage = null;
     });
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
@@ -172,19 +162,19 @@ class _WorkspaceKnowledgeFormState
       accessGrants: _grants,
     );
     try {
-      final WorkspaceKnowledgeDetail result = _isCreate
+      final WorkspaceKnowledgeDetail result = _session.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       DebugLogger.log(
         'knowledge saved',
         scope: 'workspace/knowledge',
-        data: {'id': result.summary.id, 'create': _isCreate},
+        data: {'id': result.summary.id, 'create': _session.isCreate},
       );
       _showSnack(l10n.workspaceKnowledgeSaved);
       final router = GoRouter.of(context);
-      if (_isCreate) {
+      if (_session.isCreate) {
         router.pushReplacement(
           WorkspaceSection.knowledge.routes.detailLocation(result.summary.id),
         );
@@ -200,8 +190,8 @@ class _WorkspaceKnowledgeFormState
       );
       if (!mounted) return;
       setState(() {
-        _saving = false;
-        _errorMessage = l10n.workspaceKnowledgeSaveFailed;
+        _session.saving = false;
+        _session.errorMessage = l10n.workspaceKnowledgeSaveFailed;
       });
     }
   }
@@ -231,7 +221,7 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref
           .read(workspaceKnowledgeProvider.notifier)
@@ -249,7 +239,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -266,7 +256,7 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
       if (!mounted) return;
@@ -283,7 +273,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -328,11 +318,11 @@ class _WorkspaceKnowledgeFormState
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       _showSnack(l10n.workspaceKnowledgeDeleted);
       if (router.canPop()) {
         router.pop();
@@ -347,18 +337,23 @@ class _WorkspaceKnowledgeFormState
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
         _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
       }
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _session,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final summary = widget.summary;
-    final title = _isCreate
+    final title = _session.isCreate
         ? l10n.workspaceKnowledgeCreateTitle
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceKnowledge
@@ -368,21 +363,21 @@ class _WorkspaceKnowledgeFormState
       title: title,
       section: WorkspaceSection.knowledge,
       mode: widget.mode,
-      isDirty: _dirty && !_saving,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _fieldsReadOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
-      onEdit: _isDetail && _writeAccess && !_isExternal
+      onEdit: _session.isDetail && _writeAccess && !_isExternal
           ? () => context.push(
               WorkspaceSection.knowledge.routes.editLocation(summary!.id),
             )
           : null,
-      errorMessage: _errorMessage,
+      errorMessage: _session.errorMessage,
       actions: _buildActions(l10n),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
+        absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-knowledge-editor-body'),
           padding: EdgeInsets.fromLTRB(
@@ -415,7 +410,7 @@ class _WorkspaceKnowledgeFormState
               title: l10n.workspaceKnowledge,
               child: Column(
                 children: [
-                  if (_isDetail) ...[
+                  if (_session.isDetail) ...[
                     UtilityValueRow(
                       key: const Key('workspace-knowledge-name'),
                       label: l10n.workspaceKnowledgeName,
@@ -451,7 +446,7 @@ class _WorkspaceKnowledgeFormState
             ),
             const SizedBox(height: Spacing.xl),
             _accessTile(l10n),
-            if (!_isCreate && summary != null) ...[
+            if (!_session.isCreate && summary != null) ...[
               const SizedBox(height: Spacing.xl),
               WorkspaceKnowledgeFileBrowser(
                 key: Key('workspace-knowledge-files-${summary.id}'),
@@ -482,7 +477,7 @@ class _WorkspaceKnowledgeFormState
   }
 
   List<WorkspaceEditorAction> _buildActions(AppLocalizations l10n) {
-    if (_isCreate) return const [];
+    if (_session.isCreate) return const [];
     final summary = widget.summary;
     if (summary == null) return const [];
     final capabilities = ref

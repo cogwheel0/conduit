@@ -371,9 +371,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     if (widget.isOnboarding) {
       return UtilityPageScaffold.auth(
         title: l10n.backendChooserHermesTitle,
-        backLabel: l10n.back,
-        backButtonKey: const ValueKey<String>('hermes-onboarding-back-button'),
-        onBack: _leaveOnboarding,
+        backNavigation: UtilityBackNavigation(
+          label: l10n.back,
+          buttonKey: const ValueKey<String>('hermes-onboarding-back-button'),
+          onPressed: _leaveOnboarding,
+        ),
         bottomAction: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

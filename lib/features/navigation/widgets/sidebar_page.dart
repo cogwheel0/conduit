@@ -14,7 +14,6 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
-import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
@@ -22,6 +21,7 @@ import '../../terminal/models/terminal_models.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../terminal/widgets/terminal_sidebar_controls_sheet.dart';
 import 'sidebar_user_pill.dart';
+import 'sidebar_tab_registry.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
 const double _kSidebarNavigationBarHeight = 56;
@@ -447,7 +447,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
-    final tabs = navigation.tabs;
+    final tabs = [
+      for (final tabId in navigation.tabs) sidebarTabDescriptor(tabId),
+    ];
     final hasMultipleTabs = tabs.length > 1;
     final persistentTabletSidebar = PersistentTabletSidebarScope.isActive(
       context,
@@ -464,7 +466,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       context,
     );
     final isTerminalTabActive =
-        navigation.selectedDescriptor.selectionPolicy ==
+        sidebarTabDescriptor(navigation.selectedTab).selectionPolicy ==
         SidebarSelectionPolicy.terminal;
     final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
     final appBarActions = _sidebarAppBarActions(

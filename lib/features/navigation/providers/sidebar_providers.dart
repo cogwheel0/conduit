@@ -76,11 +76,7 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
     terminalEnabled: ref.watch(terminalTabVisibleProvider),
     channelsEnabled: ref.watch(channelsFeatureEnabledProvider),
   );
-  final tabs = [
-    for (final descriptor in sidebarTabRegistry)
-      if (descriptor.isVisible(availability)) descriptor,
-  ];
-  final visibleTabs = [for (final descriptor in tabs) descriptor.id];
+  final tabs = visibleSidebarTabs(availability);
   final persistedTab = ref.watch(sidebarActiveTabProvider);
   final legacyIndex = ref
       .read(sidebarActiveTabProvider.notifier)
@@ -91,7 +87,7 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
     selectedTab: resolveSidebarTabSelection(
       persistedTab: persistedTab,
       legacyIndex: legacyIndex,
-      visibleTabs: visibleTabs,
+      visibleTabs: tabs,
     ),
   );
 });

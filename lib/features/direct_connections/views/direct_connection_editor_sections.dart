@@ -195,7 +195,6 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
               ),
               isRequired: true,
               textInputAction: TextInputAction.next,
-              onChanged: (_) => controller.markGeneralChanged(),
             ),
             const SizedBox(height: Spacing.md),
           ],
@@ -216,7 +215,6 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
               controller.errors.url,
             ),
             isRequired: true,
-            onChanged: (_) => controller.markBaseUrlChanged(),
           ),
           const SizedBox(height: Spacing.sm),
           Text(
@@ -330,7 +328,6 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                             : Icons.visibility),
                 ),
               ),
-              onChanged: (_) => controller.markApiKeyChanged(),
             ),
           ],
         ],
@@ -432,7 +429,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           ),
           textInputAction: TextInputAction.next,
           autocorrect: false,
-          onChanged: (_) => controller.markHeaderInputChanged(),
           onSubmitted: (_) => controller.headerValueFocusNode.requestFocus(),
         ),
         const SizedBox(height: Spacing.md),
@@ -444,7 +440,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           focusNode: controller.headerValueFocusNode,
           textInputAction: TextInputAction.done,
           autocorrect: false,
-          onChanged: (_) => controller.markHeaderInputChanged(),
           onSubmitted: (_) {
             if (controller.canAddCustomHeader) controller.addCustomHeader();
           },
@@ -524,7 +519,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           controller: controller.modelIdPrefix,
           textInputAction: TextInputAction.next,
           autocorrect: false,
-          onChanged: (_) => controller.markGeneralChanged(),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -539,7 +533,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           controller: controller.tags,
           textInputAction: TextInputAction.next,
           autocorrect: false,
-          onChanged: (_) => controller.markGeneralChanged(),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -557,7 +550,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           keyboardType: TextInputType.multiline,
           textInputAction: TextInputAction.newline,
           autocorrect: false,
-          onChanged: (_) => controller.markGeneralChanged(),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -636,7 +628,6 @@ final class _AdvancedApiBehavior extends StatelessWidget {
             controller: controller.apiVersion,
             textInputAction: TextInputAction.next,
             autocorrect: false,
-            onChanged: (_) => controller.markGeneralChanged(),
           ),
           const SizedBox(height: Spacing.sm),
           Text(

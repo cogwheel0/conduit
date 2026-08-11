@@ -56,26 +56,19 @@ class WorkspaceModelEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return _WorkspaceModelForm(
-        mode: mode,
-        initialDraft: WorkspaceModelDraft.empty(),
-        writeAccess: true,
-      );
-    }
-
-    final id = modelId;
-    final detail = id == null || id.isEmpty
-        ? null
-        : ref.watch(workspaceModelDetailProvider(id));
-    return WorkspaceResourceEditorHost<WorkspaceModelDetail>(
+    return WorkspaceResourceEditorRoute<WorkspaceModelDetail>(
       title: l10n.workspaceModels,
       section: WorkspaceSection.models,
       mode: mode,
-      resourceId: id,
-      detail: detail,
+      resourceId: modelId,
       errorMessage: l10n.workspaceLoadFailed,
-      onRetry: () => ref.invalidate(workspaceModelDetailProvider(id!)),
+      createBuilder: () => _WorkspaceModelForm(
+        mode: mode,
+        initialDraft: WorkspaceModelDraft.empty(),
+        writeAccess: true,
+      ),
+      detailLoader: (ref, id) => ref.watch(workspaceModelDetailProvider(id)),
+      onRetry: (ref, id) => ref.invalidate(workspaceModelDetailProvider(id)),
       builder: (value) => _WorkspaceModelForm(
         key: ValueKey('workspace-model-form-${value.id}-${mode.name}'),
         mode: mode,
@@ -123,22 +116,14 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   TextEditingController get _builtinToolsController => _fields.builtinTools;
 
   late final WorkspaceEditorSession _session;
-  bool get _dirty => _session.dirty;
-  set _dirty(bool value) => _session.dirty = value;
-  bool get _saving => _session.saving;
-  set _saving(bool value) => _session.saving = value;
   bool _advancedExpanded = false;
-  String? get _errorMessage => _session.errorMessage;
-  set _errorMessage(String? value) => _session.errorMessage = value;
   String? _paramsError;
   // True once the user explicitly removes the avatar, so the editor renders the
   // placeholder instead of re-fetching the still-persisted server image (which
   // would silently undo the removal on screen until the model is saved).
   bool _avatarRemoved = false;
 
-  bool get _isCreate => _session.isCreate;
-  bool get _isDetail => _session.isDetail;
-  bool get _readOnly => !widget.writeAccess || _isDetail;
+  bool get _readOnly => !widget.writeAccess || _session.isDetail;
 
   WorkspaceModelRelationshipPicker _relationshipPicker(AppLocalizations l10n) =>
       WorkspaceModelRelationshipPicker(
@@ -177,17 +162,18 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   @override
   void dispose() {
     _fields.dispose();
+    _session.dispose();
     super.dispose();
   }
 
   void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+    if (!_session.dirty) setState(() => _session.dirty = true);
   }
 
   void _update(void Function() mutate) {
     setState(() {
       mutate();
-      _dirty = true;
+      _session.dirty = true;
     });
   }
 
@@ -229,7 +215,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (!_syncTextIntoDraft()) return;
     if (!_draft.isValid) {
       setState(
-        () => _errorMessage = _draft.id.trim().isEmpty
+        () => _session.errorMessage = _draft.id.trim().isEmpty
             ? AppLocalizations.of(context)!.workspaceModelIdRequired
             : AppLocalizations.of(context)!.workspaceModelNameRequired,
       );
@@ -237,25 +223,25 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
 
     setState(() {
-      _saving = true;
-      _errorMessage = null;
+      _session.saving = true;
+      _session.errorMessage = null;
     });
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
     try {
-      final WorkspaceModelDetail result = _isCreate
+      final WorkspaceModelDetail result = _session.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(form);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
       DebugLogger.log(
         'model saved',
         scope: 'workspace/models',
-        data: {'id': result.id, 'create': _isCreate},
+        data: {'id': result.id, 'create': _session.isCreate},
       );
       final router = GoRouter.of(context);
-      if (_isCreate) {
+      if (_session.isCreate) {
         router.pushReplacement(
           WorkspaceSection.models.routes.detailLocation(result.id),
         );
@@ -264,7 +250,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -275,8 +261,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!mounted) return;
       setState(() {
-        _saving = false;
-        _errorMessage = AppLocalizations.of(context)!.workspaceModelSaveFailed;
+        _session.saving = false;
+        _session.errorMessage = AppLocalizations.of(
+          context,
+        )!.workspaceModelSaveFailed;
       });
     }
   }
@@ -303,7 +291,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     // Clones do not inherit the source's access grants.
     clone.accessGrants = [];
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       final created = await ref
           .read(workspaceModelsProvider.notifier)
@@ -321,7 +309,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -335,7 +323,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // edits, then invalidates the detail provider — which rebuilds the editor
     // from the server response and discards any unsaved edits. Honour the same
     // discard-changes guard the navigation paths use before proceeding.
-    if (_dirty) {
+    if (_session.dirty) {
       final discard = await ThemedDialogs.confirm(
         context,
         title: l10n.workspaceEditorDiscardTitle,
@@ -346,11 +334,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -367,7 +355,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -376,17 +364,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (id.isEmpty) return;
     // There is no hidden-only endpoint, so this persists the whole model. Honour
     // the same validation as _save (abort on invalid params JSON) and reconcile
-    // _dirty on success so the discard-changes guard does not later prompt for
+    // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
     if (!_syncTextIntoDraft()) return;
     _draft.hidden = !_draft.hidden;
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateItem(_draft.toForm());
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -404,7 +392,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -424,11 +412,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref.read(workspaceModelsProvider.notifier).delete(id);
       if (!mounted) return;
-      _dirty = false;
+      _session.dirty = false;
       _showSnack(l10n.workspaceModelDeleted);
       if (router.canPop()) {
         router.pop();
@@ -443,7 +431,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _session.saving = false);
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -467,7 +455,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (grants == null || !mounted) return;
     final id = _draft.id;
     if (_readOnly || id.isEmpty) return;
-    setState(() => _saving = true);
+    setState(() => _session.saving = true);
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
@@ -485,7 +473,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _session.saving = false);
     }
   }
 
@@ -548,7 +536,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _session,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = ref
         .watch(workspaceCapabilitiesProvider)
@@ -556,7 +549,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
-    final title = _isCreate
+    final title = _session.isCreate
         ? l10n.workspaceModelNewTitle
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceModels
@@ -566,27 +559,27 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       title: title,
       section: WorkspaceSection.models,
       mode: widget.mode,
-      isDirty: _dirty && !_saving,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _readOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_readOnly,
       onSave: _readOnly ? null : _save,
-      onEdit: _isDetail && widget.writeAccess
+      onEdit: _session.isDetail && widget.writeAccess
           ? () => context.push(
               WorkspaceSection.models.routes.editLocation(_draft.id),
             )
           : null,
-      errorMessage: _errorMessage,
+      errorMessage: _session.errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
+        absorbing: _session.saving,
         child: WorkspaceModelEditorBody(
           draft: _draft,
           fields: _fields,
           profileImage: _profileImage(l10n),
-          isCreate: _isCreate,
-          isDetail: _isDetail,
+          isCreate: _session.isCreate,
+          isDetail: _session.isDetail,
           readOnly: _readOnly,
           advancedExpanded: _advancedExpanded,
           paramsError: _paramsError,
@@ -616,7 +609,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     AppLocalizations l10n,
     WorkspaceCapabilities capabilities,
   ) {
-    if (_isCreate) {
+    if (_session.isCreate) {
       return [
         if (capabilities.models.importItems)
           WorkspaceEditorAction(

@@ -15,8 +15,8 @@ import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../notes/providers/notes_providers.dart';
-import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
+import '../widgets/sidebar_tab_registry.dart';
 
 class SidebarCreateActionSpec {
   const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
@@ -26,10 +26,8 @@ class SidebarCreateActionSpec {
 }
 
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
-  final kind = ref
-      .watch(sidebarNavigationSnapshotProvider)
-      .selectedDescriptor
-      .createAction;
+  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
+  final kind = sidebarTabDescriptor(selectedTab).createAction;
   if (kind == null) {
     return null;
   }
@@ -51,10 +49,8 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 }
 
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
-  final kind = ref
-      .read(sidebarNavigationSnapshotProvider)
-      .selectedDescriptor
-      .createAction;
+  final selectedTab = ref.read(sidebarNavigationSnapshotProvider).selectedTab;
+  final kind = sidebarTabDescriptor(selectedTab).createAction;
   switch (kind) {
     case null:
       return;

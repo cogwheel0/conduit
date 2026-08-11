@@ -1140,9 +1140,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     return UtilityPageScaffold.auth(
       title: l10n.backendChooserOpenWebUITitle,
-      backLabel: l10n.back,
-      backButtonKey: const ValueKey<String>('server-connection-back-button'),
-      onBack: () => context.go(Routes.backendChooser),
+      backNavigation: UtilityBackNavigation(
+        label: l10n.back,
+        buttonKey: const ValueKey<String>('server-connection-back-button'),
+        onPressed: () => context.go(Routes.backendChooser),
+      ),
       bottomAction: _buildConnectButton(),
       body: Form(
         key: _formKey,

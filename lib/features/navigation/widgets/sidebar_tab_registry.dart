@@ -5,9 +5,8 @@ import '../../channels/widgets/channel_list_tab.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import '../../terminal/widgets/terminal_tab.dart';
-import '../widgets/chats_drawer.dart';
-
-enum SidebarTabId { chats, hermes, terminal, notes, channels }
+import '../models/sidebar_navigation_model.dart';
+import 'chats_drawer.dart';
 
 const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
 
@@ -15,36 +14,15 @@ enum SidebarCreateActionKind { chat, hermesChat, note, channel }
 
 enum SidebarSelectionPolicy { standard, terminal }
 
-enum SidebarTabVisibility { chats, hermes, notes, terminal, channels }
-
-@immutable
-final class SidebarTabAvailability {
-  const SidebarTabAvailability({
-    required this.hermesOnly,
-    required this.hasOpenWebUi,
-    required this.hermesEnabled,
-    required this.notesEnabled,
-    required this.terminalEnabled,
-    required this.channelsEnabled,
-  });
-
-  final bool hermesOnly;
-  final bool hasOpenWebUi;
-  final bool hermesEnabled;
-  final bool notesEnabled;
-  final bool terminalEnabled;
-  final bool channelsEnabled;
-}
-
 typedef SidebarTabLabelBuilder = String Function(AppLocalizations l10n);
 typedef SidebarTabBodyBuilder =
     Widget Function({required bool showBottomNavigation, required bool active});
 
+/// Presentation and composition metadata consumed only by the sidebar UI.
 @immutable
 final class SidebarTabDescriptor {
   const SidebarTabDescriptor({
     required this.id,
-    required this.visibility,
     required this.labelBuilder,
     required this.searchHintBuilder,
     required this.bodyBuilder,
@@ -58,7 +36,6 @@ final class SidebarTabDescriptor {
   });
 
   final SidebarTabId id;
-  final SidebarTabVisibility visibility;
   final SidebarTabLabelBuilder labelBuilder;
   final SidebarTabLabelBuilder searchHintBuilder;
   final SidebarTabBodyBuilder bodyBuilder;
@@ -72,24 +49,6 @@ final class SidebarTabDescriptor {
 
   String label(AppLocalizations l10n) => labelBuilder(l10n);
   String searchHint(AppLocalizations l10n) => searchHintBuilder(l10n);
-
-  bool isVisible(SidebarTabAvailability availability) => switch (visibility) {
-    SidebarTabVisibility.chats => !availability.hermesOnly,
-    SidebarTabVisibility.hermes =>
-      availability.hermesOnly || availability.hermesEnabled,
-    SidebarTabVisibility.notes =>
-      availability.hasOpenWebUi &&
-          !availability.hermesOnly &&
-          availability.notesEnabled,
-    SidebarTabVisibility.terminal =>
-      availability.hasOpenWebUi &&
-          !availability.hermesOnly &&
-          availability.terminalEnabled,
-    SidebarTabVisibility.channels =>
-      availability.hasOpenWebUi &&
-          !availability.hermesOnly &&
-          availability.channelsEnabled,
-  };
 
   ValueKey<String> get layerKey =>
       ValueKey<String>('sidebar-tab-layer-${id.name}');
@@ -130,7 +89,6 @@ Widget _channelsBody({
 const sidebarTabRegistry = <SidebarTabDescriptor>[
   SidebarTabDescriptor(
     id: SidebarTabId.chats,
-    visibility: SidebarTabVisibility.chats,
     labelBuilder: _chatsLabel,
     searchHintBuilder: _conversationSearchHint,
     bodyBuilder: _chatsBody,
@@ -142,7 +100,6 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.hermes,
-    visibility: SidebarTabVisibility.hermes,
     labelBuilder: _hermesLabel,
     searchHintBuilder: _conversationSearchHint,
     bodyBuilder: _hermesBody,
@@ -155,7 +112,6 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.notes,
-    visibility: SidebarTabVisibility.notes,
     labelBuilder: _notesLabel,
     searchHintBuilder: _notesSearchHint,
     bodyBuilder: _notesBody,
@@ -167,7 +123,6 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.terminal,
-    visibility: SidebarTabVisibility.terminal,
     labelBuilder: _terminalLabel,
     searchHintBuilder: _terminalSearchHint,
     bodyBuilder: _terminalBody,
@@ -179,7 +134,6 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
   ),
   SidebarTabDescriptor(
     id: SidebarTabId.channels,
-    visibility: SidebarTabVisibility.channels,
     labelBuilder: _channelsLabel,
     searchHintBuilder: _channelsSearchHint,
     bodyBuilder: _channelsBody,

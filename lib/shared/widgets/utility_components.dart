@@ -14,97 +14,87 @@ import 'platform_ui/platform_ui.dart';
 /// The native scaffold owns the navigation inset. Content therefore starts at
 /// one standard page gap, avoiding a second status-bar and app-bar offset on
 /// iOS.
+@immutable
+final class UtilityBackNavigation {
+  const UtilityBackNavigation({
+    required this.label,
+    required this.buttonKey,
+    required this.onPressed,
+  });
+
+  final String label;
+  final Key buttonKey;
+  final VoidCallback onPressed;
+}
+
 class UtilityPageScaffold extends StatefulWidget {
-  const UtilityPageScaffold({
+  UtilityPageScaffold._({
     super.key,
     required this.title,
-    required this.children,
-    this.body,
-    this.appBar,
-    this.controller,
-    this.maxWidth = 640,
+    required List<Widget> content,
+    required this.maxWidth,
+    required this.interactiveScrollbar,
     this.bottomAction,
     this.backgroundColor,
     this.physics,
     this.contentPadding,
-    this.backLabel,
-    this.backButtonKey,
-    this.onBack,
-    this.interactiveScrollbar = false,
+    this.backNavigation,
     this.bottomActionPadding,
-  }) : assert(body == null),
-       assert(
-         (backLabel == null && backButtonKey == null && onBack == null) ||
-             (backLabel != null && backButtonKey != null && onBack != null),
-         'Back label, key, and callback must be supplied together.',
-       );
+  }) : content = List<Widget>.unmodifiable(content);
 
-  const UtilityPageScaffold.auth({
-    super.key,
-    required this.title,
-    required this.body,
-    this.backLabel,
-    this.backButtonKey,
-    this.onBack,
-    this.bottomAction,
-    this.backgroundColor,
-  }) : children = null,
-       appBar = null,
-       controller = null,
-       maxWidth = 480,
-       physics = const BouncingScrollPhysics(
-         parent: AlwaysScrollableScrollPhysics(),
-       ),
-       contentPadding = const EdgeInsets.fromLTRB(
-         Spacing.pagePadding,
-         Spacing.lg,
-         Spacing.pagePadding,
-         Spacing.xl,
-       ),
-       interactiveScrollbar = true,
-       bottomActionPadding = const EdgeInsets.fromLTRB(
-         Spacing.pagePadding,
-         Spacing.md,
-         Spacing.pagePadding,
-         Spacing.md,
-       ),
-       assert(
-         (backLabel == null && backButtonKey == null && onBack == null) ||
-             (backLabel != null && backButtonKey != null && onBack != null),
-         'Back label, key, and callback must be supplied together.',
-       );
+  factory UtilityPageScaffold.auth({
+    Key? key,
+    required String title,
+    required Widget body,
+    UtilityBackNavigation? backNavigation,
+    Widget? bottomAction,
+    Color? backgroundColor,
+  }) => UtilityPageScaffold._(
+    key: key,
+    title: title,
+    content: [body],
+    maxWidth: 480,
+    bottomAction: bottomAction,
+    backgroundColor: backgroundColor,
+    physics: const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
+    ),
+    contentPadding: const EdgeInsets.fromLTRB(
+      Spacing.pagePadding,
+      Spacing.lg,
+      Spacing.pagePadding,
+      Spacing.xl,
+    ),
+    backNavigation: backNavigation,
+    interactiveScrollbar: true,
+    bottomActionPadding: const EdgeInsets.fromLTRB(
+      Spacing.pagePadding,
+      Spacing.md,
+      Spacing.pagePadding,
+      Spacing.md,
+    ),
+  );
 
-  const UtilityPageScaffold.settings({
-    super.key,
-    required this.title,
-    required this.children,
-  }) : body = null,
-       appBar = null,
-       controller = null,
-       maxWidth = 640,
-       bottomAction = null,
-       backgroundColor = null,
-       physics = null,
-       contentPadding = null,
-       backLabel = null,
-       backButtonKey = null,
-       onBack = null,
-       interactiveScrollbar = false,
-       bottomActionPadding = null;
+  factory UtilityPageScaffold.settings({
+    Key? key,
+    required String title,
+    required List<Widget> children,
+  }) => UtilityPageScaffold._(
+    key: key,
+    title: title,
+    content: children,
+    maxWidth: 640,
+    interactiveScrollbar: false,
+  );
 
   final String title;
-  final List<Widget>? children;
-  final Widget? body;
-  final AdaptiveAppBar? appBar;
-  final ScrollController? controller;
+  final List<Widget> content;
   final double maxWidth;
   final Widget? bottomAction;
   final Color? backgroundColor;
   final ScrollPhysics? physics;
   final EdgeInsetsGeometry? contentPadding;
-  final String? backLabel;
-  final Key? backButtonKey;
-  final VoidCallback? onBack;
+  final UtilityBackNavigation? backNavigation;
   final bool interactiveScrollbar;
   final EdgeInsets? bottomActionPadding;
 
@@ -113,23 +103,11 @@ class UtilityPageScaffold extends StatefulWidget {
 }
 
 class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
-  ScrollController? _ownedController;
-
-  ScrollController get _controller =>
-      widget.controller ?? (_ownedController ??= ScrollController());
-
-  @override
-  void didUpdateWidget(covariant UtilityPageScaffold oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller == null && widget.controller != null) {
-      _ownedController?.dispose();
-      _ownedController = null;
-    }
-  }
+  final ScrollController _controller = ScrollController();
 
   @override
   void dispose() {
-    _ownedController?.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -142,9 +120,6 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
       Spacing.pagePadding,
       Spacing.pagePadding + mediaQuery.viewPadding.bottom,
     );
-    final content = widget.body == null
-        ? widget.children!
-        : <Widget>[widget.body!];
     final list = ListView(
       controller: _controller,
       primary: false,
@@ -154,7 +129,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       padding: widget.contentPadding ?? defaultPadding,
       children: [
-        for (final child in content)
+        for (final child in widget.content)
           Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: widget.maxWidth),
@@ -171,19 +146,20 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
             child: list,
           );
 
-    final backButton = widget.onBack == null
+    final backNavigation = widget.backNavigation;
+    final backButton = backNavigation == null
         ? null
         : AdaptiveTooltip(
-            message: widget.backLabel!,
+            message: backNavigation.label,
             child: Semantics(
-              label: widget.backLabel,
+              label: backNavigation.label,
               button: true,
               child: ConduitAdaptiveAppBarIconButton(
-                key: widget.backButtonKey,
+                key: backNavigation.buttonKey,
                 icon: context.usesCupertinoChrome
                     ? CupertinoIcons.chevron_back
                     : Icons.arrow_back,
-                onPressed: widget.onBack,
+                onPressed: backNavigation.onPressed,
               ),
             ),
           );
@@ -197,13 +173,11 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               child: backButton,
             ),
           );
-    final appBar =
-        widget.appBar ??
-        AdaptiveAppBar(
-          title: widget.title,
-          tintColor: context.conduitTheme.textPrimary,
-          leading: leading,
-        );
+    final appBar = AdaptiveAppBar(
+      title: widget.title,
+      tintColor: context.conduitTheme.textPrimary,
+      leading: leading,
+    );
 
     return AdaptiveRouteShell(
       backgroundColor:

@@ -407,9 +407,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return UtilityPageScaffold.auth(
       title: l10n.signIn,
-      backLabel: l10n.backToServerSetup,
-      backButtonKey: const ValueKey<String>('authentication-back-button'),
-      onBack: () => context.go(Routes.serverConnection),
+      backNavigation: UtilityBackNavigation(
+        label: l10n.backToServerSetup,
+        buttonKey: const ValueKey<String>('authentication-back-button'),
+        onPressed: () => context.go(Routes.serverConnection),
+      ),
       bottomAction: _buildSignInButton(),
       body: Form(
         key: _formKey,

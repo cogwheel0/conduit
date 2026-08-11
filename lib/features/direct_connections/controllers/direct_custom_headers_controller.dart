@@ -21,9 +21,13 @@ final class DirectHeaderValidationError {
 
 /// Owns custom-header input, validation, and collection mutations.
 final class DirectCustomHeadersController extends ChangeNotifier {
-  DirectCustomHeadersController({this.onHeadersChanged});
+  DirectCustomHeadersController({this.onHeadersChanged, this.onInputChanged}) {
+    name.addListener(_handleInputChanged);
+    value.addListener(_handleInputChanged);
+  }
 
   final VoidCallback? onHeadersChanged;
+  final VoidCallback? onInputChanged;
   final name = TextEditingController();
   final value = TextEditingController();
   final valueFocusNode = FocusNode();
@@ -46,10 +50,15 @@ final class DirectCustomHeadersController extends ChangeNotifier {
     _error = null;
   }
 
-  void markInputChanged() {
+  void _clearInputError() {
     if (_error == null) return;
     _error = null;
     notifyListeners();
+  }
+
+  void _handleInputChanged() {
+    _clearInputError();
+    onInputChanged?.call();
   }
 
   void clearError() {
@@ -136,6 +145,8 @@ final class DirectCustomHeadersController extends ChangeNotifier {
 
   @override
   void dispose() {
+    name.removeListener(_handleInputChanged);
+    value.removeListener(_handleInputChanged);
     name.dispose();
     value.dispose();
     valueFocusNode.dispose();
