@@ -34,7 +34,7 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
-import '../widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -385,7 +385,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   void _toggleDrawer() {
-    final layout = ResponsiveDrawerLayout.of(context);
+    final layout = SidebarDrawerControllerScope.maybeOf(context);
     if (layout == null) {
       return;
     }

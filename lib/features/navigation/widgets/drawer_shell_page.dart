@@ -11,6 +11,7 @@ import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../chat/providers/chat_providers.dart';
 import '../providers/sidebar_providers.dart';
 import 'responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
 
 /// Shell widget that wraps child routes with a persistent

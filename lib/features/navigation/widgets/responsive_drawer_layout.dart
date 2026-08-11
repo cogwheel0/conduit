@@ -11,63 +11,9 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/drawer_gesture_scope.dart';
 import '../../../shared/widgets/drawer_slot.dart';
 import '../../../shared/widgets/resizable_tablet_sidebar.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
-
-export '../../../shared/widgets/drawer_gesture_scope.dart'
-    show DrawerOpenGestureExclusion, DrawerOpenGesturePriority;
-
-/// Matches the breakpoint used by [ResponsiveDrawerLayout] for its persistent
-/// tablet presentation. Keeping the decision in one place prevents the
-/// sidebar navigation and drawer geometry from choosing different layouts.
-bool usesPersistentTabletSidebar(BuildContext context) =>
-    MediaQuery.sizeOf(context).shortestSide >= 600;
-
-/// Describes which surrounding chrome has already been reserved for sidebar
-/// tab content.
-///
-/// Custom parent layouts can own the header inset or omit bottom navigation;
-/// the standard sidebar leaves both responsibilities with each tab body.
-class SidebarTabLayoutScope extends InheritedWidget {
-  const SidebarTabLayoutScope({
-    super.key,
-    required this.parentOwnsHeaderInset,
-    required this.bottomNavigationVisible,
-    required super.child,
-  });
-
-  final bool parentOwnsHeaderInset;
-  final bool bottomNavigationVisible;
-
-  static SidebarTabLayoutScope? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<SidebarTabLayoutScope>();
-
-  @override
-  bool updateShouldNotify(SidebarTabLayoutScope oldWidget) =>
-      parentOwnsHeaderInset != oldWidget.parentOwnsHeaderInset ||
-      bottomNavigationVisible != oldWidget.bottomNavigationVisible;
-}
-
-/// Marks sidebar content that is currently mounted in the persistent tablet
-/// pane rather than the compact overlay drawer.
-class PersistentTabletSidebarScope extends InheritedWidget {
-  const PersistentTabletSidebarScope({
-    super.key,
-    required this.active,
-    required super.child,
-  });
-
-  final bool active;
-
-  static bool isActive(BuildContext context) =>
-      context
-          .dependOnInheritedWidgetOfExactType<PersistentTabletSidebarScope>()
-          ?.active ??
-      false;
-
-  @override
-  bool updateShouldNotify(PersistentTabletSidebarScope oldWidget) =>
-      active != oldWidget.active;
-}
+import 'drawer_open_drag_gesture_recognizer.dart';
 
 enum _DrawerSettleEndpoint { open, closed }
 
@@ -75,160 +21,6 @@ class _HorizontalScrollableHit {
   const _HorizontalScrollableHit({required this.isAtOpenGestureLeadingEdge});
 
   final bool isAtOpenGestureLeadingEdge;
-}
-
-class _DrawerOpenHorizontalDragGestureRecognizer
-    extends HorizontalDragGestureRecognizer {
-  _DrawerOpenHorizontalDragGestureRecognizer({super.debugOwner});
-
-  double minimumLocalX = 0.0;
-  double maximumLocalX = double.infinity;
-  double axisBias = 1.0;
-  bool Function(PointerEvent event)? isPositionAllowed;
-  int? _trackedPointer;
-  Offset? _pointerOrigin;
-  double _verticalDistance = 0.0;
-  bool _directionDisqualified = false;
-
-  @override
-  bool isPointerAllowed(PointerEvent event) {
-    final dx = event.localPosition.dx;
-    if (dx < minimumLocalX ||
-        dx >= maximumLocalX ||
-        (_trackedPointer != null && _trackedPointer != event.pointer) ||
-        isPositionAllowed?.call(event) == false) {
-      return false;
-    }
-    return super.isPointerAllowed(event);
-  }
-
-  @override
-  void addAllowedPointer(PointerDownEvent event) {
-    _trackedPointer = event.pointer;
-    _pointerOrigin = event.position;
-    _verticalDistance = 0.0;
-    _directionDisqualified = false;
-    super.addAllowedPointer(event);
-  }
-
-  @override
-  void handleEvent(PointerEvent event) {
-    if (event.pointer == _trackedPointer && event is PointerMoveEvent) {
-      final delta = event.position - _pointerOrigin!;
-      final dxAbs = delta.dx.abs();
-      _verticalDistance = delta.dy.abs();
-      final touchSlop = computeHitSlop(event.kind, gestureSettings);
-      if ((_verticalDistance > touchSlop && _verticalDistance > dxAbs) ||
-          (delta.dx < -touchSlop && dxAbs > _verticalDistance)) {
-        _directionDisqualified = true;
-      }
-    }
-    super.handleEvent(event);
-  }
-
-  @override
-  void didStopTrackingLastPointer(int pointer) {
-    super.didStopTrackingLastPointer(pointer);
-    _trackedPointer = null;
-    _pointerOrigin = null;
-    _verticalDistance = 0.0;
-    _directionDisqualified = false;
-  }
-
-  @override
-  bool isPointerPanZoomAllowed(PointerPanZoomStartEvent event) => false;
-
-  @override
-  bool hasSufficientGlobalDistanceToAccept(
-    PointerDeviceKind pointerDeviceKind,
-    double? deviceTouchSlop,
-  ) {
-    return !_directionDisqualified &&
-        globalDistanceMoved >
-            computeHitSlop(pointerDeviceKind, gestureSettings) &&
-        globalDistanceMoved > _verticalDistance * axisBias;
-  }
-
-  @override
-  String get debugDescription => 'drawer open horizontal drag';
-}
-
-class DrawerChromeCompositionScope extends InheritedWidget {
-  const DrawerChromeCompositionScope({
-    super.key,
-    required this.composeNativeChrome,
-    required super.child,
-  });
-
-  final bool composeNativeChrome;
-
-  static bool shouldCompose(BuildContext context) {
-    return context
-            .dependOnInheritedWidgetOfExactType<DrawerChromeCompositionScope>()
-            ?.composeNativeChrome ??
-        true;
-  }
-
-  @override
-  bool updateShouldNotify(DrawerChromeCompositionScope oldWidget) =>
-      composeNativeChrome != oldWidget.composeNativeChrome;
-}
-
-bool _usesNativeSidebarChrome(BuildContext context) =>
-    Theme.of(context).platform == TargetPlatform.iOS;
-
-/// Top inset so sidebar tab content starts below native sidebar chrome.
-double sidebarTabContentTopPadding(BuildContext context) {
-  final layout = SidebarTabLayoutScope.maybeOf(context);
-  if (layout?.parentOwnsHeaderInset ?? false) {
-    return Spacing.sm;
-  }
-  if (!_usesNativeSidebarChrome(context)) {
-    return Spacing.sm;
-  }
-
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight + Spacing.sm;
-}
-
-/// Edge offset so pull-to-refresh indicators appear below sidebar chrome.
-double sidebarRefreshIndicatorEdgeOffset(BuildContext context) {
-  final layout = SidebarTabLayoutScope.maybeOf(context);
-  if (layout?.parentOwnsHeaderInset ?? false) {
-    return 0.0;
-  }
-  if (!_usesNativeSidebarChrome(context)) {
-    return 0.0;
-  }
-
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight;
-}
-
-/// Bottom inset so sidebar tab content clears native sidebar chrome.
-double sidebarTabContentBottomPadding(
-  BuildContext context, {
-  bool includeNativeBottomBar = true,
-}) {
-  if (!_usesNativeSidebarChrome(context)) {
-    return Spacing.md;
-  }
-
-  final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-  final layout = SidebarTabLayoutScope.maybeOf(context);
-  final bottomNavigationVisible =
-      layout?.bottomNavigationVisible ?? includeNativeBottomBar;
-  final navigationBarHeight = includeNativeBottomBar && bottomNavigationVisible
-      ? sidebarNativeBottomBarContentHeight
-      : 0.0;
-  return bottomPadding + navigationBarHeight + Spacing.md;
-}
-
-/// Height excluded from drawer drag gestures above the native sidebar tab bar.
-double sidebarBottomBarGestureExclusionHeight(BuildContext context) {
-  if (!_usesNativeSidebarChrome(context)) {
-    return 0.0;
-  }
-
-  return sidebarTabContentBottomPadding(context);
 }
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
@@ -295,15 +87,13 @@ class ResponsiveDrawerLayout extends StatefulWidget {
        assert(tabletDrawerMaxWidth >= tabletDrawerMinWidth),
        assert(tabletMinimumContentWidth >= 0);
 
-  static ResponsiveDrawerLayoutState? of(BuildContext context) =>
-      context.findAncestorStateOfType<ResponsiveDrawerLayoutState>();
-
   @override
   State<ResponsiveDrawerLayout> createState() => ResponsiveDrawerLayoutState();
 }
 
 class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin
+    implements SidebarDrawerController {
   // Matches Flutter's default Material drawer edge width.
   static const double _kDrawerEdgeDragWidth = 20.0;
   static const double _kEdgeOpenTouchSlop = kTouchSlop;
@@ -414,6 +204,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   /// Returns whether the drawer is currently open.
   /// Uses cached tablet state to avoid context access issues when unmounted.
+  @override
   bool get isOpen =>
       _cachedIsTablet ? _isTabletDocked : _controller.value == 1.0;
 
@@ -530,6 +321,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _lastSettledEndpoint = endpoint;
   }
 
+  @override
   void open({double velocity = 0.0}) {
     if (_isTablet(context)) {
       final compositionChanged = !_composeTabletDrawerChrome;
@@ -555,6 +347,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _springTo(1.0, velocity: velocity);
   }
 
+  @override
   void close({double velocity = 0.0}) {
     if (_isTablet(context)) {
       if (!widget.tabletDismissible) return;
@@ -575,6 +368,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _springTo(0.0, velocity: -velocity.abs());
   }
 
+  @override
   void toggle() {
     if (_isTablet(context)) {
       if (!widget.tabletDismissible) return;
@@ -860,27 +654,25 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       behavior: HitTestBehavior.translucent,
       excludeFromSemantics: true,
       gestures: <Type, GestureRecognizerFactory>{
-        _DrawerOpenHorizontalDragGestureRecognizer:
+        DrawerOpenDragGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<
-              _DrawerOpenHorizontalDragGestureRecognizer
-            >(
-              () =>
-                  _DrawerOpenHorizontalDragGestureRecognizer(debugOwner: this),
-              (recognizer) {
-                recognizer
-                  ..minimumLocalX = _rawDrawerEdgeWidth
-                  ..maximumLocalX = _edgeWidth
-                  ..axisBias = _kEdgeOpenAxisBias
-                  ..isPositionAllowed = _contentDrawerGestureCanStart
-                  ..onlyAcceptDragOnThreshold = true
-                  ..dragStartBehavior = DragStartBehavior.down
-                  ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
-                  ..onStart = _onDragStart
-                  ..onUpdate = _onDragUpdate
-                  ..onEnd = _onDragEnd
-                  ..onCancel = _onDragCancel;
-              },
-            ),
+              DrawerOpenDragGestureRecognizer
+            >(() => DrawerOpenDragGestureRecognizer(debugOwner: this), (
+              recognizer,
+            ) {
+              recognizer
+                ..minimumLocalX = _rawDrawerEdgeWidth
+                ..maximumLocalX = _edgeWidth
+                ..axisBias = _kEdgeOpenAxisBias
+                ..isPositionAllowed = _contentDrawerGestureCanStart
+                ..onlyAcceptDragOnThreshold = true
+                ..dragStartBehavior = DragStartBehavior.down
+                ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
+                ..onStart = _onDragStart
+                ..onUpdate = _onDragUpdate
+                ..onEnd = _onDragEnd
+                ..onCancel = _onDragCancel;
+            }),
       },
       child: child,
     );
@@ -891,27 +683,25 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       behavior: HitTestBehavior.translucent,
       excludeFromSemantics: true,
       gestures: <Type, GestureRecognizerFactory>{
-        _DrawerOpenHorizontalDragGestureRecognizer:
+        DrawerOpenDragGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<
-              _DrawerOpenHorizontalDragGestureRecognizer
-            >(
-              () =>
-                  _DrawerOpenHorizontalDragGestureRecognizer(debugOwner: this),
-              (recognizer) {
-                recognizer
-                  ..minimumLocalX = -double.infinity
-                  ..maximumLocalX = double.infinity
-                  ..axisBias = _kEdgeOpenAxisBias
-                  ..isPositionAllowed = _prioritizedDrawerGestureCanStart
-                  ..onlyAcceptDragOnThreshold = true
-                  ..dragStartBehavior = DragStartBehavior.down
-                  ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
-                  ..onStart = _onDragStart
-                  ..onUpdate = _onDragUpdate
-                  ..onEnd = _onDragEnd
-                  ..onCancel = _onDragCancel;
-              },
-            ),
+              DrawerOpenDragGestureRecognizer
+            >(() => DrawerOpenDragGestureRecognizer(debugOwner: this), (
+              recognizer,
+            ) {
+              recognizer
+                ..minimumLocalX = -double.infinity
+                ..maximumLocalX = double.infinity
+                ..axisBias = _kEdgeOpenAxisBias
+                ..isPositionAllowed = _prioritizedDrawerGestureCanStart
+                ..onlyAcceptDragOnThreshold = true
+                ..dragStartBehavior = DragStartBehavior.down
+                ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
+                ..onStart = _onDragStart
+                ..onUpdate = _onDragUpdate
+                ..onEnd = _onDragEnd
+                ..onCancel = _onDragCancel;
+            }),
       },
       child: child,
     );
@@ -1004,9 +794,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     final layout = isTablet
         ? _buildTabletLayout(theme)
         : _buildMobileLayout(theme, scrim);
-    return DrawerGestureScope(
-      buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
-      child: layout,
+    return SidebarDrawerControllerScope(
+      controller: this,
+      child: DrawerGestureScope(
+        buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
+        child: layout,
+      ),
     );
   }
 

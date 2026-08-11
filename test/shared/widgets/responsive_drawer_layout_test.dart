@@ -11,6 +11,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
+import 'package:conduit/shared/widgets/drawer_gesture_scope.dart';
+import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 
 const _mobileSize = Size(390, 844);

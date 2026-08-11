@@ -1,34 +1,33 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_controller.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_form.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_workflow.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_custom_headers_controller.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
+import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('draft controller owns provider transitions and profile creation', () {
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: false,
-      isNew: true,
-      gateway: _FakeDirectConnectionEditorGateway(),
-    );
-    addTearDown(controller.dispose);
-    controller.hydrate(null);
+  test('form owns provider transitions and profile creation', () {
+    final editor = _EditorHarness();
+    addTearDown(editor.dispose);
+    editor.form.hydrate(null);
 
-    controller.selectProviderPreset(
+    editor.form.selectProviderPreset(
       kOllamaAdapterKey,
       ollamaDefaultName: 'Ollama Cloud',
       openRouterDefaultName: 'OpenRouter',
     );
 
-    check(controller.adapterKey).equals(kOllamaAdapterKey);
-    check(controller.name.text).equals('Ollama Cloud');
-    check(controller.baseUrl.text).equals('https://ollama.com');
+    check(editor.form.adapterKey).equals(kOllamaAdapterKey);
+    check(editor.form.name.text).equals('Ollama Cloud');
+    check(editor.form.baseUrl.text).equals('https://ollama.com');
 
-    controller.setAuthentication(DirectAuthenticationMode.none);
-    final result = controller.buildDraft(
+    editor.form.setAuthentication(DirectAuthenticationMode.none);
+    final result = editor.form.buildDraft(
       validateFields: true,
       openWebUiFallbackName: 'Open WebUI connection',
     );
@@ -39,17 +38,13 @@ void main() {
   });
 
   test('draft validation returns typed field issues', () {
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: false,
-      isNew: true,
-      gateway: _FakeDirectConnectionEditorGateway(),
-    );
-    addTearDown(controller.dispose);
-    controller.hydrate(null);
-    controller.name.clear();
-    controller.baseUrl.text = 'not a URL';
+    final editor = _EditorHarness();
+    addTearDown(editor.dispose);
+    editor.form.hydrate(null);
+    editor.form.name.clear();
+    editor.form.baseUrl.text = 'not a URL';
 
-    final result = controller.buildDraft(
+    final result = editor.form.buildDraft(
       validateFields: true,
       openWebUiFallbackName: 'Open WebUI connection',
     );
@@ -63,38 +58,30 @@ void main() {
   });
 
   test('custom-header validation is typed and case-insensitive', () {
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: false,
-      isNew: true,
-      gateway: _FakeDirectConnectionEditorGateway(),
-    );
-    addTearDown(controller.dispose);
+    final editor = _EditorHarness();
+    addTearDown(editor.dispose);
 
-    controller.headerName.text = 'Authorization';
-    check(controller.addCustomHeader()).isFalse();
+    editor.form.headerName.text = 'Authorization';
+    check(editor.form.addCustomHeader()).isFalse();
     check(
-      controller.headerError?.issue,
+      editor.form.headerError?.issue,
     ).equals(DirectHeaderValidationIssue.reservedName);
 
-    controller.headerName.text = 'X-Tenant';
-    controller.headerValue.text = 'one';
-    check(controller.addCustomHeader()).isTrue();
-    controller.headerName.text = 'x-tenant';
-    controller.headerValue.text = 'two';
-    check(controller.addCustomHeader()).isFalse();
+    editor.form.headerName.text = 'X-Tenant';
+    editor.form.headerValue.text = 'one';
+    check(editor.form.addCustomHeader()).isTrue();
+    editor.form.headerName.text = 'x-tenant';
+    editor.form.headerValue.text = 'two';
+    check(editor.form.addCustomHeader()).isFalse();
     check(
-      controller.headerError?.issue,
+      editor.form.headerError?.issue,
     ).equals(DirectHeaderValidationIssue.duplicateName);
   });
 
   test('editing pending header text does not review saved origin secrets', () {
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: false,
-      isNew: false,
-      gateway: _FakeDirectConnectionEditorGateway(),
-    );
-    addTearDown(controller.dispose);
-    controller.hydrate(
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
       DirectConnectionProfile(
         id: 'profile',
         name: 'Provider',
@@ -103,37 +90,34 @@ void main() {
         customHeaders: {'X-Tenant': 'secret'},
       ),
     );
-    controller.baseUrl.text = 'https://new.example/v1';
+    editor.form.baseUrl.text = 'https://new.example/v1';
+    editor.form.headerName.text = 'X-Pending';
 
-    controller.headerName.text = 'X-Pending';
-
-    check(controller.originBoundSecretsReviewed).isFalse();
+    check(editor.form.originBoundSecretsReviewed).isFalse();
   });
 
   test(
     'editor workflow admits one operation and resets stale feedback',
     () async {
       final probe = Completer<DirectConnectionProbe>();
-      final gateway = _FakeDirectConnectionEditorGateway(
+      final target = _FakeDirectConnectionEditorTarget(
         probeHandler: (_) => probe.future,
       );
-      final controller = DirectConnectionEditorController(
-        isOpenWebUi: false,
-        isNew: true,
-        gateway: gateway,
-      );
-      addTearDown(controller.dispose);
-      controller.hydrate(null);
-      controller.setAuthentication(DirectAuthenticationMode.none);
+      final editor = _EditorHarness(target: target);
+      addTearDown(editor.dispose);
+      editor.form.hydrate(null);
+      editor.form.setAuthentication(DirectAuthenticationMode.none);
 
-      final testFuture = controller.testConnection(
+      final testFuture = editor.workflow.testConnection(
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
         ownerIsCurrent: () => true,
       );
-      check(controller.state.operation).equals(DirectEditorOperation.testing);
+      check(
+        editor.workflow.state.operation,
+      ).equals(DirectEditorOperation.testing);
 
-      final concurrentSave = await controller.save(
+      final concurrentSave = await editor.workflow.save(
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
         ownerIsCurrent: () => true,
@@ -143,72 +127,119 @@ void main() {
       probe.complete(const DirectConnectionProbe(reachable: false));
       final testResult = await testFuture;
       check(testResult.outcome).equals(DirectEditorActionOutcome.unreachable);
-      check(controller.state.operation).equals(DirectEditorOperation.idle);
-      check(controller.state.attempt.isVisible).isTrue();
+      check(editor.workflow.state.operation).equals(DirectEditorOperation.idle);
+      check(editor.workflow.state.attempt.isVisible).isTrue();
 
-      controller.name.text = 'Updated provider';
-      check(controller.state.operationError).isNull();
-      check(controller.state.attempt.isVisible).isFalse();
+      editor.form.name.text = 'Updated provider';
+      check(editor.workflow.state.operationError).isNull();
+      check(editor.workflow.state.attempt.isVisible).isFalse();
     },
   );
 
   test('save workflow validates and delegates persistence', () async {
-    final gateway = _FakeDirectConnectionEditorGateway();
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: false,
-      isNew: true,
-      gateway: gateway,
-    );
-    addTearDown(controller.dispose);
-    controller.hydrate(null);
-    controller.setAuthentication(DirectAuthenticationMode.none);
+    final target = _FakeDirectConnectionEditorTarget();
+    final editor = _EditorHarness(target: target);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(null);
+    editor.form.setAuthentication(DirectAuthenticationMode.none);
 
-    final result = await controller.save(
+    final result = await editor.workflow.save(
       messages: _messages,
       confirmCredentialTransfer: (_) async => true,
       ownerIsCurrent: () => true,
     );
 
     check(result.outcome).equals(DirectEditorActionOutcome.succeeded);
-    check(gateway.savedLocal).isNotNull();
-    check(gateway.savedLocal!.name).equals('My provider');
+    check(target.savedProfile).isNotNull();
+    check(target.savedProfile!.name).equals('My provider');
   });
 
   test('owner identity is captured once and includes auth epoch identity', () {
-    final controller = DirectConnectionEditorController(
-      isOpenWebUi: true,
-      isNew: true,
-      gateway: _FakeDirectConnectionEditorGateway(),
+    final editor = _EditorHarness(
+      source: DirectConnectionEditorSource.openWebUi,
     );
-    addTearDown(controller.dispose);
+    addTearDown(editor.dispose);
     final epoch = Object();
 
-    controller.captureOwner(
+    editor.workflow.captureOwner(
       serverId: 'server',
       accountId: 'account',
       authEpoch: epoch,
     );
-    controller.captureOwner(
+    editor.workflow.captureOwner(
       serverId: 'replacement',
       accountId: 'replacement',
       authEpoch: Object(),
     );
 
     check(
-      controller.ownerMatches(
+      editor.workflow.ownerMatches(
         serverId: 'server',
         accountId: 'account',
         authEpoch: epoch,
       ),
     ).isTrue();
     check(
-      controller.ownerMatches(
+      editor.workflow.ownerMatches(
         serverId: 'server',
         accountId: 'account',
         authEpoch: Object(),
       ),
     ).isFalse();
   });
+
+  test(
+    'disposed local editor ignores a late compare-and-swap conflict',
+    () async {
+      final save = Completer<void>();
+      final target = _FakeDirectConnectionEditorTarget(
+        saveHandler: (_) => save.future,
+      );
+      final editor = _EditorHarness(target: target);
+      editor.form.hydrate(null);
+      editor.form.setAuthentication(DirectAuthenticationMode.none);
+
+      final result = editor.workflow.save(
+        messages: _messages,
+        confirmCredentialTransfer: (_) async => true,
+        ownerIsCurrent: () => true,
+      );
+      await Future<void>.delayed(Duration.zero);
+      editor.dispose();
+      save.completeError(
+        DirectConnectionProfileConflictException(currentProfiles: const []),
+      );
+
+      check(
+        (await result).outcome,
+      ).equals(DirectEditorActionOutcome.unavailable);
+    },
+  );
+}
+
+final class _EditorHarness {
+  _EditorHarness({
+    DirectConnectionEditorSource source = DirectConnectionEditorSource.local,
+    bool isNew = true,
+    _FakeDirectConnectionEditorTarget? target,
+  }) {
+    final mode = DirectConnectionEditorMode(source: source, isNew: isNew);
+    this.target = target ?? _FakeDirectConnectionEditorTarget(mode: mode);
+    form = DirectConnectionEditorForm(
+      mode: mode,
+      onDraftChanged: () => workflow.handleDraftChanged(),
+    );
+    workflow = DirectConnectionEditorWorkflow(target: this.target, form: form);
+  }
+
+  late final _FakeDirectConnectionEditorTarget target;
+  late final DirectConnectionEditorForm form;
+  late final DirectConnectionEditorWorkflow workflow;
+
+  void dispose() {
+    workflow.dispose();
+    form.dispose();
+  }
 }
 
 const _messages = DirectEditorMessages(
@@ -224,13 +255,23 @@ const _messages = DirectEditorMessages(
 String _probeMessage(DirectConnectionProbe probe) =>
     probe.reachable ? 'Connected' : 'Connection failed';
 
-final class _FakeDirectConnectionEditorGateway
-    implements DirectConnectionEditorGateway {
-  _FakeDirectConnectionEditorGateway({this.probeHandler});
+final class _FakeDirectConnectionEditorTarget
+    implements DirectConnectionEditorTarget {
+  _FakeDirectConnectionEditorTarget({
+    this.mode = const DirectConnectionEditorMode(
+      source: DirectConnectionEditorSource.local,
+      isNew: true,
+    ),
+    this.probeHandler,
+    this.saveHandler,
+  });
 
+  @override
+  final DirectConnectionEditorMode mode;
   final Future<DirectConnectionProbe> Function(DirectConnectionProfile)?
   probeHandler;
-  DirectConnectionProfile? savedLocal;
+  final Future<void> Function(DirectEditorSaveRequest)? saveHandler;
+  DirectConnectionProfile? savedProfile;
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
@@ -238,21 +279,10 @@ final class _FakeDirectConnectionEditorGateway
       Future.value(const DirectConnectionProbe(reachable: true));
 
   @override
-  Future<void> saveLocal({
-    required DirectConnectionProfile draft,
-    required DirectConnectionProfile? expectedPrevious,
-    required bool secretsConfirmedForNewOrigin,
-  }) async {
-    savedLocal = draft;
+  Future<void> save(DirectEditorSaveRequest request) async {
+    savedProfile = request.draft;
+    await saveHandler?.call(request);
   }
-
-  @override
-  Future<void> saveOpenWebUi({
-    required DirectConnectionProfile draft,
-    required OpenWebUiDirectConnectionRecord? previous,
-    required bool isNew,
-    required String? authType,
-  }) async {}
 
   @override
   Future<bool> clearDirectPreferenceIfLastUsable(String profileId) async =>
@@ -262,8 +292,12 @@ final class _FakeDirectConnectionEditorGateway
   Future<void> restoreDirectPreference() async {}
 
   @override
-  Future<void> deleteLocal(String profileId) async {}
+  Future<void> delete(DirectEditorDeleteRequest request) async {}
 
   @override
-  Future<void> deleteOpenWebUi(OpenWebUiDirectConnectionRecord record) async {}
+  bool isConflict(Object error) =>
+      error is DirectConnectionProfileConflictException;
+
+  @override
+  bool deletionMayHaveCommitted(Object error) => false;
 }

@@ -15,9 +15,10 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../controllers/direct_connection_editor_controller.dart';
+import '../controllers/direct_connection_editor_draft.dart';
+import '../controllers/direct_connection_editor_form.dart';
+import '../controllers/direct_connection_editor_workflow.dart';
 import '../controllers/riverpod_direct_connection_editor_gateway.dart';
-export '../controllers/direct_connection_editor_controller.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../models/openwebui_direct_connection.dart';
@@ -49,9 +50,11 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  late final DirectConnectionEditorController _draftController;
+  late final DirectConnectionEditorMode _mode;
+  late final DirectConnectionEditorForm _form;
+  late final DirectConnectionEditorWorkflow _workflow;
 
-  DirectConnectionEditorState get _editorState => _draftController.state;
+  DirectConnectionEditorState get _editorState => _workflow.state;
   bool get _saving => _editorState.operation == DirectEditorOperation.saving;
   bool get _testing => _editorState.operation == DirectEditorOperation.testing;
   bool get _deleting =>
@@ -62,21 +65,34 @@ class _DirectConnectionEditorPageState
   @override
   void initState() {
     super.initState();
-    _draftController = DirectConnectionEditorController(
-      isOpenWebUi: widget.isOpenWebUi,
+    _mode = DirectConnectionEditorMode(
+      source: widget.isOpenWebUi
+          ? DirectConnectionEditorSource.openWebUi
+          : DirectConnectionEditorSource.local,
       isNew: widget.isNew,
-      gateway: RiverpodDirectConnectionEditorGateway(ref),
-    )..addListener(_handleDraftControllerChanged);
+    );
+    _form = DirectConnectionEditorForm(
+      mode: _mode,
+      onDraftChanged: _handleDraftChanged,
+    )..addListener(_handleEditorChanged);
+    _workflow = DirectConnectionEditorWorkflow(
+      target: riverpodDirectConnectionEditorTarget(ref, _mode),
+      form: _form,
+    )..addListener(_handleEditorChanged);
   }
 
-  void _handleDraftControllerChanged() {
+  void _handleDraftChanged() => _workflow.handleDraftChanged();
+
+  void _handleEditorChanged() {
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _draftController.removeListener(_handleDraftControllerChanged);
-    _draftController.dispose();
+    _form.removeListener(_handleEditorChanged);
+    _workflow.removeListener(_handleEditorChanged);
+    _workflow.dispose();
+    _form.dispose();
     super.dispose();
   }
 
@@ -84,7 +100,9 @@ class _DirectConnectionEditorPageState
     DirectConnectionProfile? profile, {
     OpenWebUiDirectConnectionRecord? openWebUiRecord,
   }) {
-    _draftController.hydrateOnce(profile, openWebUiRecord: openWebUiRecord);
+    if (_editorState.hydrated) return;
+    _workflow.markHydrated();
+    _form.hydrate(profile, openWebUiRecord: openWebUiRecord);
   }
 
   void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
@@ -92,7 +110,7 @@ class _DirectConnectionEditorPageState
     // A pure reindex changes the compare-and-swap revision without changing
     // the raw content. Refresh only that authoritative base; a same-id edit
     // (for example enable/tags) must retain the stale revision and conflict.
-    _draftController.refreshOpenWebUiRecord(record);
+    _form.refreshOpenWebUiRecord(record);
   }
 
   DirectConnectionProfile? _profileById(
@@ -106,7 +124,7 @@ class _DirectConnectionEditorPageState
   }
 
   void _captureOpenWebUiOwner(OpenWebUiDirectConnectionsSnapshot snapshot) {
-    _draftController.captureOwner(
+    _workflow.captureOwner(
       serverId: snapshot.serverId,
       accountId: snapshot.accountId,
       authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
@@ -115,7 +133,7 @@ class _DirectConnectionEditorPageState
 
   bool _matchesCapturedOpenWebUiOwner(
     OpenWebUiDirectConnectionsSnapshot snapshot,
-  ) => _draftController.ownerMatches(
+  ) => _workflow.ownerMatches(
     serverId: snapshot.serverId,
     accountId: snapshot.accountId,
     authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
@@ -168,7 +186,7 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _save() async {
-    final result = await _draftController.save(
+    final result = await _workflow.save(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
       ownerIsCurrent: _operationOwnerIsCurrent,
@@ -178,7 +196,7 @@ class _DirectConnectionEditorPageState
 
   Future<void> _testConnection() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    await _draftController.testConnection(
+    await _workflow.testConnection(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
       ownerIsCurrent: _operationOwnerIsCurrent,
@@ -187,7 +205,7 @@ class _DirectConnectionEditorPageState
 
   Future<void> _connectAndSave() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    final result = await _draftController.connectAndSave(
+    final result = await _workflow.connectAndSave(
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
       ownerIsCurrent: _operationOwnerIsCurrent,
@@ -196,7 +214,7 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _delete() async {
-    final result = await _draftController.delete(
+    final result = await _workflow.delete(
       messages: _editorMessages(),
       confirmDelete: _confirmDelete,
       ownerIsCurrent: _operationOwnerIsCurrent,
@@ -413,8 +431,8 @@ class _DirectConnectionEditorPageState
     final l10n = AppLocalizations.of(context)!;
     final formError =
         _operationError ??
-        directDraftValidationMessage(l10n, _draftController.errors.form) ??
-        _draftController.errors.profile;
+        directDraftValidationMessage(l10n, _form.errors.form) ??
+        _form.errors.profile;
     final content = <Widget>[
       UtilityIdentityHeader(
         leading: ConnectionMark(
@@ -445,12 +463,12 @@ class _DirectConnectionEditorPageState
       ),
       const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
-        DirectConnectionAvailabilitySection(controller: _draftController),
+        DirectConnectionAvailabilitySection(form: _form),
         const SizedBox(height: Spacing.lg),
       ],
-      DirectConnectionProviderSection(controller: _draftController),
+      DirectConnectionProviderSection(form: _form),
       const SizedBox(height: Spacing.lg),
-      DirectConnectionDetailsSection(controller: _draftController),
+      DirectConnectionDetailsSection(form: _form),
       if (formError != null) ...[
         const SizedBox(height: Spacing.lg),
         Container(
@@ -468,7 +486,7 @@ class _DirectConnectionEditorPageState
         ),
       ],
       const SizedBox(height: Spacing.lg),
-      DirectConnectionAdvancedSettingsSection(controller: _draftController),
+      DirectConnectionAdvancedSettingsSection(form: _form),
       if (!widget.isOnboarding) ...[
         const SizedBox(height: Spacing.lg),
         Wrap(
@@ -483,7 +501,7 @@ class _DirectConnectionEditorPageState
               onPressed:
                   _testing ||
                       _deleting ||
-                      _draftController.authentication ==
+                      _form.authentication ==
                           DirectAuthenticationMode.unsupported
                   ? null
                   : _save,
@@ -496,7 +514,7 @@ class _DirectConnectionEditorPageState
               onPressed:
                   _saving ||
                       _deleting ||
-                      _draftController.authentication ==
+                      _form.authentication ==
                           DirectAuthenticationMode.unsupported
                   ? null
                   : _testConnection,
@@ -551,7 +569,7 @@ class _DirectConnectionEditorPageState
                       _testing ||
                           _saving ||
                           _deleting ||
-                          _draftController.authentication ==
+                          _form.authentication ==
                               DirectAuthenticationMode.unsupported
                       ? null
                       : _connectAndSave,

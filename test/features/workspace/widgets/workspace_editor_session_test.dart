@@ -9,14 +9,14 @@ void main() {
 
     check(session.isEdit).isTrue();
     check(session.isCreate).isFalse();
-    session.dirty = true;
+    session.markDirty();
 
-    session.errorMessage = 'stale';
-    session.beginSaving();
+    session.setError('stale');
+    session.beginOperation(clearError: true);
     check(session.saving).isTrue();
     check(session.errorMessage).isNull();
 
-    session.finishSaving(errorMessage: 'failed', dirty: false);
+    session.finishOperation(errorMessage: 'failed', dirty: false);
     check(session.saving).isFalse();
     check(session.dirty).isFalse();
     check(session.errorMessage).equals('failed');

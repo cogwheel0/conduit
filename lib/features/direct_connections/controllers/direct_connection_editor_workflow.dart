@@ -4,8 +4,6 @@ import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../models/openwebui_direct_connection.dart';
-import '../services/direct_connection_profile_store.dart';
-import '../services/openwebui_direct_connection_store.dart';
 import 'direct_connection_editor_draft.dart';
 import 'direct_connection_editor_form.dart';
 
@@ -73,30 +71,52 @@ final class DirectConnectionEditorState {
   );
 }
 
-abstract interface class DirectConnectionEditorGateway {
+@immutable
+final class DirectEditorSaveRequest {
+  const DirectEditorSaveRequest({
+    required this.draft,
+    required this.previousProfile,
+    required this.previousOpenWebUiRecord,
+    required this.authentication,
+    required this.secretsConfirmedForNewOrigin,
+  });
+
+  final DirectConnectionProfile draft;
+  final DirectConnectionProfile? previousProfile;
+  final OpenWebUiDirectConnectionRecord? previousOpenWebUiRecord;
+  final DirectAuthenticationMode authentication;
+  final bool secretsConfirmedForNewOrigin;
+}
+
+@immutable
+final class DirectEditorDeleteRequest {
+  const DirectEditorDeleteRequest({
+    required this.profile,
+    required this.openWebUiRecord,
+  });
+
+  final DirectConnectionProfile profile;
+  final OpenWebUiDirectConnectionRecord? openWebUiRecord;
+}
+
+/// Canonical persistence contract for one concrete editor target.
+abstract interface class DirectConnectionEditorTarget {
+  DirectConnectionEditorMode get mode;
+
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile);
 
-  Future<void> saveLocal({
-    required DirectConnectionProfile draft,
-    required DirectConnectionProfile? expectedPrevious,
-    required bool secretsConfirmedForNewOrigin,
-  });
-
-  Future<void> saveOpenWebUi({
-    required DirectConnectionProfile draft,
-    required OpenWebUiDirectConnectionRecord? previous,
-    required bool isNew,
-    required String? authType,
-  });
+  Future<void> save(DirectEditorSaveRequest request);
 
   /// Clears a direct preference only when [profileId] is the last usable one.
   Future<bool> clearDirectPreferenceIfLastUsable(String profileId);
 
   Future<void> restoreDirectPreference();
 
-  Future<void> deleteLocal(String profileId);
+  Future<void> delete(DirectEditorDeleteRequest request);
 
-  Future<void> deleteOpenWebUi(OpenWebUiDirectConnectionRecord record);
+  bool isConflict(Object error);
+
+  bool deletionMayHaveCommitted(Object error);
 }
 
 enum DirectEditorActionOutcome {
@@ -149,16 +169,9 @@ typedef DirectDeleteConfirmation =
 
 /// Owns persistence and the save/test/delete operation state machine.
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
-  DirectConnectionEditorWorkflow({
-    required this.isOpenWebUi,
-    required this.isNew,
-    required this.gateway,
-    required this.form,
-  });
+  DirectConnectionEditorWorkflow({required this.target, required this.form});
 
-  final bool isOpenWebUi;
-  final bool isNew;
-  final DirectConnectionEditorGateway gateway;
+  final DirectConnectionEditorTarget target;
   final DirectConnectionEditorForm form;
 
   DirectConnectionEditorState _state = const DirectConnectionEditorState();
@@ -245,41 +258,27 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
 
     try {
-      if (isOpenWebUi) {
-        await gateway.saveOpenWebUi(
+      await target.save(
+        DirectEditorSaveRequest(
           draft: draft,
-          previous: form.savedOpenWebUiRecord,
-          isNew: isNew,
-          authType: switch (form.authentication) {
-            DirectAuthenticationMode.bearer => 'bearer',
-            DirectAuthenticationMode.none => 'none',
-            DirectAuthenticationMode.apiKeyHeader ||
-            DirectAuthenticationMode.unsupported => null,
-          },
-        );
-      } else {
-        await gateway.saveLocal(
-          draft: draft,
-          expectedPrevious: form.savedProfile,
+          previousProfile: form.savedProfile,
+          previousOpenWebUiRecord: form.savedOpenWebUiRecord,
+          authentication: form.authentication,
           secretsConfirmedForNewOrigin:
               !form.originChanged ||
               !form.savedHasOriginBoundSecrets ||
               form.originSecretsConfirmed,
-        );
-      }
+        ),
+      );
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation(clearError: true);
       return DirectEditorActionResult(
         DirectEditorActionOutcome.succeeded,
         profile: draft,
       );
-    } on DirectConnectionProfileConflictException catch (error) {
-      return _conflict(messages, error);
-    } on OpenWebUiDirectConnectionConflictException catch (error) {
-      if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
-      return _conflict(messages, error);
     } catch (error) {
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
+      if (target.isConflict(error)) return _conflict(messages, error);
       _finishOperation(error: messages.saveFailed);
       return DirectEditorActionResult(
         DirectEditorActionOutcome.failed,
@@ -325,7 +324,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
     _setAttempt(ConnectionAttemptState.connecting(messages.connecting));
     try {
-      final probe = await gateway.probe(draft);
+      final probe = await target.probe(draft);
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       final message = messages.probeMessage(probe);
       _finishOperation(
@@ -403,33 +402,28 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
 
     var clearedDirectPreference = false;
     try {
-      clearedDirectPreference = await gateway.clearDirectPreferenceIfLastUsable(
+      clearedDirectPreference = await target.clearDirectPreferenceIfLastUsable(
         saved.id,
       );
       if (!_canContinue(ownerIsCurrent)) {
-        if (clearedDirectPreference) await gateway.restoreDirectPreference();
+        if (clearedDirectPreference) await target.restoreDirectPreference();
         return _unavailable(messages);
       }
-      if (isOpenWebUi) {
-        final record = form.savedOpenWebUiRecord;
-        if (record == null) {
-          throw StateError('Open WebUI direct connection not found.');
-        }
-        await gateway.deleteOpenWebUi(record);
-      } else {
-        await gateway.deleteLocal(saved.id);
-      }
+      await target.delete(
+        DirectEditorDeleteRequest(
+          profile: saved,
+          openWebUiRecord: form.savedOpenWebUiRecord,
+        ),
+      );
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation(clearError: true);
       return const DirectEditorActionResult(
         DirectEditorActionOutcome.succeeded,
       );
     } catch (error) {
-      final deletionMayHaveCommitted =
-          isOpenWebUi &&
-          error is OpenWebUiDirectConnectionCommitUncertainException;
+      final deletionMayHaveCommitted = target.deletionMayHaveCommitted(error);
       if (clearedDirectPreference && !deletionMayHaveCommitted) {
-        await gateway.restoreDirectPreference();
+        await target.restoreDirectPreference();
       }
       if (!_canContinue(ownerIsCurrent)) return _unavailable(messages);
       _finishOperation();

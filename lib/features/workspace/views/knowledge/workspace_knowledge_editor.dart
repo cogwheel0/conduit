@@ -139,20 +139,17 @@ class _WorkspaceKnowledgeFormState
   }
 
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.dirty = true);
+    if (!_session.dirty) setState(() => _session.markDirty());
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     if (_nameController.text.trim().isEmpty) {
-      setState(
-        () => _session.errorMessage = l10n.workspaceKnowledgeNameRequired,
-      );
+      setState(() => _session.setError(l10n.workspaceKnowledgeNameRequired));
       return;
     }
     setState(() {
-      _session.saving = true;
-      _session.errorMessage = null;
+      _session.beginOperation(clearError: true);
     });
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
@@ -165,7 +162,7 @@ class _WorkspaceKnowledgeFormState
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       DebugLogger.log(
         'knowledge saved',
         scope: 'workspace/knowledge',
@@ -188,10 +185,11 @@ class _WorkspaceKnowledgeFormState
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(() {
-        _session.saving = false;
-        _session.errorMessage = l10n.workspaceKnowledgeSaveFailed;
-      });
+      setState(
+        () => _session.finishOperation(
+          errorMessage: l10n.workspaceKnowledgeSaveFailed,
+        ),
+      );
     }
   }
 
@@ -220,7 +218,7 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref
           .read(workspaceKnowledgeProvider.notifier)
@@ -238,7 +236,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.saving = false);
+      if (mounted) setState(() => _session.endOperation());
     }
   }
 
@@ -255,7 +253,7 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
       if (!mounted) return;
@@ -272,7 +270,7 @@ class _WorkspaceKnowledgeFormState
       );
       if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.saving = false);
+      if (mounted) setState(() => _session.endOperation());
     }
   }
 
@@ -317,11 +315,11 @@ class _WorkspaceKnowledgeFormState
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       _showSnack(l10n.workspaceKnowledgeDeleted);
       if (router.canPop()) {
         router.pop();
@@ -336,7 +334,7 @@ class _WorkspaceKnowledgeFormState
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.saving = false);
+        setState(() => _session.endOperation());
         _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
       }
     }

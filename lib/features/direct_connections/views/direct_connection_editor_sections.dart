@@ -8,16 +8,15 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
-import '../controllers/direct_connection_editor_controller.dart';
+import '../controllers/direct_connection_editor_draft.dart';
+import '../controllers/direct_connection_editor_form.dart';
+import '../controllers/direct_custom_headers_controller.dart';
 import '../models/direct_connection_profile.dart';
 
 final class DirectConnectionAvailabilitySection extends StatelessWidget {
-  const DirectConnectionAvailabilitySection({
-    super.key,
-    required this.controller,
-  });
+  const DirectConnectionAvailabilitySection({super.key, required this.form});
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +25,7 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
     return InsetGroupedSection(
       title: l10n.enabledLabel,
       child: InkWell(
-        onTap: () => controller.setEnabled(!controller.enabled),
+        onTap: () => form.setEnabled(!form.enabled),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         child: Row(
           children: [
@@ -52,10 +51,7 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
               ),
             ),
             const SizedBox(width: Spacing.md),
-            AdaptiveSwitch(
-              value: controller.enabled,
-              onChanged: controller.setEnabled,
-            ),
+            AdaptiveSwitch(value: form.enabled, onChanged: form.setEnabled),
           ],
         ),
       ),
@@ -64,15 +60,15 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
 }
 
 final class DirectConnectionProviderSection extends StatelessWidget {
-  const DirectConnectionProviderSection({super.key, required this.controller});
+  const DirectConnectionProviderSection({super.key, required this.form});
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    if (controller.isOpenWebUi) {
+    if (form.isOpenWebUi) {
       return InsetGroupedSection(
         title: l10n.directProvider,
         child: Row(
@@ -109,7 +105,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
       );
     }
 
-    void select(String value) => controller.selectProviderPreset(
+    void select(String value) => form.selectProviderPreset(
       value,
       ollamaDefaultName: l10n.ollamaCloudDefaultName,
       openRouterDefaultName: l10n.openRouterProviderName,
@@ -129,7 +125,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             ),
             title: l10n.openAICompatible,
             subtitle: l10n.directChatCompletionsDescription,
-            selected: controller.providerPreset == kOpenAiCompatibleAdapterKey,
+            selected: form.providerPreset == kOpenAiCompatibleAdapterKey,
             showDivider: true,
             onTap: () => select(kOpenAiCompatibleAdapterKey),
           ),
@@ -141,7 +137,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             ),
             title: l10n.openRouterProviderName,
             subtitle: l10n.directOpenRouterBaseUrlDescription,
-            selected: controller.providerPreset == kOpenRouterProviderPreset,
+            selected: form.providerPreset == kOpenRouterProviderPreset,
             showDivider: true,
             onTap: () => select(kOpenRouterProviderPreset),
           ),
@@ -153,7 +149,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             ),
             title: l10n.ollama,
             subtitle: l10n.ollamaCloudBaseUrlDescription,
-            selected: controller.providerPreset == kOllamaAdapterKey,
+            selected: form.providerPreset == kOllamaAdapterKey,
             onTap: () => select(kOllamaAdapterKey),
           ),
         ],
@@ -163,23 +159,23 @@ final class DirectConnectionProviderSection extends StatelessWidget {
 }
 
 final class DirectConnectionDetailsSection extends StatelessWidget {
-  const DirectConnectionDetailsSection({super.key, required this.controller});
+  const DirectConnectionDetailsSection({super.key, required this.form});
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final usesCupertinoChrome = context.usesCupertinoChrome;
-    final isOllama = controller.isOllama;
-    final isOpenRouter = controller.isOpenRouter;
+    final isOllama = form.isOllama;
+    final isOpenRouter = form.isOpenRouter;
     return InsetGroupedSection(
       title: l10n.directConnectionDetailsTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!controller.isOpenWebUi) ...[
+          if (!form.isOpenWebUi) ...[
             AccessibleFormField(
               key: const ValueKey<String>('direct-connection-name-field'),
               label: l10n.directConnectionName,
@@ -188,11 +184,8 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                   : isOpenRouter
                   ? l10n.openRouterProviderName
                   : 'My provider',
-              controller: controller.name,
-              errorText: directDraftValidationMessage(
-                l10n,
-                controller.errors.name,
-              ),
+              controller: form.name,
+              errorText: directDraftValidationMessage(l10n, form.errors.name),
               isRequired: true,
               textInputAction: TextInputAction.next,
             ),
@@ -206,14 +199,11 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                 : isOpenRouter
                 ? kOpenRouterApiBaseUrl
                 : 'https://api.openai.com/v1',
-            controller: controller.baseUrl,
+            controller: form.baseUrl,
             keyboardType: TextInputType.url,
             textInputAction: TextInputAction.next,
             autocorrect: false,
-            errorText: directDraftValidationMessage(
-              l10n,
-              controller.errors.url,
-            ),
+            errorText: directDraftValidationMessage(l10n, form.errors.url),
             isRequired: true,
           ),
           const SizedBox(height: Spacing.sm),
@@ -240,9 +230,9 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
             type: MaterialType.transparency,
             child: DropdownButtonFormField<DirectAuthenticationMode>(
               key: ValueKey<String>(
-                'direct-authentication-selector-${controller.providerPreset}',
+                'direct-authentication-selector-${form.providerPreset}',
               ),
-              initialValue: controller.authentication,
+              initialValue: form.authentication,
               isExpanded: true,
               decoration: context.conduitInputStyles.standard(),
               dropdownColor: theme.surfaceBackground,
@@ -251,18 +241,17 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                   value: DirectAuthenticationMode.bearer,
                   child: Text(l10n.bearerToken),
                 ),
-                if (!controller.isOpenWebUi && !isOpenRouter)
+                if (!form.isOpenWebUi && !isOpenRouter)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.apiKeyHeader,
                     child: Text(l10n.directApiKeyHeader),
                   ),
-                if (controller.isOpenWebUi || !isOpenRouter)
+                if (form.isOpenWebUi || !isOpenRouter)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.none,
                     child: Text(l10n.noAuthentication),
                   ),
-                if (controller.authentication ==
-                    DirectAuthenticationMode.unsupported)
+                if (form.authentication == DirectAuthenticationMode.unsupported)
                   DropdownMenuItem(
                     value: DirectAuthenticationMode.unsupported,
                     enabled: false,
@@ -270,12 +259,11 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                   ),
               ],
               onChanged: (value) {
-                if (value != null) controller.setAuthentication(value);
+                if (value != null) form.setAuthentication(value);
               },
             ),
           ),
-          if (controller.authentication ==
-              DirectAuthenticationMode.apiKeyHeader) ...[
+          if (form.authentication == DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.sm),
             Text(
               l10n.directApiKeyHeaderDescription,
@@ -284,42 +272,36 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
               ),
             ),
           ],
-          if (controller.authentication ==
-              DirectAuthenticationMode.unsupported) ...[
+          if (form.authentication == DirectAuthenticationMode.unsupported) ...[
             const SizedBox(height: Spacing.sm),
             Text(
               l10n.openWebUiDirectConnectionUnsupportedAuth,
               style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
             ),
           ],
-          if (controller.authentication == DirectAuthenticationMode.bearer ||
-              controller.authentication ==
-                  DirectAuthenticationMode.apiKeyHeader) ...[
+          if (form.authentication == DirectAuthenticationMode.bearer ||
+              form.authentication == DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
               key: const ValueKey<String>('direct-api-key-field'),
               label: l10n.directApiKey,
-              hint: (controller.savedProfile?.apiKey ?? '').isNotEmpty
+              hint: (form.savedProfile?.apiKey ?? '').isNotEmpty
                   ? l10n.directConfiguredReplacePlaceholder
                   : l10n.directApiKeyPlaceholder,
-              controller: controller.apiKey,
-              obscureText: !controller.showApiKey,
-              errorText: directDraftValidationMessage(
-                l10n,
-                controller.errors.apiKey,
-              ),
-              isRequired: controller.apiKeyRequired,
+              controller: form.apiKey,
+              obscureText: !form.showApiKey,
+              errorText: directDraftValidationMessage(l10n, form.errors.apiKey),
+              isRequired: form.apiKeyRequired,
               keyboardType: TextInputType.visiblePassword,
               textInputAction: TextInputAction.next,
               autocorrect: false,
               suffixIcon: IconButton(
-                tooltip: controller.showApiKey
+                tooltip: form.showApiKey
                     ? l10n.hidePassword
                     : l10n.showPassword,
-                onPressed: () =>
-                    controller.setShowApiKey(!controller.showApiKey),
+                onPressed: () => form.setShowApiKey(!form.showApiKey),
                 icon: Icon(
-                  controller.showApiKey
+                  form.showApiKey
                       ? (usesCupertinoChrome
                             ? CupertinoIcons.eye_slash
                             : Icons.visibility_off)
@@ -339,10 +321,10 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
 final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
   const DirectConnectionAdvancedSettingsSection({
     super.key,
-    required this.controller,
+    required this.form,
   });
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
@@ -352,25 +334,25 @@ final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
     return UtilityDisclosureSection(
       key: const ValueKey<String>('direct-advanced-settings-toggle'),
       title: l10n.advancedSettings,
-      subtitle: controller.customHeaders.isEmpty
+      subtitle: form.customHeaders.isEmpty
           ? null
-          : '${l10n.directCustomHeaders}: ${controller.customHeaders.length}',
+          : '${l10n.directCustomHeaders}: ${form.customHeaders.length}',
       leading: Icon(
         usesCupertinoChrome ? CupertinoIcons.gear_alt : Icons.tune_rounded,
         color: theme.iconSecondary,
         size: IconSize.medium,
       ),
-      expanded: controller.showAdvancedSettings,
-      onChanged: controller.setShowAdvancedSettings,
-      child: _AdvancedSettingsContent(controller: controller),
+      expanded: form.showAdvancedSettings,
+      onChanged: form.setShowAdvancedSettings,
+      child: _AdvancedSettingsContent(form: form),
     );
   }
 }
 
 final class _AdvancedSettingsContent extends StatelessWidget {
-  const _AdvancedSettingsContent({required this.controller});
+  const _AdvancedSettingsContent({required this.form});
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
@@ -381,8 +363,8 @@ final class _AdvancedSettingsContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!controller.isOllama) ...[
-          _AdvancedApiBehavior(controller: controller),
+        if (!form.isOllama) ...[
+          _AdvancedApiBehavior(form: form),
           const SizedBox(height: Spacing.xl),
           Divider(height: BorderWidth.thin, color: theme.dividerColor),
           const SizedBox(height: Spacing.lg),
@@ -410,9 +392,9 @@ final class _AdvancedSettingsContent extends StatelessWidget {
                 ],
               ),
             ),
-            if (controller.customHeaders.isNotEmpty)
+            if (form.customHeaders.isNotEmpty)
               Text(
-                '${controller.customHeaders.length}',
+                '${form.customHeaders.length}',
                 style: theme.bodySmall?.copyWith(color: theme.textTertiary),
               ),
           ],
@@ -422,26 +404,23 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           key: const ValueKey<String>('direct-custom-header-name-field'),
           label: l10n.headerName,
           hint: 'X-Custom-Header',
-          controller: controller.headerName,
-          errorText: directHeaderValidationMessage(
-            l10n,
-            controller.headerError,
-          ),
+          controller: form.headerName,
+          errorText: directHeaderValidationMessage(l10n, form.headerError),
           textInputAction: TextInputAction.next,
           autocorrect: false,
-          onSubmitted: (_) => controller.headerValueFocusNode.requestFocus(),
+          onSubmitted: (_) => form.headerValueFocusNode.requestFocus(),
         ),
         const SizedBox(height: Spacing.md),
         AccessibleFormField(
           key: const ValueKey<String>('direct-custom-header-value-field'),
           label: l10n.headerValue,
           hint: l10n.headerValueHint,
-          controller: controller.headerValue,
-          focusNode: controller.headerValueFocusNode,
+          controller: form.headerValue,
+          focusNode: form.headerValueFocusNode,
           textInputAction: TextInputAction.done,
           autocorrect: false,
           onSubmitted: (_) {
-            if (controller.canAddCustomHeader) controller.addCustomHeader();
+            if (form.canAddCustomHeader) form.addCustomHeader();
           },
         ),
         const SizedBox(height: Spacing.md),
@@ -451,13 +430,11 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           isSecondary: true,
           isFullWidth: true,
           useNativeLabel: true,
-          onPressed: controller.canAddCustomHeader
-              ? controller.addCustomHeader
-              : null,
+          onPressed: form.canAddCustomHeader ? form.addCustomHeader : null,
         ),
-        if (controller.customHeaders.isNotEmpty) ...[
+        if (form.customHeaders.isNotEmpty) ...[
           const SizedBox(height: Spacing.md),
-          for (final entry in controller.customHeaders.entries)
+          for (final entry in form.customHeaders.entries)
             Padding(
               padding: const EdgeInsets.only(bottom: Spacing.xs),
               child: Container(
@@ -501,7 +478,7 @@ final class _AdvancedSettingsContent extends StatelessWidget {
                           ? CupertinoIcons.xmark
                           : Icons.close_rounded,
                       tooltip: l10n.removeHeader,
-                      onPressed: () => controller.removeCustomHeader(entry.key),
+                      onPressed: () => form.removeCustomHeader(entry.key),
                       backgroundColor: Colors.transparent,
                       iconColor: theme.textTertiary,
                       isCompact: true,
@@ -516,7 +493,7 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           key: const ValueKey<String>('direct-model-prefix-field'),
           label: l10n.directModelIdPrefix,
           hint: 'studio',
-          controller: controller.modelIdPrefix,
+          controller: form.modelIdPrefix,
           textInputAction: TextInputAction.next,
           autocorrect: false,
         ),
@@ -530,7 +507,7 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           key: const ValueKey<String>('direct-model-tags-field'),
           label: l10n.directModelTags,
           hint: 'local, private',
-          controller: controller.tags,
+          controller: form.tags,
           textInputAction: TextInputAction.next,
           autocorrect: false,
         ),
@@ -544,7 +521,7 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           key: const ValueKey<String>('direct-manual-models-field'),
           label: l10n.directManualModelIds,
           hint: 'model-a\nmodel-b',
-          controller: controller.models,
+          controller: form.models,
           minLines: 3,
           maxLines: 8,
           keyboardType: TextInputType.multiline,
@@ -562,9 +539,9 @@ final class _AdvancedSettingsContent extends StatelessWidget {
 }
 
 final class _AdvancedApiBehavior extends StatelessWidget {
-  const _AdvancedApiBehavior({required this.controller});
+  const _AdvancedApiBehavior({required this.form});
 
-  final DirectConnectionEditorController controller;
+  final DirectConnectionEditorForm form;
 
   @override
   Widget build(BuildContext context) {
@@ -581,7 +558,7 @@ final class _AdvancedApiBehavior extends StatelessWidget {
           ),
         ),
         const SizedBox(height: Spacing.sm),
-        if (controller.isOpenRouter)
+        if (form.isOpenRouter)
           Text(
             l10n.directOpenRouterChatCompletionsDescription,
             style: AppTypography.bodySmallStyle.copyWith(
@@ -591,9 +568,9 @@ final class _AdvancedApiBehavior extends StatelessWidget {
         else ...[
           AdaptiveSegmentedSelector<DirectOpenAiApiMode>(
             key: const ValueKey<String>('direct-openai-api-mode-selector'),
-            value: controller.openAiApiMode,
+            value: form.openAiApiMode,
             showIcons: false,
-            onChanged: controller.setOpenAiApiMode,
+            onChanged: form.setOpenAiApiMode,
             options: [
               (
                 value: DirectOpenAiApiMode.chatCompletions,
@@ -613,7 +590,7 @@ final class _AdvancedApiBehavior extends StatelessWidget {
           ),
           const SizedBox(height: Spacing.sm),
           Text(
-            controller.openAiApiMode == DirectOpenAiApiMode.responses
+            form.openAiApiMode == DirectOpenAiApiMode.responses
                 ? l10n.directResponsesDescription
                 : l10n.directChatCompletionsDescription,
             style: AppTypography.bodySmallStyle.copyWith(
@@ -625,7 +602,7 @@ final class _AdvancedApiBehavior extends StatelessWidget {
             key: const ValueKey<String>('direct-api-version-field'),
             label: l10n.directApiVersion,
             hint: '2024-10-21',
-            controller: controller.apiVersion,
+            controller: form.apiVersion,
             textInputAction: TextInputAction.next,
             autocorrect: false,
           ),

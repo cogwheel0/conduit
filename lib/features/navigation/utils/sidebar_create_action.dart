@@ -9,7 +9,7 @@ import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../channels/providers/channel_providers.dart';
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
@@ -158,6 +158,6 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
 void _closeSidebarIfNeeded(BuildContext context) {
   final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
   if (!isTablet) {
-    ResponsiveDrawerLayout.of(context)?.close();
+    SidebarDrawerControllerScope.maybeOf(context)?.close();
   }
 }

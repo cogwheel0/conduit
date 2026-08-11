@@ -18,7 +18,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import 'responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
@@ -483,7 +483,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final isTablet =
           mediaQuery != null && mediaQuery.size.shortestSide >= 600;
       if (!isTablet) {
-        ResponsiveDrawerLayout.of(context)?.close();
+        SidebarDrawerControllerScope.maybeOf(context)?.close();
       }
     }
   }
@@ -1934,7 +1934,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final isTablet =
             mediaQuery != null && mediaQuery.size.shortestSide >= 600;
         if (!isTablet) {
-          ResponsiveDrawerLayout.of(context)?.close();
+          SidebarDrawerControllerScope.maybeOf(context)?.close();
         }
         return;
       case ConversationSelectionDisposition.canceled:

@@ -11,7 +11,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import 'responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
@@ -217,7 +217,7 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 /// Channels (optional) tabs.
 ///
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
-/// in [ResponsiveDrawerLayout]. Tab selection is persisted via
+/// in the responsive drawer layout. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
 ///
 /// Notes, Terminal, and Channels tabs are each independently optional. When a

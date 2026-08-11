@@ -9,8 +9,7 @@ import 'direct_custom_headers_controller.dart';
 /// preferences. Persistence and operation state belong to the workflow.
 final class DirectConnectionEditorForm extends ChangeNotifier {
   DirectConnectionEditorForm({
-    required this.isOpenWebUi,
-    required this.isNew,
+    required this.mode,
     required this.onDraftChanged,
   }) {
     headers = DirectCustomHeadersController(
@@ -26,8 +25,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     models.addListener(_generalTextChanged);
   }
 
-  final bool isOpenWebUi;
-  final bool isNew;
+  final DirectConnectionEditorMode mode;
   final VoidCallback onDraftChanged;
 
   late final DirectCustomHeadersController headers;
@@ -74,6 +72,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   DirectHeaderValidationError? get headerError => headers.error;
   bool get isOllama => adapterKey == kOllamaAdapterKey;
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
+  bool get isOpenWebUi => mode.isOpenWebUi;
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
 
   bool get originChanged {
@@ -99,8 +98,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
 
   bool get apiKeyRequired => requiresDirectApiKey(
     authentication: authentication,
-    isOpenWebUi: isOpenWebUi,
-    isNew: isNew,
+    mode: mode,
     savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
     apiKeyDirty: apiKeyDirty,
     originChanged: originChanged,
@@ -186,7 +184,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
         kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
         _ => 'https://api.openai.com/v1',
       };
-      if (isNew &&
+      if (mode.isNew &&
           (name.text == 'My provider' ||
               name.text == ollamaDefaultName ||
               name.text == openRouterDefaultName)) {
@@ -253,8 +251,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       return DirectDraftBuildResult(errors: errors);
     }
     final draft = DirectConnectionDraft(
-      isOpenWebUi: isOpenWebUi,
-      isNew: isNew,
+      mode: mode,
       savedProfile: savedProfile,
       savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
       adapterKey: adapterKey,

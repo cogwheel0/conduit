@@ -16,7 +16,7 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../navigation/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
@@ -98,7 +98,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     NavigationService.router.go('/notes/${note.id}');
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     if (!isTablet) {
-      ResponsiveDrawerLayout.of(context)?.close();
+      SidebarDrawerControllerScope.maybeOf(context)?.close();
     }
   }
 

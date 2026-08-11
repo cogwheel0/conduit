@@ -126,6 +126,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
     return hydration;
   }
 
+  /// Waits until the current secure-storage read has settled and surfaces any
+  /// hydration failure before callers snapshot credential-bearing state.
+  Future<void> waitForSecretsHydration() async {
+    await _secretsHydration;
+    _throwIfSecretsUnavailable();
+  }
+
   Future<void> setEnabled(bool value) async {
     await _serializeMutation(() async {
       if (state.enabled && !value) {

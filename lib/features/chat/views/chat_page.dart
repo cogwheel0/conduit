@@ -13,7 +13,7 @@ import 'dart:io' show Platform;
 import 'dart:collection';
 import 'dart:math' as math;
 
-import '../../navigation/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
@@ -3490,7 +3490,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _toggleResponsiveDrawer(BuildContext context) {
-    final layout = ResponsiveDrawerLayout.of(context);
+    final layout = SidebarDrawerControllerScope.maybeOf(context);
     if (layout == null) return;
 
     final isDrawerOpen = layout.isOpen;

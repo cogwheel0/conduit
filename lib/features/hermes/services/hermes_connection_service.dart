@@ -38,6 +38,15 @@ final class _RiverpodHermesConnectionGateway
     required bool Function() isCurrent,
   }) async {
     final notifier = _ref.read(hermesConfigProvider.notifier);
+    try {
+      await notifier.waitForSecretsHydration();
+    } catch (error) {
+      throw HermesConnectionCommitException(
+        stage: HermesConnectionCommitStage.persistence,
+        error: error,
+      );
+    }
+    if (!isCurrent()) throw const HermesConnectionCommitCancelled();
     final previousConfig = _ref.read(hermesConfigProvider);
     final previousBackend = _ref.read(preferredBackendProvider);
     final preferredBackend = _ref.read(preferredBackendProvider.notifier);

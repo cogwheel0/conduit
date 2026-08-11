@@ -26,7 +26,7 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../navigation/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';
@@ -1226,7 +1226,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _toggleDrawer() {
-    ResponsiveDrawerLayout.of(context)?.toggle();
+    SidebarDrawerControllerScope.maybeOf(context)?.toggle();
   }
 
   AdaptiveAppBar _buildAdaptiveChannelAppBar(

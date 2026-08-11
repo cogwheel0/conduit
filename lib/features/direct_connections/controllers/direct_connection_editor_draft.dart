@@ -7,6 +7,18 @@ import '../models/direct_connection_profile.dart';
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
+enum DirectConnectionEditorSource { local, openWebUi }
+
+@immutable
+final class DirectConnectionEditorMode {
+  const DirectConnectionEditorMode({required this.source, required this.isNew});
+
+  final DirectConnectionEditorSource source;
+  final bool isNew;
+
+  bool get isOpenWebUi => source == DirectConnectionEditorSource.openWebUi;
+}
+
 enum DirectDraftValidationIssue {
   nameRequired,
   invalidUrl,
@@ -54,8 +66,7 @@ String normalizeDirectBaseUrl(String source) {
 
 bool requiresDirectApiKey({
   required DirectAuthenticationMode authentication,
-  required bool isOpenWebUi,
-  required bool isNew,
+  required DirectConnectionEditorMode mode,
   required String? savedOpenWebUiAuthType,
   required bool apiKeyDirty,
   required bool originChanged,
@@ -65,8 +76,8 @@ bool requiresDirectApiKey({
     return false;
   }
   final preservesExistingKeylessBearer =
-      isOpenWebUi &&
-      !isNew &&
+      mode.isOpenWebUi &&
+      !mode.isNew &&
       savedOpenWebUiAuthType == 'bearer' &&
       !apiKeyDirty &&
       !originChanged;
@@ -144,8 +155,7 @@ final class DirectDraftBuildResult {
 @immutable
 final class DirectConnectionDraft {
   const DirectConnectionDraft({
-    required this.isOpenWebUi,
-    required this.isNew,
+    required this.mode,
     required this.savedProfile,
     required this.savedOpenWebUiAuthType,
     required this.adapterKey,
@@ -165,8 +175,7 @@ final class DirectConnectionDraft {
     required this.customHeaders,
   });
 
-  final bool isOpenWebUi;
-  final bool isNew;
+  final DirectConnectionEditorMode mode;
   final DirectConnectionProfile? savedProfile;
   final String? savedOpenWebUiAuthType;
   final String adapterKey;
@@ -195,7 +204,7 @@ final class DirectConnectionDraft {
   }
 
   DirectDraftBuildResult build({required String openWebUiFallbackName}) {
-    final draftName = isOpenWebUi
+    final draftName = mode.isOpenWebUi
         ? (savedProfile?.name ?? openWebUiFallbackName)
         : name.trim();
     final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl);
@@ -203,7 +212,7 @@ final class DirectConnectionDraft {
     DirectDraftValidationIssue? urlIssue;
     DirectDraftValidationIssue? apiKeyIssue;
 
-    if (!isOpenWebUi && draftName.isEmpty) {
+    if (!mode.isOpenWebUi && draftName.isEmpty) {
       nameIssue = DirectDraftValidationIssue.nameRequired;
     }
     if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {
@@ -226,8 +235,7 @@ final class DirectConnectionDraft {
     };
     final apiKeyRequired = requiresDirectApiKey(
       authentication: authentication,
-      isOpenWebUi: isOpenWebUi,
-      isNew: isNew,
+      mode: mode,
       savedOpenWebUiAuthType: savedOpenWebUiAuthType,
       apiKeyDirty: apiKeyDirty,
       originChanged: originChanged,

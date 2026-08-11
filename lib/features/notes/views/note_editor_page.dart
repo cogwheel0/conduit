@@ -33,7 +33,8 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../navigation/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -1706,7 +1707,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       leading: ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
-        onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
+        onPressed: () =>
+            SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
         iconColor: tintColor,
       ),
       title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),

@@ -27,6 +27,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 import 'workspace_model_editor_body.dart';
+import 'workspace_model_editor_contract.dart';
 import 'workspace_model_avatar.dart';
 import 'workspace_model_export.dart';
 import 'workspace_model_relationship_picker.dart';
@@ -159,13 +160,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   void _markDirty() {
-    if (!_session.dirty) setState(() => _session.dirty = true);
+    if (!_session.dirty) setState(() => _session.markDirty());
   }
 
   void _update(void Function() mutate) {
     setState(() {
       mutate();
-      _session.dirty = true;
+      _session.markDirty();
     });
   }
 
@@ -367,16 +368,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (!_syncTextIntoDraft()) return;
     if (!_draft.isValid) {
       setState(
-        () => _session.errorMessage = _draft.id.trim().isEmpty
-            ? AppLocalizations.of(context)!.workspaceModelIdRequired
-            : AppLocalizations.of(context)!.workspaceModelNameRequired,
+        () => _session.setError(
+          _draft.id.trim().isEmpty
+              ? AppLocalizations.of(context)!.workspaceModelIdRequired
+              : AppLocalizations.of(context)!.workspaceModelNameRequired,
+        ),
       );
       return;
     }
 
     setState(() {
-      _session.saving = true;
-      _session.errorMessage = null;
+      _session.beginOperation(clearError: true);
     });
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
@@ -385,7 +387,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           ? await notifier.create(form)
           : await notifier.updateItem(form);
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
       DebugLogger.log(
         'model saved',
@@ -402,7 +404,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       } else {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form stays usable.
-        setState(() => _session.saving = false);
+        setState(() => _session.endOperation());
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -412,12 +414,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(() {
-        _session.saving = false;
-        _session.errorMessage = AppLocalizations.of(
-          context,
-        )!.workspaceModelSaveFailed;
-      });
+      setState(
+        () => _session.finishOperation(
+          errorMessage: AppLocalizations.of(context)!.workspaceModelSaveFailed,
+        ),
+      );
     }
   }
 
@@ -443,7 +444,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     // Clones do not inherit the source's access grants.
     clone.accessGrants = [];
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       final created = await ref
           .read(workspaceModelsProvider.notifier)
@@ -461,7 +462,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.saving = false);
+        setState(() => _session.endOperation());
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -486,11 +487,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -507,7 +508,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _session.saving = false);
+      if (mounted) setState(() => _session.endOperation());
     }
   }
 
@@ -520,13 +521,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // changes that were already saved here.
     if (!_syncTextIntoDraft()) return;
     _draft.hidden = !_draft.hidden;
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateItem(_draft.toForm());
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -544,7 +545,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _session.saving = false);
+      if (mounted) setState(() => _session.endOperation());
     }
   }
 
@@ -564,11 +565,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref.read(workspaceModelsProvider.notifier).delete(id);
       if (!mounted) return;
-      _session.dirty = false;
+      _session.markClean();
       _showSnack(l10n.workspaceModelDeleted);
       if (router.canPop()) {
         router.pop();
@@ -583,7 +584,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        setState(() => _session.saving = false);
+        setState(() => _session.endOperation());
         _showSnack(l10n.workspaceModelSaveFailed, isError: true);
       }
     }
@@ -607,7 +608,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (grants == null || !mounted) return;
     final id = _draft.id;
     if (_readOnly || id.isEmpty) return;
-    setState(() => _session.saving = true);
+    setState(() => _session.beginOperation());
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
@@ -625,7 +626,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
     } finally {
-      if (mounted) setState(() => _session.saving = false);
+      if (mounted) setState(() => _session.endOperation());
     }
   }
 
@@ -730,29 +731,33 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       child: AbsorbPointer(
         absorbing: _session.saving,
         child: WorkspaceModelEditorBody(
-          draft: _draft,
-          fields: _fields,
+          state: WorkspaceModelEditorViewState(
+            draft: _draft,
+            fields: _fields,
+            isCreate: _session.isCreate,
+            isDetail: _session.isDetail,
+            readOnly: _readOnly,
+            paramsError: _paramsError,
+            baseModels: baseModels,
+          ),
+          intents: WorkspaceModelEditorIntents(
+            onChanged: _markDirty,
+            onMutate: _update,
+            onAddTag: () => _addTag(l10n),
+            onAddSuggestion: () => _addSuggestion(l10n),
+            onPickKnowledge: _pickKnowledge,
+            onPickTools: _pickTools,
+            onPickSkills: _pickSkills,
+            onPickFilters: () => _pickFunctions(isFilter: true),
+            onPickDefaultFilters: () =>
+                _pickFunctions(isFilter: true, isDefault: true),
+            onPickActions: () => _pickFunctions(isFilter: false),
+            onManageAccess: _manageAccess,
+          ),
           profileImage: _profileImage(l10n),
-          isCreate: _session.isCreate,
-          isDetail: _session.isDetail,
-          readOnly: _readOnly,
           advancedExpanded: _advancedExpanded,
-          paramsError: _paramsError,
-          baseModels: baseModels,
-          onChanged: _markDirty,
-          onMutate: _update,
           onAdvancedChanged: (value) =>
               setState(() => _advancedExpanded = value),
-          onAddTag: () => _addTag(l10n),
-          onAddSuggestion: () => _addSuggestion(l10n),
-          onPickKnowledge: _pickKnowledge,
-          onPickTools: _pickTools,
-          onPickSkills: _pickSkills,
-          onPickFilters: () => _pickFunctions(isFilter: true),
-          onPickDefaultFilters: () =>
-              _pickFunctions(isFilter: true, isDefault: true),
-          onPickActions: () => _pickFunctions(isFilter: false),
-          onManageAccess: _manageAccess,
         ),
       ),
     );

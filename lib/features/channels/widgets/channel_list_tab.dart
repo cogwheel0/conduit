@@ -10,7 +10,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
-import '../../navigation/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../../core/services/navigation_service.dart';
@@ -83,7 +83,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   void _onChannelTap(Channel channel) {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     if (!isTablet) {
-      ResponsiveDrawerLayout.of(context)?.close();
+      SidebarDrawerControllerScope.maybeOf(context)?.close();
     }
     NavigationService.router.go('/channel/${channel.id}');
   }

@@ -6,6 +6,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -70,8 +71,10 @@ void main() {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          isOpenWebUi: true,
-          isNew: false,
+          mode: const DirectConnectionEditorMode(
+            source: DirectConnectionEditorSource.openWebUi,
+            isNew: false,
+          ),
           savedOpenWebUiAuthType: 'bearer',
           apiKeyDirty: false,
           originChanged: false,
@@ -80,8 +83,10 @@ void main() {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          isOpenWebUi: true,
-          isNew: false,
+          mode: const DirectConnectionEditorMode(
+            source: DirectConnectionEditorSource.openWebUi,
+            isNew: false,
+          ),
           savedOpenWebUiAuthType: 'none',
           apiKeyDirty: true,
           originChanged: false,
@@ -90,8 +95,10 @@ void main() {
       check(
         requiresDirectApiKey(
           authentication: DirectAuthenticationMode.bearer,
-          isOpenWebUi: true,
-          isNew: false,
+          mode: const DirectConnectionEditorMode(
+            source: DirectConnectionEditorSource.openWebUi,
+            isNew: false,
+          ),
           savedOpenWebUiAuthType: 'bearer',
           apiKeyDirty: false,
           originChanged: true,
