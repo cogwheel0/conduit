@@ -10,12 +10,12 @@ import '../../../shared/utils/utf16_sanitizer.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
-import '../../tools/providers/tools_providers.dart';
 import '../controllers/terminal_browser_controller.dart';
+import '../controllers/terminal_context_controller.dart';
+import '../controllers/terminal_controller_gateways.dart';
 import '../controllers/terminal_session_controller.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
-import '../services/terminal_service.dart';
 import 'terminal_console_section.dart';
 import 'terminal_files_section.dart';
 import 'terminal_fullscreen_page.dart';
@@ -38,6 +38,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
   late final TerminalSessionController _sessionController;
   late final TerminalBrowserController _browserController;
+  late final TerminalContextController _contextController;
 
   ProviderSubscription<int>? _refreshSubscription;
   ProviderSubscription<String>? _sessionScopeSubscription;
@@ -46,11 +47,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   ProviderSubscription<AsyncValue<List<TerminalServerInfo>>>?
   _singleServerDefaultPanelSubscription;
 
-  bool _didAutoSelectFallback = false;
-  bool _terminalSupported = true;
   bool _fullscreen = false;
-  String? _syncKey;
-  int _syncGeneration = 0;
 
   @override
   bool get wantKeepAlive => true;
@@ -58,21 +55,38 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   @override
   void initState() {
     super.initState();
-    _sessionController = TerminalSessionController(
+    final gateway = RiverpodTerminalControllerGateway(
       ref: ref,
-      isCurrentContext: _isCurrentTerminalContext,
+      isActive: () => mounted && widget.isActive,
+    );
+    _sessionController = TerminalSessionController(
+      gateway: gateway,
+      isCurrentContext: (server, sessionScopeId) =>
+          _contextController.isCurrentContext(server, sessionScopeId),
     );
     _browserController = TerminalBrowserController(
-      ref: ref,
-      isCurrentContext: _isCurrentTerminalContext,
+      gateway: gateway,
+      platformGateway: const DefaultTerminalBrowserPlatformGateway(),
+      isCurrentContext: (server, sessionScopeId) =>
+          _contextController.isCurrentContext(server, sessionScopeId),
       onFailure: _handleBrowserFailure,
-    )..addListener(_handleBrowserChanged);
+    );
+    _contextController = TerminalContextController(
+      gateway: gateway,
+      sessionController: _sessionController,
+      browserController: _browserController,
+      disconnectedLabel: () =>
+          AppLocalizations.of(context)!.terminalDisconnectedStatus,
+      onFailure: _handleContextFailure,
+    );
+    _browserController.addListener(_handleControllerChanged);
+    _contextController.addListener(_handleControllerChanged);
 
     _refreshSubscription = ref.listenManual<int>(
       terminalBrowserRefreshTokenProvider,
       (previous, next) {
         if (previous != next && widget.isActive) {
-          unawaited(_browserController.reload());
+          unawaited(_contextController.reloadBrowser());
         }
       },
     );
@@ -80,7 +94,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       terminalSessionScopeIdProvider,
       (previous, next) {
         if (widget.isActive) {
-          unawaited(_syncTerminalState(force: true));
+          unawaited(_contextController.sync(force: true));
         }
       },
     );
@@ -89,7 +103,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           terminalSelectedServerProvider,
           (_, next) => next.whenData((_) {
             if (widget.isActive) {
-              unawaited(_syncTerminalState(force: true));
+              unawaited(_contextController.sync(force: true));
             }
           }),
         );
@@ -106,7 +120,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         ref.read(terminalAvailableServersProvider),
       );
       if (widget.isActive) {
-        unawaited(_syncTerminalState(force: true));
+        unawaited(_contextController.sync(force: true));
       }
     });
   }
@@ -119,14 +133,11 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     }
 
     if (widget.isActive) {
-      unawaited(_syncTerminalState(force: true));
+      unawaited(_contextController.sync(force: true));
       return;
     }
 
-    _syncKey = null;
-    _syncGeneration++;
-    unawaited(_sessionController.disconnect(showClosedBanner: false));
-    _browserController.resetLoading();
+    unawaited(_contextController.deactivate());
   }
 
   @override
@@ -136,7 +147,10 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     _selectedServerSubscription?.close();
     _singleServerDefaultPanelSubscription?.close();
     _browserController
-      ..removeListener(_handleBrowserChanged)
+      ..removeListener(_handleControllerChanged)
+      ..dispose();
+    _contextController
+      ..removeListener(_handleControllerChanged)
       ..dispose();
     _sessionController.dispose();
     _filesScrollController.dispose();
@@ -153,7 +167,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       ? _filesScrollController
       : _portsScrollController;
 
-  void _handleBrowserChanged() {
+  void _handleControllerChanged() {
     if (mounted) {
       setState(() {});
     }
@@ -180,155 +194,6 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
             .setPanel(TerminalSidebarPanel.files);
       }
     });
-  }
-
-  bool _isCurrentTerminalContext(
-    TerminalServerInfo server,
-    String sessionScopeId,
-  ) {
-    if (!mounted || !widget.isActive) {
-      return false;
-    }
-    final currentServer = ref
-        .read(terminalSelectedServerProvider)
-        .asData
-        ?.value;
-    return currentServer?.selectionId == server.selectionId &&
-        ref.read(terminalSessionScopeIdProvider) == sessionScopeId;
-  }
-
-  bool _isCurrentSync(
-    int syncGeneration,
-    TerminalServerInfo server,
-    String sessionScopeId,
-  ) {
-    return syncGeneration == _syncGeneration &&
-        _isCurrentTerminalContext(server, sessionScopeId);
-  }
-
-  Future<void> _syncTerminalState({required bool force}) async {
-    final service = ref.read(terminalServiceProvider);
-    if (service == null) {
-      return;
-    }
-
-    if (!widget.isActive) {
-      _syncKey = null;
-      await _sessionController.disconnect(showClosedBanner: false);
-      _browserController.resetLoading();
-      return;
-    }
-
-    final availableServers =
-        ref.read(terminalAvailableServersProvider).asData?.value ??
-        const <TerminalServerInfo>[];
-    final selectedTerminalId = ref.read(selectedTerminalIdProvider);
-    final selectedServer = ref
-        .read(terminalSelectedServerProvider)
-        .asData
-        ?.value;
-    if (!_didAutoSelectFallback &&
-        selectedTerminalId == null &&
-        selectedServer != null) {
-      _didAutoSelectFallback = true;
-      await ref
-          .read(terminalSelectionControllerProvider)
-          .select(selectedServer);
-      return;
-    }
-    if (selectedServer == null) {
-      if (!_didAutoSelectFallback &&
-          selectedTerminalId == null &&
-          availableServers.isNotEmpty) {
-        _didAutoSelectFallback = true;
-        await ref
-            .read(terminalSelectionControllerProvider)
-            .select(availableServers.first);
-      } else {
-        await _sessionController.disconnect(showClosedBanner: false);
-        _browserController.resetLoading();
-      }
-      return;
-    }
-
-    final sessionScopeId = ref.read(terminalSessionScopeIdProvider);
-    final nextSyncKey = '${selectedServer.selectionId}::$sessionScopeId';
-    if (!force && _syncKey == nextSyncKey) {
-      return;
-    }
-    _syncKey = nextSyncKey;
-    final syncGeneration = ++_syncGeneration;
-
-    await _sessionController.disconnect(showClosedBanner: false);
-    if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
-      return;
-    }
-    _sessionController.clear();
-    ref
-        .read(terminalConnectionStateProvider.notifier)
-        .set(const TerminalConnectionState.disconnected());
-
-    try {
-      final terminalEnabled = await service.isTerminalFeatureEnabled(
-        selectedServer,
-        sessionScopeId: sessionScopeId,
-      );
-      if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
-        return;
-      }
-      setState(() => _terminalSupported = terminalEnabled);
-
-      final cwd = await service.getCwd(
-        selectedServer,
-        sessionScopeId: sessionScopeId,
-      );
-      if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
-        return;
-      }
-      final initialPath = ensureTerminalDirectoryPath(cwd ?? '/');
-      ref.read(terminalCurrentPathProvider.notifier).set(initialPath);
-
-      await _browserController.loadDirectory(
-        service,
-        selectedServer,
-        path: initialPath,
-        updateServerCwd: false,
-      );
-      if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
-        return;
-      }
-      await _browserController.loadPorts(service, selectedServer);
-      if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
-        return;
-      }
-
-      if (ref.read(terminalAutoConnectProvider) && _terminalSupported) {
-        await _connect(service, selectedServer, sessionScopeId);
-      }
-    } catch (_) {
-      if (mounted) {
-        _showSnackBar(AppLocalizations.of(context)!.terminalFailedToLoadFiles);
-      }
-    }
-  }
-
-  Future<void> _connect(
-    TerminalService service,
-    TerminalServerInfo server,
-    String sessionScopeId,
-  ) async {
-    final l10n = AppLocalizations.of(context)!;
-    await _sessionController.connect(
-      service,
-      server,
-      sessionScopeId: sessionScopeId,
-      disconnectedLabel: l10n.terminalDisconnectedStatus,
-      onFailure: () {
-        if (mounted) {
-          _showSnackBar(l10n.terminalFailedToConnect);
-        }
-      },
-    );
   }
 
   Future<void> _openFullscreen() async {
@@ -373,6 +238,15 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       TerminalBrowserFailure.openPort => l10n.errorMessage,
     };
     _showSnackBar(message);
+  }
+
+  void _handleContextFailure(TerminalContextFailure failure) {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    _showSnackBar(switch (failure) {
+      TerminalContextFailure.load => l10n.terminalFailedToLoadFiles,
+      TerminalContextFailure.connect => l10n.terminalFailedToConnect,
+    });
   }
 
   void _showSnackBar(String message) {
@@ -425,19 +299,11 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
                   ports: ports,
                   noServersConfigured: noServersConfigured,
                   loadingPorts: _browserController.loadingPorts,
-                  terminalSupported: _terminalSupported,
+                  terminalSupported: _contextController.terminalSupported,
                   fullscreen: _fullscreen,
-                  onConnect:
-                      selectedServer == null ||
-                          ref.read(terminalServiceProvider) == null
+                  onConnect: selectedServer == null
                       ? null
-                      : () => unawaited(
-                          _connect(
-                            ref.read(terminalServiceProvider)!,
-                            selectedServer,
-                            ref.read(terminalSessionScopeIdProvider),
-                          ),
-                        ),
+                      : () => unawaited(_contextController.connect()),
                   onDisconnect: () => unawaited(
                     _sessionController.disconnect(showClosedBanner: false),
                   ),

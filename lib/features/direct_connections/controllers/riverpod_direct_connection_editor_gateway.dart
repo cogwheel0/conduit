@@ -32,7 +32,7 @@ abstract base class _RiverpodEditorGateway
   final DirectConnectionEditorMode mode;
 
   @override
-  DirectConnectionEditorCapabilities get capabilities => mode.capabilities;
+  DirectConnectionEditorPolicy get policy => mode.policy;
 
   DirectEditorLoadState mapResource<T>(
     AsyncValue<T> state,

@@ -1,0 +1,192 @@
+import 'package:checks/checks.dart';
+import 'package:conduit/features/terminal/controllers/terminal_browser_controller.dart';
+import 'package:conduit/features/terminal/controllers/terminal_context_controller.dart';
+import 'package:conduit/features/terminal/controllers/terminal_controller_gateways.dart';
+import 'package:conduit/features/terminal/controllers/terminal_session_controller.dart';
+import 'package:conduit/features/terminal/models/terminal_models.dart';
+import 'package:conduit/features/terminal/services/terminal_service.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+void main() {
+  final server = TerminalServerInfo(
+    kind: TerminalServerKind.system,
+    selectionId: 'system:primary',
+    baseUrl: Uri.parse('https://example.test'),
+  );
+
+  test('context controller owns initial fallback selection', () async {
+    final service = _MockTerminalService();
+    final gateway = _FakeTerminalGateway(service: service)
+      ..selectedServer = server;
+    final harness = _TerminalControllerHarness(gateway);
+    addTearDown(harness.dispose);
+
+    await harness.context.sync(force: true);
+
+    check(gateway.selectedServers).deepEquals([server]);
+    verifyNever(
+      () => service.isTerminalFeatureEnabled(
+        server,
+        sessionScopeId: any(named: 'sessionScopeId'),
+      ),
+    );
+  });
+
+  test(
+    'context controller sequences feature, path, files, and ports',
+    () async {
+      final service = _MockTerminalService();
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = server.selectionId
+        ..selectedServer = server;
+      when(
+        () => service.isTerminalFeatureEnabled(server, sessionScopeId: 'scope'),
+      ).thenAnswer((_) async => true);
+      when(
+        () => service.getCwd(server, sessionScopeId: 'scope'),
+      ).thenAnswer((_) async => '/workspace');
+      when(
+        () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer(
+        (_) async => const [
+          TerminalFileEntry(
+            name: 'README.md',
+            path: '/workspace/README.md',
+            isDirectory: false,
+          ),
+        ],
+      );
+      when(
+        () => service.getListeningPorts(server, sessionScopeId: 'scope'),
+      ).thenAnswer((_) async => const [TerminalListeningPort(port: 8080)]);
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+
+      await harness.context.sync(force: true);
+
+      check(gateway.currentPath).equals('/workspace/');
+      check(gateway.entries.single.name).equals('README.md');
+      check(gateway.ports.single.port).equals(8080);
+      check(harness.failures).isEmpty();
+    },
+  );
+}
+
+final class _TerminalControllerHarness {
+  _TerminalControllerHarness(this.gateway) {
+    session = TerminalSessionController(
+      gateway: gateway,
+      isCurrentContext: (server, scope) =>
+          context.isCurrentContext(server, scope),
+    );
+    browser = TerminalBrowserController(
+      gateway: gateway,
+      platformGateway: const _FakeTerminalPlatformGateway(),
+      isCurrentContext: (server, scope) =>
+          context.isCurrentContext(server, scope),
+      onFailure: (_) {},
+    );
+    context = TerminalContextController(
+      gateway: gateway,
+      sessionController: session,
+      browserController: browser,
+      disconnectedLabel: () => 'Disconnected',
+      onFailure: failures.add,
+    );
+  }
+
+  final _FakeTerminalGateway gateway;
+  final List<TerminalContextFailure> failures = [];
+  late final TerminalSessionController session;
+  late final TerminalBrowserController browser;
+  late final TerminalContextController context;
+
+  void dispose() {
+    context.dispose();
+    browser.dispose();
+    session.dispose();
+  }
+}
+
+final class _MockTerminalService extends Mock implements TerminalService {}
+
+final class _FakeTerminalGateway
+    implements
+        TerminalBrowserGateway,
+        TerminalSessionGateway,
+        TerminalContextGateway {
+  _FakeTerminalGateway({required this.service});
+
+  @override
+  bool isActive = true;
+  @override
+  TerminalService? service;
+  @override
+  List<TerminalServerInfo> availableServers = const [];
+  @override
+  String? selectedTerminalId;
+  @override
+  TerminalServerInfo? selectedServer;
+  @override
+  String sessionScopeId = 'scope';
+  @override
+  String currentPath = '/';
+  @override
+  bool autoConnect = false;
+  @override
+  TerminalConnectionState connectionState =
+      const TerminalConnectionState.disconnected();
+
+  List<TerminalFileEntry> entries = const [];
+  List<TerminalListeningPort> ports = const [];
+  TerminalSessionInfo? activeSession;
+  final List<TerminalServerInfo> selectedServers = [];
+
+  @override
+  Future<void> selectServer(TerminalServerInfo server) async {
+    selectedServers.add(server);
+    selectedTerminalId = server.selectionId;
+  }
+
+  @override
+  void setCurrentPath(String path) => currentPath = path;
+
+  @override
+  void setEntries(List<TerminalFileEntry> value) => entries = value;
+
+  @override
+  void setListeningPorts(List<TerminalListeningPort> value) => ports = value;
+
+  @override
+  void requestRefresh() {}
+
+  @override
+  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind}) =>
+      throw UnimplementedError();
+
+  @override
+  void setActiveSession(TerminalSessionInfo? session) {
+    activeSession = session;
+  }
+
+  @override
+  void setConnectionState(TerminalConnectionState state) {
+    connectionState = state;
+  }
+}
+
+final class _FakeTerminalPlatformGateway
+    implements TerminalBrowserPlatformGateway {
+  const _FakeTerminalPlatformGateway();
+
+  @override
+  Future<TerminalUploadFile?> pickUploadFile() async => null;
+
+  @override
+  Future<void> shareDownload(TerminalDownloadedFile downloaded) async {}
+
+  @override
+  Future<bool> openPort(Uri uri, {String? bearerToken}) async => true;
+}

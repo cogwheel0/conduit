@@ -203,26 +203,22 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    if (!_session.beginOperation()) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/knowledge',
+      operationLabel: 'knowledge access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceKnowledgeProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
-      _showSnack(l10n.workspaceKnowledgeSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge access update failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
+        _showSnack(l10n.workspaceKnowledgeSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
+    );
   }
 
   Future<void> _reset() async {
@@ -238,25 +234,22 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
-      if (!mounted) return;
-      // Reset deleted every file server-side; refetch the browser so it no
-      // longer shows (or offers actions on) the now-deleted entries.
-      ref.invalidate(workspaceKnowledgeFilesProvider(summary.id));
-      _showSnack(l10n.workspaceKnowledgeResetDone);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge reset failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/knowledge',
+      operationLabel: 'knowledge reset',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id),
+      onSuccess: (_) {
+        // Reset deleted every file server-side; refetch the browser so it no
+        // longer shows (or offers actions on) the now-deleted entries.
+        ref.invalidate(workspaceKnowledgeFilesProvider(summary.id));
+        _showSnack(l10n.workspaceKnowledgeResetDone);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
+    );
   }
 
   Future<void> _export() async {
@@ -300,29 +293,26 @@ class _WorkspaceKnowledgeFormState
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspaceKnowledgeDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.knowledge.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge delete failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/knowledge',
+      operationLabel: 'knowledge delete',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () =>
+          ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspaceKnowledgeDeleted);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go(WorkspaceSection.knowledge.routes.collectionPath);
+        }
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
+    );
   }
 
   @override

@@ -325,7 +325,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'skill_clone' : '${baseId}_clone';
-    if (!_session.beginOperation()) return;
     // Clones never inherit the source skill's sharing grants.
     final form = WorkspaceSkillForm(
       id: cloneId,
@@ -336,49 +335,39 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       content: _contentController.text,
       meta: _meta,
     );
-    try {
-      final created = await ref
-          .read(workspaceSkillsProvider.notifier)
-          .create(form);
-      if (!mounted) return;
-      _showSnack(l10n.workspaceSkillSaved);
-      router.pushReplacement(
-        WorkspaceSection.skills.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill clone failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<WorkspaceSkillDetail>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill clone',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () => ref.read(workspaceSkillsProvider.notifier).create(form),
+      onSuccess: (created) {
+        _showSnack(l10n.workspaceSkillSaved);
+        router.pushReplacement(
+          WorkspaceSection.skills.routes.editLocation(created.id),
+        );
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   Future<void> _toggleActive() async {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceSkillsProvider.notifier).toggle(summary.id);
-      if (!mounted) return;
-      _showSnack(l10n.workspaceSkillSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill toggle failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill toggle',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspaceSkillsProvider.notifier).toggle(summary.id),
+      onSuccess: (_) => _showSnack(l10n.workspaceSkillSaved),
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   Future<void> _delete() async {
@@ -397,29 +386,26 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceSkillsProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspaceSkillDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.skills.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill delete failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill delete',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () =>
+          ref.read(workspaceSkillsProvider.notifier).delete(summary.id),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspaceSkillDeleted);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go(WorkspaceSection.skills.routes.collectionPath);
+        }
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -441,25 +427,21 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    if (!_session.beginOperation()) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceSkillsProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      _showSnack(l10n.workspaceSkillSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill access update failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        _showSnack(l10n.workspaceSkillSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   /// Markdown import: reads a `.md` file, parses front-matter, and prefills the

@@ -1,17 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/terminal_models.dart';
-import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
+import 'terminal_controller_gateways.dart';
 import 'terminal_session_controller.dart';
 
 enum TerminalBrowserFailure {
@@ -31,14 +24,17 @@ enum TerminalBrowserFailure {
 /// rejects results that no longer belong to the selected terminal context.
 class TerminalBrowserController extends ChangeNotifier {
   TerminalBrowserController({
-    required WidgetRef ref,
+    required TerminalBrowserGateway gateway,
+    required TerminalBrowserPlatformGateway platformGateway,
     required TerminalContextValidator isCurrentContext,
     required void Function(TerminalBrowserFailure failure) onFailure,
-  }) : _ref = ref,
+  }) : _gateway = gateway,
+       _platformGateway = platformGateway,
        _isCurrentContext = isCurrentContext,
        _onFailure = onFailure;
 
-  final WidgetRef _ref;
+  final TerminalBrowserGateway _gateway;
+  final TerminalBrowserPlatformGateway _platformGateway;
   final TerminalContextValidator _isCurrentContext;
   final void Function(TerminalBrowserFailure failure) _onFailure;
 
@@ -54,7 +50,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null || !_isCurrentServer(server)) {
       return;
@@ -63,7 +59,7 @@ class TerminalBrowserController extends ChangeNotifier {
     await loadDirectory(
       service,
       server,
-      path: _ref.read(terminalCurrentPathProvider),
+      path: _gateway.currentPath,
       updateServerCwd: false,
     );
     await loadPorts(service, server);
@@ -75,7 +71,7 @@ class TerminalBrowserController extends ChangeNotifier {
     required String path,
     required bool updateServerCwd,
   }) async {
-    final sessionScopeId = _ref.read(terminalSessionScopeIdProvider);
+    final sessionScopeId = _gateway.sessionScopeId;
     final normalizedPath = ensureTerminalDirectoryPath(path);
 
     _setLoadingFiles(true);
@@ -89,8 +85,8 @@ class TerminalBrowserController extends ChangeNotifier {
         return;
       }
 
-      _ref.read(terminalCurrentPathProvider.notifier).set(normalizedPath);
-      _ref.read(terminalEntriesProvider.notifier).set(entries);
+      _gateway.setCurrentPath(normalizedPath);
+      _gateway.setEntries(entries);
 
       if (updateServerCwd) {
         unawaited(
@@ -116,7 +112,7 @@ class TerminalBrowserController extends ChangeNotifier {
     TerminalService service,
     TerminalServerInfo server,
   ) async {
-    final sessionScopeId = _ref.read(terminalSessionScopeIdProvider);
+    final sessionScopeId = _gateway.sessionScopeId;
     _setLoadingPorts(true);
     try {
       final ports = await service.getListeningPorts(
@@ -126,7 +122,7 @@ class TerminalBrowserController extends ChangeNotifier {
       if (!_isCurrentContext(server, sessionScopeId)) {
         return;
       }
-      _ref.read(terminalListeningPortsProvider.notifier).set(ports);
+      _gateway.setListeningPorts(ports);
     } catch (_) {
       if (_isCurrentContext(server, sessionScopeId)) {
         _onFailure(TerminalBrowserFailure.loadPorts);
@@ -142,7 +138,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -154,13 +150,13 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return null;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return null;
     }
 
-    final sessionScopeId = _ref.read(terminalSessionScopeIdProvider);
+    final sessionScopeId = _gateway.sessionScopeId;
     try {
       final preview = await service.readFile(
         server,
@@ -180,7 +176,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -190,17 +186,9 @@ class TerminalBrowserController extends ChangeNotifier {
       final downloaded = await service.downloadFile(
         server,
         entry.path,
-        sessionScopeId: _ref.read(terminalSessionScopeIdProvider),
+        sessionScopeId: _gateway.sessionScopeId,
       );
-      final file = await _materializeTempFile(
-        downloaded.fileName,
-        downloaded.bytes,
-      );
-      await SharePlus.instance.share(
-        ShareParams(
-          files: <XFile>[XFile(file.path, name: downloaded.fileName)],
-        ),
-      );
+      await _platformGateway.shareDownload(downloaded);
     } catch (_) {
       _onFailure(TerminalBrowserFailure.download);
     }
@@ -210,7 +198,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -222,12 +210,12 @@ class TerminalBrowserController extends ChangeNotifier {
         _pathWithoutTrailingSlash(entry.path),
         _pathWithoutTrailingSlash(
           joinTerminalPath(
-            _ref.read(terminalCurrentPathProvider),
+            _gateway.currentPath,
             newName,
             directoryResult: entry.isDirectory,
           ),
         ),
-        sessionScopeId: _ref.read(terminalSessionScopeIdProvider),
+        sessionScopeId: _gateway.sessionScopeId,
       );
       if (!_disposed) {
         await reload();
@@ -241,7 +229,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -251,7 +239,7 @@ class TerminalBrowserController extends ChangeNotifier {
       await service.deleteEntry(
         server,
         _pathWithoutTrailingSlash(entry.path),
-        sessionScopeId: _ref.read(terminalSessionScopeIdProvider),
+        sessionScopeId: _gateway.sessionScopeId,
       );
       if (!_disposed) {
         await reload();
@@ -265,28 +253,24 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
     }
 
     try {
-      final pickedFile = await FilePicker.pickFile();
+      final pickedFile = await _platformGateway.pickUploadFile();
       if (pickedFile == null) {
-        return;
-      }
-      final localFile = await _materializePickedFile(pickedFile);
-      if (localFile == null) {
         return;
       }
 
       await service.uploadFile(
         server,
-        _ref.read(terminalCurrentPathProvider),
-        localFile.path,
+        _gateway.currentPath,
+        pickedFile.path,
         pickedFile.name,
-        sessionScopeId: _ref.read(terminalSessionScopeIdProvider),
+        sessionScopeId: _gateway.sessionScopeId,
       );
       if (!_disposed) {
         await reload();
@@ -300,7 +284,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -309,13 +293,13 @@ class TerminalBrowserController extends ChangeNotifier {
     try {
       await service.createDirectory(
         server,
-        joinTerminalPath(_ref.read(terminalCurrentPathProvider), folderName),
-        sessionScopeId: _ref.read(terminalSessionScopeIdProvider),
+        joinTerminalPath(_gateway.currentPath, folderName),
+        sessionScopeId: _gateway.sessionScopeId,
       );
       if (_disposed) {
         return;
       }
-      _ref.read(terminalSelectionControllerProvider).requestTerminalRefresh();
+      _gateway.requestRefresh();
       await reload();
     } catch (_) {
       _onFailure(TerminalBrowserFailure.createFolder);
@@ -326,7 +310,7 @@ class TerminalBrowserController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
-    final service = _ref.read(terminalServiceProvider);
+    final service = _gateway.service;
     final server = _selectedServer;
     if (service == null || server == null) {
       return;
@@ -336,17 +320,9 @@ class TerminalBrowserController extends ChangeNotifier {
     final authToken = server.isSystem
         ? service.authTokenForServer(server)
         : null;
-    final launched = await launchUrl(
+    final launched = await _platformGateway.openPort(
       url,
-      mode: authToken == null || authToken.isEmpty
-          ? LaunchMode.inAppBrowserView
-          : LaunchMode.inAppWebView,
-      browserConfiguration: const BrowserConfiguration(showTitle: true),
-      webViewConfiguration: WebViewConfiguration(
-        headers: authToken == null || authToken.isEmpty
-            ? const <String, String>{}
-            : <String, String>{'Authorization': 'Bearer $authToken'},
-      ),
+      bearerToken: authToken,
     );
     if (!launched) {
       _onFailure(TerminalBrowserFailure.openPort);
@@ -370,11 +346,10 @@ class TerminalBrowserController extends ChangeNotifier {
     super.dispose();
   }
 
-  TerminalServerInfo? get _selectedServer =>
-      _ref.read(terminalSelectedServerProvider).asData?.value;
+  TerminalServerInfo? get _selectedServer => _gateway.selectedServer;
 
   bool _isCurrentServer(TerminalServerInfo server) =>
-      _isCurrentContext(server, _ref.read(terminalSessionScopeIdProvider));
+      _isCurrentContext(server, _gateway.sessionScopeId);
 
   void _setLoadingFiles(bool value) {
     if (_loadingFiles == value) {
@@ -394,29 +369,6 @@ class TerminalBrowserController extends ChangeNotifier {
     if (!_disposed) {
       notifyListeners();
     }
-  }
-
-  Future<File?> _materializePickedFile(PlatformFile pickedFile) async {
-    if (pickedFile.path != null && pickedFile.path!.isNotEmpty) {
-      return File(pickedFile.path!);
-    }
-
-    try {
-      final bytes = await pickedFile.readAsBytes();
-      return _materializeTempFile(pickedFile.name, bytes);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<File> _materializeTempFile(String fileName, List<int> bytes) async {
-    final tempDir = await getTemporaryDirectory();
-    final safeName = fileName.isEmpty
-        ? 'terminal_file_${DateTime.now().millisecondsSinceEpoch}'
-        : fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
-    final file = File(p.join(tempDir.path, safeName));
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
   }
 
   String _pathWithoutTrailingSlash(String path) {

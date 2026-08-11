@@ -68,7 +68,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    if (!form.capabilities.editsProvider) {
+    if (!form.policy.editsProvider) {
       return InsetGroupedSection(
         title: l10n.directProvider,
         child: Row(
@@ -175,7 +175,7 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (form.capabilities.editsName) ...[
+          if (form.policy.editsName) ...[
             AccessibleFormField(
               key: const ValueKey<String>('direct-connection-name-field'),
               label: l10n.directConnectionName,

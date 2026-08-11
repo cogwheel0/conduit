@@ -51,8 +51,7 @@ class _DirectConnectionEditorPageState
   DirectConnectionEditorForm get _form => _workflow.form;
 
   DirectConnectionEditorMode get _mode => _workflow.mode;
-  DirectConnectionEditorCapabilities get _capabilities =>
-      _workflow.capabilities;
+  DirectConnectionEditorPolicy get _policy => _workflow.policy;
   DirectConnectionEditorState get _editorState => _workflow.state;
   bool get _saving => _editorState.operation == DirectEditorOperation.saving;
   bool get _testing => _editorState.operation == DirectEditorOperation.testing;
@@ -95,7 +94,7 @@ class _DirectConnectionEditorPageState
   }
 
   bool _operationOwnerIsCurrent() {
-    if (!_capabilities.requiresOwnerValidation) return true;
+    if (!_policy.requiresOwnerValidation) return true;
     if (!mounted) return false;
     return switch (_gateway.resourceState) {
       DirectEditorLoadData(:final resource) => _workflow.resourceOwnerMatches(
@@ -134,7 +133,7 @@ class _DirectConnectionEditorPageState
     return ThemedDialogs.confirm(
       context,
       title: l10n.directConnectionDeleteTitle,
-      message: _capabilities.showsManagedSource
+      message: _policy.showsManagedSource
           ? l10n.openWebUiDirectConnectionDeleteMessage(saved.name)
           : l10n.directConnectionDeleteMessage(saved.name),
       confirmText: l10n.delete,
@@ -268,7 +267,7 @@ class _DirectConnectionEditorPageState
   ) {
     final l10n = AppLocalizations.of(context)!;
     final ownerChanged =
-        _capabilities.requiresOwnerValidation &&
+        _policy.requiresOwnerValidation &&
         !_workflow.resourceOwnerMatches(resource);
     if (ownerChanged ||
         resource.availability == DirectEditorResourceAvailability.unavailable) {
@@ -337,7 +336,7 @@ class _DirectConnectionEditorPageState
       UtilityIdentityHeader(
         leading: ConnectionMark(
           child: Icon(
-            _capabilities.showsManagedSource
+            _policy.showsManagedSource
                 ? (context.usesCupertinoChrome
                       ? CupertinoIcons.cloud
                       : Icons.cloud_outlined)
@@ -351,10 +350,10 @@ class _DirectConnectionEditorPageState
         title: _mode.isNew
             ? l10n.directConnectProviderTitle
             : l10n.editDirectConnection,
-        subtitle: _capabilities.showsManagedSource
+        subtitle: _policy.showsManagedSource
             ? l10n.openWebUiDirectConnectionEditorDescription
             : l10n.backendChooserDirectSubtitle,
-        trailing: _capabilities.showsManagedSource
+        trailing: _policy.showsManagedSource
             ? Text(
                 l10n.openWebUiDirectConnectionSourceLabel,
                 style: theme.bodySmall?.copyWith(color: theme.textTertiary),

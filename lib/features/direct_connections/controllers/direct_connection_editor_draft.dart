@@ -9,43 +9,83 @@ enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
 enum DirectConnectionEditorSource { local, openWebUi }
 
-/// Source policy consumed by the editor without teaching individual layers
-/// about the backing store that supplies a connection.
-@immutable
-final class DirectConnectionEditorCapabilities {
-  const DirectConnectionEditorCapabilities({
-    required this.editsProvider,
-    required this.editsName,
-    required this.allowsApiKeyHeader,
-    required this.allowsManagedAnonymousAuth,
-    required this.requiresOwnerValidation,
-    required this.showsManagedSource,
+/// Explicit behavior policy for the backing source of an editor resource.
+///
+/// Authentication and ownership rules live together here so adding a source
+/// cannot accidentally inherit credential behavior from an unrelated UI flag.
+sealed class DirectConnectionEditorPolicy {
+  const DirectConnectionEditorPolicy();
+
+  const factory DirectConnectionEditorPolicy.local() =
+      LocalDirectConnectionEditorPolicy;
+  const factory DirectConnectionEditorPolicy.openWebUi() =
+      OpenWebUiDirectConnectionEditorPolicy;
+
+  bool get editsProvider;
+  bool get editsName;
+  bool get allowsApiKeyHeader;
+  bool get allowsManagedAnonymousAuth;
+  bool get requiresOwnerValidation;
+  bool get showsManagedSource;
+
+  bool preservesExistingKeylessBearer({
+    required bool isNew,
+    required String? savedAuthType,
+    required bool apiKeyDirty,
+    required bool originChanged,
   });
+}
 
-  static const local = DirectConnectionEditorCapabilities(
-    editsProvider: true,
-    editsName: true,
-    allowsApiKeyHeader: true,
-    allowsManagedAnonymousAuth: false,
-    requiresOwnerValidation: false,
-    showsManagedSource: false,
-  );
+final class LocalDirectConnectionEditorPolicy
+    extends DirectConnectionEditorPolicy {
+  const LocalDirectConnectionEditorPolicy();
 
-  static const openWebUi = DirectConnectionEditorCapabilities(
-    editsProvider: false,
-    editsName: false,
-    allowsApiKeyHeader: false,
-    allowsManagedAnonymousAuth: true,
-    requiresOwnerValidation: true,
-    showsManagedSource: true,
-  );
+  @override
+  bool get editsProvider => true;
+  @override
+  bool get editsName => true;
+  @override
+  bool get allowsApiKeyHeader => true;
+  @override
+  bool get allowsManagedAnonymousAuth => false;
+  @override
+  bool get requiresOwnerValidation => false;
+  @override
+  bool get showsManagedSource => false;
 
-  final bool editsProvider;
-  final bool editsName;
-  final bool allowsApiKeyHeader;
-  final bool allowsManagedAnonymousAuth;
-  final bool requiresOwnerValidation;
-  final bool showsManagedSource;
+  @override
+  bool preservesExistingKeylessBearer({
+    required bool isNew,
+    required String? savedAuthType,
+    required bool apiKeyDirty,
+    required bool originChanged,
+  }) => false;
+}
+
+final class OpenWebUiDirectConnectionEditorPolicy
+    extends DirectConnectionEditorPolicy {
+  const OpenWebUiDirectConnectionEditorPolicy();
+
+  @override
+  bool get editsProvider => false;
+  @override
+  bool get editsName => false;
+  @override
+  bool get allowsApiKeyHeader => false;
+  @override
+  bool get allowsManagedAnonymousAuth => true;
+  @override
+  bool get requiresOwnerValidation => true;
+  @override
+  bool get showsManagedSource => true;
+
+  @override
+  bool preservesExistingKeylessBearer({
+    required bool isNew,
+    required String? savedAuthType,
+    required bool apiKeyDirty,
+    required bool originChanged,
+  }) => !isNew && savedAuthType == 'bearer' && !apiKeyDirty && !originChanged;
 }
 
 @immutable
@@ -73,11 +113,11 @@ final class DirectConnectionEditorMode {
 
   bool get isNew => profileId == null;
   bool get isOpenWebUi => source == DirectConnectionEditorSource.openWebUi;
-  DirectConnectionEditorCapabilities get capabilities => switch (source) {
+  DirectConnectionEditorPolicy get policy => switch (source) {
     DirectConnectionEditorSource.local =>
-      DirectConnectionEditorCapabilities.local,
+      const DirectConnectionEditorPolicy.local(),
     DirectConnectionEditorSource.openWebUi =>
-      DirectConnectionEditorCapabilities.openWebUi,
+      const DirectConnectionEditorPolicy.openWebUi(),
   };
 
   @override
@@ -147,12 +187,13 @@ bool requiresDirectApiKey({
       authentication != DirectAuthenticationMode.apiKeyHeader) {
     return false;
   }
-  final preservesExistingKeylessBearer =
-      mode.capabilities.requiresOwnerValidation &&
-      !mode.isNew &&
-      savedOpenWebUiAuthType == 'bearer' &&
-      !apiKeyDirty &&
-      !originChanged;
+  final preservesExistingKeylessBearer = mode.policy
+      .preservesExistingKeylessBearer(
+        isNew: mode.isNew,
+        savedAuthType: savedOpenWebUiAuthType,
+        apiKeyDirty: apiKeyDirty,
+        originChanged: originChanged,
+      );
   return !preservesExistingKeylessBearer;
 }
 
@@ -276,7 +317,7 @@ final class DirectConnectionDraft {
   }
 
   DirectDraftBuildResult build({required String openWebUiFallbackName}) {
-    final draftName = !mode.capabilities.editsName
+    final draftName = !mode.policy.editsName
         ? (savedProfile?.name ?? openWebUiFallbackName)
         : name.trim();
     final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl);
@@ -284,7 +325,7 @@ final class DirectConnectionDraft {
     DirectDraftValidationIssue? urlIssue;
     DirectDraftValidationIssue? apiKeyIssue;
 
-    if (mode.capabilities.editsName && draftName.isEmpty) {
+    if (mode.policy.editsName && draftName.isEmpty) {
       nameIssue = DirectDraftValidationIssue.nameRequired;
     }
     if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {

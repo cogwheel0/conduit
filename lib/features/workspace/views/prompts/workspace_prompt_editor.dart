@@ -259,37 +259,32 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       return;
     }
     setState(() => _commandError = false);
-    if (!_session.beginOperation(clearError: true)) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/prompts',
+      operationLabel: 'prompt metadata update',
+      editorMounted: () => mounted,
+      clearError: true,
+      operation: () => ref
           .read(workspacePromptsProvider.notifier)
           .updateMetadata(
             summary.id,
             name: _nameController.text.trim(),
             command: command,
             tags: _tags,
-          );
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspacePromptDetailsSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt metadata update failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      final commandTaken = _isCommandTaken(error);
-      setState(() => _commandError = commandTaken);
-      _session.setError(
-        commandTaken
+          ),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspacePromptDetailsSaved);
+      },
+      errorMessage: (error) {
+        final commandTaken = _isCommandTaken(error);
+        setState(() => _commandError = commandTaken);
+        return commandTaken
             ? l10n.workspacePromptCommandTaken
-            : l10n.workspacePromptSaveFailed,
-      );
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+            : l10n.workspacePromptSaveFailed;
+      },
+    );
   }
 
   // --- Overflow actions -----------------------------------------------------
@@ -301,7 +296,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final cloneCommand = WorkspacePromptCommand.slugify(
       '$baseCommand-${l10n.workspacePromptCloneSuffix}',
     );
-    if (!_session.beginOperation()) return;
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
       command: cloneCommand.isEmpty ? '$baseCommand-copy' : cloneCommand,
@@ -309,49 +303,39 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       content: _contentController.text,
       tags: _tags,
     );
-    try {
-      final created = await ref
-          .read(workspacePromptsProvider.notifier)
-          .create(form);
-      if (!mounted) return;
-      _showSnack(l10n.workspacePromptSaved);
-      router.pushReplacement(
-        WorkspaceSection.prompts.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt clone failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspacePromptSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<WorkspacePromptDetail>(
+      session: _session,
+      scope: 'workspace/prompts',
+      operationLabel: 'prompt clone',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () => ref.read(workspacePromptsProvider.notifier).create(form),
+      onSuccess: (created) {
+        _showSnack(l10n.workspacePromptSaved);
+        router.pushReplacement(
+          WorkspaceSection.prompts.routes.editLocation(created.id),
+        );
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
+    );
   }
 
   Future<void> _toggleActive() async {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspacePromptsProvider.notifier).toggle(summary.id);
-      if (!mounted) return;
-      _showSnack(l10n.workspacePromptSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt toggle failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspacePromptSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/prompts',
+      operationLabel: 'prompt toggle',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspacePromptsProvider.notifier).toggle(summary.id),
+      onSuccess: (_) => _showSnack(l10n.workspacePromptSaved),
+      onFailure: (_) =>
+          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
+    );
   }
 
   Future<void> _delete() async {
@@ -370,29 +354,26 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspacePromptsProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspacePromptDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.prompts.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt delete failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspacePromptSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/prompts',
+      operationLabel: 'prompt delete',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () =>
+          ref.read(workspacePromptsProvider.notifier).delete(summary.id),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspacePromptDeleted);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go(WorkspaceSection.prompts.routes.collectionPath);
+        }
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -414,25 +395,21 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    if (!_session.beginOperation()) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/prompts',
+      operationLabel: 'prompt access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspacePromptsProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      _showSnack(l10n.workspacePromptSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'prompt access update failed',
-        scope: 'workspace/prompts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspacePromptSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        _showSnack(l10n.workspacePromptSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
+    );
   }
 
   Future<void> _import() async {

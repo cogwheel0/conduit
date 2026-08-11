@@ -158,7 +158,7 @@ final class DirectEditorTargetUnavailable implements Exception {
 abstract interface class DirectConnectionEditorGateway {
   DirectConnectionEditorMode get mode;
 
-  DirectConnectionEditorCapabilities get capabilities;
+  DirectConnectionEditorPolicy get policy;
 
   DirectEditorLoadState get resourceState;
 
@@ -250,7 +250,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
 
   DirectConnectionEditorState get state => _state;
   DirectConnectionEditorMode get mode => gateway.mode;
-  DirectConnectionEditorCapabilities get capabilities => gateway.capabilities;
+  DirectConnectionEditorPolicy get policy => gateway.policy;
 
   void _handleFormChanged() {
     if (_disposed) return;
@@ -269,7 +269,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   /// Returns false when the snapshot belongs to a replacement account/server.
   bool observeResource(DirectEditorResource resource) {
     final incomingOwner = resource.owner;
-    if (capabilities.requiresOwnerValidation) {
+    if (policy.requiresOwnerValidation) {
       if (incomingOwner == null) return false;
       final capturedOwner = state.owner;
       if (capturedOwner == null) {
@@ -343,7 +343,7 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       false;
 
   bool resourceOwnerMatches(DirectEditorResource resource) {
-    if (!capabilities.requiresOwnerValidation) return true;
+    if (!policy.requiresOwnerValidation) return true;
     final owner = resource.owner;
     return owner != null && state.owner?.matchesOwner(owner) == true;
   }

@@ -2,14 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../../shared/utils/utf16_sanitizer.dart';
 import '../models/terminal_models.dart';
-import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
+import 'terminal_controller_gateways.dart';
 
 typedef TerminalContextValidator =
     bool Function(TerminalServerInfo server, String sessionScopeId);
@@ -21,15 +20,15 @@ typedef TerminalContextValidator =
 /// resulting connection state.
 class TerminalSessionController {
   TerminalSessionController({
-    required WidgetRef ref,
+    required TerminalSessionGateway gateway,
     required TerminalContextValidator isCurrentContext,
-  }) : _ref = ref,
+  }) : _gateway = gateway,
        _isCurrentContext = isCurrentContext {
     terminal.onOutput = _handleTerminalOutput;
     terminal.onResize = _handleTerminalResize;
   }
 
-  final WidgetRef _ref;
+  final TerminalSessionGateway _gateway;
   final TerminalContextValidator _isCurrentContext;
 
   final Terminal terminal = Terminal(maxLines: 5000);
@@ -50,24 +49,20 @@ class TerminalSessionController {
     required void Function() onFailure,
   }) async {
     if (_disposed ||
-        _ref.read(terminalConnectionStateProvider).isConnecting ||
+        _gateway.connectionState.isConnecting ||
         !_isCurrentContext(server, sessionScopeId)) {
       return;
     }
 
     final token = service.authTokenForServer(server);
     if (token == null || token.isEmpty) {
-      _ref
-          .read(terminalConnectionStateProvider.notifier)
-          .set(const TerminalConnectionState.error());
+      _gateway.setConnectionState(const TerminalConnectionState.error());
       onFailure();
       return;
     }
 
     final connectionGeneration = ++_connectionGeneration;
-    _ref
-        .read(terminalConnectionStateProvider.notifier)
-        .set(const TerminalConnectionState.connecting());
+    _gateway.setConnectionState(const TerminalConnectionState.connecting());
 
     try {
       final session = await service.createSession(
@@ -78,7 +73,7 @@ class TerminalSessionController {
         return;
       }
 
-      final channel = _ref.read(terminalChannelConnectorProvider)(
+      final channel = _gateway.openChannel(
         service.buildWebSocketUri(server, session.sessionId),
         kind: server.kind,
       );
@@ -103,10 +98,8 @@ class TerminalSessionController {
         ),
       );
 
-      _ref.read(terminalActiveSessionProvider.notifier).set(session);
-      _ref
-          .read(terminalConnectionStateProvider.notifier)
-          .set(const TerminalConnectionState.connected());
+      _gateway.setActiveSession(session);
+      _gateway.setConnectionState(const TerminalConnectionState.connected());
 
       channel.sink.add(
         jsonEncode(<String, dynamic>{'type': 'auth', 'token': token}),
@@ -120,10 +113,8 @@ class TerminalSessionController {
       if (!_isCurrentConnection(server, sessionScopeId, connectionGeneration)) {
         return;
       }
-      _ref.read(terminalActiveSessionProvider.notifier).clear();
-      _ref
-          .read(terminalConnectionStateProvider.notifier)
-          .set(const TerminalConnectionState.error());
+      _gateway.setActiveSession(null);
+      _gateway.setConnectionState(const TerminalConnectionState.error());
       onFailure();
     }
   }
@@ -160,10 +151,8 @@ class TerminalSessionController {
       return;
     }
 
-    _ref.read(terminalActiveSessionProvider.notifier).clear();
-    _ref
-        .read(terminalConnectionStateProvider.notifier)
-        .set(const TerminalConnectionState.disconnected());
+    _gateway.setActiveSession(null);
+    _gateway.setConnectionState(const TerminalConnectionState.disconnected());
     if (showClosedBanner) {
       terminal.write('\r\n[$_disconnectedLabel]\r\n');
     }

@@ -334,7 +334,6 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'tool_clone' : '${baseId}_clone';
-    if (!_session.beginOperation()) return;
     // Clones never inherit the source tool's sharing grants.
     final meta = Map<String, dynamic>.from(_meta);
     meta['description'] = _descriptionController.text.trim();
@@ -344,27 +343,21 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       content: _contentController.text,
       meta: meta,
     );
-    try {
-      final created = await ref
-          .read(workspaceToolsProvider.notifier)
-          .create(form);
-      if (!mounted) return;
-      _showSnack(l10n.workspaceToolSaved);
-      router.pushReplacement(
-        WorkspaceSection.tools.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tool clone failed',
-        scope: 'workspace/tools',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceToolSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<WorkspaceToolDetail>(
+      session: _session,
+      scope: 'workspace/tools',
+      operationLabel: 'tool clone',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () => ref.read(workspaceToolsProvider.notifier).create(form),
+      onSuccess: (created) {
+        _showSnack(l10n.workspaceToolSaved);
+        router.pushReplacement(
+          WorkspaceSection.tools.routes.editLocation(created.id),
+        );
+      },
+      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
+    );
   }
 
   Future<void> _delete() async {
@@ -383,29 +376,25 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceToolsProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspaceToolDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.tools.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tool delete failed',
-        scope: 'workspace/tools',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceToolSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/tools',
+      operationLabel: 'tool delete',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () =>
+          ref.read(workspaceToolsProvider.notifier).delete(summary.id),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspaceToolDeleted);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go(WorkspaceSection.tools.routes.collectionPath);
+        }
+      },
+      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -427,25 +416,20 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    if (!_session.beginOperation()) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/tools',
+      operationLabel: 'tool access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceToolsProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      _showSnack(l10n.workspaceToolSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tool access update failed',
-        scope: 'workspace/tools',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceToolSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        _showSnack(l10n.workspaceToolSaved);
+      },
+      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
+    );
   }
 
   Future<void> _openValves() async {

@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,5 +53,44 @@ void main() {
     session.markDirty();
 
     check(notifications).equals(1);
+  });
+
+  test('operation runner owns admission and success cleanup', () async {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+    var operations = 0;
+
+    final succeeded = await WorkspaceEditorOperationRunner.run<int>(
+      session: session,
+      scope: 'workspace/test',
+      operationLabel: 'test mutation',
+      editorMounted: () => true,
+      operation: () async => ++operations,
+    );
+
+    check(succeeded).isTrue();
+    check(operations).equals(1);
+    check(session.saving).isFalse();
+  });
+
+  test('operation runner maps failure and releases the lock', () async {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+    Object? observedError;
+
+    final succeeded = await WorkspaceEditorOperationRunner.run<void>(
+      session: session,
+      scope: 'workspace/test',
+      operationLabel: 'test mutation',
+      editorMounted: () => true,
+      operation: () => Future<void>.error(StateError('failed')),
+      onFailure: (error) => observedError = error,
+      errorMessage: (_) => 'mapped failure',
+    );
+
+    check(succeeded).isFalse();
+    check(observedError).isA<StateError>();
+    check(session.saving).isFalse();
+    check(session.errorMessage).equals('mapped failure');
   });
 }

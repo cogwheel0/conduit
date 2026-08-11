@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +12,52 @@ import 'workspace_editor_session.dart';
 typedef WorkspaceEditorMutation<T> = Future<T> Function(bool isCreate);
 typedef WorkspaceEditorResourceId<T> = String Function(T result);
 typedef WorkspaceEditorErrorMessage = String Function(Object error);
+
+/// Runs the common admission, diagnostics, mounted-state, and lock lifecycle
+/// for every workspace editor mutation.
+final class WorkspaceEditorOperationRunner {
+  const WorkspaceEditorOperationRunner._();
+
+  static Future<bool> run<T>({
+    required WorkspaceEditorSession session,
+    required String scope,
+    required String operationLabel,
+    required bool Function() editorMounted,
+    required Future<T> Function() operation,
+    FutureOr<void> Function(T result)? onSuccess,
+    FutureOr<void> Function(Object error)? onFailure,
+    WorkspaceEditorErrorMessage? errorMessage,
+    bool clearError = false,
+    bool releaseOnSuccess = true,
+    bool invokeSuccessWhenUnmounted = false,
+  }) async {
+    if (!session.beginOperation(clearError: clearError)) return false;
+    try {
+      final result = await operation();
+      if (!editorMounted() && !invokeSuccessWhenUnmounted) return true;
+      await onSuccess?.call(result);
+      if (releaseOnSuccess && editorMounted()) session.endOperation();
+      return true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        '$operationLabel failed',
+        scope: scope,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!editorMounted()) return false;
+      await onFailure?.call(error);
+      if (!editorMounted()) return false;
+      final message = errorMessage?.call(error);
+      if (message == null) {
+        session.endOperation();
+      } else {
+        session.finishOperation(errorMessage: message);
+      }
+      return false;
+    }
+  }
+}
 
 /// Runs the shared mutation lifecycle for every workspace resource editor.
 ///
@@ -32,39 +80,35 @@ final class WorkspaceEditorMutationCoordinator {
     required WorkspaceEditorResourceId<T> resourceId,
     WorkspaceEditorErrorMessage? errorMessage,
   }) async {
-    if (!session.beginOperation(clearError: true)) return false;
     final completion = _WorkspaceEditorMutationCompletion.capture(
       context,
       session: session,
       section: section,
     );
-    try {
-      final result = await mutate(completion.isCreate);
-      final id = resourceId(result);
-      DebugLogger.log(
-        '$resourceLabel saved',
-        scope: scope,
-        data: {'id': id, 'create': completion.isCreate},
-      );
-      completion.succeed(
-        resourceId: id,
-        message: successMessage,
-        editorMounted: editorMounted(),
-      );
-      return true;
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        '$resourceLabel save failed',
-        scope: scope,
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!editorMounted()) return false;
-      session.finishOperation(
-        errorMessage: errorMessage?.call(error) ?? failureMessage,
-      );
-      return false;
-    }
+    return WorkspaceEditorOperationRunner.run<T>(
+      session: session,
+      scope: scope,
+      operationLabel: '$resourceLabel save',
+      editorMounted: editorMounted,
+      clearError: true,
+      releaseOnSuccess: false,
+      invokeSuccessWhenUnmounted: true,
+      operation: () => mutate(completion.isCreate),
+      onSuccess: (result) {
+        final id = resourceId(result);
+        DebugLogger.log(
+          '$resourceLabel saved',
+          scope: scope,
+          data: {'id': id, 'create': completion.isCreate},
+        );
+        completion.succeed(
+          resourceId: id,
+          message: successMessage,
+          editorMounted: editorMounted(),
+        );
+      },
+      errorMessage: (error) => errorMessage?.call(error) ?? failureMessage,
+    );
   }
 }
 

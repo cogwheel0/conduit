@@ -281,28 +281,23 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _toggleHidden.
     if (!_syncDraftOrShowError()) return;
     final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
-    if (!_session.beginOperation()) return;
-    try {
-      final created = await ref
-          .read(workspaceModelsProvider.notifier)
-          .create(clone.toForm());
-      if (!mounted) return;
-      _showSnack(l10n.workspaceModelSaved);
-      router.pushReplacement(
-        WorkspaceSection.models.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model clone failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<WorkspaceModelDetail>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model clone',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () =>
+          ref.read(workspaceModelsProvider.notifier).create(clone.toForm()),
+      onSuccess: (created) {
+        _showSnack(l10n.workspaceModelSaved);
+        router.pushReplacement(
+          WorkspaceSection.models.routes.editLocation(created.id),
+        );
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+    );
   }
 
   Future<void> _toggleActive() async {
@@ -324,29 +319,22 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceModelsProvider.notifier).toggle(id);
-      if (!mounted) return;
-      _session.markClean();
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(l10n.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model toggle failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _showSnack(
-          AppLocalizations.of(context)!.workspaceModelSaveFailed,
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model toggle',
+      editorMounted: () => mounted,
+      operation: () => ref.read(workspaceModelsProvider.notifier).toggle(id),
+      onSuccess: (_) {
+        _session.markClean();
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(l10n.workspaceModelSaved);
+      },
+      onFailure: (_) => _showSnack(
+        AppLocalizations.of(context)!.workspaceModelSaveFailed,
+        isError: true,
+      ),
+    );
   }
 
   Future<void> _toggleHidden() async {
@@ -357,33 +345,30 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
     if (!_syncDraftOrShowError()) return;
-    if (!_session.beginOperation()) return;
-    _controller.toggleHidden();
-    try {
-      await ref
-          .read(workspaceModelsProvider.notifier)
-          .updateItem(_draft.toForm());
-      if (!mounted) return;
-      _session.markClean();
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model hide toggle failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model hide toggle',
+      editorMounted: () => mounted,
+      operation: () async {
+        _controller.toggleHidden();
+        await ref
+            .read(workspaceModelsProvider.notifier)
+            .updateItem(_draft.toForm());
+      },
+      onSuccess: (_) {
+        _session.markClean();
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
+      },
+      onFailure: (_) {
         _controller.toggleHidden();
         _showSnack(
           AppLocalizations.of(context)!.workspaceModelSaveFailed,
           isError: true,
         );
-      }
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+      },
+    );
   }
 
   Future<void> _delete() async {
@@ -402,29 +387,25 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     );
     if (!confirmed || !mounted) return;
     final router = GoRouter.of(context);
-    if (!_session.beginOperation()) return;
-    try {
-      await ref.read(workspaceModelsProvider.notifier).delete(id);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(l10n.workspaceModelDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.models.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model delete failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _session.endOperation();
-        _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model delete',
+      editorMounted: () => mounted,
+      releaseOnSuccess: false,
+      operation: () => ref.read(workspaceModelsProvider.notifier).delete(id),
+      onSuccess: (_) {
+        _session.markClean();
+        _showSnack(l10n.workspaceModelDeleted);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go(WorkspaceSection.models.routes.collectionPath);
+        }
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -450,26 +431,22 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
     final id = _draft.id;
     if (id.isEmpty) return;
-    if (!_session.beginOperation()) return;
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.run<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceModelsProvider.notifier)
-          .updateAccess(id, _draft.name, grants);
-      if (!mounted) return;
-      _controller.replaceAccessGrants(grants, markDirty: false);
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(l10n.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model access update failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-    } finally {
-      if (mounted) _session.endOperation();
-    }
+          .updateAccess(id, _draft.name, grants),
+      onSuccess: (_) {
+        _controller.replaceAccessGrants(grants, markDirty: false);
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(l10n.workspaceModelSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+    );
   }
 
   Future<void> _exportSingle() async {

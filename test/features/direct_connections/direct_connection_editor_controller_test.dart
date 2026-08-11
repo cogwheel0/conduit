@@ -338,7 +338,7 @@ final class _FakeDirectConnectionEditorTarget
   @override
   final DirectConnectionEditorMode mode;
   @override
-  DirectConnectionEditorCapabilities get capabilities => mode.capabilities;
+  DirectConnectionEditorPolicy get policy => mode.policy;
   @override
   DirectEditorLoadState get resourceState => const DirectEditorLoadData(
     DirectEditorResource(availability: DirectEditorResourceAvailability.ready),
