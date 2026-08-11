@@ -228,6 +228,33 @@ void main() {
   });
 
   test(
+    'workflow publishes form and workflow state through one notifier',
+    () async {
+      final editor = _EditorHarness(
+        source: DirectConnectionEditorSource.openWebUi,
+      );
+      addTearDown(editor.dispose);
+      final epoch = Object();
+      var notifications = 0;
+      editor.workflow.addListener(() => notifications++);
+
+      editor.workflow.markHydrated();
+      editor.workflow.captureOwner(
+        serverId: 'server',
+        accountId: 'account',
+        authEpoch: epoch,
+      );
+      check(editor.workflow.state.hydrated).isTrue();
+      check(editor.workflow.state.owner).isNotNull();
+      check(notifications).equals(0);
+      await Future<void>.delayed(Duration.zero);
+      check(notifications).equals(1);
+      editor.form.name.text = 'Updated provider';
+      check(notifications).equals(2);
+    },
+  );
+
+  test(
     'disposed local editor ignores a late compare-and-swap conflict',
     () async {
       final save = Completer<void>();
@@ -271,11 +298,8 @@ final class _EditorHarness {
                 source: source,
               ));
     this.target = target ?? _FakeDirectConnectionEditorTarget(mode: mode);
-    form = DirectConnectionEditorForm(
-      mode: mode,
-      onDraftChanged: () => workflow.handleDraftChanged(),
-    );
-    workflow = DirectConnectionEditorWorkflow(target: this.target, form: form);
+    workflow = DirectConnectionEditorWorkflow(target: this.target);
+    form = workflow.form;
   }
 
   late final _FakeDirectConnectionEditorTarget target;
@@ -284,7 +308,6 @@ final class _EditorHarness {
 
   void dispose() {
     workflow.dispose();
-    form.dispose();
   }
 }
 

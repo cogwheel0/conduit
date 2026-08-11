@@ -7,6 +7,7 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/drawer_gesture_scope.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../core/models/toggle_filter.dart';
@@ -410,15 +411,17 @@ class _ComposerAttachmentKeyboardState
       SizedBox(
         height: 94,
         child: HorizontalOverflowFade(
-          child: ListView.separated(
-            key: const ValueKey('composer-attachment-action-strip'),
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            itemCount: attachments.length,
-            separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-            itemBuilder: (_, index) =>
-                SizedBox(width: 76, child: attachments[index]),
+          child: DrawerHorizontalScrollBoundary(
+            child: ListView.separated(
+              key: const ValueKey('composer-attachment-action-strip'),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+              itemCount: attachments.length,
+              separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
+              itemBuilder: (_, index) =>
+                  SizedBox(width: 76, child: attachments[index]),
+            ),
           ),
         ),
       ),

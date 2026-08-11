@@ -150,6 +150,172 @@ void main() {
     expect(fake.updatedForms.single.name, 'Renamed');
   });
 
+  testWidgets(
+    'successful edit pops even when detail invalidation disposes form',
+    (tester) async {
+      final fake = _InvalidatingFakeWorkspaceModels();
+      var detailLoads = 0;
+      final router = GoRouter(
+        initialLocation: '/list',
+        routes: [
+          GoRoute(
+            path: '/list',
+            builder: (_, _) => const Scaffold(body: Text('list-page')),
+          ),
+          GoRoute(
+            path: '/editor',
+            builder: (_, _) => const Scaffold(
+              body: WorkspaceModelEditorView(
+                mode: WorkspaceRouteMode.edit,
+                modelId: 'model-1',
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ..._baseOverrides(fake),
+            workspaceModelDetailProvider('model-1').overrideWith((ref) async {
+              if (detailLoads++ == 0) return _writableModel();
+              throw StateError('detail invalidated during save');
+            }),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.push('/editor');
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('workspace-model-name')),
+        'Renamed after invalidation',
+      );
+      await tester.tap(find.byKey(const Key('workspace-editor-save')));
+      await tester.pump();
+      await tester.pump();
+
+      // The detail error branch replaces the form while the server mutation is
+      // still pending, reproducing the provider-invalidates-editor lifecycle.
+      check(
+        find.byKey(const Key('workspace-editor-save')).evaluate(),
+      ).isEmpty();
+      fake.completeUpdate();
+      await tester.pumpAndSettle();
+
+      check(fake.updatedForms).length.equals(1);
+      check(fake.updatedForms.single.name).equals('Renamed after invalidation');
+      check(find.text('list-page').evaluate()).length.equals(1);
+    },
+  );
+
+  testWidgets('completed edit does not pop a route opened during save', (
+    tester,
+  ) async {
+    final fake = _DelayedFakeWorkspaceModels();
+    final router = GoRouter(
+      initialLocation: '/list',
+      routes: [
+        GoRoute(
+          path: '/list',
+          builder: (_, _) => const Scaffold(body: Text('list-page')),
+        ),
+        GoRoute(
+          path: '/editor',
+          builder: (_, _) => const Scaffold(
+            body: WorkspaceModelEditorView(
+              mode: WorkspaceRouteMode.edit,
+              modelId: 'model-1',
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/other',
+          builder: (_, _) => const Scaffold(body: Text('other-page')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ..._baseOverrides(fake),
+          workspaceModelDetailProvider(
+            'model-1',
+          ).overrideWith((ref) async => _writableModel()),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.push('/editor');
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-name')),
+      'Saved in background',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+    check(fake.updatedForms).length.equals(1);
+
+    router.push('/other');
+    await tester.pumpAndSettle();
+    fake.completeUpdate();
+    await tester.pumpAndSettle();
+
+    check(find.text('other-page').evaluate()).length.equals(1);
+  });
+
+  testWidgets('create-mode access grants are retained until first save', (
+    tester,
+  ) async {
+    final fake = _FakeWorkspaceModels();
+    await tester.pumpWidget(
+      _harness(models: fake, mode: WorkspaceRouteMode.create),
+    );
+    await tester.pumpAndSettle();
+
+    await _scrollTo(tester, const Key('workspace-model-access'));
+    await tester.tap(find.byKey(const Key('workspace-model-access')));
+    await tester.pumpAndSettle();
+    final publicSwitch = find.descendant(
+      of: find.byKey(const Key('workspace-access-public')),
+      matching: find.byType(Switch),
+    );
+    check(publicSwitch.evaluate()).length.equals(1);
+    await tester.tap(publicSwitch);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('workspace-access-save')));
+    await tester.pumpAndSettle();
+
+    await _scrollTo(tester, const Key('workspace-model-id'), delta: -300);
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-id')),
+      'shared-model',
+    );
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-name')),
+      'Shared Model',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+    await tester.pump();
+
+    check(fake.createdForms).length.equals(1);
+    check(fake.createdForms.single.accessGrants).length.equals(1);
+    check(fake.createdForms.single.accessGrants.single.principalId).equals('*');
+  });
+
   testWidgets('read-only model hides save and shows the read-only badge', (
     tester,
   ) async {
@@ -652,6 +818,43 @@ class _FakeWorkspaceModels extends WorkspaceModels {
   Future<bool> importItems(List<Map<String, dynamic>> items) async {
     if (!importSucceeds) throw StateError('import rejected');
     return true;
+  }
+}
+
+class _InvalidatingFakeWorkspaceModels extends _FakeWorkspaceModels {
+  final _updateMayComplete = Completer<void>();
+
+  void completeUpdate() => _updateMayComplete.complete();
+
+  @override
+  Future<WorkspaceModelDetail> updateItem(WorkspaceModelForm form) async {
+    updatedForms.add(form);
+    ref.invalidate(workspaceModelDetailProvider(form.id));
+    await _updateMayComplete.future;
+    return WorkspaceModelSummary(
+      id: form.id,
+      name: form.name,
+      userId: 'owner',
+      writeAccess: true,
+    );
+  }
+}
+
+class _DelayedFakeWorkspaceModels extends _FakeWorkspaceModels {
+  final _updateMayComplete = Completer<void>();
+
+  void completeUpdate() => _updateMayComplete.complete();
+
+  @override
+  Future<WorkspaceModelDetail> updateItem(WorkspaceModelForm form) async {
+    updatedForms.add(form);
+    await _updateMayComplete.future;
+    return WorkspaceModelSummary(
+      id: form.id,
+      name: form.name,
+      userId: 'owner',
+      writeAccess: true,
+    );
   }
 }
 

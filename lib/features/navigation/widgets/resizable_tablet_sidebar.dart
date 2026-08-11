@@ -5,8 +5,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/theme_extensions.dart';
-import 'sidebar_layout_constants.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
 
 /// Owns the geometry and interaction state for a resizable tablet sidebar.
 class ResizableTabletSidebar extends StatefulWidget {
@@ -130,11 +130,15 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
 
   void _updateResize(double delta, double viewportWidth) {
     if (!_resizing) return;
-    _resizeCumulativeDelta += delta;
     final anchorWidth = _resizeAnchorWidth ?? _preferredWidth;
-    final nextWidth = (anchorWidth + _resizeCumulativeDelta)
-        .clamp(widget.minimumWidth, _effectiveMaximum(viewportWidth))
+    final effectiveMaximum = _effectiveMaximum(viewportWidth);
+    _resizeCumulativeDelta = (_resizeCumulativeDelta + delta)
+        .clamp(
+          widget.minimumWidth - anchorWidth,
+          effectiveMaximum - anchorWidth,
+        )
         .toDouble();
+    final nextWidth = anchorWidth + _resizeCumulativeDelta;
     if (nextWidth == _preferredWidth) return;
     setState(() => _preferredWidth = nextWidth);
   }

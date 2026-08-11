@@ -211,14 +211,16 @@ Widget _buildHorizontalScrollableContent({
 }) {
   return ColoredBox(
     color: Colors.orange,
-    child: SingleChildScrollView(
-      key: key,
-      controller: controller,
-      scrollDirection: Axis.horizontal,
-      child: const SizedBox(
-        width: 1200,
-        height: 844,
-        child: ColoredBox(color: Colors.deepOrange),
+    child: DrawerHorizontalScrollBoundary(
+      child: SingleChildScrollView(
+        key: key,
+        controller: controller,
+        scrollDirection: Axis.horizontal,
+        child: const SizedBox(
+          width: 1200,
+          height: 844,
+          child: ColoredBox(color: Colors.deepOrange),
+        ),
       ),
     ),
   );
@@ -435,7 +437,7 @@ void main() {
     expect(committedWidths, isEmpty);
   });
 
-  testWidgets('tablet divider remains anchored after clamped overshoot', (
+  testWidgets('tablet divider reverses immediately after clamped overshoot', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -452,10 +454,10 @@ void main() {
     expect(tester.getSize(panel).width, 480);
     await gesture.moveBy(const Offset(-100, 0));
     await tester.pump();
-    expect(tester.getSize(panel).width, 480);
+    expect(tester.getSize(panel).width, 380);
     await gesture.moveBy(const Offset(-50, 0));
     await tester.pump();
-    expect(tester.getSize(panel).width, 470);
+    expect(tester.getSize(panel).width, 330);
     await gesture.cancel();
     await tester.pumpAndSettle();
   });

@@ -10,18 +10,12 @@ import '../../../core/services/performance_profiler.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/drawer_gesture_scope.dart';
 import '../../../shared/widgets/drawer_slot.dart';
-import '../../../shared/widgets/resizable_tablet_sidebar.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import 'drawer_open_drag_gesture_recognizer.dart';
+import 'resizable_tablet_sidebar.dart';
 
 enum _DrawerSettleEndpoint { open, closed }
-
-class _HorizontalScrollableHit {
-  const _HorizontalScrollableHit({required this.isAtOpenGestureLeadingEdge});
-
-  final bool isAtOpenGestureLeadingEdge;
-}
 
 /// A responsive layout that shows a persistent drawer on tablets (side-by-side)
 /// and an overlay drawer on mobile devices.
@@ -458,80 +452,16 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     }
   }
 
-  bool _isHorizontalAxisDirection(AxisDirection direction) =>
-      direction == AxisDirection.left || direction == AxisDirection.right;
-
-  bool _isAtLeadingEdgeForOpenGesture(
-    ScrollPosition position,
-    AxisDirection axisDirection,
-  ) {
-    const epsilon = 0.5;
-    return switch (axisDirection) {
-      AxisDirection.right =>
-        position.pixels <= position.minScrollExtent + epsilon,
-      AxisDirection.left =>
-        position.pixels >= position.maxScrollExtent - epsilon,
-      AxisDirection.up || AxisDirection.down => true,
-    };
-  }
-
-  _HorizontalScrollableHit? _detectHorizontalScrollableHit(
-    Offset globalPosition,
-    int viewId,
-  ) {
+  bool? _horizontalScrollableLeadingEdge(Offset globalPosition, int viewId) {
     final result = HitTestResult();
     WidgetsBinding.instance.hitTestInView(result, globalPosition, viewId);
-    var foundHorizontalTarget = false;
-
     for (final entry in result.path) {
-      final dynamic target = entry.target;
-
-      // Scrollable's opaque gesture handler remains in the hit-test path even
-      // when blank space inside its viewport has no hit-testable descendant.
-      // Its surrounding scroll-semantics render object exposes the position,
-      // which lets us recognize those otherwise invisible scrollable regions.
-      try {
-        final maybePosition = target.position;
-        if (maybePosition is ScrollPosition &&
-            _isHorizontalAxisDirection(maybePosition.axisDirection)) {
-          return _HorizontalScrollableHit(
-            isAtOpenGestureLeadingEdge: _isAtLeadingEdgeForOpenGesture(
-              maybePosition,
-              maybePosition.axisDirection,
-            ),
-          );
-        }
-      } catch (_) {}
-
-      AxisDirection? axisDirection;
-      try {
-        final maybeAxisDirection = target.axisDirection;
-        if (maybeAxisDirection is AxisDirection) {
-          axisDirection = maybeAxisDirection;
-        }
-      } catch (_) {}
-
-      if (axisDirection == null || !_isHorizontalAxisDirection(axisDirection)) {
-        continue;
+      final target = entry.target;
+      if (target is RenderDrawerHorizontalScrollBoundary) {
+        return target.isAtOpenGestureLeadingEdge;
       }
-      foundHorizontalTarget = true;
-
-      try {
-        final offset = target.offset;
-        if (offset is ScrollPosition) {
-          return _HorizontalScrollableHit(
-            isAtOpenGestureLeadingEdge: _isAtLeadingEdgeForOpenGesture(
-              offset,
-              axisDirection,
-            ),
-          );
-        }
-      } catch (_) {}
     }
-
-    return foundHorizontalTarget
-        ? const _HorizontalScrollableHit(isAtOpenGestureLeadingEdge: true)
-        : null;
+    return null;
   }
 
   void _onEdgePointerDown(PointerDownEvent event) {
@@ -543,15 +473,15 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _edgeVelocityTracker = VelocityTracker.withKind(event.kind)
       ..addPosition(event.timeStamp, event.position);
 
-    final horizontalHit = _detectHorizontalScrollableHit(
+    final horizontalLeadingEdge = _horizontalScrollableLeadingEdge(
       event.position,
       event.viewId,
     );
-    if (horizontalHit == null) {
+    if (horizontalLeadingEdge == null) {
       return;
     }
 
-    if (horizontalHit.isAtOpenGestureLeadingEdge &&
+    if (horizontalLeadingEdge &&
         event.localPosition.dx <= _drawerEdgeDragWidth) {
       _edgePointerActivationThreshold = _kHorizontalScrollableOpenThreshold;
     } else {

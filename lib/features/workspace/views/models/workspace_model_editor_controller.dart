@@ -170,9 +170,16 @@ final class WorkspaceModelEditorController extends ChangeNotifier {
     });
   }
 
-  void replaceAccessGrants(List<WorkspaceAccessGrantInput> grants) {
+  void replaceAccessGrants(
+    List<WorkspaceAccessGrantInput> grants, {
+    bool markDirty = true,
+  }) {
     _draft.accessGrants = List<WorkspaceAccessGrantInput>.from(grants);
-    _notify();
+    if (markDirty) {
+      _notifyDraftMutation();
+    } else {
+      _notify();
+    }
   }
 
   void toggleHidden() {

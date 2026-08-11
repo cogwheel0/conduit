@@ -18,6 +18,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -288,35 +289,29 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     if (id == null) return;
     setState(() => _idErrorText = null);
     _session.beginOperation(clearError: true);
+    final completion = WorkspaceEditorMutationCompletion.capture(
+      context,
+      session: _session,
+      section: WorkspaceSection.skills,
+    );
     final notifier = ref.read(workspaceSkillsProvider.notifier);
     // The update endpoint keys off the existing id; the id field is immutable
     // after create, so submit the summary's id when editing.
-    final form = _buildForm(id: _session.isCreate ? id : widget.summary!.id);
+    final form = _buildForm(id: completion.isCreate ? id : widget.summary!.id);
     try {
-      final WorkspaceSkillDetail result = _session.isCreate
+      final WorkspaceSkillDetail result = completion.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
-      _session.markClean();
       DebugLogger.log(
         'skill saved',
         scope: 'workspace/skills',
-        data: {'id': result.id, 'create': _session.isCreate},
+        data: {'id': result.id, 'create': completion.isCreate},
       );
-      _showSnack(l10n.workspaceSkillSaved);
-      final router = GoRouter.of(context);
-      if (_session.isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.skills.routes.detailLocation(result.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      } else {
-        // Edit saved but there is nothing to pop (e.g. deep-linked into /edit):
-        // clear the saving lock so the form stays usable and reflects the
-        // freshly invalidated detail.
-        _session.endOperation();
-      }
+      completion.succeed(
+        resourceId: result.id,
+        message: l10n.workspaceSkillSaved,
+        editorMounted: mounted,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'skill save failed',

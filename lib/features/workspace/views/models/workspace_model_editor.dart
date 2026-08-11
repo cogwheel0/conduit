@@ -16,6 +16,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -243,43 +244,39 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Future<void> _save() async {
+    final l10n = AppLocalizations.of(context)!;
     if (!_syncDraftOrShowError()) return;
     if (!_draft.isValid) {
       _session.setError(
         _draft.id.trim().isEmpty
-            ? AppLocalizations.of(context)!.workspaceModelIdRequired
-            : AppLocalizations.of(context)!.workspaceModelNameRequired,
+            ? l10n.workspaceModelIdRequired
+            : l10n.workspaceModelNameRequired,
       );
       return;
     }
 
     _session.beginOperation(clearError: true);
+    final completion = WorkspaceEditorMutationCompletion.capture(
+      context,
+      session: _session,
+      section: WorkspaceSection.models,
+    );
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
     try {
-      final WorkspaceModelDetail result = _session.isCreate
+      final WorkspaceModelDetail result = completion.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(form);
-      if (!mounted) return;
-      _session.markClean();
-      _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
       DebugLogger.log(
         'model saved',
         scope: 'workspace/models',
-        data: {'id': result.id, 'create': _session.isCreate},
+        data: {'id': result.id, 'create': completion.isCreate},
       );
-      final router = GoRouter.of(context);
-      if (_session.isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.models.routes.detailLocation(result.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      } else {
-        // Edit saved with nothing to pop (deep-linked into /edit): release the
-        // saving lock so the form stays usable.
-        _session.endOperation();
-      }
+      completion.succeed(
+        resourceId: result.id,
+        message: l10n.workspaceModelSaved,
+        editorMounted: mounted,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'model save failed',
@@ -288,9 +285,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      _session.finishOperation(
-        errorMessage: AppLocalizations.of(context)!.workspaceModelSaveFailed,
-      );
+      _session.finishOperation(errorMessage: l10n.workspaceModelSaveFailed);
     }
   }
 
@@ -466,15 +461,20 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       readOnly: _readOnly,
     );
     if (grants == null || !mounted) return;
+    if (_readOnly) return;
+    if (_session.isCreate) {
+      _controller.replaceAccessGrants(grants);
+      return;
+    }
     final id = _draft.id;
-    if (_readOnly || id.isEmpty) return;
+    if (id.isEmpty) return;
     _session.beginOperation();
     try {
       await ref
           .read(workspaceModelsProvider.notifier)
           .updateAccess(id, _draft.name, grants);
       if (!mounted) return;
-      _controller.replaceAccessGrants(grants);
+      _controller.replaceAccessGrants(grants, markDirty: false);
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {

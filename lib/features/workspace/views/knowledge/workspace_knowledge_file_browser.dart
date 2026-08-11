@@ -16,6 +16,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
+import 'package:conduit/shared/widgets/drawer_gesture_scope.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 
@@ -586,32 +587,34 @@ class _Breadcrumbs extends StatelessWidget {
     final theme = context.conduitTheme;
     return SizedBox(
       height: 36,
-      child: ListView(
-        key: const Key('knowledge-breadcrumbs'),
-        scrollDirection: Axis.horizontal,
-        children: [
-          AdaptiveButton(
-            key: const Key('knowledge-breadcrumb-root'),
-            onPressed: () => onOpen(''),
-            style: AdaptiveButtonStyle.plain,
-            size: AdaptiveButtonSize.small,
-            label: l10n.workspaceKnowledgeRoot,
-          ),
-          for (final crumb in breadcrumbs) ...[
-            Icon(
-              Icons.chevron_right,
-              size: IconSize.small,
-              color: theme.iconSecondary,
-            ),
+      child: DrawerHorizontalScrollBoundary(
+        child: ListView(
+          key: const Key('knowledge-breadcrumbs'),
+          scrollDirection: Axis.horizontal,
+          children: [
             AdaptiveButton(
-              key: Key('knowledge-breadcrumb-${crumb.id}'),
-              onPressed: () => onOpen(crumb.id),
+              key: const Key('knowledge-breadcrumb-root'),
+              onPressed: () => onOpen(''),
               style: AdaptiveButtonStyle.plain,
               size: AdaptiveButtonSize.small,
-              label: crumb.name,
+              label: l10n.workspaceKnowledgeRoot,
             ),
+            for (final crumb in breadcrumbs) ...[
+              Icon(
+                Icons.chevron_right,
+                size: IconSize.small,
+                color: theme.iconSecondary,
+              ),
+              AdaptiveButton(
+                key: Key('knowledge-breadcrumb-${crumb.id}'),
+                onPressed: () => onOpen(crumb.id),
+                style: AdaptiveButtonStyle.plain,
+                size: AdaptiveButtonSize.small,
+                label: crumb.name,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

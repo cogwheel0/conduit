@@ -2,6 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 import '../../conduit_loading.dart';
+import '../../drawer_gesture_scope.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
@@ -1052,16 +1053,20 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStatePropertyAll(style.tableHeaderBackground),
-          border: TableBorder.all(
-            color: style.tableBorderColor,
-            borderRadius: BorderRadius.circular(style.tableRadius),
+      child: DrawerHorizontalScrollBoundary(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: WidgetStatePropertyAll(
+              style.tableHeaderBackground,
+            ),
+            border: TableBorder.all(
+              color: style.tableBorderColor,
+              borderRadius: BorderRadius.circular(style.tableRadius),
+            ),
+            columns: columns,
+            rows: rows,
           ),
-          columns: columns,
-          rows: rows,
         ),
       ),
     );

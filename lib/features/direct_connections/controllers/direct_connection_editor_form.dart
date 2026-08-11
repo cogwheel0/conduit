@@ -8,10 +8,7 @@ import 'direct_custom_headers_controller.dart';
 /// Owns editable direct-connection fields, draft validation, and presentation
 /// preferences. Persistence and operation state belong to the workflow.
 final class DirectConnectionEditorForm extends ChangeNotifier {
-  DirectConnectionEditorForm({
-    required this.mode,
-    required this.onDraftChanged,
-  }) {
+  DirectConnectionEditorForm({required this.mode}) {
     headers = DirectCustomHeadersController(onChanged: _handleHeaderChanged);
     name.addListener(_generalTextChanged);
     baseUrl.addListener(_baseUrlTextChanged);
@@ -23,7 +20,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   }
 
   final DirectConnectionEditorMode mode;
-  final VoidCallback onDraftChanged;
+  final _DraftChangeNotifier _draftChanges = _DraftChangeNotifier();
 
   late final DirectCustomHeadersController headers;
 
@@ -71,6 +68,12 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
   bool get isOpenWebUi => mode.isOpenWebUi;
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
+
+  void addDraftListener(VoidCallback listener) =>
+      _draftChanges.addListener(listener);
+
+  void removeDraftListener(VoidCallback listener) =>
+      _draftChanges.removeListener(listener);
 
   bool get originChanged {
     final saved = savedProfile;
@@ -315,7 +318,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   }
 
   void _draftChanged() {
-    onDraftChanged();
+    _draftChanges.notify();
     notifyListeners();
   }
 
@@ -345,6 +348,11 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     tags.dispose();
     models.dispose();
     headers.dispose();
+    _draftChanges.dispose();
     super.dispose();
   }
+}
+
+final class _DraftChangeNotifier extends ChangeNotifier {
+  void notify() => notifyListeners();
 }

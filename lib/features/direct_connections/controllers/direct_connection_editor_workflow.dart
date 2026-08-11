@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../shared/models/connection_attempt.dart';
@@ -169,31 +171,36 @@ typedef DirectDeleteConfirmation =
 
 /// Owns persistence and the save/test/delete operation state machine.
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
-  DirectConnectionEditorWorkflow({required this.target, required this.form})
-    : assert(
-        target.mode == form.mode,
-        'The persistence target and form must share one editor mode.',
-      );
+  DirectConnectionEditorWorkflow({required this.target})
+    : form = DirectConnectionEditorForm(mode: target.mode) {
+    form.addDraftListener(_handleDraftChanged);
+    form.addListener(_handleFormChanged);
+  }
 
   final DirectConnectionEditorTarget target;
   final DirectConnectionEditorForm form;
 
   DirectConnectionEditorState _state = const DirectConnectionEditorState();
   bool _disposed = false;
+  bool _deferredNotificationScheduled = false;
 
   DirectConnectionEditorState get state => _state;
   DirectConnectionEditorMode get mode => target.mode;
 
-  void handleDraftChanged() {
+  void _handleDraftChanged() {
     _state = state.copyWith(
       attempt: const ConnectionAttemptState.idle(),
       clearOperationError: true,
     );
   }
 
+  void _handleFormChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
   void markHydrated() {
     if (state.hydrated) return;
-    _state = state.copyWith(hydrated: true);
+    _recordDuringBuild(state.copyWith(hydrated: true));
   }
 
   void captureOwner({
@@ -202,11 +209,13 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
     required Object authEpoch,
   }) {
     if (state.owner != null) return;
-    _state = state.copyWith(
-      owner: DirectEditorOwner(
-        serverId: serverId,
-        accountId: accountId,
-        authEpoch: authEpoch,
+    _recordDuringBuild(
+      state.copyWith(
+        owner: DirectEditorOwner(
+          serverId: serverId,
+          accountId: accountId,
+          authEpoch: authEpoch,
+        ),
       ),
     );
   }
@@ -501,6 +510,16 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   bool _canContinue(DirectEditorOwnerCheck ownerIsCurrent) =>
       !_disposed && ownerIsCurrent();
 
+  void _recordDuringBuild(DirectConnectionEditorState next) {
+    _state = next;
+    if (_deferredNotificationScheduled) return;
+    _deferredNotificationScheduled = true;
+    scheduleMicrotask(() {
+      _deferredNotificationScheduled = false;
+      if (!_disposed) notifyListeners();
+    });
+  }
+
   void _publish(DirectConnectionEditorState next) {
     if (identical(next, _state)) return;
     _state = next;
@@ -510,6 +529,9 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    form.removeDraftListener(_handleDraftChanged);
+    form.removeListener(_handleFormChanged);
+    form.dispose();
     super.dispose();
   }
 }

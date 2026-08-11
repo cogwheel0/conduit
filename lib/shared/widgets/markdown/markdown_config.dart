@@ -22,6 +22,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
+import '../drawer_gesture_scope.dart';
 import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
@@ -1277,19 +1278,21 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm + 2,
-            vertical: Spacing.sm,
-          ),
-          child: _HighlightedCodeText(
-            source: displayCode,
-            language: widget.highlightLanguage,
-            theme: widget.highlightTheme,
-            textStyle: widget.codeStyle,
-            isDark: widget.isDark,
-            plainText: renderPlainPreview,
+        DrawerHorizontalScrollBoundary(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.sm + 2,
+              vertical: Spacing.sm,
+            ),
+            child: _HighlightedCodeText(
+              source: displayCode,
+              language: widget.highlightLanguage,
+              theme: widget.highlightTheme,
+              textStyle: widget.codeStyle,
+              isDark: widget.isDark,
+              plainText: renderPlainPreview,
+            ),
           ),
         ),
         if (isCollapsible)

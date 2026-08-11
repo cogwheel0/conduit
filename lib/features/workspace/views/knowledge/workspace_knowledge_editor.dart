@@ -14,6 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -156,6 +157,11 @@ class _WorkspaceKnowledgeFormState
       return;
     }
     _session.beginOperation(clearError: true);
+    final completion = WorkspaceEditorMutationCompletion.capture(
+      context,
+      session: _session,
+      section: WorkspaceSection.knowledge,
+    );
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
       name: _nameController.text.trim(),
@@ -163,25 +169,19 @@ class _WorkspaceKnowledgeFormState
       accessGrants: _grants,
     );
     try {
-      final WorkspaceKnowledgeDetail result = _session.isCreate
+      final WorkspaceKnowledgeDetail result = completion.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
-      _session.markClean();
       DebugLogger.log(
         'knowledge saved',
         scope: 'workspace/knowledge',
-        data: {'id': result.summary.id, 'create': _session.isCreate},
+        data: {'id': result.summary.id, 'create': completion.isCreate},
       );
-      _showSnack(l10n.workspaceKnowledgeSaved);
-      final router = GoRouter.of(context);
-      if (_session.isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.knowledge.routes.detailLocation(result.summary.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      }
+      completion.succeed(
+        resourceId: result.summary.id,
+        message: l10n.workspaceKnowledgeSaved,
+        editorMounted: mounted,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'knowledge save failed',

@@ -14,6 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -220,39 +221,25 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       commitMessage: commit.isEmpty ? null : commit,
       isProduction: _isProduction,
     );
-    // Capture the router and a root overlay context *before* the await: on the
-    // edit path `updateItem` invalidates `workspacePromptDetailProvider`, which
-    // the parent view watches — the parent rebuilds into its loading branch and
-    // disposes this form before the future resolves, so `mounted` is false by
-    // the time we get here. Driving navigation/snackbar off these captured
-    // references (instead of gating the whole success path on `mounted`) ensures
-    // a successful edit still pops and releases the saving lock.
-    final router = GoRouter.of(context);
-    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    final completion = WorkspaceEditorMutationCompletion.capture(
+      context,
+      session: _session,
+      section: WorkspaceSection.prompts,
+    );
     try {
       final WorkspacePromptDetail result = isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      if (mounted) _session.markClean();
       DebugLogger.log(
         'prompt saved',
         scope: 'workspace/prompts',
         data: {'id': result.id, 'create': isCreate},
       );
-      if (rootContext.mounted) {
-        _showSnack(l10n.workspacePromptSaved, overlayContext: rootContext);
-      }
-      if (isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.prompts.routes.detailLocation(result.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      } else if (mounted) {
-        // Edit saved with nothing to pop (deep-linked into /edit): release the
-        // saving lock so the form does not stay stuck behind AbsorbPointer.
-        _session.endOperation();
-      }
+      completion.succeed(
+        resourceId: result.id,
+        message: l10n.workspacePromptSaved,
+        editorMounted: mounted,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'prompt save failed',
@@ -676,16 +663,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     _session.markDirty();
   }
 
-  void _showSnack(
-    String message, {
-    bool isError = false,
-    BuildContext? overlayContext,
-  }) {
-    // Callers may pass a root overlay context so a snackbar can still be shown
-    // after this form's own element has been disposed (e.g. a successful edit
-    // that pops the editor).
+  void _showSnack(String message, {bool isError = false}) {
     AdaptiveSnackBar.show(
-      overlayContext ?? context,
+      context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );

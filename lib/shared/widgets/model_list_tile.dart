@@ -8,6 +8,7 @@ import 'package:conduit/core/services/haptic_service.dart';
 import '../../core/models/model.dart';
 import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
+import 'drawer_gesture_scope.dart';
 import 'horizontal_overflow_fade.dart';
 
 /// Whether a [Model] supports reasoning based on its parameters.
@@ -287,29 +288,31 @@ class ModelListTile extends StatelessWidget {
                       ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 22),
                         child: HorizontalOverflowFade(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            physics: const ClampingScrollPhysics(),
-                            child: Row(
-                              children: [
-                                if (isLoaded) const ModelLoadedChip(),
-                                for (final tag in modelTags)
-                                  ModelTagChip(label: tag),
-                                if (model.isMultimodal)
-                                  ModelCapabilityChip(
-                                    icon: Platform.isIOS
-                                        ? CupertinoIcons.photo
-                                        : Icons.image,
-                                    label: l10n.modelCapabilityMultimodal,
-                                  ),
-                                if (modelSupportsReasoning(model))
-                                  ModelCapabilityChip(
-                                    icon: Platform.isIOS
-                                        ? CupertinoIcons.lightbulb
-                                        : Icons.psychology_alt,
-                                    label: l10n.modelCapabilityReasoning,
-                                  ),
-                              ],
+                          child: DrawerHorizontalScrollBoundary(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              physics: const ClampingScrollPhysics(),
+                              child: Row(
+                                children: [
+                                  if (isLoaded) const ModelLoadedChip(),
+                                  for (final tag in modelTags)
+                                    ModelTagChip(label: tag),
+                                  if (model.isMultimodal)
+                                    ModelCapabilityChip(
+                                      icon: Platform.isIOS
+                                          ? CupertinoIcons.photo
+                                          : Icons.image,
+                                      label: l10n.modelCapabilityMultimodal,
+                                    ),
+                                  if (modelSupportsReasoning(model))
+                                    ModelCapabilityChip(
+                                      icon: Platform.isIOS
+                                          ? CupertinoIcons.lightbulb
+                                          : Icons.psychology_alt,
+                                      label: l10n.modelCapabilityReasoning,
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ),

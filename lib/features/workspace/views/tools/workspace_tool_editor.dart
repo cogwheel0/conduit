@@ -14,6 +14,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_completion.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -299,34 +300,29 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     if (id == null) return;
     setState(() => _idError = false);
     _session.beginOperation(clearError: true);
+    final completion = WorkspaceEditorMutationCompletion.capture(
+      context,
+      session: _session,
+      section: WorkspaceSection.tools,
+    );
     final notifier = ref.read(workspaceToolsProvider.notifier);
     // The update endpoint keys off the existing id; the id is immutable after
     // create, so submit the summary's id when editing.
-    final form = _buildForm(id: _session.isCreate ? id : widget.summary!.id);
+    final form = _buildForm(id: completion.isCreate ? id : widget.summary!.id);
     try {
-      final WorkspaceToolDetail result = _session.isCreate
+      final WorkspaceToolDetail result = completion.isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
-      _session.markClean();
       DebugLogger.log(
         'tool saved',
         scope: 'workspace/tools',
-        data: {'id': result.id, 'create': _session.isCreate},
+        data: {'id': result.id, 'create': completion.isCreate},
       );
-      _showSnack(l10n.workspaceToolSaved);
-      final router = GoRouter.of(context);
-      if (_session.isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.tools.routes.detailLocation(result.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      } else {
-        // Edit saved with nothing to pop (deep-linked into /edit): release the
-        // saving lock so the form stays usable.
-        _session.endOperation();
-      }
+      completion.succeed(
+        resourceId: result.id,
+        message: l10n.workspaceToolSaved,
+        editorMounted: mounted,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'tool save failed',

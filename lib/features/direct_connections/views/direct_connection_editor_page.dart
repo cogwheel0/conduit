@@ -46,8 +46,9 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
-  late final DirectConnectionEditorForm _form;
   late final DirectConnectionEditorWorkflow _workflow;
+
+  DirectConnectionEditorForm get _form => _workflow.form;
 
   DirectConnectionEditorMode get _mode => _workflow.mode;
   DirectConnectionEditorState get _editorState => _workflow.state;
@@ -62,17 +63,10 @@ class _DirectConnectionEditorPageState
   void initState() {
     super.initState();
     final mode = widget.mode;
-    _form = DirectConnectionEditorForm(
-      mode: mode,
-      onDraftChanged: _handleDraftChanged,
-    )..addListener(_handleEditorChanged);
     _workflow = DirectConnectionEditorWorkflow(
       target: riverpodDirectConnectionEditorTarget(ref, mode),
-      form: _form,
     )..addListener(_handleEditorChanged);
   }
-
-  void _handleDraftChanged() => _workflow.handleDraftChanged();
 
   void _handleEditorChanged() {
     if (mounted) setState(() {});
@@ -80,10 +74,8 @@ class _DirectConnectionEditorPageState
 
   @override
   void dispose() {
-    _form.removeListener(_handleEditorChanged);
     _workflow.removeListener(_handleEditorChanged);
     _workflow.dispose();
-    _form.dispose();
     super.dispose();
   }
 
