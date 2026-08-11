@@ -275,28 +275,25 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     // Abort on invalid params/builtin-tools JSON so the clone is built from the
     // form's actual contents, not stale draft values — matching _save and
     // _toggleHidden.
     if (!_syncDraftOrShowError()) return;
     final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
-    await WorkspaceEditorOperationRunner.run<WorkspaceModelDetail>(
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspaceModelDetail
+    >(
+      context: context,
       session: _session,
+      section: WorkspaceSection.models,
       scope: 'workspace/models',
-      operationLabel: 'model clone',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelSaved,
+      failureMessage: l10n.workspaceModelSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () =>
+      clone: () =>
           ref.read(workspaceModelsProvider.notifier).create(clone.toForm()),
-      onSuccess: (created) {
-        _showSnack(l10n.workspaceModelSaved);
-        router.pushReplacement(
-          WorkspaceSection.models.routes.editLocation(created.id),
-        );
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+      resourceId: (created) => created.id,
     );
   }
 
@@ -319,7 +316,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/models',
       operationLabel: 'model toggle',
@@ -345,7 +342,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
     if (!_syncDraftOrShowError()) return;
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/models',
       operationLabel: 'model hide toggle',
@@ -386,25 +383,16 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
       session: _session,
+      section: WorkspaceSection.models,
       scope: 'workspace/models',
-      operationLabel: 'model delete',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelDeleted,
+      failureMessage: l10n.workspaceModelSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () => ref.read(workspaceModelsProvider.notifier).delete(id),
-      onSuccess: (_) {
-        _session.markClean();
-        _showSnack(l10n.workspaceModelDeleted);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go(WorkspaceSection.models.routes.collectionPath);
-        }
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+      delete: () => ref.read(workspaceModelsProvider.notifier).delete(id),
     );
   }
 
@@ -431,7 +419,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
     final id = _draft.id;
     if (id.isEmpty) return;
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/models',
       operationLabel: 'model access update',

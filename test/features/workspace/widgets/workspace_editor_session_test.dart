@@ -60,7 +60,7 @@ void main() {
     addTearDown(session.dispose);
     var operations = 0;
 
-    final succeeded = await WorkspaceEditorOperationRunner.run<int>(
+    final succeeded = await WorkspaceEditorOperationRunner.stay<int>(
       session: session,
       scope: 'workspace/test',
       operationLabel: 'test mutation',
@@ -73,12 +73,49 @@ void main() {
     check(session.saving).isFalse();
   });
 
+  test('exit operations leave cleanup to successful navigation', () async {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+    var completed = false;
+
+    final succeeded = await WorkspaceEditorOperationRunner.exit<void>(
+      session: session,
+      scope: 'workspace/test',
+      operationLabel: 'test exit',
+      editorMounted: () => true,
+      operation: () async {},
+      onSuccess: (_) => completed = true,
+    );
+
+    check(succeeded).isTrue();
+    check(completed).isTrue();
+    check(session.saving).isTrue();
+  });
+
+  test('captured-route operations complete after editor disposal', () async {
+    final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
+    addTearDown(session.dispose);
+    var completed = false;
+
+    final succeeded = await WorkspaceEditorOperationRunner.capturedRoute<void>(
+      session: session,
+      scope: 'workspace/test',
+      operationLabel: 'test captured route',
+      editorMounted: () => false,
+      operation: () async {},
+      onSuccess: (_) => completed = true,
+    );
+
+    check(succeeded).isTrue();
+    check(completed).isTrue();
+  });
+
   test('operation runner maps failure and releases the lock', () async {
     final session = WorkspaceEditorSession(WorkspaceRouteMode.edit);
     addTearDown(session.dispose);
     Object? observedError;
 
-    final succeeded = await WorkspaceEditorOperationRunner.run<void>(
+    final succeeded = await WorkspaceEditorOperationRunner.stay<void>(
       session: session,
       scope: 'workspace/test',
       operationLabel: 'test mutation',

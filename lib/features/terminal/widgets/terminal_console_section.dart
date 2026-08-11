@@ -1,11 +1,9 @@
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -16,6 +14,7 @@ import '../../../shared/widgets/utility_components.dart';
 import '../models/terminal_models.dart';
 import 'terminal_connection_badge.dart';
 import 'terminal_console_surface.dart';
+import 'terminal_section_components.dart';
 
 class TerminalConsoleSection extends StatefulWidget {
   const TerminalConsoleSection({
@@ -113,7 +112,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
                   const SizedBox(width: Spacing.xs),
                   if (connectionState.isConnected ||
                       connectionState.isConnecting)
-                    _TerminalIconActionButton(
+                    TerminalIconActionButton(
                       tooltip: l10n.terminalDisconnectAction,
                       iosIcon: Icons.link_off_rounded,
                       materialIcon: Icons.link_off_rounded,
@@ -121,7 +120,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
                       onPressed: widget.onDisconnect,
                     )
                   else
-                    _TerminalIconActionButton(
+                    TerminalIconActionButton(
                       tooltip: l10n.terminalConnectAction,
                       iosIcon: CupertinoIcons.link,
                       materialIcon: Icons.link_rounded,
@@ -129,7 +128,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
                       onPressed: widget.onConnect,
                     ),
                   const SizedBox(width: Spacing.xs),
-                  _TerminalIconActionButton(
+                  TerminalIconActionButton(
                     tooltip: l10n.terminalExpandAction,
                     iosIcon: CupertinoIcons.fullscreen,
                     materialIcon: Icons.fullscreen_rounded,
@@ -273,7 +272,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
               ),
             )
           else if (widget.ports.isEmpty)
-            SliverToBoxAdapter(child: _TerminalInfoCard(l10n.terminalNoPorts))
+            SliverToBoxAdapter(child: TerminalInfoCard(l10n.terminalNoPorts))
           else
             DecoratedSliver(
               decoration: BoxDecoration(
@@ -334,82 +333,11 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
         subtitle: subtitleParts.isEmpty
             ? null
             : sanitizeUtf16(subtitleParts.join(' • ')),
-        trailing: _TerminalIconActionButton(
+        trailing: TerminalIconActionButton(
           tooltip: l10n.terminalOpenInBrowserAction,
           iosIcon: CupertinoIcons.arrow_up_right,
           materialIcon: Icons.open_in_new_rounded,
           onPressed: () => widget.onOpenPort(port),
-        ),
-      ),
-    );
-  }
-}
-
-class _TerminalIconActionButton extends StatelessWidget {
-  const _TerminalIconActionButton({
-    required this.tooltip,
-    required this.iosIcon,
-    required this.materialIcon,
-    required this.onPressed,
-    this.compact = false,
-  });
-
-  final String tooltip;
-  final IconData iosIcon;
-  final IconData materialIcon;
-  final VoidCallback? onPressed;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final iconSize = compact ? IconSize.sm : IconSize.medium;
-    final minSide = compact ? TouchTarget.micro : TouchTarget.medium;
-    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
-    return AdaptiveTooltip(
-      message: tooltip,
-      child: Semantics(
-        button: true,
-        enabled: onPressed != null,
-        label: tooltip,
-        child: AdaptiveButton.child(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          style: usesOpaqueFallback
-              ? AdaptiveButtonStyle.filled
-              : AdaptiveButtonStyle.glass,
-          color: usesOpaqueFallback ? theme.surfaceContainerHighest : null,
-          size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
-          minSize: Size(minSide, minSide),
-          padding: compact
-              ? const EdgeInsets.all(Spacing.xxs)
-              : EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-          useSmoothRectangleBorder: false,
-          child: Icon(
-            UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
-            size: iconSize,
-            color: onPressed != null ? theme.iconSecondary : theme.iconDisabled,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TerminalInfoCard extends StatelessWidget {
-  const _TerminalInfoCard(this.message);
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return InsetGroupedSection(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Text(
-        sanitizeUtf16(message),
-        style: AppTypography.bodyMediumStyle.copyWith(
-          color: context.conduitTheme.textSecondary,
         ),
       ),
     );

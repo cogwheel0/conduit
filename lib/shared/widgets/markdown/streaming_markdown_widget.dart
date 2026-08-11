@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../utils/ask_conduit_context_menu.dart';
-import '../drawer_gesture_scope.dart';
+import '../horizontal_gesture_ownership.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
@@ -749,7 +749,7 @@ class _StreamingMarkdownWidgetState
       return result;
     }
 
-    return DrawerOpenGestureExclusion(
+    return HorizontalGestureExclusion(
       child: SelectionArea(
         contextMenuBuilder: (context, selectableRegionState) {
           return buildAskConduitSelectionAreaContextMenu(
@@ -762,7 +762,7 @@ class _StreamingMarkdownWidgetState
         onSelectionChanged: (content) {
           _selectedText = content?.plainText;
         },
-        child: DrawerOpenGesturePriority(child: result),
+        child: PrioritizedHorizontalGesture(child: result),
       ),
     );
   }

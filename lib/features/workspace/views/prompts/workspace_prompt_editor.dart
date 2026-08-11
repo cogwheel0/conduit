@@ -259,7 +259,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       return;
     }
     setState(() => _commandError = false);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/prompts',
       operationLabel: 'prompt metadata update',
@@ -291,7 +291,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     final baseCommand = WorkspacePromptCommand.strip(_commandController.text);
     final cloneCommand = WorkspacePromptCommand.slugify(
       '$baseCommand-${l10n.workspacePromptCloneSuffix}',
@@ -303,21 +302,19 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       content: _contentController.text,
       tags: _tags,
     );
-    await WorkspaceEditorOperationRunner.run<WorkspacePromptDetail>(
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspacePromptDetail
+    >(
+      context: context,
       session: _session,
+      section: WorkspaceSection.prompts,
       scope: 'workspace/prompts',
-      operationLabel: 'prompt clone',
+      resourceLabel: 'prompt',
+      successMessage: l10n.workspacePromptSaved,
+      failureMessage: l10n.workspacePromptSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () => ref.read(workspacePromptsProvider.notifier).create(form),
-      onSuccess: (created) {
-        _showSnack(l10n.workspacePromptSaved);
-        router.pushReplacement(
-          WorkspaceSection.prompts.routes.editLocation(created.id),
-        );
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
+      clone: () => ref.read(workspacePromptsProvider.notifier).create(form),
+      resourceId: (created) => created.id,
     );
   }
 
@@ -325,7 +322,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/prompts',
       operationLabel: 'prompt toggle',
@@ -353,26 +350,17 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
       session: _session,
+      section: WorkspaceSection.prompts,
       scope: 'workspace/prompts',
-      operationLabel: 'prompt delete',
+      resourceLabel: 'prompt',
+      successMessage: l10n.workspacePromptDeleted,
+      failureMessage: l10n.workspacePromptSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () =>
+      delete: () =>
           ref.read(workspacePromptsProvider.notifier).delete(summary.id),
-      onSuccess: (_) {
-        _session.markClean();
-        _showSnack(l10n.workspacePromptDeleted);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go(WorkspaceSection.prompts.routes.collectionPath);
-        }
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
     );
   }
 
@@ -395,7 +383,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/prompts',
       operationLabel: 'prompt access update',

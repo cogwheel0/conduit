@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../../../core/services/performance_profiler.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/drawer_slot.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
@@ -176,7 +176,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     WidgetsBinding.instance.hitTestInView(result, event.position, event.viewId);
     return !result.path.any(
       (entry) =>
-          entry.target is RenderDrawerOpenGestureExclusion ||
+          entry.target is RenderHorizontalGestureExclusion ||
           entry.target is RenderEditable,
     );
   }
@@ -457,8 +457,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     WidgetsBinding.instance.hitTestInView(result, globalPosition, viewId);
     for (final entry in result.path) {
       final target = entry.target;
-      if (target is RenderDrawerHorizontalScrollBoundary) {
-        return target.isAtOpenGestureLeadingEdge;
+      if (target is RenderHorizontalScrollGestureBoundary) {
+        return target.isAtLeadingEdge;
       }
     }
     return null;
@@ -726,7 +726,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
         : _buildMobileLayout(theme, scrim);
     return SidebarDrawerControllerScope(
       controller: this,
-      child: DrawerGestureScope(
+      child: HorizontalGesturePriorityScope(
         buildPrioritizedGestureArena: _buildPrioritizedDrawerGestureArena,
         child: layout,
       ),

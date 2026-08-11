@@ -18,6 +18,21 @@ enum TerminalBrowserFailure {
   openPort,
 }
 
+@immutable
+final class TerminalBrowserOperationContext {
+  const TerminalBrowserOperationContext({
+    required this.service,
+    required this.server,
+    required this.sessionScopeId,
+    required this.currentPath,
+  });
+
+  final TerminalService service;
+  final TerminalServerInfo server;
+  final String sessionScopeId;
+  final String currentPath;
+}
+
 /// Coordinates terminal file-browser queries and mutations.
 ///
 /// The controller keeps network and filesystem work out of the tab widget and
@@ -45,6 +60,21 @@ class TerminalBrowserController extends ChangeNotifier {
   bool get loadingFiles => _loadingFiles;
 
   bool get loadingPorts => _loadingPorts;
+
+  TerminalBrowserOperationContext? captureOperationContext() {
+    if (_disposed) return null;
+    final service = _gateway.service;
+    final server = _selectedServer;
+    if (service == null || server == null || !_isCurrentServer(server)) {
+      return null;
+    }
+    return TerminalBrowserOperationContext(
+      service: service,
+      server: server,
+      sessionScopeId: _gateway.sessionScopeId,
+      currentPath: _gateway.currentPath,
+    );
+  }
 
   Future<void> reload() async {
     if (_disposed) {
@@ -146,163 +176,143 @@ class TerminalBrowserController extends ChangeNotifier {
     await loadDirectory(service, server, path: path, updateServerCwd: true);
   }
 
-  Future<TerminalFileReadResult?> readEntry(TerminalFileEntry entry) async {
-    if (_disposed) {
+  Future<TerminalFileReadResult?> readEntry(
+    TerminalBrowserOperationContext operationContext,
+    TerminalFileEntry entry,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) {
       return null;
     }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return null;
-    }
-
-    final sessionScopeId = _gateway.sessionScopeId;
     try {
-      final preview = await service.readFile(
-        server,
+      final preview = await operationContext.service.readFile(
+        operationContext.server,
         entry.path,
-        sessionScopeId: sessionScopeId,
+        sessionScopeId: operationContext.sessionScopeId,
       );
-      return _isCurrentContext(server, sessionScopeId) ? preview : null;
+      return _isCurrentOperationContext(operationContext) ? preview : null;
     } catch (_) {
-      if (_isCurrentContext(server, sessionScopeId)) {
+      if (_isCurrentOperationContext(operationContext)) {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
       return null;
     }
   }
 
-  Future<void> downloadEntry(TerminalFileEntry entry) async {
-    if (_disposed) {
-      return;
-    }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return;
-    }
-
+  Future<void> downloadEntry(
+    TerminalBrowserOperationContext operationContext,
+    TerminalFileEntry entry,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
     try {
-      final downloaded = await service.downloadFile(
-        server,
+      final downloaded = await operationContext.service.downloadFile(
+        operationContext.server,
         entry.path,
-        sessionScopeId: _gateway.sessionScopeId,
+        sessionScopeId: operationContext.sessionScopeId,
       );
+      if (!_isCurrentOperationContext(operationContext)) return;
       await _platformGateway.shareDownload(downloaded);
     } catch (_) {
-      _onFailure(TerminalBrowserFailure.download);
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(TerminalBrowserFailure.download);
+      }
     }
   }
 
-  Future<void> renameEntry(TerminalFileEntry entry, String newName) async {
-    if (_disposed) {
-      return;
-    }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return;
-    }
-
+  Future<void> renameEntry(
+    TerminalBrowserOperationContext operationContext,
+    TerminalFileEntry entry,
+    String newName,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
     try {
-      await service.moveEntry(
-        server,
+      await operationContext.service.moveEntry(
+        operationContext.server,
         _pathWithoutTrailingSlash(entry.path),
         _pathWithoutTrailingSlash(
           joinTerminalPath(
-            _gateway.currentPath,
+            operationContext.currentPath,
             newName,
             directoryResult: entry.isDirectory,
           ),
         ),
-        sessionScopeId: _gateway.sessionScopeId,
+        sessionScopeId: operationContext.sessionScopeId,
       );
-      if (!_disposed) {
+      if (_isCurrentOperationContext(operationContext)) {
         await reload();
       }
     } catch (_) {
-      _onFailure(TerminalBrowserFailure.rename);
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(TerminalBrowserFailure.rename);
+      }
     }
   }
 
-  Future<void> deleteEntry(TerminalFileEntry entry) async {
-    if (_disposed) {
-      return;
-    }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return;
-    }
-
+  Future<void> deleteEntry(
+    TerminalBrowserOperationContext operationContext,
+    TerminalFileEntry entry,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
     try {
-      await service.deleteEntry(
-        server,
+      await operationContext.service.deleteEntry(
+        operationContext.server,
         _pathWithoutTrailingSlash(entry.path),
-        sessionScopeId: _gateway.sessionScopeId,
+        sessionScopeId: operationContext.sessionScopeId,
       );
-      if (!_disposed) {
+      if (_isCurrentOperationContext(operationContext)) {
         await reload();
       }
     } catch (_) {
-      _onFailure(TerminalBrowserFailure.delete);
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(TerminalBrowserFailure.delete);
+      }
     }
   }
 
-  Future<void> pickAndUploadFile() async {
-    if (_disposed) {
-      return;
-    }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return;
-    }
-
+  Future<void> pickAndUploadFile(
+    TerminalBrowserOperationContext operationContext,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
     try {
       final pickedFile = await _platformGateway.pickUploadFile();
-      if (pickedFile == null) {
+      if (pickedFile == null || !_isCurrentOperationContext(operationContext)) {
         return;
       }
 
-      await service.uploadFile(
-        server,
-        _gateway.currentPath,
+      await operationContext.service.uploadFile(
+        operationContext.server,
+        operationContext.currentPath,
         pickedFile.path,
         pickedFile.name,
-        sessionScopeId: _gateway.sessionScopeId,
+        sessionScopeId: operationContext.sessionScopeId,
       );
-      if (!_disposed) {
+      if (_isCurrentOperationContext(operationContext)) {
         await reload();
       }
     } catch (_) {
-      _onFailure(TerminalBrowserFailure.upload);
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(TerminalBrowserFailure.upload);
+      }
     }
   }
 
-  Future<void> createFolder(String folderName) async {
-    if (_disposed) {
-      return;
-    }
-    final service = _gateway.service;
-    final server = _selectedServer;
-    if (service == null || server == null) {
-      return;
-    }
-
+  Future<void> createFolder(
+    TerminalBrowserOperationContext operationContext,
+    String folderName,
+  ) async {
+    if (!_isCurrentOperationContext(operationContext)) return;
     try {
-      await service.createDirectory(
-        server,
-        joinTerminalPath(_gateway.currentPath, folderName),
-        sessionScopeId: _gateway.sessionScopeId,
+      await operationContext.service.createDirectory(
+        operationContext.server,
+        joinTerminalPath(operationContext.currentPath, folderName),
+        sessionScopeId: operationContext.sessionScopeId,
       );
-      if (_disposed) {
-        return;
-      }
+      if (!_isCurrentOperationContext(operationContext)) return;
       _gateway.requestRefresh();
       await reload();
     } catch (_) {
-      _onFailure(TerminalBrowserFailure.createFolder);
+      if (_isCurrentOperationContext(operationContext)) {
+        _onFailure(TerminalBrowserFailure.createFolder);
+      }
     }
   }
 
@@ -350,6 +360,17 @@ class TerminalBrowserController extends ChangeNotifier {
 
   bool _isCurrentServer(TerminalServerInfo server) =>
       _isCurrentContext(server, _gateway.sessionScopeId);
+
+  bool _isCurrentOperationContext(
+    TerminalBrowserOperationContext operationContext,
+  ) =>
+      !_disposed &&
+      identical(_gateway.service, operationContext.service) &&
+      _gateway.currentPath == operationContext.currentPath &&
+      _isCurrentContext(
+        operationContext.server,
+        operationContext.sessionScopeId,
+      );
 
   void _setLoadingFiles(bool value) {
     if (_loadingFiles == value) {

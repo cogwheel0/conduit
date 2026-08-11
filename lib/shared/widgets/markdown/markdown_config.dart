@@ -22,7 +22,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
-import '../drawer_gesture_scope.dart';
+import '../horizontal_gesture_ownership.dart';
 import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
@@ -1271,7 +1271,7 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        DrawerHorizontalScrollBoundary(
+        HorizontalScrollGestureBoundary(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(

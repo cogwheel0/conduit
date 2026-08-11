@@ -2,7 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 import '../../conduit_loading.dart';
-import '../../drawer_gesture_scope.dart';
+import '../../horizontal_gesture_ownership.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
@@ -1053,7 +1053,7 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
-      child: DrawerHorizontalScrollBoundary(
+      child: HorizontalScrollGestureBoundary(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(

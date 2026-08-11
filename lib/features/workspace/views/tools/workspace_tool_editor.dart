@@ -331,7 +331,6 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'tool_clone' : '${baseId}_clone';
     // Clones never inherit the source tool's sharing grants.
@@ -343,20 +342,19 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       content: _contentController.text,
       meta: meta,
     );
-    await WorkspaceEditorOperationRunner.run<WorkspaceToolDetail>(
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspaceToolDetail
+    >(
+      context: context,
       session: _session,
+      section: WorkspaceSection.tools,
       scope: 'workspace/tools',
-      operationLabel: 'tool clone',
+      resourceLabel: 'tool',
+      successMessage: l10n.workspaceToolSaved,
+      failureMessage: l10n.workspaceToolSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () => ref.read(workspaceToolsProvider.notifier).create(form),
-      onSuccess: (created) {
-        _showSnack(l10n.workspaceToolSaved);
-        router.pushReplacement(
-          WorkspaceSection.tools.routes.editLocation(created.id),
-        );
-      },
-      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
+      clone: () => ref.read(workspaceToolsProvider.notifier).create(form),
+      resourceId: (created) => created.id,
     );
   }
 
@@ -375,25 +373,17 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
       session: _session,
+      section: WorkspaceSection.tools,
       scope: 'workspace/tools',
-      operationLabel: 'tool delete',
+      resourceLabel: 'tool',
+      successMessage: l10n.workspaceToolDeleted,
+      failureMessage: l10n.workspaceToolSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () =>
+      delete: () =>
           ref.read(workspaceToolsProvider.notifier).delete(summary.id),
-      onSuccess: (_) {
-        _session.markClean();
-        _showSnack(l10n.workspaceToolDeleted);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go(WorkspaceSection.tools.routes.collectionPath);
-        }
-      },
-      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
     );
   }
 
@@ -416,7 +406,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/tools',
       operationLabel: 'tool access update',

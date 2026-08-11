@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/direct_connection_profile.dart';
-import '../models/openwebui_direct_connection.dart';
 import 'direct_connection_editor_draft.dart';
 import 'direct_custom_headers_controller.dart';
 
@@ -33,7 +32,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   final models = TextEditingController();
 
   DirectConnectionProfile? _savedProfile;
-  OpenWebUiDirectConnectionRecord? _savedOpenWebUiRecord;
+  DirectAuthenticationMode? _savedAuthentication;
   String _adapterKey = kOpenAiCompatibleAdapterKey;
   String _providerPreset = kOpenAiCompatibleAdapterKey;
   DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
@@ -51,8 +50,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   FocusNode get headerValueFocusNode => headers.valueFocusNode;
   Map<String, String> get customHeaders => headers.headers;
   DirectConnectionProfile? get savedProfile => _savedProfile;
-  OpenWebUiDirectConnectionRecord? get savedOpenWebUiRecord =>
-      _savedOpenWebUiRecord;
+  DirectAuthenticationMode? get savedAuthentication => _savedAuthentication;
   String get adapterKey => _adapterKey;
   String get providerPreset => _providerPreset;
   DirectOpenAiApiMode get openAiApiMode => _openAiApiMode;
@@ -97,18 +95,18 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get apiKeyRequired => requiresDirectApiKey(
     authentication: authentication,
     mode: mode,
-    savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
+    savedAuthentication: savedAuthentication,
     apiKeyDirty: apiKeyDirty,
     originChanged: originChanged,
   );
 
   void hydrate(
     DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+    DirectAuthenticationMode? authentication,
   }) {
     _updateTextFields(() {
       _savedProfile = profile;
-      _savedOpenWebUiRecord = openWebUiRecord;
+      _savedAuthentication = authentication;
       if (profile == null) {
         name.text = 'My provider';
         baseUrl.text = 'https://api.openai.com/v1';
@@ -126,36 +124,22 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
           ? kOpenRouterProviderPreset
           : profile.adapterKey;
       _openAiApiMode = profile.openAiApiMode;
-      _authentication = openWebUiRecord == null
-          ? profile.isOpenRouter
-                ? DirectAuthenticationMode.bearer
-                : (profile.apiKey ?? '').isEmpty
-                ? DirectAuthenticationMode.none
-                : switch (profile.apiKeyAuthMode) {
-                    DirectApiKeyAuthMode.bearer =>
-                      DirectAuthenticationMode.bearer,
-                    DirectApiKeyAuthMode.apiKeyHeader =>
-                      DirectAuthenticationMode.apiKeyHeader,
-                  }
-          : switch (openWebUiRecord.authType) {
-              'bearer' => DirectAuthenticationMode.bearer,
-              'none' => DirectAuthenticationMode.none,
-              _ => DirectAuthenticationMode.unsupported,
-            };
+      _authentication = authentication ?? _authenticationForProfile(profile);
+      _savedAuthentication = _authentication;
       _enabled = profile.enabled;
     });
   }
 
-  bool refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
-    final savedRecord = savedOpenWebUiRecord;
-    if (record == null ||
-        savedRecord == null ||
-        savedRecord.profile.id != record.profile.id ||
-        savedRecord.contentRevision != record.contentRevision) {
+  bool refreshBaseline(
+    DirectConnectionProfile? profile, {
+    required DirectAuthenticationMode? authentication,
+  }) {
+    final saved = savedProfile;
+    if (profile == null || saved == null || saved.id != profile.id) {
       return false;
     }
-    _savedOpenWebUiRecord = record;
-    _savedProfile = record.profile;
+    _savedProfile = profile;
+    _savedAuthentication = authentication;
     return true;
   }
 
@@ -252,7 +236,7 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     final draft = DirectConnectionDraft(
       mode: mode,
       savedProfile: savedProfile,
-      savedOpenWebUiAuthType: savedOpenWebUiRecord?.authType,
+      savedAuthentication: savedAuthentication,
       adapterKey: adapterKey,
       providerPreset: providerPreset,
       openAiApiMode: openAiApiMode,
@@ -329,6 +313,18 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       _updatingTextFields = false;
     }
   }
+
+  DirectAuthenticationMode _authenticationForProfile(
+    DirectConnectionProfile profile,
+  ) => profile.isOpenRouter
+      ? DirectAuthenticationMode.bearer
+      : (profile.apiKey ?? '').isEmpty
+      ? DirectAuthenticationMode.none
+      : switch (profile.apiKeyAuthMode) {
+          DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
+          DirectApiKeyAuthMode.apiKeyHeader =>
+            DirectAuthenticationMode.apiKeyHeader,
+        };
 
   @override
   void dispose() {

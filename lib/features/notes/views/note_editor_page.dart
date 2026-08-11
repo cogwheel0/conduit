@@ -33,7 +33,7 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -2687,7 +2687,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const SizedBox.shrink();
     }
 
-    final editor = DrawerOpenGestureExclusion(
+    final editor = HorizontalGestureExclusion(
       child: FleatherEditor(
         controller: controller,
         focusNode: _contentFocusNode,

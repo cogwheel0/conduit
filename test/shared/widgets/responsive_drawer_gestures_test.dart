@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
-import 'package:conduit/shared/widgets/drawer_gesture_scope.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 
 import 'responsive_drawer_layout_test_support.dart';
 
@@ -73,7 +73,7 @@ void main() {
         size: drawerTestMobileSize,
         layoutKey: layoutKey,
         edgeFraction: 1,
-        child: const DrawerOpenGestureExclusion(
+        child: const HorizontalGestureExclusion(
           child: ColoredBox(color: Colors.orange, child: SizedBox.expand()),
         ),
       ),
@@ -140,7 +140,7 @@ void main() {
         size: drawerTestMobileSize,
         layoutKey: layoutKey,
         edgeFraction: 1,
-        child: const DrawerOpenGestureExclusion(
+        child: const HorizontalGestureExclusion(
           child: ColoredBox(color: Colors.orange, child: SizedBox.expand()),
         ),
       ),
@@ -272,12 +272,12 @@ void main() {
               layoutKey: layoutKey,
               edgeFraction: 1,
               child: Material(
-                child: DrawerOpenGestureExclusion(
+                child: HorizontalGestureExclusion(
                   child: SelectionArea(
                     onSelectionChanged: (content) => selectedContent = content,
                     contextMenuBuilder: (_, _) => const SizedBox.shrink(),
                     magnifierConfiguration: TextMagnifierConfiguration.disabled,
-                    child: const DrawerOpenGesturePriority(
+                    child: const PrioritizedHorizontalGesture(
                       child: Align(
                         alignment: Alignment.topLeft,
                         child: Padding(
@@ -382,8 +382,8 @@ void main() {
           size: drawerTestMobileSize,
           layoutKey: layoutKey,
           edgeFraction: 1,
-          child: DrawerOpenGestureExclusion(
-            child: DrawerOpenGesturePriority(
+          child: HorizontalGestureExclusion(
+            child: PrioritizedHorizontalGesture(
               child: drawerTestBuildEagerGestureOwner(),
             ),
           ),

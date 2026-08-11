@@ -203,7 +203,7 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/knowledge',
       operationLabel: 'knowledge access update',
@@ -234,7 +234,7 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/knowledge',
       operationLabel: 'knowledge reset',
@@ -292,26 +292,17 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
       session: _session,
+      section: WorkspaceSection.knowledge,
       scope: 'workspace/knowledge',
-      operationLabel: 'knowledge delete',
+      resourceLabel: 'knowledge',
+      successMessage: l10n.workspaceKnowledgeDeleted,
+      failureMessage: l10n.workspaceKnowledgeSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () =>
+      delete: () =>
           ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id),
-      onSuccess: (_) {
-        _session.markClean();
-        _showSnack(l10n.workspaceKnowledgeDeleted);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go(WorkspaceSection.knowledge.routes.collectionPath);
-        }
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
     );
   }
 

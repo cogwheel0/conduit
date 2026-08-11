@@ -136,6 +136,7 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
           ? DirectEditorResourceAvailability.missing
           : DirectEditorResourceAvailability.ready,
       profile: profile,
+      authentication: profile == null ? null : _localAuthentication(profile),
     );
   }
 
@@ -159,12 +160,12 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
       ref.read(directConnectionProfilesProvider.notifier).reload();
 
   @override
-  void hydrate(
-    DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
-  }) {
-    _previousProfile = profile;
+  void hydrate(DirectEditorResource resource) {
+    _previousProfile = resource.profile;
   }
+
+  @override
+  bool refreshBaseline(DirectEditorResource resource) => false;
 
   @override
   Future<void> save(DirectEditorSaveIntent intent) async {
@@ -196,11 +197,13 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
     : assert(mode.source == DirectConnectionEditorSource.openWebUi);
 
   OpenWebUiDirectConnectionRecord? _previousRecord;
+  OpenWebUiDirectConnectionRecord? _latestRecord;
 
   DirectEditorResource _resourceFor(
     OpenWebUiDirectConnectionsSnapshot? snapshot,
   ) {
     if (snapshot == null) {
+      _latestRecord = null;
       return const DirectEditorResource(
         availability: DirectEditorResourceAvailability.unavailable,
       );
@@ -208,12 +211,15 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
     final record = mode.isNew
         ? null
         : snapshot.recordByProfileId(mode.profileId!);
+    _latestRecord = record;
     return DirectEditorResource(
       availability: !mode.isNew && record == null
           ? DirectEditorResourceAvailability.missing
           : DirectEditorResourceAvailability.ready,
       profile: record?.profile,
-      openWebUiRecord: record,
+      authentication: record == null
+          ? null
+          : _openWebUiAuthentication(record.authType),
       owner: DirectEditorOwner(
         serverId: snapshot.serverId,
         accountId: snapshot.accountId,
@@ -242,11 +248,26 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
       ref.read(openWebUiDirectConnectionsProvider.notifier).reload();
 
   @override
-  void hydrate(
-    DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
-  }) {
-    _previousRecord = openWebUiRecord;
+  void hydrate(DirectEditorResource resource) {
+    final latest = _latestRecord;
+    _previousRecord = latest?.profile.id == resource.profile?.id
+        ? latest
+        : null;
+  }
+
+  @override
+  bool refreshBaseline(DirectEditorResource resource) {
+    final previous = _previousRecord;
+    final latest = _latestRecord;
+    if (previous == null ||
+        latest == null ||
+        latest.profile.id != resource.profile?.id ||
+        previous.profile.id != latest.profile.id ||
+        previous.contentRevision != latest.contentRevision) {
+      return false;
+    }
+    _previousRecord = latest;
+    return true;
   }
 
   @override
@@ -299,3 +320,22 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
         DirectAuthenticationMode.unsupported => null,
       };
 }
+
+DirectAuthenticationMode _localAuthentication(
+  DirectConnectionProfile profile,
+) => profile.isOpenRouter
+    ? DirectAuthenticationMode.bearer
+    : (profile.apiKey ?? '').isEmpty
+    ? DirectAuthenticationMode.none
+    : switch (profile.apiKeyAuthMode) {
+        DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
+        DirectApiKeyAuthMode.apiKeyHeader =>
+          DirectAuthenticationMode.apiKeyHeader,
+      };
+
+DirectAuthenticationMode _openWebUiAuthentication(String authType) =>
+    switch (authType) {
+      'bearer' => DirectAuthenticationMode.bearer,
+      'none' => DirectAuthenticationMode.none,
+      _ => DirectAuthenticationMode.unsupported,
+    };

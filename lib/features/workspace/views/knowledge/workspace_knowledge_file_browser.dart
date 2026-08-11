@@ -16,7 +16,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
-import 'package:conduit/shared/widgets/drawer_gesture_scope.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 
@@ -587,7 +587,7 @@ class _Breadcrumbs extends StatelessWidget {
     final theme = context.conduitTheme;
     return SizedBox(
       height: 36,
-      child: DrawerHorizontalScrollBoundary(
+      child: HorizontalScrollGestureBoundary(
         child: ListView(
           key: const Key('knowledge-breadcrumbs'),
           scrollDirection: Axis.horizontal,

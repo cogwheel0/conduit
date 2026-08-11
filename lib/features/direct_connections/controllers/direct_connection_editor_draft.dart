@@ -30,7 +30,7 @@ sealed class DirectConnectionEditorPolicy {
 
   bool preservesExistingKeylessBearer({
     required bool isNew,
-    required String? savedAuthType,
+    required DirectAuthenticationMode? savedAuthentication,
     required bool apiKeyDirty,
     required bool originChanged,
   });
@@ -56,7 +56,7 @@ final class LocalDirectConnectionEditorPolicy
   @override
   bool preservesExistingKeylessBearer({
     required bool isNew,
-    required String? savedAuthType,
+    required DirectAuthenticationMode? savedAuthentication,
     required bool apiKeyDirty,
     required bool originChanged,
   }) => false;
@@ -82,10 +82,14 @@ final class OpenWebUiDirectConnectionEditorPolicy
   @override
   bool preservesExistingKeylessBearer({
     required bool isNew,
-    required String? savedAuthType,
+    required DirectAuthenticationMode? savedAuthentication,
     required bool apiKeyDirty,
     required bool originChanged,
-  }) => !isNew && savedAuthType == 'bearer' && !apiKeyDirty && !originChanged;
+  }) =>
+      !isNew &&
+      savedAuthentication == DirectAuthenticationMode.bearer &&
+      !apiKeyDirty &&
+      !originChanged;
 }
 
 @immutable
@@ -179,7 +183,7 @@ String normalizeDirectBaseUrl(String source) {
 bool requiresDirectApiKey({
   required DirectAuthenticationMode authentication,
   required DirectConnectionEditorMode mode,
-  required String? savedOpenWebUiAuthType,
+  required DirectAuthenticationMode? savedAuthentication,
   required bool apiKeyDirty,
   required bool originChanged,
 }) {
@@ -190,7 +194,7 @@ bool requiresDirectApiKey({
   final preservesExistingKeylessBearer = mode.policy
       .preservesExistingKeylessBearer(
         isNew: mode.isNew,
-        savedAuthType: savedOpenWebUiAuthType,
+        savedAuthentication: savedAuthentication,
         apiKeyDirty: apiKeyDirty,
         originChanged: originChanged,
       );
@@ -270,7 +274,7 @@ final class DirectConnectionDraft {
   const DirectConnectionDraft({
     required this.mode,
     required this.savedProfile,
-    required this.savedOpenWebUiAuthType,
+    required this.savedAuthentication,
     required this.adapterKey,
     required this.providerPreset,
     required this.openAiApiMode,
@@ -290,7 +294,7 @@ final class DirectConnectionDraft {
 
   final DirectConnectionEditorMode mode;
   final DirectConnectionProfile? savedProfile;
-  final String? savedOpenWebUiAuthType;
+  final DirectAuthenticationMode? savedAuthentication;
   final String adapterKey;
   final String providerPreset;
   final DirectOpenAiApiMode openAiApiMode;
@@ -349,7 +353,7 @@ final class DirectConnectionDraft {
     final apiKeyRequired = requiresDirectApiKey(
       authentication: authentication,
       mode: mode,
-      savedOpenWebUiAuthType: savedOpenWebUiAuthType,
+      savedAuthentication: savedAuthentication,
       apiKeyDirty: apiKeyDirty,
       originChanged: originChanged,
     );

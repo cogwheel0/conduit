@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
-import '../models/openwebui_direct_connection.dart';
 import 'direct_connection_editor_draft.dart';
 import 'direct_connection_editor_form.dart';
 
@@ -49,13 +48,13 @@ final class DirectEditorResource {
   const DirectEditorResource({
     required this.availability,
     this.profile,
-    this.openWebUiRecord,
+    this.authentication,
     this.owner,
   });
 
   final DirectEditorResourceAvailability availability;
   final DirectConnectionProfile? profile;
-  final OpenWebUiDirectConnectionRecord? openWebUiRecord;
+  final DirectAuthenticationMode? authentication;
   final DirectEditorOwner? owner;
 }
 
@@ -169,10 +168,11 @@ abstract interface class DirectConnectionEditorGateway {
 
   Future<void> reload();
 
-  void hydrate(
-    DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
-  });
+  void hydrate(DirectEditorResource resource);
+
+  /// Advances a source-owned persistence baseline when [resource] represents
+  /// the same logical content under a new storage revision.
+  bool refreshBaseline(DirectEditorResource resource);
 
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile);
 
@@ -286,31 +286,38 @@ final class DirectConnectionEditorWorkflow extends ChangeNotifier {
       return true;
     }
     if (state.hydrated) {
-      final record = resource.openWebUiRecord;
-      if (record != null) refreshOpenWebUiRecord(record);
+      if (gateway.refreshBaseline(resource)) {
+        form.refreshBaseline(
+          resource.profile,
+          authentication: resource.authentication,
+        );
+      }
       return true;
     }
-    hydrate(resource.profile, openWebUiRecord: resource.openWebUiRecord);
+    _hydrateResource(resource);
     return true;
   }
 
   @visibleForTesting
   void hydrate(
     DirectConnectionProfile? profile, {
-    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+    DirectAuthenticationMode? authentication,
   }) {
-    if (state.hydrated) return;
-    gateway.hydrate(profile, openWebUiRecord: openWebUiRecord);
-    form.hydrate(profile, openWebUiRecord: openWebUiRecord);
-    _observedDraftRevision = form.draftRevision;
-    _publish(state.copyWith(hydrated: true));
+    _hydrateResource(
+      DirectEditorResource(
+        availability: DirectEditorResourceAvailability.ready,
+        profile: profile,
+        authentication: authentication,
+      ),
+    );
   }
 
-  /// Advances the OpenWebUI compare-and-swap base for a pure reindex without
-  /// replacing the user's draft or accepting a concurrent content edit.
-  void refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
-    if (!state.hydrated || !form.refreshOpenWebUiRecord(record)) return;
-    gateway.hydrate(record!.profile, openWebUiRecord: record);
+  void _hydrateResource(DirectEditorResource resource) {
+    if (state.hydrated) return;
+    gateway.hydrate(resource);
+    form.hydrate(resource.profile, authentication: resource.authentication);
+    _observedDraftRevision = form.draftRevision;
+    _publish(state.copyWith(hydrated: true));
   }
 
   void captureOwner({

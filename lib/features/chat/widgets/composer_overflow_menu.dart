@@ -7,7 +7,7 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../core/models/toggle_filter.dart';
@@ -411,7 +411,7 @@ class _ComposerAttachmentKeyboardState
       SizedBox(
         height: 94,
         child: HorizontalOverflowFade(
-          child: DrawerHorizontalScrollBoundary(
+          child: HorizontalScrollGestureBoundary(
             child: ListView.separated(
               key: const ValueKey('composer-attachment-action-strip'),
               scrollDirection: Axis.horizontal,

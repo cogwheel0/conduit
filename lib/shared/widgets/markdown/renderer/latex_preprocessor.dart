@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
-import '../../drawer_gesture_scope.dart';
+import '../../horizontal_gesture_ownership.dart';
 import '../../jovial_svg_image.dart';
 import 'latex_rendering_server.dart';
 
@@ -258,7 +258,7 @@ class LatexPreprocessor {
 
   static Widget _wrapLatexWidget(Widget child, {required bool isBlock}) {
     if (!isBlock) return child;
-    return DrawerHorizontalScrollBoundary(
+    return HorizontalScrollGestureBoundary(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: child,

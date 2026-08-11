@@ -51,7 +51,7 @@ import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../../shared/widgets/drawer_gesture_scope.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
@@ -3110,7 +3110,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               if (quickPills.isNotEmpty)
                 Expanded(
                   child: HorizontalOverflowFade(
-                    child: DrawerHorizontalScrollBoundary(
+                    child: HorizontalScrollGestureBoundary(
                       child: SingleChildScrollView(
                         key: const ValueKey('composer-quick-pills'),
                         scrollDirection: Axis.horizontal,

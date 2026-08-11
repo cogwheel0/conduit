@@ -322,7 +322,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'skill_clone' : '${baseId}_clone';
     // Clones never inherit the source skill's sharing grants.
@@ -335,21 +334,19 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       content: _contentController.text,
       meta: _meta,
     );
-    await WorkspaceEditorOperationRunner.run<WorkspaceSkillDetail>(
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspaceSkillDetail
+    >(
+      context: context,
       session: _session,
+      section: WorkspaceSection.skills,
       scope: 'workspace/skills',
-      operationLabel: 'skill clone',
+      resourceLabel: 'skill',
+      successMessage: l10n.workspaceSkillSaved,
+      failureMessage: l10n.workspaceSkillSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () => ref.read(workspaceSkillsProvider.notifier).create(form),
-      onSuccess: (created) {
-        _showSnack(l10n.workspaceSkillSaved);
-        router.pushReplacement(
-          WorkspaceSection.skills.routes.editLocation(created.id),
-        );
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+      clone: () => ref.read(workspaceSkillsProvider.notifier).create(form),
+      resourceId: (created) => created.id,
     );
   }
 
@@ -357,7 +354,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/skills',
       operationLabel: 'skill toggle',
@@ -385,26 +382,17 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
       session: _session,
+      section: WorkspaceSection.skills,
       scope: 'workspace/skills',
-      operationLabel: 'skill delete',
+      resourceLabel: 'skill',
+      successMessage: l10n.workspaceSkillDeleted,
+      failureMessage: l10n.workspaceSkillSaveFailed,
       editorMounted: () => mounted,
-      releaseOnSuccess: false,
-      operation: () =>
+      delete: () =>
           ref.read(workspaceSkillsProvider.notifier).delete(summary.id),
-      onSuccess: (_) {
-        _session.markClean();
-        _showSnack(l10n.workspaceSkillDeleted);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go(WorkspaceSection.skills.routes.collectionPath);
-        }
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
     );
   }
 
@@ -427,7 +415,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       if (summary == null) _session.markDirty();
       return;
     }
-    await WorkspaceEditorOperationRunner.run<void>(
+    await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/skills',
       operationLabel: 'skill access update',

@@ -18,6 +18,7 @@ import '../../../shared/widgets/utility_components.dart';
 import '../controllers/terminal_browser_controller.dart';
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
+import 'terminal_section_components.dart';
 
 class TerminalFilesSection extends StatelessWidget {
   const TerminalFilesSection({
@@ -76,14 +77,14 @@ class TerminalFilesSection extends StatelessWidget {
           )
         else if (selectedServer == null)
           SliverToBoxAdapter(
-            child: _TerminalInfoCard(
+            child: TerminalInfoCard(
               noServersConfigured
                   ? l10n.terminalNoServersConfigured
                   : l10n.terminalSelectServer,
             ),
           )
         else if (entries.isEmpty)
-          SliverToBoxAdapter(child: _TerminalInfoCard(l10n.terminalNoFiles))
+          SliverToBoxAdapter(child: TerminalInfoCard(l10n.terminalNoFiles))
         else
           DecoratedSliver(
             decoration: BoxDecoration(
@@ -121,7 +122,7 @@ class TerminalFilesSection extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _TerminalIconActionButton(
+          TerminalIconActionButton(
             tooltip: l10n.back,
             iosIcon: CupertinoIcons.arrow_up,
             materialIcon: Icons.arrow_upward_rounded,
@@ -182,9 +183,11 @@ class TerminalFilesSection extends StatelessWidget {
     AppLocalizations l10n,
     String? action,
   ) async {
+    final operationContext = browserController.captureOperationContext();
+    if (operationContext == null) return;
     switch (action) {
       case 'upload':
-        await browserController.pickAndUploadFile();
+        await browserController.pickAndUploadFile(operationContext);
       case 'new-folder':
         final folderName = await ThemedDialogs.promptTextInput(
           context,
@@ -192,7 +195,7 @@ class TerminalFilesSection extends StatelessWidget {
           hintText: l10n.terminalFolderNameHint,
         );
         if (folderName != null && context.mounted) {
-          await browserController.createFolder(folderName);
+          await browserController.createFolder(operationContext, folderName);
         }
       case 'home':
         await browserController.navigateTo('/');
@@ -275,7 +278,9 @@ class TerminalFilesSection extends StatelessWidget {
       return;
     }
 
-    final preview = await browserController.readEntry(entry);
+    final operationContext = browserController.captureOperationContext();
+    if (operationContext == null) return;
+    final preview = await browserController.readEntry(operationContext, entry);
     if (preview == null || !context.mounted) {
       return;
     }
@@ -292,7 +297,7 @@ class TerminalFilesSection extends StatelessWidget {
           text: l10n.download,
           onPressed: () {
             Navigator.of(context).pop();
-            browserController.downloadEntry(entry);
+            browserController.downloadEntry(operationContext, entry);
           },
           isPrimary: true,
         ),
@@ -306,9 +311,11 @@ class TerminalFilesSection extends StatelessWidget {
     TerminalFileEntry entry,
     String? action,
   ) async {
+    final operationContext = browserController.captureOperationContext();
+    if (operationContext == null) return;
     switch (action) {
       case 'download':
-        await browserController.downloadEntry(entry);
+        await browserController.downloadEntry(operationContext, entry);
       case 'rename':
         final newName = await ThemedDialogs.promptTextInput(
           context,
@@ -317,7 +324,7 @@ class TerminalFilesSection extends StatelessWidget {
           initialValue: sanitizeUtf16(entry.name),
         );
         if (newName != null && context.mounted) {
-          await browserController.renameEntry(entry, newName);
+          await browserController.renameEntry(operationContext, entry, newName);
         }
       case 'delete':
         final confirmed = await ThemedDialogs.confirm(
@@ -327,7 +334,7 @@ class TerminalFilesSection extends StatelessWidget {
           isDestructive: true,
         );
         if (confirmed && context.mounted) {
-          await browserController.deleteEntry(entry);
+          await browserController.deleteEntry(operationContext, entry);
         }
       case null:
         return;
@@ -465,70 +472,5 @@ class TerminalFilesSection extends StatelessWidget {
         ),
       ),
     ];
-  }
-}
-
-class _TerminalIconActionButton extends StatelessWidget {
-  const _TerminalIconActionButton({
-    required this.tooltip,
-    required this.iosIcon,
-    required this.materialIcon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData iosIcon;
-  final IconData materialIcon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
-    return AdaptiveTooltip(
-      message: tooltip,
-      child: Semantics(
-        button: true,
-        enabled: onPressed != null,
-        label: tooltip,
-        child: AdaptiveButton.child(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          style: usesOpaqueFallback
-              ? AdaptiveButtonStyle.filled
-              : AdaptiveButtonStyle.glass,
-          color: usesOpaqueFallback ? theme.surfaceContainerHighest : null,
-          size: AdaptiveButtonSize.medium,
-          minSize: const Size(TouchTarget.medium, TouchTarget.medium),
-          padding: EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-          useSmoothRectangleBorder: false,
-          child: Icon(
-            UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
-            size: IconSize.medium,
-            color: onPressed != null ? theme.iconSecondary : theme.iconDisabled,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TerminalInfoCard extends StatelessWidget {
-  const _TerminalInfoCard(this.message);
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return InsetGroupedSection(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Text(
-        sanitizeUtf16(message),
-        style: AppTypography.bodyMediumStyle.copyWith(
-          color: context.conduitTheme.textSecondary,
-        ),
-      ),
-    );
   }
 }

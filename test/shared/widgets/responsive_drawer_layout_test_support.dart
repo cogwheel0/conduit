@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
-import 'package:conduit/shared/widgets/drawer_gesture_scope.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 
 const drawerTestMobileSize = Size(390, 844);
@@ -208,7 +208,7 @@ Widget drawerTestBuildHorizontalScrollableContent({
 }) {
   return ColoredBox(
     color: Colors.orange,
-    child: DrawerHorizontalScrollBoundary(
+    child: HorizontalScrollGestureBoundary(
       child: SingleChildScrollView(
         key: key,
         controller: controller,
