@@ -1,4 +1,6 @@
-enum SidebarTabId { chats, hermes, terminal, notes, channels }
+import 'sidebar_tab_descriptor.dart';
+
+export 'sidebar_tab_descriptor.dart';
 
 SidebarTabId resolveSidebarTabSelection({
   required SidebarTabId persistedTab,
@@ -19,15 +21,17 @@ SidebarTabId resolveSidebarTabSelection({
 /// while asynchronous server capabilities are changing.
 final class SidebarNavigationSnapshot {
   SidebarNavigationSnapshot({
-    required List<SidebarTabId> visibleTabs,
+    required List<SidebarTabDescriptor> tabs,
     required this.selectedTab,
     this.isLegacySelection = false,
-  }) : visibleTabs = List.unmodifiable(visibleTabs);
+  }) : tabs = List.unmodifiable(tabs);
 
-  final List<SidebarTabId> visibleTabs;
+  final List<SidebarTabDescriptor> tabs;
   final SidebarTabId selectedTab;
   final bool isLegacySelection;
 
-  int get selectedIndex => visibleTabs.indexOf(selectedTab);
-  bool isVisible(SidebarTabId tab) => visibleTabs.contains(tab);
+  List<SidebarTabId> get tabIds => [for (final tab in tabs) tab.id];
+  int get selectedIndex => tabs.indexWhere((tab) => tab.id == selectedTab);
+  SidebarTabDescriptor get selectedDescriptor => tabs[selectedIndex];
+  bool isVisible(SidebarTabId tab) => tabs.any((item) => item.id == tab);
 }

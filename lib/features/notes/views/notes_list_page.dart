@@ -13,7 +13,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
@@ -111,30 +110,28 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: AdaptiveAppBar(title: l10n.notes),
-        body: Stack(
-          children: [
-            Positioned.fill(child: _buildBody(context)),
-            Positioned(
-              top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
-              left: 0,
-              right: 0,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Spacing.inputPadding,
-                  Spacing.xs,
-                  Spacing.inputPadding,
-                  Spacing.sm,
-                ),
-                child: _buildFloatingSearchField(context),
+    return AdaptiveRouteShell(
+      backgroundColor: context.conduitTheme.surfaceBackground,
+      extendBodyBehindAppBar: true,
+      appBar: AdaptiveAppBar(title: l10n.notes),
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildBody(context)),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
+            left: 0,
+            right: 0,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.inputPadding,
+                Spacing.xs,
+                Spacing.inputPadding,
+                Spacing.sm,
               ),
+              child: _buildFloatingSearchField(context),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

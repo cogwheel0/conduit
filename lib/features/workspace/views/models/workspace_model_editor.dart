@@ -16,6 +16,8 @@ import 'package:conduit/features/workspace/services/workspace_model_avatar_codec
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -63,52 +65,24 @@ class WorkspaceModelEditorView extends ConsumerWidget {
     }
 
     final id = modelId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        section: WorkspaceSection.models,
+    final detail = id == null || id.isEmpty
+        ? null
+        : ref.watch(workspaceModelDetailProvider(id));
+    return WorkspaceResourceEditorHost<WorkspaceModelDetail>(
+      title: l10n.workspaceModels,
+      section: WorkspaceSection.models,
+      mode: mode,
+      resourceId: id,
+      detail: detail,
+      errorMessage: l10n.workspaceLoadFailed,
+      onRetry: () => ref.invalidate(workspaceModelDetailProvider(id!)),
+      builder: (value) => _WorkspaceModelForm(
+        key: ValueKey('workspace-model-form-${value.id}-${mode.name}'),
         mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceModelDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        section: WorkspaceSection.models,
-        mode: mode,
-        isLoading: true,
-        child: const SizedBox.shrink(),
+        initialDraft: WorkspaceModelDraft.fromSummary(value),
+        writeAccess: value.writeAccess,
+        summary: value,
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        section: WorkspaceSection.models,
-        mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
-        child: const SizedBox.shrink(),
-      ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceModels,
-            section: WorkspaceSection.models,
-            mode: mode,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceModelForm(
-          key: ValueKey('workspace-model-form-${value.id}-${mode.name}'),
-          mode: mode,
-          initialDraft: WorkspaceModelDraft.fromSummary(value),
-          writeAccess: value.writeAccess,
-          summary: value,
-        );
-      },
     );
   }
 }
@@ -148,18 +122,22 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   TextEditingController get _paramsController => _fields.params;
   TextEditingController get _builtinToolsController => _fields.builtinTools;
 
-  bool _dirty = false;
-  bool _saving = false;
+  late final WorkspaceEditorSession _session;
+  bool get _dirty => _session.dirty;
+  set _dirty(bool value) => _session.dirty = value;
+  bool get _saving => _session.saving;
+  set _saving(bool value) => _session.saving = value;
   bool _advancedExpanded = false;
-  String? _errorMessage;
+  String? get _errorMessage => _session.errorMessage;
+  set _errorMessage(String? value) => _session.errorMessage = value;
   String? _paramsError;
   // True once the user explicitly removes the avatar, so the editor renders the
   // placeholder instead of re-fetching the still-persisted server image (which
   // would silently undo the removal on screen until the model is saved).
   bool _avatarRemoved = false;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
+  bool get _isCreate => _session.isCreate;
+  bool get _isDetail => _session.isDetail;
   bool get _readOnly => !widget.writeAccess || _isDetail;
 
   WorkspaceModelRelationshipPicker _relationshipPicker(AppLocalizations l10n) =>
@@ -174,6 +152,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode);
     _draft = WorkspaceModelDraft.fromSummary(_snapshot());
     _fields = WorkspaceModelFormBindings(_draft);
   }
@@ -226,12 +205,18 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
     final params = _parseJsonObject(_paramsController.text);
     if (params == null) {
-      setState(() => _paramsError = 'params');
+      setState(() {
+        _paramsError = 'params';
+        _advancedExpanded = true;
+      });
       return false;
     }
     final builtin = _parseJsonObject(_builtinToolsController.text);
     if (builtin == null) {
-      setState(() => _paramsError = 'builtinTools');
+      setState(() {
+        _paramsError = 'builtinTools';
+        _advancedExpanded = true;
+      });
       return false;
     }
     _draft.advancedParams = params;

@@ -75,23 +75,16 @@ class SidebarIos26Scaffold extends StatelessWidget {
               left: 0,
               right: 0,
               bottom: 0,
-              child: navigation!.nativeFullWidth
-                  ? _fullWidthCupertinoTabBar(
-                      navigation: navigation,
-                      destinations: destinations,
-                    )
+              child:
+                  navigation!.renderer ==
+                      AdaptiveBottomNavigationRenderer.fullWidth
+                  ? buildAdaptiveCupertinoTabBar(navigation)
                   : composeNativeViews
-                  ? CNTabBar(
-                      items: [
-                        for (final destination in destinations)
-                          _nativeTabItem(destination),
-                      ],
-                      currentIndex: navigation.selectedIndex!,
-                      onTap: navigation.onTap!,
+                  ? buildAdaptiveNativeTabBar(
+                      navigation,
                       tint:
                           navigation.selectedItemColor ??
                           CupertinoTheme.of(context).primaryColor,
-                      iconSize: kCupertinoNativeControlSymbolExtent,
                     )
                   : SizedBox(
                       height:
@@ -100,89 +93,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-
-  static CupertinoTabBar _fullWidthCupertinoTabBar({
-    required AdaptiveBottomNavigationBar navigation,
-    required List<AdaptiveNavigationDestination> destinations,
-  }) {
-    return navigation.cupertinoTabBar ??
-        CupertinoTabBar(
-          currentIndex: navigation.selectedIndex!,
-          onTap: navigation.onTap!,
-          activeColor: navigation.selectedItemColor,
-          inactiveColor:
-              navigation.unselectedItemColor ?? CupertinoColors.inactiveGray,
-          items: [
-            for (final destination in destinations)
-              BottomNavigationBarItem(
-                icon: _flutterNavigationIcon(destination.icon),
-                activeIcon: _flutterNavigationIcon(
-                  destination.selectedIcon ?? destination.icon,
-                ),
-                label: destination.label,
-              ),
-          ],
-        );
-  }
-
-  static CNTabBarItem _nativeTabItem(
-    AdaptiveNavigationDestination destination,
-  ) {
-    return CNTabBarItem(
-      label: destination.label,
-      icon: destination.icon is String
-          ? CNSymbol(destination.icon as String)
-          : null,
-      activeIcon: destination.selectedIcon is String
-          ? CNSymbol(destination.selectedIcon as String)
-          : null,
-      customIcon: _iconData(destination.icon),
-      activeCustomIcon: _iconData(destination.selectedIcon),
-      imageAsset: _imageAsset(destination.icon),
-      activeImageAsset: _imageAsset(destination.selectedIcon),
-      badge: destination.badgeCount == null || destination.badgeCount == 0
-          ? null
-          : '${destination.badgeCount}',
-    );
-  }
-
-  static IconData? _iconData(dynamic icon) {
-    if (icon is IconData) return icon;
-    if (icon is Icon) return icon.icon;
-    return null;
-  }
-
-  static CNImageAsset? _imageAsset(dynamic icon) {
-    if (icon is ImageIcon && icon.image is AssetImage) {
-      return CNImageAsset((icon.image as AssetImage).assetName);
-    }
-    if (icon is AssetImage) return CNImageAsset(icon.assetName);
-    return null;
-  }
-
-  static Widget _flutterNavigationIcon(dynamic icon) {
-    if (icon is Widget) return icon;
-    if (icon is IconData) {
-      return Icon(icon, size: kCupertinoNativeControlSymbolExtent);
-    }
-    if (icon is String) {
-      return Icon(
-        cupertinoIconForSFSymbol(icon) ?? CupertinoIcons.circle,
-        size: kCupertinoNativeControlSymbolExtent,
-      );
-    }
-    if (icon is ImageProvider) {
-      return Image(
-        image: icon,
-        width: kCupertinoNativeControlSymbolExtent,
-        height: kCupertinoNativeControlSymbolExtent,
-      );
-    }
-    return const Icon(
-      CupertinoIcons.circle,
-      size: kCupertinoNativeControlSymbolExtent,
     );
   }
 }

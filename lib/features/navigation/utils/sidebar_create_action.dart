@@ -18,8 +18,6 @@ import '../../notes/providers/notes_providers.dart';
 import '../models/sidebar_navigation_model.dart';
 import '../providers/sidebar_providers.dart';
 
-enum _SidebarCreateActionKind { chat, hermesChat, note, channel }
-
 class SidebarCreateActionSpec {
   const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
 
@@ -28,23 +26,24 @@ class SidebarCreateActionSpec {
 }
 
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
-  final kind = _resolveSidebarCreateActionKind(
-    ref.watch(sidebarNavigationSnapshotProvider).selectedTab,
-  );
+  final kind = ref
+      .watch(sidebarNavigationSnapshotProvider)
+      .selectedDescriptor
+      .createAction;
   if (kind == null) {
     return null;
   }
   return switch (kind) {
-    _SidebarCreateActionKind.chat ||
-    _SidebarCreateActionKind.hermesChat => SidebarCreateActionSpec(
+    SidebarCreateActionKind.chat ||
+    SidebarCreateActionKind.hermesChat => SidebarCreateActionSpec(
       icon: UiUtils.newChatIcon,
       sfSymbol: 'square.and.pencil',
     ),
-    _SidebarCreateActionKind.note => SidebarCreateActionSpec(
+    SidebarCreateActionKind.note => SidebarCreateActionSpec(
       icon: UiUtils.newNoteIcon,
       sfSymbol: 'doc.badge.plus',
     ),
-    _SidebarCreateActionKind.channel => SidebarCreateActionSpec(
+    SidebarCreateActionKind.channel => SidebarCreateActionSpec(
       icon: UiUtils.newChannelIcon,
       sfSymbol: 'number',
     ),
@@ -52,35 +51,26 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 }
 
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
-  final kind = _resolveSidebarCreateActionKind(
-    ref.read(sidebarNavigationSnapshotProvider).selectedTab,
-  );
+  final kind = ref
+      .read(sidebarNavigationSnapshotProvider)
+      .selectedDescriptor
+      .createAction;
   switch (kind) {
     case null:
       return;
-    case _SidebarCreateActionKind.chat:
+    case SidebarCreateActionKind.chat:
       await _startNewChat(context, ref);
       break;
-    case _SidebarCreateActionKind.hermesChat:
+    case SidebarCreateActionKind.hermesChat:
       await _startNewHermesChat(context, ref);
       break;
-    case _SidebarCreateActionKind.note:
+    case SidebarCreateActionKind.note:
       await _createNote(context, ref);
       break;
-    case _SidebarCreateActionKind.channel:
+    case SidebarCreateActionKind.channel:
       await _createChannel(context, ref);
       break;
   }
-}
-
-_SidebarCreateActionKind? _resolveSidebarCreateActionKind(SidebarTabId tabId) {
-  return switch (tabId) {
-    SidebarTabId.chats => _SidebarCreateActionKind.chat,
-    SidebarTabId.hermes => _SidebarCreateActionKind.hermesChat,
-    SidebarTabId.notes => _SidebarCreateActionKind.note,
-    SidebarTabId.terminal => null,
-    SidebarTabId.channels => _SidebarCreateActionKind.channel,
-  };
 }
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {

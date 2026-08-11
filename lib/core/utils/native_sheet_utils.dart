@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../shared/utils/locale_display_formatters.dart';
 import '../models/model.dart';
 import '../models/server_memory.dart';
 import '../models/socket_health.dart';
@@ -628,10 +629,8 @@ String _nativeSocketQualityLabel(AppLocalizations l10n, String quality) {
 String _nativeFormatHeartbeatRelative(
   AppLocalizations l10n,
   DateTime lastHeartbeat,
-) {
-  final diff = DateTime.now().difference(lastHeartbeat);
-  if (diff.inSeconds < 5) return l10n.timeJustNow;
-  if (diff.inSeconds < 60) return l10n.timeSecondsAgo(diff.inSeconds);
-  if (diff.inMinutes < 60) return l10n.timeMinutesAgo(diff.inMinutes);
-  return l10n.timeHoursAgo(diff.inHours);
-}
+) => LocaleDisplayFormatters.relativeTime(
+  l10n,
+  lastHeartbeat,
+  fallbackToDate: false,
+);

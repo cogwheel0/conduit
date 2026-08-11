@@ -15,6 +15,7 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
@@ -554,7 +555,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         : rawName;
     final rawSize = file is Map ? file['size'] : null;
     final size = rawSize is num ? rawSize.toInt() : int.tryParse('$rawSize');
-    final sizeLabel = FileTypeUtils.formatFileSize(size);
+    final sizeLabel = size == null
+        ? ''
+        : LocaleDisplayFormatters.bytes(context, size);
     final extension = FileTypeUtils.extensionFromName(filename);
     final id = file is Map ? file['id']?.toString() ?? '' : '';
 

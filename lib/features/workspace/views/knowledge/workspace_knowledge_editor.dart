@@ -14,6 +14,8 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_read_only_badge.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -60,52 +62,24 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
     }
 
     final id = knowledgeId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        section: WorkspaceSection.knowledge,
+    final detail = id == null || id.isEmpty
+        ? null
+        : ref.watch(workspaceKnowledgeDetailProvider(id));
+    return WorkspaceResourceEditorHost<WorkspaceKnowledgeDetail>(
+      title: l10n.workspaceKnowledge,
+      section: WorkspaceSection.knowledge,
+      mode: mode,
+      resourceId: id,
+      detail: detail,
+      errorMessage: l10n.workspaceLoadFailed,
+      onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id!)),
+      builder: (value) => _WorkspaceKnowledgeForm(
+        key: ValueKey(
+          'workspace-knowledge-form-${value.summary.id}-${mode.name}',
+        ),
         mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceKnowledgeDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        section: WorkspaceSection.knowledge,
-        mode: mode,
-        isLoading: true,
-        child: const SizedBox.shrink(),
+        summary: value.summary,
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        section: WorkspaceSection.knowledge,
-        mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
-        child: const SizedBox.shrink(),
-      ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceKnowledge,
-            section: WorkspaceSection.knowledge,
-            mode: mode,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceKnowledgeForm(
-          key: ValueKey(
-            'workspace-knowledge-form-${value.summary.id}-${mode.name}',
-          ),
-          mode: mode,
-          summary: value.summary,
-        );
-      },
     );
   }
 }
@@ -127,12 +101,16 @@ class _WorkspaceKnowledgeFormState
   late final TextEditingController _descriptionController;
   late List<WorkspaceAccessGrantInput> _grants;
 
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
+  late final WorkspaceEditorSession _session;
+  bool get _dirty => _session.dirty;
+  set _dirty(bool value) => _session.dirty = value;
+  bool get _saving => _session.saving;
+  set _saving(bool value) => _session.saving = value;
+  String? get _errorMessage => _session.errorMessage;
+  set _errorMessage(String? value) => _session.errorMessage = value;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
+  bool get _isCreate => _session.isCreate;
+  bool get _isDetail => _session.isDetail;
   bool get _isExternal => widget.summary?.isExternal ?? false;
   bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
 
@@ -155,6 +133,7 @@ class _WorkspaceKnowledgeFormState
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode);
     _nameController = TextEditingController(text: widget.summary?.name ?? '');
     _descriptionController = TextEditingController(
       text: widget.summary?.description ?? '',

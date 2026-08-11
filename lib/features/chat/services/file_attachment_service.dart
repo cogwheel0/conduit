@@ -558,9 +558,6 @@ class FileAttachmentService {
     return dataUrl;
   }
 
-  /// Formats a byte count into a human-readable string.
-  String formatFileSize(int bytes) => FileTypeUtils.formatFileSize(bytes);
-
   /// Returns an emoji icon for the given [fileName] based on its extension.
   String getFileIcon(String fileName) {
     final ext = path.extension(fileName).toLowerCase();
@@ -597,9 +594,6 @@ class FileUploadState {
     this.isImage,
     this.base64DataUrl,
   });
-
-  /// Human-readable file size string.
-  String get formattedSize => FileTypeUtils.formatFileSize(fileSize);
 
   /// Whether this attachment references a previously uploaded server file.
   bool get isRemote => file.path.startsWith('remote://');

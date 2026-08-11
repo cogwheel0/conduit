@@ -26,6 +26,7 @@ import '../widgets/customization_tile.dart';
 import '../widgets/default_model_sheet.dart';
 import '../widgets/expandable_card.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 class PersonalizationPage extends ConsumerStatefulWidget {
   const PersonalizationPage({super.key});
@@ -54,7 +55,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     final modelsAsync = ref.watch(modelsProvider);
     final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.personalization,
       children: [
         _buildDefaultModelSection(

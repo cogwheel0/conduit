@@ -11,6 +11,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../services/local_notification_service.dart';
 
 /// Notification preferences. The master toggle requests OS permission on
@@ -52,7 +53,7 @@ class NotificationSettingsPage extends ConsumerWidget {
       );
     }
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.notificationsTitle,
       children: [
         tile(

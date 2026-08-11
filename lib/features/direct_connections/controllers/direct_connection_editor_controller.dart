@@ -3,15 +3,79 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../shared/models/connection_attempt.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
-import 'direct_connection_form_bindings.dart';
 import 'direct_custom_headers_controller.dart';
 
 export 'direct_custom_headers_controller.dart'
     show DirectHeaderValidationError, DirectHeaderValidationIssue;
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
+
+enum DirectEditorOperation { idle, saving, testing, deleting }
+
+extension DirectEditorOperationState on DirectEditorOperation {
+  bool get isBusy => this != DirectEditorOperation.idle;
+}
+
+@immutable
+final class DirectEditorOwner {
+  const DirectEditorOwner({
+    required this.serverId,
+    required this.accountId,
+    required this.authEpoch,
+  });
+
+  final String serverId;
+  final String accountId;
+  final Object authEpoch;
+
+  bool matches({
+    required String serverId,
+    required String accountId,
+    required Object authEpoch,
+  }) =>
+      this.serverId == serverId &&
+      this.accountId == accountId &&
+      identical(this.authEpoch, authEpoch);
+}
+
+@immutable
+final class DirectConnectionEditorState {
+  const DirectConnectionEditorState({
+    this.operation = DirectEditorOperation.idle,
+    this.attempt = const ConnectionAttemptState.idle(),
+    this.operationError,
+    this.hydrated = false,
+    this.owner,
+  });
+
+  final DirectEditorOperation operation;
+  final ConnectionAttemptState attempt;
+  final String? operationError;
+  final bool hydrated;
+  final DirectEditorOwner? owner;
+
+  bool get isBusy => operation.isBusy;
+
+  DirectConnectionEditorState copyWith({
+    DirectEditorOperation? operation,
+    ConnectionAttemptState? attempt,
+    String? operationError,
+    bool clearOperationError = false,
+    bool? hydrated,
+    DirectEditorOwner? owner,
+  }) => DirectConnectionEditorState(
+    operation: operation ?? this.operation,
+    attempt: attempt ?? this.attempt,
+    operationError: clearOperationError
+        ? null
+        : operationError ?? this.operationError,
+    hydrated: hydrated ?? this.hydrated,
+    owner: owner ?? this.owner,
+  );
+}
 
 enum DirectDraftValidationIssue {
   nameRequired,
@@ -110,25 +174,22 @@ final class DirectConnectionEditorController extends ChangeNotifier {
   DirectConnectionEditorController({
     required this.isOpenWebUi,
     required this.isNew,
-    this.onDraftChanged,
   }) {
     headers = DirectCustomHeadersController(onHeadersChanged: _headersChanged);
   }
 
   final bool isOpenWebUi;
   final bool isNew;
-  final VoidCallback? onDraftChanged;
 
-  final fields = DirectConnectionFormBindings();
   late final DirectCustomHeadersController headers;
 
-  TextEditingController get name => fields.name;
-  TextEditingController get baseUrl => fields.baseUrl;
-  TextEditingController get apiKey => fields.apiKey;
-  TextEditingController get apiVersion => fields.apiVersion;
-  TextEditingController get modelIdPrefix => fields.modelIdPrefix;
-  TextEditingController get tags => fields.tags;
-  TextEditingController get models => fields.models;
+  final name = TextEditingController();
+  final baseUrl = TextEditingController();
+  final apiKey = TextEditingController();
+  final apiVersion = TextEditingController();
+  final modelIdPrefix = TextEditingController();
+  final tags = TextEditingController();
+  final models = TextEditingController();
   TextEditingController get headerName => headers.name;
   TextEditingController get headerValue => headers.value;
   FocusNode get headerValueFocusNode => headers.valueFocusNode;
@@ -146,6 +207,9 @@ final class DirectConnectionEditorController extends ChangeNotifier {
   bool _showAdvancedSettings = false;
   bool _originSecretsConfirmed = false;
   DirectDraftErrors _errors = const DirectDraftErrors();
+  DirectConnectionEditorState _state = const DirectConnectionEditorState();
+
+  DirectConnectionEditorState get state => _state;
 
   DirectConnectionProfile? get savedProfile => _savedProfile;
   OpenWebUiDirectConnectionRecord? get savedOpenWebUiRecord =>
@@ -187,6 +251,71 @@ final class DirectConnectionEditorController extends ChangeNotifier {
   }
 
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
+
+  bool beginOperation(DirectEditorOperation operation) {
+    if (state.isBusy || operation == DirectEditorOperation.idle) return false;
+    _publish(state.copyWith(operation: operation));
+    return true;
+  }
+
+  void finishOperation({
+    ConnectionAttemptState? attempt,
+    String? error,
+    bool clearError = false,
+  }) {
+    _publish(
+      state.copyWith(
+        operation: DirectEditorOperation.idle,
+        attempt: attempt,
+        operationError: error,
+        clearOperationError: clearError,
+      ),
+    );
+  }
+
+  void setAttempt(ConnectionAttemptState attempt) {
+    _publish(state.copyWith(attempt: attempt));
+  }
+
+  void setOperationError(String error) {
+    _publish(state.copyWith(operationError: error));
+  }
+
+  void captureOwner({
+    required String serverId,
+    required String accountId,
+    required Object authEpoch,
+  }) {
+    if (state.owner != null) return;
+    _state = state.copyWith(
+      owner: DirectEditorOwner(
+        serverId: serverId,
+        accountId: accountId,
+        authEpoch: authEpoch,
+      ),
+    );
+  }
+
+  bool ownerMatches({
+    required String serverId,
+    required String accountId,
+    required Object authEpoch,
+  }) =>
+      state.owner?.matches(
+        serverId: serverId,
+        accountId: accountId,
+        authEpoch: authEpoch,
+      ) ??
+      false;
+
+  void hydrateOnce(
+    DirectConnectionProfile? profile, {
+    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+  }) {
+    if (state.hydrated) return;
+    _state = state.copyWith(hydrated: true);
+    hydrate(profile, openWebUiRecord: openWebUiRecord);
+  }
 
   bool get apiKeyRequired => requiresDirectApiKey(
     authentication: authentication,
@@ -473,13 +602,28 @@ final class DirectConnectionEditorController extends ChangeNotifier {
   }
 
   void _draftChanged({bool notify = true}) {
-    onDraftChanged?.call();
+    _state = state.copyWith(
+      attempt: const ConnectionAttemptState.idle(),
+      clearOperationError: true,
+    );
     if (notify) notifyListeners();
+  }
+
+  void _publish(DirectConnectionEditorState next) {
+    if (identical(next, _state)) return;
+    _state = next;
+    notifyListeners();
   }
 
   @override
   void dispose() {
-    fields.dispose();
+    name.dispose();
+    baseUrl.dispose();
+    apiKey.dispose();
+    apiVersion.dispose();
+    modelIdPrefix.dispose();
+    tags.dispose();
+    models.dispose();
     headers.dispose();
     super.dispose();
   }

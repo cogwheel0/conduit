@@ -23,6 +23,7 @@ import 'package:conduit/features/workspace/views/models/workspace_model_editor.d
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -411,9 +412,14 @@ void main() {
     await tester.pumpAndSettle();
 
     await _scrollTo(tester, const Key('workspace-model-advanced-disclosure'));
-    await tester.tap(
-      find.byKey(const Key('workspace-model-advanced-disclosure')),
+    final advancedDisclosure = find.byKey(
+      const Key('workspace-model-advanced-disclosure'),
     );
+    final advancedDisclosureRow = find.descendant(
+      of: advancedDisclosure,
+      matching: find.byType(UtilityRow),
+    );
+    await tester.tap(advancedDisclosureRow);
     await tester.pumpAndSettle();
     await _scrollTo(tester, const Key('workspace-model-params'));
     await tester.enterText(
@@ -421,6 +427,11 @@ void main() {
       'not valid json {',
     );
     await tester.pump();
+    await tester.ensureVisible(advancedDisclosureRow);
+    await tester.pumpAndSettle();
+    await tester.tap(advancedDisclosureRow);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('workspace-model-params')), findsNothing);
 
     await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
     await tester.pumpAndSettle();
@@ -429,8 +440,13 @@ void main() {
     await tester.pump();
 
     // Invalid params JSON must abort the clone rather than persist a clone built
-    // from stale draft values.
+    // from stale draft values, and the hidden invalid field must be revealed.
     expect(fake.createdForms, isEmpty);
+    expect(
+      tester.widget<UtilityDisclosureSection>(advancedDisclosure).expanded,
+      isTrue,
+    );
+    expect(find.byKey(const Key('workspace-model-params')), findsOneWidget);
   });
 
   testWidgets('activate toggle prompts to discard when the form is dirty', (

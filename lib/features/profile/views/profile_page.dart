@@ -6,7 +6,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
@@ -56,7 +55,7 @@ class ProfilePage extends ConsumerWidget {
       body = _buildProfileBody(context, ref, user, api);
     }
 
-    return ErrorBoundary(child: _buildScaffold(context, body: body));
+    return _buildScaffold(context, body: body);
   }
 
   Widget _buildScaffold(BuildContext context, {required Widget body}) {

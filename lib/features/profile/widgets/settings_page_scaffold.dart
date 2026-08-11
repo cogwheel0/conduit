@@ -1,25 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/utility_components.dart';
 
 const settingsSectionGap = SizedBox(height: Spacing.lg);
-
-class SettingsPageScaffold extends StatelessWidget {
-  const SettingsPageScaffold({
-    super.key,
-    required this.title,
-    required this.children,
-  });
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return UtilityPageScaffold(title: title, children: children);
-  }
-}
 
 class SettingsSectionHeader extends StatelessWidget {
   const SettingsSectionHeader({super.key, required this.title});

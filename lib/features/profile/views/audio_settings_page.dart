@@ -19,6 +19,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../widgets/stt_language_picker.dart';
 
 bool shouldShowDeviceSttLanguageSetting(
@@ -37,7 +38,7 @@ class AudioSettingsPage extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final l10n = AppLocalizations.of(context)!;
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.audioSettingsTitle,
       children: [
         _buildSttSection(context, ref, settings),

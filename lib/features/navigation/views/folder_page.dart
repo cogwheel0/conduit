@@ -19,7 +19,6 @@ import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -1256,13 +1255,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       orElse: () => null,
     );
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: _buildAdaptiveAppBar(context, l10n, folder),
-        body: _buildBody(context, foldersAsync),
-      ),
+    return AdaptiveRouteShell(
+      backgroundColor: context.conduitTheme.surfaceBackground,
+      extendBodyBehindAppBar: true,
+      appBar: _buildAdaptiveAppBar(context, l10n, folder),
+      body: _buildBody(context, foldersAsync),
     );
   }
 

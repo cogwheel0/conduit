@@ -5,11 +5,10 @@ import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
-import 'package:conduit/features/auth/widgets/adaptive_auth_scaffold.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
-import 'package:conduit/features/profile/widgets/settings_page_scaffold.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -94,8 +93,13 @@ void main() {
         harness.router.routeInformationProvider.value.uri.path,
       ).equals(Routes.hermesSettings);
       check(harness.router.canPop()).isFalse();
-      expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
-      expect(find.byType(SettingsPageScaffold), findsNothing);
+      expect(find.byType(UtilityPageScaffold), findsOneWidget);
+      expect(
+        tester
+            .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+            .maxWidth,
+        480,
+      );
       expect(
         find.byKey(const ValueKey<String>('hermes-onboarding-back-button')),
         findsOneWidget,
@@ -158,8 +162,13 @@ void main() {
     check(route.queryParameters['onboarding']).equals('true');
     check(route.queryParameters['entry']).equals('chooser');
     check(harness.router.canPop()).isFalse();
-    expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
-    expect(find.byType(SettingsPageScaffold), findsNothing);
+    expect(find.byType(UtilityPageScaffold), findsOneWidget);
+    expect(
+      tester
+          .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+          .maxWidth,
+      480,
+    );
     expect(
       find.byKey(const ValueKey<String>('direct-editor-back-button')),
       findsOneWidget,
@@ -206,8 +215,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
-    expect(find.byType(SettingsPageScaffold), findsNothing);
+    expect(find.byType(UtilityPageScaffold), findsOneWidget);
+    expect(
+      tester
+          .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+          .maxWidth,
+      480,
+    );
     expect(
       find.byKey(const ValueKey<String>('direct-editor-back-button')),
       findsOneWidget,
@@ -233,12 +247,13 @@ void main() {
     final advancedToggle = find.byKey(
       const ValueKey<String>('direct-advanced-settings-toggle'),
     );
-    await tester.scrollUntilVisible(
-      advancedToggle,
-      300,
-      scrollable: find.byType(Scrollable).first,
+    final advancedToggleRow = find.descendant(
+      of: advancedToggle,
+      matching: find.byType(UtilityRow),
     );
-    await tester.tap(advancedToggle);
+    await tester.ensureVisible(advancedToggleRow);
+    await tester.pumpAndSettle();
+    await tester.tap(advancedToggleRow);
     await tester.pumpAndSettle();
 
     expect(find.byType(AccessibleFormField), findsNWidgets(9));

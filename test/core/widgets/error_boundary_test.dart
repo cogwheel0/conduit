@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('ErrorBoundary', () {
+  group('process error handling', () {
     late ErrorWidgetBuilder originalErrorWidgetBuilder;
     late void Function(FlutterErrorDetails)? originalFlutterErrorOnError;
 
@@ -18,36 +18,6 @@ void main() {
       FlutterError.onError = originalFlutterErrorOnError;
     });
 
-    testWidgets('renders child normally when no error', (tester) async {
-      await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(
-              body: ErrorBoundary(child: const Text('Hello World')),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Hello World'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-
-    testWidgets('can be found by type', (tester) async {
-      await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(body: ErrorBoundary(child: const SizedBox.shrink())),
-          ),
-        ),
-      );
-
-      expect(find.byType(ErrorBoundary), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-
     testWidgets('does not replace the process-level Flutter error handler', (
       tester,
     ) async {
@@ -55,9 +25,7 @@ void main() {
 
       FlutterError.onError = handler;
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(home: ErrorBoundary(child: SizedBox.shrink())),
-        ),
+        const ProviderScope(child: MaterialApp(home: SizedBox.shrink())),
       );
 
       expect(identical(FlutterError.onError, handler), isTrue);

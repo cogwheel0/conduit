@@ -13,7 +13,6 @@ import '../../../core/auth/webview_origin.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -764,14 +763,12 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: ConnectionWebAuthScaffold(
-        title: l10n.sso,
-        backLabel: l10n.back,
-        onBack: () => context.pop(),
-        onRefresh: _controller == null ? null : _refresh,
-        body: _buildBody(l10n),
-      ),
+    return ConnectionWebAuthScaffold(
+      title: l10n.sso,
+      backLabel: l10n.back,
+      onBack: () => context.pop(),
+      onRefresh: _controller == null ? null : _refresh,
+      body: _buildBody(l10n),
     );
   }
 

@@ -4,7 +4,7 @@ import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
-import 'package:conduit/shared/widgets/connection_components.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -8,13 +8,12 @@ import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
-import '../widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 class ConnectionIssuePage extends ConsumerStatefulWidget {
   const ConnectionIssuePage({super.key});
@@ -36,32 +35,30 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     final activeServerAsync = ref.watch(activeServerProvider);
     final activeServer = activeServerAsync.asData?.value;
 
-    return ErrorBoundary(
-      child: AdaptiveAuthScaffold(
-        title: l10n.connectionIssueTitle,
-        bottomAction: _buildActions(context, l10n),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            UtilityIdentityHeader(
-              leading: const OpenWebUiConnectionMark(),
-              title: l10n.backendChooserOpenWebUITitle,
-              subtitle: l10n.connectionIssueSubtitle,
-            ),
+    return UtilityPageScaffold.auth(
+      title: l10n.connectionIssueTitle,
+      bottomAction: _buildActions(context, l10n),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          UtilityIdentityHeader(
+            leading: const OpenWebUiConnectionMark(),
+            title: l10n.backendChooserOpenWebUITitle,
+            subtitle: l10n.connectionIssueSubtitle,
+          ),
+          const SizedBox(height: Spacing.xl),
+          ConnectionAttemptBanner(
+            state: _isRetrying
+                ? ConnectionAttemptState.connecting(l10n.connecting)
+                : ConnectionAttemptState.failed(
+                    _statusMessage ?? _statusLabel(connectivity, l10n),
+                  ),
+          ),
+          if (activeServer != null) ...[
             const SizedBox(height: Spacing.xl),
-            ConnectionAttemptBanner(
-              state: _isRetrying
-                  ? ConnectionAttemptState.connecting(l10n.connecting)
-                  : ConnectionAttemptState.failed(
-                      _statusMessage ?? _statusLabel(connectivity, l10n),
-                    ),
-            ),
-            if (activeServer != null) ...[
-              const SizedBox(height: Spacing.xl),
-              _buildServerDetails(context, activeServer),
-            ],
+            _buildServerDetails(context, activeServer),
           ],
-        ),
+        ],
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_controller.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/shared/models/connection_attempt.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -102,5 +103,62 @@ void main() {
     controller.markHeaderInputChanged();
 
     check(controller.originBoundSecretsReviewed).isFalse();
+  });
+
+  test('editor state admits one operation and resets stale feedback', () {
+    final controller = DirectConnectionEditorController(
+      isOpenWebUi: false,
+      isNew: true,
+    );
+    addTearDown(controller.dispose);
+
+    check(controller.beginOperation(DirectEditorOperation.saving)).isTrue();
+    check(controller.beginOperation(DirectEditorOperation.testing)).isFalse();
+    check(controller.state.operation).equals(DirectEditorOperation.saving);
+
+    controller.finishOperation(error: 'failed');
+    controller.setAttempt(ConnectionAttemptState.failed('unreachable'));
+    check(controller.state.operationError).equals('failed');
+    check(controller.state.attempt.isVisible).isTrue();
+
+    controller.markGeneralChanged();
+    check(controller.state.operation).equals(DirectEditorOperation.idle);
+    check(controller.state.operationError).isNull();
+    check(controller.state.attempt.isVisible).isFalse();
+  });
+
+  test('owner identity is captured once and includes auth epoch identity', () {
+    final controller = DirectConnectionEditorController(
+      isOpenWebUi: true,
+      isNew: true,
+    );
+    addTearDown(controller.dispose);
+    final epoch = Object();
+
+    controller.captureOwner(
+      serverId: 'server',
+      accountId: 'account',
+      authEpoch: epoch,
+    );
+    controller.captureOwner(
+      serverId: 'replacement',
+      accountId: 'replacement',
+      authEpoch: Object(),
+    );
+
+    check(
+      controller.ownerMatches(
+        serverId: 'server',
+        accountId: 'account',
+        authEpoch: epoch,
+      ),
+    ).isTrue();
+    check(
+      controller.ownerMatches(
+        serverId: 'server',
+        accountId: 'account',
+        authEpoch: Object(),
+      ),
+    ).isFalse();
   });
 }

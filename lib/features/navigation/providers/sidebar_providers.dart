@@ -68,24 +68,25 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
 ) {
   final hermesOnly = ref.watch(hermesOnlyModeProvider);
   final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-  final visibleTabs = <SidebarTabId>[
-    if (!hermesOnly) SidebarTabId.chats,
-    if (hermesOnly || ref.watch(hermesEnabledProvider)) SidebarTabId.hermes,
-    if (hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider))
-      SidebarTabId.notes,
-    if (hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider))
-      SidebarTabId.terminal,
-    if (hasOpenWebUi &&
-        !hermesOnly &&
-        ref.watch(channelsFeatureEnabledProvider))
-      SidebarTabId.channels,
+  final availability = SidebarTabAvailability(
+    hermesOnly: hermesOnly,
+    hasOpenWebUi: hasOpenWebUi,
+    hermesEnabled: ref.watch(hermesEnabledProvider),
+    notesEnabled: ref.watch(notesFeatureEnabledProvider),
+    terminalEnabled: ref.watch(terminalTabVisibleProvider),
+    channelsEnabled: ref.watch(channelsFeatureEnabledProvider),
+  );
+  final tabs = [
+    for (final descriptor in sidebarTabRegistry)
+      if (descriptor.isVisible(availability)) descriptor,
   ];
+  final visibleTabs = [for (final descriptor in tabs) descriptor.id];
   final persistedTab = ref.watch(sidebarActiveTabProvider);
   final legacyIndex = ref
       .read(sidebarActiveTabProvider.notifier)
       .pendingLegacyIndex();
   return SidebarNavigationSnapshot(
-    visibleTabs: visibleTabs,
+    tabs: tabs,
     isLegacySelection: legacyIndex != null,
     selectedTab: resolveSidebarTabSelection(
       persistedTab: persistedTab,

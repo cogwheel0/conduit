@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../controllers/direct_connection_editor_controller.dart';

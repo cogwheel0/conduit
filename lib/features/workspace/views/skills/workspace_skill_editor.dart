@@ -18,6 +18,8 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -87,51 +89,23 @@ class WorkspaceSkillEditorView extends ConsumerWidget {
     }
 
     final id = skillId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        section: WorkspaceSection.skills,
+    final detail = id == null || id.isEmpty
+        ? null
+        : ref.watch(workspaceSkillDetailProvider(id));
+    return WorkspaceResourceEditorHost<WorkspaceSkillSummary>(
+      title: l10n.workspaceSkills,
+      section: WorkspaceSection.skills,
+      mode: mode,
+      resourceId: id,
+      detail: detail,
+      errorMessage: l10n.workspaceLoadFailed,
+      onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id!)),
+      builder: (value) => _WorkspaceSkillForm(
+        key: ValueKey('workspace-skill-form-${value.id}-${mode.name}'),
         mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceSkillDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        section: WorkspaceSection.skills,
-        mode: mode,
-        isLoading: true,
-        child: const SizedBox.shrink(),
+        summary: value,
+        markdownPicker: markdownPicker,
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        section: WorkspaceSection.skills,
-        mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
-        child: const SizedBox.shrink(),
-      ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceSkills,
-            section: WorkspaceSection.skills,
-            mode: mode,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceSkillForm(
-          key: ValueKey('workspace-skill-form-${value.id}-${mode.name}'),
-          mode: mode,
-          summary: value,
-          markdownPicker: markdownPicker,
-        );
-      },
     );
   }
 }
@@ -164,16 +138,20 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   bool _previewMode = false;
   bool _idManuallyEdited = false;
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
+  late final WorkspaceEditorSession _session;
+  bool get _dirty => _session.dirty;
+  set _dirty(bool value) => _session.dirty = value;
+  bool get _saving => _session.saving;
+  set _saving(bool value) => _session.saving = value;
+  String? get _errorMessage => _session.errorMessage;
+  set _errorMessage(String? value) => _session.errorMessage = value;
   // The specific inline id error to show under the field (null = no error), so
   // the message matches the reason (required / invalid characters / taken)
   // rather than always reading "invalid characters".
   String? _idErrorText;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
+  bool get _isCreate => _session.isCreate;
+  bool get _isDetail => _session.isDetail;
 
   bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
 
@@ -185,6 +163,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _idController = TextEditingController(text: summary?.id ?? '');

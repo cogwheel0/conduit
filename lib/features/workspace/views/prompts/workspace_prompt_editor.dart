@@ -14,6 +14,8 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -61,50 +63,22 @@ class WorkspacePromptEditorView extends ConsumerWidget {
     }
 
     final id = promptId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspacePrompts,
-        section: WorkspaceSection.prompts,
+    final detail = id == null || id.isEmpty
+        ? null
+        : ref.watch(workspacePromptDetailProvider(id));
+    return WorkspaceResourceEditorHost<WorkspacePromptSummary>(
+      title: l10n.workspacePrompts,
+      section: WorkspaceSection.prompts,
+      mode: mode,
+      resourceId: id,
+      detail: detail,
+      errorMessage: l10n.workspaceLoadFailed,
+      onRetry: () => ref.invalidate(workspacePromptDetailProvider(id!)),
+      builder: (value) => _WorkspacePromptForm(
+        key: ValueKey('workspace-prompt-form-${value.id}-${mode.name}'),
         mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspacePromptDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspacePrompts,
-        section: WorkspaceSection.prompts,
-        mode: mode,
-        isLoading: true,
-        child: const SizedBox.shrink(),
+        summary: value,
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspacePrompts,
-        section: WorkspaceSection.prompts,
-        mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspacePromptDetailProvider(id)),
-        child: const SizedBox.shrink(),
-      ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspacePrompts,
-            section: WorkspaceSection.prompts,
-            mode: mode,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspacePromptDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspacePromptForm(
-          key: ValueKey('workspace-prompt-form-${value.id}-${mode.name}'),
-          mode: mode,
-          summary: value,
-        );
-      },
     );
   }
 }
@@ -134,14 +108,18 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   bool _previewMode = false;
   bool _versionExpanded = false;
   bool _commandManuallyEdited = false;
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
+  late final WorkspaceEditorSession _session;
+  bool get _dirty => _session.dirty;
+  set _dirty(bool value) => _session.dirty = value;
+  bool get _saving => _session.saving;
+  set _saving(bool value) => _session.saving = value;
+  String? get _errorMessage => _session.errorMessage;
+  set _errorMessage(String? value) => _session.errorMessage = value;
   bool _commandError = false;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
-  bool get _isEdit => widget.mode == WorkspaceRouteMode.edit;
+  bool get _isCreate => _session.isCreate;
+  bool get _isDetail => _session.isDetail;
+  bool get _isEdit => _session.isEdit;
 
   bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
 
@@ -152,6 +130,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _commandController = TextEditingController(

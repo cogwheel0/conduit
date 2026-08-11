@@ -12,8 +12,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
@@ -29,7 +29,7 @@ Widget _buildDirectConnectionsScaffold(
 }) {
   final l10n = AppLocalizations.of(context)!;
   if (isOnboarding) {
-    return AdaptiveAuthScaffold(
+    return UtilityPageScaffold.auth(
       title: l10n.backendChooserDirectTitle,
       backLabel: l10n.back,
       backButtonKey: const ValueKey<String>('direct-onboarding-back-button'),
@@ -41,7 +41,7 @@ Widget _buildDirectConnectionsScaffold(
       ),
     );
   }
-  return SettingsPageScaffold(
+  return UtilityPageScaffold.settings(
     title: l10n.directConnectionsTitle,
     children: children,
   );

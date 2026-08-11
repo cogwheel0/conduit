@@ -6,6 +6,7 @@ import '../../../core/models/socket_health.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
 /// Widget that displays socket connection health with real-time updates.
@@ -252,18 +253,11 @@ class SocketHealthCardState extends State<SocketHealthCard> {
   }
 
   String _formatLastHeartbeat(AppLocalizations l10n, DateTime lastHeartbeat) {
-    final now = DateTime.now();
-    final diff = now.difference(lastHeartbeat);
-
-    if (diff.inSeconds < 5) {
-      return l10n.timeJustNow;
-    } else if (diff.inSeconds < 60) {
-      return l10n.timeSecondsAgo(diff.inSeconds);
-    } else if (diff.inMinutes < 60) {
-      return l10n.timeMinutesAgo(diff.inMinutes);
-    } else {
-      return l10n.timeHoursAgo(diff.inHours);
-    }
+    return LocaleDisplayFormatters.relativeTime(
+      l10n,
+      lastHeartbeat,
+      fallbackToDate: false,
+    );
   }
 }
 

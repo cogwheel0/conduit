@@ -6,6 +6,7 @@ import '../../core/services/platform_service.dart';
 import '../../core/services/settings_service.dart';
 import '../theme/theme_extensions.dart';
 import 'adaptive_route_shell.dart';
+import 'adaptive_toolbar_components.dart';
 import 'platform_ui/platform_ui.dart';
 
 /// Standard shell for settings and other calm, grouped utility screens.
@@ -18,6 +19,7 @@ class UtilityPageScaffold extends StatefulWidget {
     super.key,
     required this.title,
     required this.children,
+    this.body,
     this.appBar,
     this.controller,
     this.maxWidth = 640,
@@ -25,10 +27,74 @@ class UtilityPageScaffold extends StatefulWidget {
     this.backgroundColor,
     this.physics,
     this.contentPadding,
-  });
+    this.backLabel,
+    this.backButtonKey,
+    this.onBack,
+    this.interactiveScrollbar = false,
+    this.bottomActionPadding,
+  }) : assert(body == null),
+       assert(
+         (backLabel == null && backButtonKey == null && onBack == null) ||
+             (backLabel != null && backButtonKey != null && onBack != null),
+         'Back label, key, and callback must be supplied together.',
+       );
+
+  const UtilityPageScaffold.auth({
+    super.key,
+    required this.title,
+    required this.body,
+    this.backLabel,
+    this.backButtonKey,
+    this.onBack,
+    this.bottomAction,
+    this.backgroundColor,
+  }) : children = null,
+       appBar = null,
+       controller = null,
+       maxWidth = 480,
+       physics = const BouncingScrollPhysics(
+         parent: AlwaysScrollableScrollPhysics(),
+       ),
+       contentPadding = const EdgeInsets.fromLTRB(
+         Spacing.pagePadding,
+         Spacing.lg,
+         Spacing.pagePadding,
+         Spacing.xl,
+       ),
+       interactiveScrollbar = true,
+       bottomActionPadding = const EdgeInsets.fromLTRB(
+         Spacing.pagePadding,
+         Spacing.md,
+         Spacing.pagePadding,
+         Spacing.md,
+       ),
+       assert(
+         (backLabel == null && backButtonKey == null && onBack == null) ||
+             (backLabel != null && backButtonKey != null && onBack != null),
+         'Back label, key, and callback must be supplied together.',
+       );
+
+  const UtilityPageScaffold.settings({
+    super.key,
+    required this.title,
+    required this.children,
+  }) : body = null,
+       appBar = null,
+       controller = null,
+       maxWidth = 640,
+       bottomAction = null,
+       backgroundColor = null,
+       physics = null,
+       contentPadding = null,
+       backLabel = null,
+       backButtonKey = null,
+       onBack = null,
+       interactiveScrollbar = false,
+       bottomActionPadding = null;
 
   final String title;
-  final List<Widget> children;
+  final List<Widget>? children;
+  final Widget? body;
   final AdaptiveAppBar? appBar;
   final ScrollController? controller;
   final double maxWidth;
@@ -36,6 +102,11 @@ class UtilityPageScaffold extends StatefulWidget {
   final Color? backgroundColor;
   final ScrollPhysics? physics;
   final EdgeInsetsGeometry? contentPadding;
+  final String? backLabel;
+  final Key? backButtonKey;
+  final VoidCallback? onBack;
+  final bool interactiveScrollbar;
+  final EdgeInsets? bottomActionPadding;
 
   @override
   State<UtilityPageScaffold> createState() => _UtilityPageScaffoldState();
@@ -71,6 +142,9 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
       Spacing.pagePadding,
       Spacing.pagePadding + mediaQuery.viewPadding.bottom,
     );
+    final content = widget.body == null
+        ? widget.children!
+        : <Widget>[widget.body!];
     final list = ListView(
       controller: _controller,
       primary: false,
@@ -80,7 +154,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       padding: widget.contentPadding ?? defaultPadding,
       children: [
-        for (final child in widget.children)
+        for (final child in content)
           Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: widget.maxWidth),
@@ -91,12 +165,50 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
     );
     final scrollable = context.usesCupertinoChrome
         ? CupertinoScrollbar(controller: _controller, child: list)
-        : Scrollbar(controller: _controller, child: list);
+        : Scrollbar(
+            controller: _controller,
+            interactive: widget.interactiveScrollbar,
+            child: list,
+          );
+
+    final backButton = widget.onBack == null
+        ? null
+        : AdaptiveTooltip(
+            message: widget.backLabel!,
+            child: Semantics(
+              label: widget.backLabel,
+              button: true,
+              child: ConduitAdaptiveAppBarIconButton(
+                key: widget.backButtonKey,
+                icon: context.usesCupertinoChrome
+                    ? CupertinoIcons.chevron_back
+                    : Icons.arrow_back,
+                onPressed: widget.onBack,
+              ),
+            ),
+          );
+    final leading = backButton == null
+        ? null
+        : context.usesCupertinoChrome
+        ? backButton
+        : Center(
+            child: SizedBox.square(
+              dimension: TouchTarget.minimum,
+              child: backButton,
+            ),
+          );
+    final appBar =
+        widget.appBar ??
+        AdaptiveAppBar(
+          title: widget.title,
+          tintColor: context.conduitTheme.textPrimary,
+          leading: leading,
+        );
 
     return AdaptiveRouteShell(
       backgroundColor:
           widget.backgroundColor ?? context.conduitTheme.surfaceBackground,
-      appBar: widget.appBar ?? AdaptiveAppBar(title: widget.title),
+      appBar: appBar,
       body: PrimaryScrollController(
         controller: _controller,
         child: Column(
@@ -105,12 +217,14 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
             if (widget.bottomAction != null)
               SafeArea(
                 top: false,
-                minimum: const EdgeInsets.fromLTRB(
-                  Spacing.pagePadding,
-                  Spacing.sm,
-                  Spacing.pagePadding,
-                  Spacing.sm,
-                ),
+                minimum:
+                    widget.bottomActionPadding ??
+                    const EdgeInsets.fromLTRB(
+                      Spacing.pagePadding,
+                      Spacing.sm,
+                      Spacing.pagePadding,
+                      Spacing.sm,
+                    ),
                 child: Center(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: widget.maxWidth),

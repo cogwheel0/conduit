@@ -8,7 +8,6 @@ import 'adaptive_toolbar_components.dart';
 import 'platform_ui/platform_ui.dart';
 import 'utility_components.dart';
 
-export 'utility_components.dart';
 export '../models/connection_attempt.dart';
 
 class ConnectionMark extends StatelessWidget {

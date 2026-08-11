@@ -12,7 +12,6 @@ import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
@@ -21,8 +20,8 @@ import '../../../core/utils/debug_logger.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../core/auth/webview_cookie_helper.dart' show isWebViewSupported;
-import '../widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 /// Authentication mode options
 enum AuthMode {
@@ -406,25 +405,23 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveAuthScaffold(
-        title: l10n.signIn,
-        backLabel: l10n.backToServerSetup,
-        backButtonKey: const ValueKey<String>('authentication-back-button'),
-        onBack: () => context.go(Routes.serverConnection),
-        bottomAction: _buildSignInButton(),
-        body: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(),
-              const SizedBox(height: Spacing.xl),
-              _buildAuthMethodSection(),
-              const SizedBox(height: Spacing.xl),
-              _buildAuthForm(),
-            ],
-          ),
+    return UtilityPageScaffold.auth(
+      title: l10n.signIn,
+      backLabel: l10n.backToServerSetup,
+      backButtonKey: const ValueKey<String>('authentication-back-button'),
+      onBack: () => context.go(Routes.serverConnection),
+      bottomAction: _buildSignInButton(),
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(),
+            const SizedBox(height: Spacing.xl),
+            _buildAuthMethodSection(),
+            const SizedBox(height: Spacing.xl),
+            _buildAuthForm(),
+          ],
         ),
       ),
     );

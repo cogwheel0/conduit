@@ -25,7 +25,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
-import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../widgets/socket_health_card.dart';
 import '../widgets/stt_language_picker.dart';
 
@@ -104,7 +104,7 @@ class AppCustomizationPage extends ConsumerWidget {
       ],
     };
 
-    return SettingsPageScaffold(title: title, children: children);
+    return UtilityPageScaffold.settings(title: title, children: children);
   }
 
   Widget _buildThemesDropdownSection(

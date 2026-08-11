@@ -917,70 +917,68 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     final cupertinoLight = ref.watch(appCupertinoLightThemeProvider);
     final cupertinoDark = ref.watch(appCupertinoDarkThemeProvider);
 
-    return ErrorBoundary(
-      child: AdaptiveApp.router(
-        routerConfig: router,
-        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        materialLightTheme: lightTheme,
-        materialDarkTheme: darkTheme,
-        cupertinoLightTheme: cupertinoLight,
-        cupertinoDarkTheme: cupertinoDark,
-        themeMode: themeMode,
-        locale: locale,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        localeListResolutionCallback: (deviceLocales, supported) {
-          if (locale != null) return locale;
-          if (deviceLocales == null || deviceLocales.isEmpty) {
-            return supported.first;
-          }
-          final resolved = _resolveSupportedLocale(deviceLocales, supported);
-          return resolved ?? supported.first;
-        },
-        material: (_, _) =>
-            const MaterialAppData(debugShowCheckedModeBanner: false),
-        cupertino: (_, _) =>
-            const CupertinoAppData(debugShowCheckedModeBanner: false),
-        builder: (context, child) {
-          // Resolve brightness from themeMode rather than
-          // Theme.of(context) — on iOS, CupertinoApp's
-          // auto-generated Theme may not reflect themeMode.
-          final Brightness brightness;
-          switch (themeMode) {
-            case ThemeMode.dark:
-              brightness = Brightness.dark;
-            case ThemeMode.light:
-              brightness = Brightness.light;
-            case ThemeMode.system:
-              brightness = MediaQuery.platformBrightnessOf(context);
-          }
-          if (_lastAppliedOverlayBrightness != brightness) {
-            _lastAppliedOverlayBrightness = brightness;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              applySystemUiOverlayStyleOnce(brightness: brightness);
-            });
-          }
-          final safeChild = child ?? const SizedBox.shrink();
+    return AdaptiveApp.router(
+      routerConfig: router,
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+      materialLightTheme: lightTheme,
+      materialDarkTheme: darkTheme,
+      cupertinoLightTheme: cupertinoLight,
+      cupertinoDarkTheme: cupertinoDark,
+      themeMode: themeMode,
+      locale: locale,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localeListResolutionCallback: (deviceLocales, supported) {
+        if (locale != null) return locale;
+        if (deviceLocales == null || deviceLocales.isEmpty) {
+          return supported.first;
+        }
+        final resolved = _resolveSupportedLocale(deviceLocales, supported);
+        return resolved ?? supported.first;
+      },
+      material: (_, _) =>
+          const MaterialAppData(debugShowCheckedModeBanner: false),
+      cupertino: (_, _) =>
+          const CupertinoAppData(debugShowCheckedModeBanner: false),
+      builder: (context, child) {
+        // Resolve brightness from themeMode rather than
+        // Theme.of(context) — on iOS, CupertinoApp's
+        // auto-generated Theme may not reflect themeMode.
+        final Brightness brightness;
+        switch (themeMode) {
+          case ThemeMode.dark:
+            brightness = Brightness.dark;
+          case ThemeMode.light:
+            brightness = Brightness.light;
+          case ThemeMode.system:
+            brightness = MediaQuery.platformBrightnessOf(context);
+        }
+        if (_lastAppliedOverlayBrightness != brightness) {
+          _lastAppliedOverlayBrightness = brightness;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            applySystemUiOverlayStyleOnce(brightness: brightness);
+          });
+        }
+        final safeChild = child ?? const SizedBox.shrink();
 
-          // On iOS, AdaptiveApp creates CupertinoApp which
-          // doesn't propagate Material ThemeExtensions.
-          // Wrap with Theme to ensure all custom extensions
-          // (ConduitThemeExtension, AppColorTokens, etc.)
-          // are available via Theme.of(context) on every
-          // platform.
-          final materialTheme = brightness == Brightness.dark
-              ? darkTheme
-              : lightTheme;
+        // On iOS, AdaptiveApp creates CupertinoApp which
+        // doesn't propagate Material ThemeExtensions.
+        // Wrap with Theme to ensure all custom extensions
+        // (ConduitThemeExtension, AppColorTokens, etc.)
+        // are available via Theme.of(context) on every
+        // platform.
+        final materialTheme = brightness == Brightness.dark
+            ? darkTheme
+            : lightTheme;
 
-          return Theme(
-            data: materialTheme,
-            child: ReleaseNotesCoordinator(
-              child: _KeyboardDismissOnScroll(child: safeChild),
-            ),
-          );
-        },
-      ),
+        return Theme(
+          data: materialTheme,
+          child: ReleaseNotesCoordinator(
+            child: _KeyboardDismissOnScroll(child: safeChild),
+          ),
+        );
+      },
     );
   }
 

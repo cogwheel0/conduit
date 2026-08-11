@@ -12,6 +12,7 @@ import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 class AboutPage extends ConsumerStatefulWidget {
   const AboutPage({super.key});
@@ -37,7 +38,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     final serverAboutAsync = ref.watch(serverAboutInfoProvider);
     final packageInfoAsync = ref.watch(packageInfoProvider);
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.aboutApp,
       children: [
         SettingsSectionHeader(title: l10n.appInformation),

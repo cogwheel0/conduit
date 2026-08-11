@@ -45,7 +45,17 @@ abstract final class LocaleDisplayFormatters {
 
   static String compactRelativeTime(BuildContext context, DateTime value) {
     final l10n = AppLocalizations.of(context)!;
-    final difference = DateTime.now().difference(value);
+    return relativeTime(l10n, value, locale: _locale(context));
+  }
+
+  static String relativeTime(
+    AppLocalizations l10n,
+    DateTime value, {
+    String? locale,
+    DateTime? now,
+    bool fallbackToDate = true,
+  }) {
+    final difference = (now ?? DateTime.now()).difference(value);
     if (difference.isNegative || difference.inSeconds < 10) {
       return l10n.timeJustNow;
     }
@@ -58,6 +68,7 @@ abstract final class LocaleDisplayFormatters {
     if (difference.inHours < 24) {
       return l10n.timeHoursAgo(difference.inHours);
     }
-    return shortDate(context, value);
+    if (!fallbackToDate) return l10n.timeHoursAgo(difference.inHours);
+    return DateFormat.MMMd(locale).format(value);
   }
 }

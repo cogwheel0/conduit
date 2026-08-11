@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
@@ -3487,7 +3486,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    return ErrorBoundary(child: page);
+    return page;
   }
 
   void _toggleResponsiveDrawer(BuildContext context) {

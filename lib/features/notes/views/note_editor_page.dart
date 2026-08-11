@@ -27,7 +27,6 @@ import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
@@ -1577,67 +1576,65 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // pop programmatically.
       canPop: !_hasChanges,
       onPopInvokedWithResult: _onEditorPopInvoked,
-      child: ErrorBoundary(
-        child: AdaptiveRouteShell(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          extendBodyBehindAppBar: true,
-          appBar: _buildAdaptiveNoteEditorAppBar(context),
-          body: Stack(
-            children: [
-              Positioned.fill(child: _buildMainContent(context)),
+      child: AdaptiveRouteShell(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAdaptiveNoteEditorAppBar(context),
+        body: Stack(
+          children: [
+            Positioned.fill(child: _buildMainContent(context)),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight:
+                    MediaQuery.viewPaddingOf(context).top +
+                    conduitAdaptiveToolbarHeightOf(context),
+              ),
+            ),
+            if (!_isLoading && _note != null)
+              Positioned(
+                top:
+                    MediaQuery.of(context).padding.top +
+                    conduitAdaptiveToolbarHeightOf(context),
+                left: 0,
+                right: 0,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: Spacing.xs),
+                  child: Center(child: _buildFloatingMetadataBar(context)),
+                ),
+              ),
+            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
+              Positioned(
+                left: Spacing.md,
+                right: Spacing.md,
+                bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
+                child: NoteFloatingActions(
+                  isRecording: _isRecording,
+                  isUploadingAudio: _isUploadingAudio,
+                  isEnhancing: _isEnhancing,
+                  onVoicePressed: _isRecording
+                      ? _toggleDictation
+                      : _showRecordingOptions,
+                  onEnhance: _enhanceContent,
+                  onGenerateTitle: _generateTitle,
+                ),
+              ),
+            // Formatting toolbar — shown above the keyboard while the content
+            // editor is focused (in place of the floating actions row). The
+            // scaffold uses resizeToAvoidBottomInset, so the body is already
+            // laid out above the keyboard; anchoring at bottom: 0 sits the
+            // toolbar directly on top of it (anchoring at viewInsets.bottom
+            // would double-count the inset and push it up to the stats row).
+            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
               Positioned(
                 left: 0,
                 right: 0,
-                top: 0,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                ),
+                bottom: 0,
+                child: _buildFormattingToolbar(context),
               ),
-              if (!_isLoading && _note != null)
-                Positioned(
-                  top:
-                      MediaQuery.of(context).padding.top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: Spacing.xs),
-                    child: Center(child: _buildFloatingMetadataBar(context)),
-                  ),
-                ),
-              if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
-                Positioned(
-                  left: Spacing.md,
-                  right: Spacing.md,
-                  bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                  child: NoteFloatingActions(
-                    isRecording: _isRecording,
-                    isUploadingAudio: _isUploadingAudio,
-                    isEnhancing: _isEnhancing,
-                    onVoicePressed: _isRecording
-                        ? _toggleDictation
-                        : _showRecordingOptions,
-                    onEnhance: _enhanceContent,
-                    onGenerateTitle: _generateTitle,
-                  ),
-                ),
-              // Formatting toolbar — shown above the keyboard while the content
-              // editor is focused (in place of the floating actions row). The
-              // scaffold uses resizeToAvoidBottomInset, so the body is already
-              // laid out above the keyboard; anchoring at bottom: 0 sits the
-              // toolbar directly on top of it (anchoring at viewInsets.bottom
-              // would double-count the inset and push it up to the stats row).
-              if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _buildFormattingToolbar(context),
-                ),
-            ],
-          ),
+          ],
         ),
       ),
     );

@@ -113,23 +113,6 @@ class ConduitFriendlyErrorView extends StatelessWidget {
   }
 }
 
-/// A semantic marker for routes that rely on Conduit's process-level error
-/// reporting and [ErrorWidget.builder] fallback.
-///
-/// Flutter does not provide subtree error boundaries: descendant build errors
-/// are reported through [FlutterError.onError] and replaced by [ErrorWidget].
-/// Keeping this wrapper deliberately stateless avoids registering one global
-/// handler per mounted route and prevents a single exception from updating
-/// unrelated screens.
-class ErrorBoundary extends StatelessWidget {
-  const ErrorBoundary({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => child;
-}
-
 /// Widget that handles async operations with proper error handling
 class AsyncErrorBoundary extends ConsumerWidget {
   final Future<Widget> Function() builder;

@@ -7,7 +7,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
-import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 /// First-run screen letting a fresh install choose its backend: a self-hosted
 /// Open WebUI, direct model APIs, or a Hermes Agent.

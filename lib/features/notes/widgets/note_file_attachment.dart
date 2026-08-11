@@ -7,6 +7,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 
 /// A widget that displays a file attachment in a note.
 ///
@@ -137,7 +138,7 @@ class NoteFileAttachment extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          FileTypeUtils.formatFileSize(_fileSize),
+                          LocaleDisplayFormatters.bytes(context, _fileSize!),
                           style: AppTypography.captionStyle.copyWith(
                             color: theme.textSecondary,
                           ),

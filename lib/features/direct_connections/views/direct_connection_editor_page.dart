@@ -14,9 +14,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
-import '../../profile/widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../controllers/direct_connection_editor_controller.dart';
 export '../controllers/direct_connection_editor_controller.dart';
 import '../models/direct_connection_profile.dart';
@@ -55,16 +54,14 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
 class _DirectConnectionEditorPageState
     extends ConsumerState<DirectConnectionEditorPage> {
   late final DirectConnectionEditorController _draftController;
-  String? _openWebUiOwnerServerId;
-  String? _openWebUiOwnerAccountId;
-  Object? _openWebUiOwnerAuthEpoch;
-  bool _openWebUiOwnerCaptured = false;
-  bool _hydrated = false;
-  bool _saving = false;
-  bool _testing = false;
-  bool _deleting = false;
-  ConnectionAttemptState _attempt = const ConnectionAttemptState.idle();
-  String? _operationError;
+
+  DirectConnectionEditorState get _editorState => _draftController.state;
+  bool get _saving => _editorState.operation == DirectEditorOperation.saving;
+  bool get _testing => _editorState.operation == DirectEditorOperation.testing;
+  bool get _deleting =>
+      _editorState.operation == DirectEditorOperation.deleting;
+  ConnectionAttemptState get _attempt => _editorState.attempt;
+  String? get _operationError => _editorState.operationError;
 
   @override
   void initState() {
@@ -72,13 +69,7 @@ class _DirectConnectionEditorPageState
     _draftController = DirectConnectionEditorController(
       isOpenWebUi: widget.isOpenWebUi,
       isNew: widget.isNew,
-      onDraftChanged: _handleDraftChanged,
     )..addListener(_handleDraftControllerChanged);
-  }
-
-  void _handleDraftChanged() {
-    _operationError = null;
-    _attempt = const ConnectionAttemptState.idle();
   }
 
   void _handleDraftControllerChanged() {
@@ -96,13 +87,11 @@ class _DirectConnectionEditorPageState
     DirectConnectionProfile? profile, {
     OpenWebUiDirectConnectionRecord? openWebUiRecord,
   }) {
-    if (_hydrated) return;
-    _hydrated = true;
-    _draftController.hydrate(profile, openWebUiRecord: openWebUiRecord);
+    _draftController.hydrateOnce(profile, openWebUiRecord: openWebUiRecord);
   }
 
   void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
-    if (!_hydrated) return;
+    if (!_editorState.hydrated) return;
     // A pure reindex changes the compare-and-swap revision without changing
     // the raw content. Refresh only that authoritative base; a same-id edit
     // (for example enable/tags) must retain the stale revision and conflict.
@@ -119,29 +108,24 @@ class _DirectConnectionEditorPageState
     return null;
   }
 
-  bool get _busy => _saving || _testing || _deleting;
-
   void _captureOpenWebUiOwner(OpenWebUiDirectConnectionsSnapshot snapshot) {
-    if (_openWebUiOwnerCaptured) return;
-    _openWebUiOwnerCaptured = true;
-    _openWebUiOwnerServerId = snapshot.serverId;
-    _openWebUiOwnerAccountId = snapshot.accountId;
-    _openWebUiOwnerAuthEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    _draftController.captureOwner(
+      serverId: snapshot.serverId,
+      accountId: snapshot.accountId,
+      authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+    );
   }
 
   bool _matchesCapturedOpenWebUiOwner(
     OpenWebUiDirectConnectionsSnapshot snapshot,
-  ) =>
-      _openWebUiOwnerCaptured &&
-      snapshot.serverId == _openWebUiOwnerServerId &&
-      snapshot.accountId == _openWebUiOwnerAccountId &&
-      identical(
-        ref.read(openWebUiAuthSessionEpochProvider),
-        _openWebUiOwnerAuthEpoch,
-      );
+  ) => _draftController.ownerMatches(
+    serverId: snapshot.serverId,
+    accountId: snapshot.accountId,
+    authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+  );
 
   bool _openWebUiOwnerIsCurrent() {
-    if (!widget.isOpenWebUi || !_openWebUiOwnerCaptured) return false;
+    if (!widget.isOpenWebUi || _editorState.owner == null) return false;
     final snapshot = ref.read(openWebUiDirectConnectionsProvider).value;
     return snapshot != null && _matchesCapturedOpenWebUiOwner(snapshot);
   }
@@ -149,11 +133,9 @@ class _DirectConnectionEditorPageState
   bool _ensureOpenWebUiOwnerIsCurrent() {
     if (!widget.isOpenWebUi || _openWebUiOwnerIsCurrent()) return true;
     if (mounted) {
-      setState(() {
-        _operationError = AppLocalizations.of(
-          context,
-        )!.openWebUiDirectConnectionsUnavailable;
-      });
+      _draftController.setOperationError(
+        AppLocalizations.of(context)!.openWebUiDirectConnectionsUnavailable,
+      );
     }
     return false;
   }
@@ -192,22 +174,22 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _save({DirectConnectionProfile? testedDraft}) async {
-    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return;
-    setState(() => _saving = true);
+    if (_editorState.isBusy || !_ensureOpenWebUiOwnerIsCurrent()) return;
+    if (!_draftController.beginOperation(DirectEditorOperation.saving)) return;
     final draft = testedDraft ?? _buildDraft(validateFields: true);
     if (draft == null) {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) _draftController.finishOperation();
       return;
     }
     final originConfirmed = await _confirmOriginSecretTransfer(draft);
     if (!mounted || !originConfirmed) {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) _draftController.finishOperation();
       return;
     }
     try {
       if (widget.isOpenWebUi) {
         if (!_ensureOpenWebUiOwnerIsCurrent()) {
-          if (mounted) setState(() => _saving = false);
+          if (mounted) _draftController.finishOperation();
           return;
         }
         final controller = ref.read(
@@ -229,7 +211,7 @@ class _DirectConnectionEditorPageState
           await controller.updateConnection(record, draft, authType: authType);
         }
         if (!_ensureOpenWebUiOwnerIsCurrent()) {
-          if (mounted) setState(() => _saving = false);
+          if (mounted) _draftController.finishOperation();
           return;
         }
       } else {
@@ -258,14 +240,14 @@ class _DirectConnectionEditorPageState
     } on OpenWebUiDirectConnectionConflictException {
       if (!mounted) return;
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        setState(() => _saving = false);
+        _draftController.finishOperation();
         return;
       }
       _showSaveConflict();
     } catch (_) {
       if (!mounted) return;
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        setState(() => _saving = false);
+        _draftController.finishOperation();
         return;
       }
       AdaptiveSnackBar.show(
@@ -273,17 +255,14 @@ class _DirectConnectionEditorPageState
         message: AppLocalizations.of(context)!.directConnectionSaveFailed,
         type: AdaptiveSnackBarType.error,
       );
-      setState(() => _saving = false);
+      _draftController.finishOperation();
     }
   }
 
   void _showSaveConflict() {
     if (!mounted) return;
     final message = AppLocalizations.of(context)!.directConnectionSaveConflict;
-    setState(() {
-      _saving = false;
-      _operationError = message;
-    });
+    _draftController.finishOperation(error: message);
     AdaptiveSnackBar.show(
       context,
       message: message,
@@ -292,25 +271,27 @@ class _DirectConnectionEditorPageState
   }
 
   Future<DirectConnectionProfile?> _testConnection() async {
-    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return null;
+    if (_editorState.isBusy || !_ensureOpenWebUiOwnerIsCurrent()) return null;
+    if (!_draftController.beginOperation(DirectEditorOperation.testing)) {
+      return null;
+    }
     FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => _testing = true);
     final draft = _buildDraft(validateFields: true);
     if (draft == null) {
-      if (mounted) setState(() => _testing = false);
+      if (mounted) _draftController.finishOperation();
       return null;
     }
     final originConfirmed = await _confirmOriginSecretTransfer(draft);
     if (!mounted || !originConfirmed) {
-      if (mounted) setState(() => _testing = false);
+      if (mounted) _draftController.finishOperation();
       return null;
     }
     if (!_ensureOpenWebUiOwnerIsCurrent()) {
-      if (mounted) setState(() => _testing = false);
+      if (mounted) _draftController.finishOperation();
       return null;
     }
-    setState(
-      () => _attempt = ConnectionAttemptState.connecting(
+    _draftController.setAttempt(
+      ConnectionAttemptState.connecting(
         AppLocalizations.of(context)!.connecting,
       ),
     );
@@ -319,22 +300,20 @@ class _DirectConnectionEditorPageState
           .read(directConnectionProfilesProvider.notifier)
           .probe(draft);
       if (!mounted) return null;
-      setState(() {
-        _testing = false;
-        final message = _probeMessage(result, AppLocalizations.of(context)!);
-        _attempt = result.reachable
+      final message = _probeMessage(result, AppLocalizations.of(context)!);
+      _draftController.finishOperation(
+        attempt: result.reachable
             ? ConnectionAttemptState.connected(message)
-            : ConnectionAttemptState.failed(message);
-      });
+            : ConnectionAttemptState.failed(message),
+      );
       return result.reachable ? draft : null;
     } catch (_) {
       if (!mounted) return null;
-      setState(() {
-        _testing = false;
-        _attempt = ConnectionAttemptState.failed(
+      _draftController.finishOperation(
+        attempt: ConnectionAttemptState.failed(
           AppLocalizations.of(context)!.directConnectionReachFailed,
-        );
-      });
+        ),
+      );
       return null;
     }
   }
@@ -346,11 +325,13 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _delete() async {
-    if (_busy) return;
+    if (_editorState.isBusy) return;
     final saved = _draftController.savedProfile;
     if (saved == null) return;
     final l10n = AppLocalizations.of(context)!;
-    setState(() => _deleting = true);
+    if (!_draftController.beginOperation(DirectEditorOperation.deleting)) {
+      return;
+    }
     try {
       final confirmed = await ThemedDialogs.confirm(
         context,
@@ -362,11 +343,11 @@ class _DirectConnectionEditorPageState
         isDestructive: true,
       );
       if (!confirmed || !mounted) {
-        if (mounted) setState(() => _deleting = false);
+        if (mounted) _draftController.finishOperation();
         return;
       }
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        if (mounted) setState(() => _deleting = false);
+        if (mounted) _draftController.finishOperation();
         return;
       }
       // Another editor can update the provider while confirmation is open.
@@ -375,7 +356,7 @@ class _DirectConnectionEditorPageState
       );
       if (!mounted) return;
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        setState(() => _deleting = false);
+        _draftController.finishOperation();
         return;
       }
       final hasAnotherUsable = currentProfiles.any(
@@ -440,13 +421,13 @@ class _DirectConnectionEditorPageState
       // ownership/UI change must not restore a preference that now points at
       // no usable direct profile.
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        setState(() => _deleting = false);
+        _draftController.finishOperation();
         return;
       }
       context.pop(true);
     } on _OpenWebUiDirectConnectionOwnershipChanged {
       if (!mounted) return;
-      setState(() => _deleting = false);
+      _draftController.finishOperation();
     } catch (error) {
       DebugLogger.error(
         'Direct profile deletion failed',
@@ -455,10 +436,10 @@ class _DirectConnectionEditorPageState
       );
       if (!mounted) return;
       if (!_ensureOpenWebUiOwnerIsCurrent()) {
-        setState(() => _deleting = false);
+        _draftController.finishOperation();
         return;
       }
-      setState(() => _deleting = false);
+      _draftController.finishOperation();
       AdaptiveSnackBar.show(
         context,
         message: l10n.directConnectionDeleteFailed,
@@ -560,7 +541,7 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
-        if (!_openWebUiOwnerCaptured) {
+        if (_editorState.owner == null) {
           _captureOpenWebUiOwner(snapshot);
         } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
           return _buildEditorScaffold(
@@ -599,7 +580,7 @@ class _DirectConnectionEditorPageState
   }) {
     if (widget.isOnboarding) {
       final l10n = AppLocalizations.of(context)!;
-      return AdaptiveAuthScaffold(
+      return UtilityPageScaffold.auth(
         title: title,
         backLabel: l10n.back,
         backButtonKey: const ValueKey<String>('direct-editor-back-button'),
@@ -619,7 +600,7 @@ class _DirectConnectionEditorPageState
       );
     }
 
-    return SettingsPageScaffold(title: title, children: children);
+    return UtilityPageScaffold.settings(title: title, children: children);
   }
 
   Widget _buildForm(BuildContext context) {

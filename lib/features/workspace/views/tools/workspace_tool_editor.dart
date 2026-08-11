@@ -14,6 +14,8 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -85,50 +87,22 @@ class WorkspaceToolEditorView extends ConsumerWidget {
     }
 
     final id = toolId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceTools,
-        section: WorkspaceSection.tools,
+    final detail = id == null || id.isEmpty
+        ? null
+        : ref.watch(workspaceToolDetailProvider(id));
+    return WorkspaceResourceEditorHost<WorkspaceToolSummary>(
+      title: l10n.workspaceTools,
+      section: WorkspaceSection.tools,
+      mode: mode,
+      resourceId: id,
+      detail: detail,
+      errorMessage: l10n.workspaceLoadFailed,
+      onRetry: () => ref.invalidate(workspaceToolDetailProvider(id!)),
+      builder: (value) => _WorkspaceToolForm(
+        key: ValueKey('workspace-tool-form-${value.id}-${mode.name}'),
         mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceToolDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceTools,
-        section: WorkspaceSection.tools,
-        mode: mode,
-        isLoading: true,
-        child: const SizedBox.shrink(),
+        summary: value,
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceTools,
-        section: WorkspaceSection.tools,
-        mode: mode,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceToolDetailProvider(id)),
-        child: const SizedBox.shrink(),
-      ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceTools,
-            section: WorkspaceSection.tools,
-            mode: mode,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceToolDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceToolForm(
-          key: ValueKey('workspace-tool-form-${value.id}-${mode.name}'),
-          mode: mode,
-          summary: value,
-        );
-      },
     );
   }
 }
@@ -153,14 +127,18 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   late Map<String, dynamic> _meta;
 
   bool _idManuallyEdited = false;
-  bool _dirty = false;
-  bool _saving = false;
+  late final WorkspaceEditorSession _session;
+  bool get _dirty => _session.dirty;
+  set _dirty(bool value) => _session.dirty = value;
+  bool get _saving => _session.saving;
+  set _saving(bool value) => _session.saving = value;
   bool _detailsExpanded = false;
-  String? _errorMessage;
+  String? get _errorMessage => _session.errorMessage;
+  set _errorMessage(String? value) => _session.errorMessage = value;
   bool _idError = false;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
+  bool get _isCreate => _session.isCreate;
+  bool get _isDetail => _session.isDetail;
 
   bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
 
@@ -172,6 +150,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _idController = TextEditingController(text: summary?.id ?? '');

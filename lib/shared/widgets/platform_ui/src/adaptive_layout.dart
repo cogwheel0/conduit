@@ -104,13 +104,14 @@ class AdaptiveNavigationDestination {
   final bool addSpacerAfter;
 }
 
+enum AdaptiveBottomNavigationRenderer { adaptive, nativeOverlay, fullWidth }
+
 class AdaptiveBottomNavigationBar {
   const AdaptiveBottomNavigationBar({
     this.items,
     this.selectedIndex,
     this.onTap,
-    this.useNativeBottomBar = true,
-    this.nativeFullWidth = false,
+    this.renderer = AdaptiveBottomNavigationRenderer.adaptive,
     this.cupertinoTabBar,
     this.bottomNavigationBar,
     this.selectedItemColor,
@@ -120,8 +121,7 @@ class AdaptiveBottomNavigationBar {
   final List<AdaptiveNavigationDestination>? items;
   final int? selectedIndex;
   final ValueChanged<int>? onTap;
-  final bool useNativeBottomBar;
-  final bool nativeFullWidth;
+  final AdaptiveBottomNavigationRenderer renderer;
   final CupertinoTabBar? cupertinoTabBar;
   final Widget? bottomNavigationBar;
   final Color? selectedItemColor;
@@ -182,9 +182,8 @@ class AdaptiveScaffold extends StatelessWidget {
     final useNativeTabBar =
         hasNavigation &&
         !tabBarHidden &&
-        navigation!.useNativeBottomBar &&
+        navigation!.renderer != AdaptiveBottomNavigationRenderer.fullWidth &&
         PlatformUiCapabilities.usesNativeIOS26 &&
-        !navigation.nativeFullWidth &&
         items.length >= 2 &&
         items.length <= 5;
 
@@ -192,34 +191,9 @@ class AdaptiveScaffold extends StatelessWidget {
     Widget? bottomBar;
     if (hasNavigation && !tabBarHidden) {
       if (useNativeTabBar) {
-        bottomBar = CNTabBar(
-          items: [for (final item in items) _nativeTabItem(item)],
-          currentIndex: navigation.selectedIndex!,
-          onTap: navigation.onTap!,
-          tint: navigation.selectedItemColor,
-          iconSize: kCupertinoNativeControlSymbolExtent,
-        );
+        bottomBar = buildAdaptiveNativeTabBar(navigation);
       } else {
-        bottomBar =
-            navigation!.cupertinoTabBar ??
-            CupertinoTabBar(
-              currentIndex: navigation.selectedIndex!,
-              onTap: navigation.onTap!,
-              activeColor: navigation.selectedItemColor,
-              inactiveColor:
-                  navigation.unselectedItemColor ??
-                  CupertinoColors.inactiveGray,
-              items: [
-                for (final item in items)
-                  BottomNavigationBarItem(
-                    icon: _flutterNavigationIcon(item.icon),
-                    activeIcon: _flutterNavigationIcon(
-                      item.selectedIcon ?? item.icon,
-                    ),
-                    label: item.label,
-                  ),
-              ],
-            );
+        bottomBar = buildAdaptiveCupertinoTabBar(navigation!);
       }
     }
 
@@ -374,8 +348,8 @@ class AdaptiveScaffold extends StatelessWidget {
                 destinations: [
                   for (final item in items)
                     NavigationDestination(
-                      icon: _flutterNavigationIcon(item.icon),
-                      selectedIcon: _flutterNavigationIcon(
+                      icon: adaptiveFlutterNavigationIcon(item.icon),
+                      selectedIcon: adaptiveFlutterNavigationIcon(
                         item.selectedIcon ?? item.icon,
                       ),
                       label: item.label,
@@ -413,58 +387,96 @@ class AdaptiveScaffold extends StatelessWidget {
       ],
     );
   }
+}
 
-  CNTabBarItem _nativeTabItem(AdaptiveNavigationDestination item) {
-    final icon = item.icon;
-    final selected = item.selectedIcon;
-    return CNTabBarItem(
-      label: item.label,
-      icon: icon is String ? CNSymbol(icon) : null,
-      activeIcon: selected is String ? CNSymbol(selected) : null,
-      customIcon: _iconData(icon),
-      activeCustomIcon: _iconData(selected),
-      imageAsset: _imageAsset(icon),
-      activeImageAsset: _imageAsset(selected),
-      badge: item.badgeCount == null || item.badgeCount == 0
-          ? null
-          : '${item.badgeCount}',
+CupertinoTabBar buildAdaptiveCupertinoTabBar(
+  AdaptiveBottomNavigationBar navigation,
+) {
+  final items = navigation.items ?? const <AdaptiveNavigationDestination>[];
+  return navigation.cupertinoTabBar ??
+      CupertinoTabBar(
+        currentIndex: navigation.selectedIndex!,
+        onTap: navigation.onTap!,
+        activeColor: navigation.selectedItemColor,
+        inactiveColor:
+            navigation.unselectedItemColor ?? CupertinoColors.inactiveGray,
+        items: [
+          for (final item in items)
+            BottomNavigationBarItem(
+              icon: adaptiveFlutterNavigationIcon(item.icon),
+              activeIcon: adaptiveFlutterNavigationIcon(
+                item.selectedIcon ?? item.icon,
+              ),
+              label: item.label,
+            ),
+        ],
+      );
+}
+
+CNTabBar buildAdaptiveNativeTabBar(
+  AdaptiveBottomNavigationBar navigation, {
+  Color? tint,
+}) {
+  final items = navigation.items ?? const <AdaptiveNavigationDestination>[];
+  return CNTabBar(
+    items: [for (final item in items) adaptiveNativeTabItem(item)],
+    currentIndex: navigation.selectedIndex!,
+    onTap: navigation.onTap!,
+    tint: tint ?? navigation.selectedItemColor,
+    iconSize: kCupertinoNativeControlSymbolExtent,
+  );
+}
+
+CNTabBarItem adaptiveNativeTabItem(AdaptiveNavigationDestination item) {
+  final icon = item.icon;
+  final selected = item.selectedIcon ?? icon;
+  return CNTabBarItem(
+    label: item.label,
+    icon: icon is String ? CNSymbol(icon) : null,
+    activeIcon: selected is String ? CNSymbol(selected) : null,
+    customIcon: _adaptiveIconData(icon),
+    activeCustomIcon: _adaptiveIconData(selected),
+    imageAsset: _adaptiveImageAsset(icon),
+    activeImageAsset: _adaptiveImageAsset(selected),
+    badge: item.badgeCount == null || item.badgeCount == 0
+        ? null
+        : '${item.badgeCount}',
+  );
+}
+
+IconData? _adaptiveIconData(dynamic value) {
+  if (value is IconData) return value;
+  if (value is Icon) return value.icon;
+  return null;
+}
+
+CNImageAsset? _adaptiveImageAsset(dynamic value) {
+  if (value is ImageIcon && value.image is AssetImage) {
+    return CNImageAsset((value.image as AssetImage).assetName);
+  }
+  if (value is AssetImage) return CNImageAsset(value.assetName);
+  return null;
+}
+
+Widget adaptiveFlutterNavigationIcon(dynamic value) {
+  if (value is Widget) return value;
+  if (value is IconData) {
+    return Icon(value, size: kCupertinoNativeControlSymbolExtent);
+  }
+  if (value is String) {
+    return Icon(
+      cupertinoIconForSFSymbol(value) ?? CupertinoIcons.circle,
+      size: kCupertinoNativeControlSymbolExtent,
     );
   }
-
-  IconData? _iconData(dynamic value) {
-    if (value is IconData) return value;
-    if (value is Icon) return value.icon;
-    return null;
+  if (value is ImageProvider) {
+    return Image(
+      image: value,
+      width: kCupertinoNativeControlSymbolExtent,
+      height: kCupertinoNativeControlSymbolExtent,
+    );
   }
-
-  CNImageAsset? _imageAsset(dynamic value) {
-    if (value is ImageIcon && value.image is AssetImage) {
-      return CNImageAsset((value.image as AssetImage).assetName);
-    }
-    if (value is AssetImage) return CNImageAsset(value.assetName);
-    return null;
-  }
-
-  Widget _flutterNavigationIcon(dynamic value) {
-    if (value is Widget) return value;
-    if (value is IconData) {
-      return Icon(value, size: kCupertinoNativeControlSymbolExtent);
-    }
-    if (value is String) {
-      return Icon(
-        cupertinoIconForSFSymbol(value) ?? CupertinoIcons.circle,
-        size: kCupertinoNativeControlSymbolExtent,
-      );
-    }
-    if (value is ImageProvider) {
-      return Image(
-        image: value,
-        width: kCupertinoNativeControlSymbolExtent,
-        height: kCupertinoNativeControlSymbolExtent,
-      );
-    }
-    return const Icon(Icons.circle, size: kCupertinoNativeControlSymbolExtent);
-  }
+  return const Icon(Icons.circle, size: kCupertinoNativeControlSymbolExtent);
 }
 
 class AdaptiveCard extends StatelessWidget {

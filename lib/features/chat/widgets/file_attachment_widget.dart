@@ -1,6 +1,7 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
@@ -133,7 +134,7 @@ class _FileAttachmentCard extends ConsumerWidget {
           ),
           const SizedBox(height: Spacing.xs),
           Text(
-            fileState.formattedSize,
+            LocaleDisplayFormatters.bytes(context, fileState.fileSize),
             style: AppTypography.labelSmallStyle.copyWith(
               color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
             ),

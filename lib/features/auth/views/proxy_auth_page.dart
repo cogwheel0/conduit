@@ -13,7 +13,6 @@ import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/auth/webview_origin.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1569,17 +1568,15 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: ConnectionWebAuthScaffold(
-        title: l10n.proxyAuthentication,
-        backLabel: l10n.back,
-        onBack: () => context.pop(),
-        onRefresh: _controller == null ? null : _refresh,
-        bottomChrome: _error == null && _shouldRenderWebView
-            ? _buildHelpBanner(l10n)
-            : null,
-        body: _buildBody(l10n),
-      ),
+    return ConnectionWebAuthScaffold(
+      title: l10n.proxyAuthentication,
+      backLabel: l10n.back,
+      onBack: () => context.pop(),
+      onRefresh: _controller == null ? null : _refresh,
+      bottomChrome: _error == null && _shouldRenderWebView
+          ? _buildHelpBanner(l10n)
+          : null,
+      body: _buildBody(l10n),
     );
   }
 

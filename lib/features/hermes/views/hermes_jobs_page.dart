@@ -6,7 +6,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../profile/widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../models/hermes_job.dart';
 import '../providers/hermes_providers.dart';
 import '../utils/hermes_schedule_format.dart';
@@ -52,7 +52,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
         ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
     final theme = context.conduitTheme;
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: 'Scheduled Agents',
       children: [
         ConduitButton(

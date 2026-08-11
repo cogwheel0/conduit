@@ -296,7 +296,7 @@ void main() {
             ],
             selectedIndex: 0,
             onTap: (_) {},
-            nativeFullWidth: true,
+            renderer: AdaptiveBottomNavigationRenderer.fullWidth,
           ),
         ),
       ),

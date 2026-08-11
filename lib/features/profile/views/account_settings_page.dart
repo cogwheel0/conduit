@@ -21,6 +21,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 class AccountSettingsPage extends ConsumerStatefulWidget {
   const AccountSettingsPage({super.key});
@@ -81,7 +82,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     final passwordChangeEnabled =
         aboutAsync.asData?.value?.enablePasswordChangeForm ?? true;
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.accountSettingsTitle,
       children: [
         _buildIdentitySection(context, profileAsync),

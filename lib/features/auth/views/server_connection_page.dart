@@ -28,13 +28,12 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/sensitive_value_utils.dart';
 import '../../../core/utils/unicode_prefix.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
-import '../widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -1139,27 +1138,25 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveAuthScaffold(
-        title: l10n.backendChooserOpenWebUITitle,
-        backLabel: l10n.back,
-        backButtonKey: const ValueKey<String>('server-connection-back-button'),
-        onBack: () => context.go(Routes.backendChooser),
-        bottomAction: _buildConnectButton(),
-        body: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(reviewerMode),
-              if (reviewerMode) ...[
-                const SizedBox(height: Spacing.xl),
-                _buildReviewerModeSection(),
-              ],
+    return UtilityPageScaffold.auth(
+      title: l10n.backendChooserOpenWebUITitle,
+      backLabel: l10n.back,
+      backButtonKey: const ValueKey<String>('server-connection-back-button'),
+      onBack: () => context.go(Routes.backendChooser),
+      bottomAction: _buildConnectButton(),
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(reviewerMode),
+            if (reviewerMode) ...[
               const SizedBox(height: Spacing.xl),
-              _buildServerForm(),
+              _buildReviewerModeSection(),
             ],
-          ),
+            const SizedBox(height: Spacing.xl),
+            _buildServerForm(),
+          ],
         ),
       ),
     );

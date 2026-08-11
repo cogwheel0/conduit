@@ -9,9 +9,8 @@ import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../../shared/widgets/connection_components.dart';
-import '../../profile/widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../controllers/hermes_connection_controller.dart';
 import '../models/hermes_capabilities.dart';
 import '../providers/hermes_providers.dart';
@@ -370,7 +369,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     ];
 
     if (widget.isOnboarding) {
-      return AdaptiveAuthScaffold(
+      return UtilityPageScaffold.auth(
         title: l10n.backendChooserHermesTitle,
         backLabel: l10n.back,
         backButtonKey: const ValueKey<String>('hermes-onboarding-back-button'),
@@ -403,7 +402,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       );
     }
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.hermesAgentSettingsTitle,
       children: content,
     );
