@@ -263,7 +263,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   void _resetTransientAttempt() {
-    if (!mounted || _isConnecting || _connectionError == null) return;
+    if (!mounted || _isConnecting) return;
     setState(() => _connectionError = null);
   }
 
@@ -294,6 +294,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   @override
   void dispose() {
+    _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
@@ -1140,6 +1141,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     return UtilityPageScaffold.auth(
       title: l10n.backendChooserOpenWebUITitle,
+      onTitleLongPress: _toggleReviewerMode,
       backNavigation: UtilityBackNavigation(
         label: l10n.back,
         buttonKey: const ValueKey<String>('server-connection-back-button'),
@@ -1151,12 +1153,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildHeader(reviewerMode),
             if (reviewerMode) ...[
-              const SizedBox(height: Spacing.xl),
               _buildReviewerModeSection(),
+              const SizedBox(height: Spacing.xl),
             ],
-            const SizedBox(height: Spacing.xl),
             _buildServerForm(),
           ],
         ),
@@ -1164,45 +1164,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     );
   }
 
-  Widget _buildHeader(bool reviewerMode) {
+  Future<void> _toggleReviewerMode() async {
     final l10n = AppLocalizations.of(context)!;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onLongPress: () async {
-        ConduitHaptics.mediumImpact();
-        await ref.read(reviewerModeProvider.notifier).toggle();
-        if (!mounted) return;
-        final enabled = ref.read(reviewerModeProvider);
-        AdaptiveSnackBar.show(
-          context,
-          message: enabled
-              ? l10n.reviewerModeEnabled
-              : l10n.reviewerModeDisabled,
-          type: AdaptiveSnackBarType.info,
-        );
-      },
-      child: UtilityIdentityHeader(
-        leading: const OpenWebUiConnectionMark(),
-        title: l10n.backendChooserOpenWebUITitle,
-        subtitle: l10n.enterServerAddress,
-        trailing: reviewerMode
-            ? ConduitBadge(
-                text: l10n.demoBadge,
-                backgroundColor: context.conduitTheme.warning.withValues(
-                  alpha: 0.15,
-                ),
-                textColor: context.conduitTheme.warning,
-                isCompact: true,
-              )
-            : null,
-      ),
+    ConduitHaptics.mediumImpact();
+    await ref.read(reviewerModeProvider.notifier).toggle();
+    if (!mounted) return;
+    final enabled = ref.read(reviewerModeProvider);
+    AdaptiveSnackBar.show(
+      context,
+      message: enabled ? l10n.reviewerModeEnabled : l10n.reviewerModeDisabled,
+      type: AdaptiveSnackBarType.info,
     );
   }
 
   Widget _buildReviewerModeSection() {
-    return ConduitCard(
-      isElevated: false,
+    return Padding(
       padding: const EdgeInsets.all(Spacing.lg),
       child: Column(
         children: [
@@ -1263,7 +1240,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         InsetGroupedSection(
-          title: l10n.openWebUIServer,
+          flat: true,
           child: AccessibleFormField(
             key: const ValueKey<String>('server-url-field'),
             label: l10n.serverUrl,
@@ -1314,6 +1291,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       expanded: _showAdvancedSettings,
       onChanged: (value) => setState(() => _showAdvancedSettings = value),
       contentPadding: EdgeInsets.zero,
+      flat: true,
       child: _buildAdvancedSettingsContent(),
     );
   }
@@ -1648,7 +1626,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
           : AppLocalizations.of(context)!.connectToServerButton,
-      onPressed: _isConnecting ? null : _connectToServer,
+      onPressed: _isConnecting || _urlController.text.trim().isEmpty
+          ? null
+          : _connectToServer,
       isLoading: _isConnecting,
       isFullWidth: true,
       useNativeLabel: true,

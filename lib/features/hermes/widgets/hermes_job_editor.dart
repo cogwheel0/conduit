@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
+import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -190,24 +192,25 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final isEditing = widget.initialPrompt != null;
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
 
     return ThemedDialogs.buildBase(
       context: context,
-      title: isEditing ? 'Edit job' : 'New scheduled job',
+      title: isEditing ? l10n.hermesJobEditorEditTitle : l10n.hermesJobNew,
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ConduitInput(
-              label: 'Name',
-              hint: 'Daily summary',
+              label: l10n.name,
+              hint: l10n.hermesJobNameHint,
               controller: _name,
               errorText: _showErrors && _name.text.trim().isEmpty
-                  ? 'Required'
+                  ? l10n.requiredFieldHelper
                   : _showErrors &&
                         _name.text.trim().runes.length >
                             kMaxHermesJobNameCharacters
-                  ? 'Use $kMaxHermesJobNameCharacters characters or fewer'
+                  ? l10n.hermesJobTooLong(kMaxHermesJobNameCharacters)
                   : null,
               onChanged: (_) {
                 if (_showErrors) setState(() {});
@@ -215,17 +218,17 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
             ),
             const SizedBox(height: Spacing.md),
             ConduitInput(
-              label: 'Prompt',
-              hint: 'What should the agent do each run?',
+              label: l10n.hermesJobPromptLabel,
+              hint: l10n.hermesJobPromptHint,
               controller: _prompt,
               minLines: 2,
               maxLines: 5,
               errorText: _showErrors && _prompt.text.trim().isEmpty
-                  ? 'Required'
+                  ? l10n.requiredFieldHelper
                   : _showErrors &&
                         _prompt.text.trim().runes.length >
                             kMaxHermesJobPromptCharacters
-                  ? 'Use $kMaxHermesJobPromptCharacters characters or fewer'
+                  ? l10n.hermesJobTooLong(kMaxHermesJobPromptCharacters)
                   : null,
               onChanged: (_) {
                 if (_showErrors) setState(() {});
@@ -233,13 +236,13 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
             ),
             const SizedBox(height: Spacing.md),
             ConduitInput(
-              label: 'Schedule',
-              hint: '0 9 * * * or every 2h',
+              label: l10n.hermesJobScheduleLabel,
+              hint: l10n.hermesJobScheduleHint,
               controller: _schedule,
               errorText: _showErrors && _schedule.text.trim().isEmpty
-                  ? 'Required'
+                  ? l10n.requiredFieldHelper
                   : _showErrors && !isValidHermesSchedule(_schedule.text)
-                  ? 'Use a duration, interval, date/time, or valid cron schedule'
+                  ? l10n.hermesJobScheduleInvalid
                   : null,
               onChanged: (_) {
                 if (_showErrors) setState(() {});
@@ -249,8 +252,7 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Use cron (0 9 * * *), an interval (every 2h), a delay '
-                '(30m), or an ISO date/time.',
+                l10n.hermesJobScheduleHelp,
                 style: AppTypography.captionStyle.copyWith(
                   color: theme.textSecondary,
                 ),
@@ -262,9 +264,9 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
-        TextButton(onPressed: _save, child: const Text('Save')),
+        TextButton(onPressed: _save, child: Text(l10n.save)),
       ],
     );
   }

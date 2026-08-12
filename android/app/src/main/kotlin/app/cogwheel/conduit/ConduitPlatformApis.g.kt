@@ -2152,6 +2152,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
   val items: List<PlatformNativeSheetItem>,
   val title: String? = null,
   val subtitle: String? = null,
+  val clearSubtitle: Boolean,
   val detailSheets: List<PlatformNativeSheetDetail>? = null
 )
  {
@@ -2161,8 +2162,9 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       val items = pigeonVar_list[1] as List<PlatformNativeSheetItem>
       val title = pigeonVar_list[2] as String?
       val subtitle = pigeonVar_list[3] as String?
-      val detailSheets = pigeonVar_list[4] as List<PlatformNativeSheetDetail>?
-      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, title, subtitle, detailSheets)
+      val clearSubtitle = pigeonVar_list[4] as Boolean
+      val detailSheets = pigeonVar_list[5] as List<PlatformNativeSheetDetail>?
+      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, title, subtitle, clearSubtitle, detailSheets)
     }
   }
   fun toList(): List<Any?> {
@@ -2171,6 +2173,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       items,
       title,
       subtitle,
+      clearSubtitle,
       detailSheets,
     )
   }
@@ -2182,7 +2185,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       return true
     }
     val other = other as PlatformNativeSheetApplyDetailPatchRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.clearSubtitle, other.clearSubtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets)
   }
 
   override fun hashCode(): Int {
@@ -2191,11 +2194,12 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.items)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.subtitle)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.clearSubtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.detailSheets)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, title=$title, subtitle=$subtitle, detailSheets=$detailSheets)"
+    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, title=$title, subtitle=$subtitle, clearSubtitle=$clearSubtitle, detailSheets=$detailSheets)"
   }
 }
 

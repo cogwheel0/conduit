@@ -31,6 +31,11 @@ final _requestAppStoreReviewChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -58,6 +63,35 @@ void main() {
       _requestAppStoreReviewChannel,
       null,
     );
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _applyDetailPatchChannel,
+      null,
+    );
+  });
+
+  test('detail patch sends an explicit subtitle clear instruction', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+
+    final applied = await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: 'jobs',
+      items: const [],
+      clearSubtitle: true,
+    );
+
+    check(applied).isTrue();
+    check(received).isNotNull();
+    check(received!.clearSubtitle).isTrue();
+    check(received!.subtitle).isNull();
   });
 
   test('sheet item serializes generic dismiss action metadata', () {

@@ -303,41 +303,42 @@ class _DirectConnectionEditorPageState
         directDraftValidationMessage(l10n, _form.errors.form) ??
         _form.errors.profile;
     final content = <Widget>[
-      UtilityIdentityHeader(
-        leading: ConnectionMark(
-          child: Icon(
-            _policy.showsManagedSource
-                ? (context.usesCupertinoChrome
-                      ? CupertinoIcons.cloud
-                      : Icons.cloud_outlined)
-                : (context.usesCupertinoChrome
-                      ? CupertinoIcons.link
-                      : Icons.link_rounded),
-            color: theme.buttonPrimary,
-            size: IconSize.medium,
+      if (!widget.isOnboarding)
+        UtilityIdentityHeader(
+          leading: ConnectionMark(
+            child: Icon(
+              _policy.showsManagedSource
+                  ? (context.usesCupertinoChrome
+                        ? CupertinoIcons.cloud
+                        : Icons.cloud_outlined)
+                  : (context.usesCupertinoChrome
+                        ? CupertinoIcons.link
+                        : Icons.link_rounded),
+              color: theme.buttonPrimary,
+              size: IconSize.medium,
+            ),
           ),
+          title: _mode.isNew
+              ? l10n.directConnectProviderTitle
+              : l10n.editDirectConnection,
+          subtitle: _policy.showsManagedSource
+              ? l10n.openWebUiDirectConnectionEditorDescription
+              : l10n.backendChooserDirectSubtitle,
+          trailing: _policy.showsManagedSource
+              ? Text(
+                  l10n.openWebUiDirectConnectionSourceLabel,
+                  style: theme.bodySmall?.copyWith(color: theme.textTertiary),
+                )
+              : null,
         ),
-        title: _mode.isNew
-            ? l10n.directConnectProviderTitle
-            : l10n.editDirectConnection,
-        subtitle: _policy.showsManagedSource
-            ? l10n.openWebUiDirectConnectionEditorDescription
-            : l10n.backendChooserDirectSubtitle,
-        trailing: _policy.showsManagedSource
-            ? Text(
-                l10n.openWebUiDirectConnectionSourceLabel,
-                style: theme.bodySmall?.copyWith(color: theme.textTertiary),
-              )
-            : null,
-      ),
-      const SizedBox(height: Spacing.xl),
+      if (!widget.isOnboarding) const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
         DirectConnectionAvailabilitySection(form: _form),
         const SizedBox(height: Spacing.lg),
       ],
-      DirectConnectionProviderSection(form: _form),
+      DirectConnectionProviderSection(form: _form, flat: widget.isOnboarding),
       const SizedBox(height: Spacing.lg),
-      DirectConnectionDetailsSection(form: _form),
+      DirectConnectionDetailsSection(form: _form, flat: widget.isOnboarding),
       if (formError != null) ...[
         const SizedBox(height: Spacing.lg),
         Container(
@@ -355,7 +356,10 @@ class _DirectConnectionEditorPageState
         ),
       ],
       const SizedBox(height: Spacing.lg),
-      DirectConnectionAdvancedSettingsSection(form: _form),
+      DirectConnectionAdvancedSettingsSection(
+        form: _form,
+        flat: widget.isOnboarding,
+      ),
       if (!widget.isOnboarding) ...[
         const SizedBox(height: Spacing.lg),
         Wrap(
@@ -433,11 +437,7 @@ class _DirectConnectionEditorPageState
                   isLoading: _testing || _saving,
                   useNativeLabel: true,
                   onPressed:
-                      _testing ||
-                          _saving ||
-                          _deleting ||
-                          _form.authentication ==
-                              DirectAuthenticationMode.unsupported
+                      _testing || _saving || _deleting || !_form.isReadyToSubmit
                       ? null
                       : _connectAndSave,
                 ),

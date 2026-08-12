@@ -261,10 +261,6 @@
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
   },
-  "enterServerAddress": "開始するには Open-WebUI サーバーのアドレスを入力してください",
-  "@enterServerAddress": {
-    "description": "Instruction telling user to provide server URL to begin."
-  },
   "serverUrl": "サーバー URL",
   "@serverUrl": {
     "description": "Label for server URL field."
@@ -1091,7 +1087,7 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "OpenWebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
+  "tokenHint": "Open WebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
@@ -1099,7 +1095,7 @@
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
-  "apiKeyNoLongerSupported": "API キーはサポートされなくなったためログアウトされました。OpenWebUI 設定の JWT トークンでサインインしてください。",
+  "apiKeyNoLongerSupported": "API キーはサポートされなくなったためログアウトされました。Open WebUI 設定の JWT トークンでサインインしてください。",
   "@apiKeyNoLongerSupported": {
     "description": "Error message shown when user is forced logged out due to using an API key."
   },
@@ -1434,7 +1430,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "文字起こしのために録音を常に OpenWebUI サーバーへ送信します。",
+  "sttEngineServerDescription": "文字起こしのために録音を常に Open WebUI サーバーへ送信します。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1500,7 +1496,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "常に OpenWebUI サーバーに音声をリクエストします。",
+  "ttsEngineServerDescription": "常に Open WebUI サーバーに音声をリクエストします。",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -2479,21 +2475,21 @@
   },
   "globalSystemPrompt": "グローバルシステムプロンプト",
   "@globalSystemPrompt": {
-    "description": "Title for the OpenWebUI user-level system prompt setting."
+    "description": "Title for the Open WebUI user-level system prompt setting."
   },
   "modelSystemPrompts": "モデルのシステムプロンプト",
   "@modelSystemPrompts": {
-    "description": "Title for the OpenWebUI model-level system prompts list."
+    "description": "Title for the Open WebUI model-level system prompts list."
   },
   "folderSystemPrompts": "フォルダーのシステムプロンプト",
   "@folderSystemPrompts": {
-    "description": "Title for the OpenWebUI folder-level system prompts list."
+    "description": "Title for the Open WebUI folder-level system prompts list."
   },
-  "openWebuiModelSettings": "OpenWebUI モデル設定",
+  "openWebuiModelSettings": "Open WebUI モデル設定",
   "@openWebuiModelSettings": {
     "description": "Subtitle for model prompt settings before models load."
   },
-  "openWebuiFolderSettings": "OpenWebUI フォルダー設定",
+  "openWebuiFolderSettings": "Open WebUI フォルダー設定",
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
@@ -2517,9 +2513,9 @@
       }
     }
   },
-  "unableToLoadOpenWebuiSettings": "OpenWebUI 設定を読み込めません。",
+  "unableToLoadOpenWebuiSettings": "Open WebUI 設定を読み込めません。",
   "@unableToLoadOpenWebuiSettings": {
-    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+    "description": "Error shown when user settings cannot be loaded from Open WebUI."
   },
   "unableToLoadModels": "モデルを読み込めません。",
   "@unableToLoadModels": {
@@ -2541,11 +2537,11 @@
   "@tapToLoadServerPromptSettings": {
     "description": "Subtitle for model rows whose prompt details are loaded on demand."
   },
-  "loadingFromOpenWebui": "OpenWebUI から読み込み中...",
+  "loadingFromOpenWebui": "Open WebUI から読み込み中...",
   "@loadingFromOpenWebui": {
     "description": "Loading subtitle for server-backed settings."
   },
-  "globalSystemPromptEditorDescription": "OpenWebUI のユーザー設定に保存され、デフォルトのチャットシステムプロンプトとして使用されます。",
+  "globalSystemPromptEditorDescription": "Open WebUI のユーザー設定に保存され、デフォルトのチャットシステムプロンプトとして使用されます。",
   "@globalSystemPromptEditorDescription": {
     "description": "Description in the global system prompt editor."
   },
@@ -2563,7 +2559,7 @@
       }
     }
   },
-  "modelSystemPromptEditorDescription": "OpenWebUI モデルの params.system に保存されます。",
+  "modelSystemPromptEditorDescription": "Open WebUI モデルの params.system に保存されます。",
   "@modelSystemPromptEditorDescription": {
     "description": "Description for editable model system prompts."
   },
@@ -2585,7 +2581,7 @@
       }
     }
   },
-  "folderSystemPromptEditorDescription": "OpenWebUI フォルダーの data.system_prompt に保存されます。",
+  "folderSystemPromptEditorDescription": "Open WebUI フォルダーの data.system_prompt に保存されます。",
   "@folderSystemPromptEditorDescription": {
     "description": "Description for folder system prompt editors."
   },
@@ -2611,7 +2607,7 @@
   "defaultImageGenerationModelDescription": "OpenRouter の画像モデル ID を入力します。空欄の場合は OpenRouter のデフォルトを使用します。",
   "openRouterDefaultImageGenerationModel": "OpenRouter のデフォルト（openai/gpt-5-image）",
   "yourSystemPrompt": "あなたのシステムプロンプト",
-  "yourSystemPromptDescription": "OpenWebUI がチャットに適用する個人用システムプロンプトを設定します。",
+  "yourSystemPromptDescription": "Open WebUI がチャットに適用する個人用システムプロンプトを設定します。",
   "memoryTitle": "メモリ",
   "memoryEnabledDescription": "保存済みメモリを今後のチャットでサーバーが使用できるようにします。",
   "memoryDisabledDescription": "保存済みメモリはサーバーに残りますが、チャットには挿入されません。",
@@ -4255,7 +4251,7 @@
   "hermesServerUrlTitle": "Server URL",
   "hermesApiKeyTitle": "API key",
   "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API_SERVER_KEY",
+  "hermesApiKeyPlaceholder": "Enter API key",
   "hermesMemoryKeyTitle": "Memory key (optional)",
   "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
   "hermesCapabilitiesTitle": "Capabilities",
@@ -4367,7 +4363,6 @@
   "directProfilesEmptyTitle": "No direct connections yet",
   "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
   "directConnectionsSectionTitle": "Connections",
-  "directSetupRequiresConnection": "Add and enable at least one valid connection to continue.",
   "directSavedDataUnreadable": "The saved connection data could not be read.",
   "directSecureStorageUnavailable": "Check secure storage access and try again.",
   "onDevice": "On device",
@@ -4450,5 +4445,60 @@
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "あと{count}行を表示",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
-  "markdownShowLess": "表示を減らす"
+  "markdownShowLess": "表示を減らす",
+  "colorScheme": "カラースキーム",
+  "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
+  "passwordChangeDescription": "アカウントのパスワードを更新",
+  "profileDetailsSummary": "自己紹介、性別、生年月日",
+  "notificationRequiresMaster": "この設定を変更するには通知をオンにしてください。",
+  "notificationRequiresSound": "この設定を変更するにはサウンドをオンにしてください。",
+  "enabled": "オン",
+  "disabled": "オフ",
+  "hermesJobNew": "新しいスケジュールジョブ",
+  "hermesJobAdminDisabled": "このサーバーではジョブ管理が無効です。スケジュールは読み取り専用です。",
+  "hermesJobEmptyMessage": "プロンプトを自動実行するスケジュールジョブを作成します。",
+  "hermesJobLoadFailed": "スケジュールジョブを読み込めませんでした。Hermesへの接続を確認して、もう一度お試しください。",
+  "hermesJobCreateFailed": "スケジュールジョブを作成できませんでした。",
+  "hermesJobCreated": "スケジュールジョブを作成しました。",
+  "hermesJobPaused": "一時停止中",
+  "hermesJobRunNow": "今すぐ実行",
+  "hermesJobEdit": "スケジュールジョブを編集",
+  "hermesJobDelete": "スケジュールジョブを削除",
+  "hermesJobResumeFailed": "スケジュールジョブを再開できませんでした。",
+  "hermesJobPauseFailed": "スケジュールジョブを一時停止できませんでした。",
+  "hermesJobResumed": "スケジュールジョブを再開しました。",
+  "hermesJobPausedSuccess": "スケジュールジョブを一時停止しました。",
+  "hermesJobRunFailed": "スケジュールジョブを実行できませんでした。",
+  "hermesJobStarted": "スケジュールジョブを開始しました。",
+  "hermesJobUpdateFailed": "スケジュールジョブを更新できませんでした。",
+  "hermesJobUpdated": "スケジュールジョブを更新しました。",
+  "hermesJobDeleteTitle": "ジョブを削除",
+  "hermesJobDeleteMessage": "このスケジュールジョブを削除しますか？この操作は取り消せません。",
+  "hermesJobDeleteFailed": "スケジュールジョブを削除できませんでした。",
+  "hermesJobDeleted": "スケジュールジョブを削除しました。",
+  "hermesJobEditorEditTitle": "ジョブを編集",
+  "hermesJobNameHint": "毎日のまとめ",
+  "hermesJobPromptLabel": "プロンプト",
+  "hermesJobPromptHint": "実行するたびにエージェントに何をさせますか？",
+  "hermesJobScheduleLabel": "スケジュール",
+  "hermesJobScheduleHint": "0 9 * * * または every 2h",
+  "hermesJobTooLong": "{count}文字以内で入力してください",
+  "hermesJobScheduleInvalid": "期間、間隔、日付、時刻、または有効なcronスケジュールを入力してください。",
+  "hermesJobScheduleHelp": "cron（0 9 * * *）、間隔（every 2h）、遅延（30m）、またはISO形式の日時を使用できます。",
+  "hermesJobsSheetSubtitle": "スケジュールを一時停止したり、次の実行内容を確認したりできます。",
+  "hermesJobsSheetReview": "実行時刻を確認し、スケジュールを一時停止します。",
+  "hermesJobsManageDescription": "スケジュールの作成、編集、実行、削除ができます。",
+  "hermesJobsEmptyManageHint": "「管理」からスケジュールされたプロンプトを作成できます。",
+  "hermesLastStatus": "前回のステータス：{status}",
+  "hermesSessionUntitled": "無題の会話",
+  "hermesSessionFork": "フォーク",
+  "hermesSessionRenameTitle": "会話名を変更",
+  "hermesSessionNameHint": "会話名",
+  "hermesSessionDeleteTitle": "会話を削除",
+  "hermesSessionDeleteMessage": "このHermesの会話を削除しますか？この操作は取り消せません。",
+  "hermesSessionForkFailed": "会話をフォークできませんでした。",
+  "hermesSessionRenameFailed": "会話名を変更できませんでした。",
+  "hermesSessionDeleteFailed": "会話を削除できませんでした。",
+  "hermesSessionLoadFailed": "この会話を読み込めませんでした。接続を確認して、もう一度お試しください。",
+  "hermesMemoryKeyFieldLabel": "メモリキー"
 }

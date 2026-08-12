@@ -54,10 +54,7 @@ void main() {
     await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.text('Direct Connections'), findsOneWidget);
-    expect(
-      find.text('Connect to OpenAI-compatible APIs and Ollama'),
-      findsOneWidget,
-    );
+    expect(find.text('OpenAI-compatible APIs and Ollama'), findsOneWidget);
     expect(find.text('Connect to Open WebUI'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);

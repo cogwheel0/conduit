@@ -1,4 +1,3 @@
-import 'package:checks/checks.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/models/channel.dart';
@@ -25,36 +24,19 @@ import 'package:go_router/go_router.dart';
 import 'sidebar_page_test_support.dart';
 
 void main() {
-  testWidgets('empty notes tab shows a refresh action below the message', (
+  testWidgets('empty notes tab shows a create action below the message', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
-    final pendingRefresh = controllers.keepNoteRefreshPending();
-
     await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
     await tester.pumpAndSettle();
 
     final context = tester.element(find.byType(SidebarPage));
     final l10n = AppLocalizations.of(context)!;
-    final refreshLabel = MaterialLocalizations.of(
-      context,
-    ).refreshIndicatorSemanticLabel;
-
-    final refreshAction = sidebarTestCheckEmptyStateRefreshButtonBelow(
-      tester,
-      layer: SidebarTestSidebarTabLayer.notes,
-      message: l10n.noNotesYet,
-      refreshLabel: refreshLabel,
-    );
-    await tester.tap(refreshAction);
-    await tester.tap(refreshAction);
-    await tester.pump();
-
-    check(controllers.noteRefreshCalls).equals(1);
-    pendingRefresh.complete();
-    await tester.pumpAndSettle();
+    expect(find.text(l10n.noNotesYet), findsOneWidget);
+    expect(find.text(l10n.createNote), findsOneWidget);
   });
 
   testWidgets('notes and channels use flat chat-style sidebar rows', (

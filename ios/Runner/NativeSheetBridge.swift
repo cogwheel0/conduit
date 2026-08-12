@@ -1356,7 +1356,9 @@ final class NativeSheetBridge: NativeSheetHostApi {
             let patched = NativeSheetDetail(
                 id: existing.id,
                 title: request.title ?? existing.title,
-                subtitle: request.subtitle ?? existing.subtitle,
+                subtitle: request.clearSubtitle
+                    ? nil
+                    : request.subtitle ?? existing.subtitle,
                 items: items,
                 sections: existing.sections,
                 confirmActionId: existing.confirmActionId,
@@ -2961,10 +2963,77 @@ private extension UIImage {
 }
 
 private final class NativeSheetNavigationController: UINavigationController {
+    private let gradientBlurView = NativeNavigationGradientBlurView()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         modalPresentationStyle = .pageSheet
         navigationBar.prefersLargeTitles = false
+
+        // Match Flutter-owned Conduit chrome with system material whose blur
+        // and tint both dissolve into scrolling content below the toolbar.
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = nil
+        appearance.backgroundColor = .clear
+        appearance.shadowColor = .clear
+        navigationBar.standardAppearance = appearance
+        navigationBar.scrollEdgeAppearance = appearance
+        navigationBar.compactAppearance = appearance
+
+        gradientBlurView.isUserInteractionEnabled = false
+        view.insertSubview(gradientBlurView, belowSubview: navigationBar)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let toolbarBottom = navigationBar.frame.maxY
+        gradientBlurView.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: view.bounds.width,
+            height: toolbarBottom + 30
+        )
+    }
+}
+
+private final class NativeNavigationGradientBlurView: UIVisualEffectView {
+    private let tintLayer = CAGradientLayer()
+    private let maskLayer = CAGradientLayer()
+
+    init() {
+        super.init(effect: UIBlurEffect(style: .systemMaterial))
+        layer.mask = maskLayer
+        tintLayer.colors = [
+            UIColor.systemGroupedBackground.withAlphaComponent(0.92).cgColor,
+            UIColor.systemGroupedBackground.withAlphaComponent(0.72).cgColor,
+            UIColor.systemGroupedBackground.withAlphaComponent(0.28).cgColor,
+            UIColor.clear.cgColor,
+        ]
+        tintLayer.locations = [0, 0.3, 0.65, 1]
+        contentView.layer.addSublayer(tintLayer)
+        maskLayer.colors = [UIColor.white.cgColor, UIColor.clear.cgColor]
+        maskLayer.locations = [0.55, 1]
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        tintLayer.frame = bounds
+        maskLayer.frame = bounds
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        tintLayer.colors = [
+            UIColor.systemGroupedBackground.withAlphaComponent(0.92).cgColor,
+            UIColor.systemGroupedBackground.withAlphaComponent(0.72).cgColor,
+            UIColor.systemGroupedBackground.withAlphaComponent(0.28).cgColor,
+            UIColor.clear.cgColor,
+        ]
     }
 }
 
@@ -4266,6 +4335,44 @@ private final class NativeDetailTableViewController: UITableViewController {
             return detail.sections
         }
 
+        let groupedIds: [[String]]
+        switch detail.id {
+        case "appearance":
+            groupedIds = [["theme-light", "theme-palette"], ["language"]]
+        case "voice":
+            groupedIds = [
+                ["stt-engine", "stt-language-code", "stt-silence-duration"],
+                ["tts-engine", "tts-voice-picker", "tts-speech-rate", "tts-preview"],
+            ]
+        case "notification-settings":
+            groupedIds = [
+                ["notifications-enabled"],
+                ["notification-in-app-banner", "notification-system"],
+                ["notification-sound", "notification-sound-always"],
+                ["notification-chat", "notification-channel"],
+            ]
+        case "chats":
+            groupedIds = [
+                ["default-model", "default-image-generation-model", "quick-pills"],
+                ["send-on-enter", "temporary-chat-default"],
+                ["advanced-prompt-overrides"],
+            ]
+        case "ai-memory":
+            groupedIds = [["system-prompt", "personalization-memory"]]
+        default:
+            groupedIds = []
+        }
+        if !groupedIds.isEmpty {
+            let byId = Dictionary(uniqueKeysWithValues: detail.items.map { ($0.id, $0) })
+            let grouped = groupedIds.compactMap { ids -> NativeSheetSection? in
+                let items = ids.compactMap { byId[$0] }
+                return items.isEmpty
+                    ? nil
+                    : NativeSheetSection(title: nil, footer: nil, items: items)
+            }
+            if !grouped.isEmpty { return grouped }
+        }
+
         var sections = [
             NativeSheetSection(
                 title: nil,
@@ -4578,7 +4685,13 @@ private final class NativeDetailTableViewController: UITableViewController {
         }
 
         if pendingTextValues.isEmpty {
-            navigationItem.rightBarButtonItem = closeButton()
+            // A pushed detail already has a Back button. Showing Close as
+            // well creates two competing exit actions, so reserve Close for
+            // the root controller of a presented sheet.
+            navigationItem.rightBarButtonItem =
+                navigationController?.viewControllers.first === self
+                ? closeButton()
+                : nil
             return
         }
 
@@ -6691,9 +6804,10 @@ private func configureNavigationCell(
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
     if item.iconAsset != nil {
+        let assetSize = item.id == "hermes" ? 26 : NativeSheetSettingsStyle.iconSize
         content.imageProperties.maximumSize = CGSize(
-            width: NativeSheetSettingsStyle.iconSize,
-            height: NativeSheetSettingsStyle.iconSize
+            width: assetSize,
+            height: assetSize
         )
     }
     if item.destructive {
@@ -6713,9 +6827,9 @@ private func configureNavigationCell(
 }
 
 private enum NativeSheetSettingsStyle {
-    static let defaultCellHeight: CGFloat = 50
+    static let defaultCellHeight: CGFloat = 48
     static let iconSize: CGFloat = 24
-    static let iconSpacing: CGFloat = 16
+    static let iconSpacing: CGFloat = 12
 
     static var horizontalMargin: CGFloat {
         let isWidePhone = UIDevice.current.userInterfaceIdiom == .phone &&
@@ -6730,7 +6844,7 @@ private enum NativeSheetSettingsStyle {
         tableView.estimatedRowHeight = defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedSectionHeaderHeight = 20
-        tableView.estimatedSectionFooterHeight = 44
+        tableView.estimatedSectionFooterHeight = 28
         tableView.directionalLayoutMargins = NSDirectionalEdgeInsets(
             top: 0,
             leading: horizontalMargin,
@@ -6762,9 +6876,9 @@ private enum NativeSheetSettingsStyle {
         cell.preservesSuperviewLayoutMargins = true
         cell.contentView.preservesSuperviewLayoutMargins = true
         cell.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 11,
+            top: 8,
             leading: horizontalMargin,
-            bottom: 11,
+            bottom: 8,
             trailing: horizontalMargin
         )
         let selectedBackground = UIView()

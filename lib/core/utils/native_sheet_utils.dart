@@ -187,7 +187,6 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   final speechRateSlider = NativeSheetItemConfig(
     id: 'tts-speech-rate',
     title: l10n.ttsSpeechRate,
-    subtitle: '${(appSettings.ttsSpeechRate * 100).round()}%',
     sfSymbol: 'gauge.with.dots.needle.67percent',
     kind: NativeSheetItemKind.slider,
     value: appSettings.ttsSpeechRate,

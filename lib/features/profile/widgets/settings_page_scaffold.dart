@@ -13,8 +13,9 @@ class SettingsSectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: context.conduitTheme.headingSmall?.copyWith(
-        color: context.conduitTheme.sidebarForeground,
+      style: AppTypography.labelMediumStyle.copyWith(
+        color: context.conduitTheme.textSecondary,
+        fontWeight: FontWeight.w600,
       ),
     );
   }

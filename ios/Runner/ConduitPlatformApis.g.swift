@@ -2221,6 +2221,7 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
   var items: [PlatformNativeSheetItem]
   var title: String? = nil
   var subtitle: String? = nil
+  var clearSubtitle: Bool
   var detailSheets: [PlatformNativeSheetDetail]? = nil
 
 
@@ -2230,13 +2231,15 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
     let items = pigeonVar_list[1] as! [PlatformNativeSheetItem]
     let title: String? = nilOrValue(pigeonVar_list[2])
     let subtitle: String? = nilOrValue(pigeonVar_list[3])
-    let detailSheets: [PlatformNativeSheetDetail]? = nilOrValue(pigeonVar_list[4])
+    let clearSubtitle = pigeonVar_list[4] as! Bool
+    let detailSheets: [PlatformNativeSheetDetail]? = nilOrValue(pigeonVar_list[5])
 
     return PlatformNativeSheetApplyDetailPatchRequest(
       detailId: detailId,
       items: items,
       title: title,
       subtitle: subtitle,
+      clearSubtitle: clearSubtitle,
       detailSheets: detailSheets
     )
   }
@@ -2246,6 +2249,7 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
       items,
       title,
       subtitle,
+      clearSubtitle,
       detailSheets,
     ]
   }
@@ -2253,7 +2257,7 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailId, rhs.detailId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailSheets, rhs.detailSheets)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailId, rhs.detailId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.clearSubtitle, rhs.clearSubtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailSheets, rhs.detailSheets)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2262,11 +2266,12 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
     ConduitPlatformApisPigeonInternal.deepHash(value: items, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: subtitle, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: clearSubtitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: detailSheets, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetApplyDetailPatchRequest(detailId: \(String(describing: detailId)), items: \(String(describing: items)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), detailSheets: \(String(describing: detailSheets)))"
+    return "PlatformNativeSheetApplyDetailPatchRequest(detailId: \(String(describing: detailId)), items: \(String(describing: items)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), clearSubtitle: \(String(describing: clearSubtitle)), detailSheets: \(String(describing: detailSheets)))"
   }
 }
 

@@ -134,10 +134,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -231,7 +231,7 @@ void main() {
     );
     container.read(activeConversationProvider.notifier).set(native);
 
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump(const Duration(milliseconds: 100));
 
     check(api.sharedConversationIds).deepEquals(<String>[rawId]);

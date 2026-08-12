@@ -184,9 +184,20 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   void _resetTransientLogin() {
-    if (!mounted || _isSigningIn || _loginError == null) return;
+    if (!mounted || _isSigningIn) return;
     setState(() => _loginError = null);
   }
+
+  bool get _canSubmit => switch (_authMode) {
+    AuthMode.credentials =>
+      _usernameController.text.trim().isNotEmpty &&
+          _passwordController.text.isNotEmpty,
+    AuthMode.ldap =>
+      _ldapUsernameController.text.trim().isNotEmpty &&
+          _ldapPasswordController.text.isNotEmpty,
+    AuthMode.token => _apiKeyController.text.trim().isNotEmpty,
+    AuthMode.sso => true,
+  };
 
   /// Set the default auth mode based on what the server supports.
   void _setDefaultAuthMode() {
@@ -430,23 +441,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        UtilityIdentityHeader(
-          leading: const OpenWebUiConnectionMark(),
-          title: AppLocalizations.of(context)!.backendChooserOpenWebUITitle,
-        ),
-        const SizedBox(height: Spacing.xl),
-        InsetGroupedSection(
-          title: AppLocalizations.of(context)!.openWebUIServer,
-          child: UtilityValueRow(
-            label: AppLocalizations.of(context)!.serverUrl,
-            value: _serverAddressForDisplay(_resolvedServerConfig?.url),
-            monospace: true,
-          ),
-        ),
-      ],
+    return Text(
+      _serverAddressForDisplay(_resolvedServerConfig?.url),
+      textAlign: TextAlign.center,
+      style: AppTypography.bodySmallStyle.copyWith(
+        color: context.conduitTheme.textSecondary,
+        fontFamily: AppTypography.monospaceFontFamily,
+      ),
     );
   }
 
@@ -465,6 +466,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return InsetGroupedSection(
       key: const ValueKey<String>('authentication-mode-selector'),
+      flat: true,
+      padding: EdgeInsets.zero,
       child: AdaptiveSegmentedControl(
         labels: methods.map(_authModeLabel).toList(growable: false),
         selectedIndex: selectedIndex,
@@ -523,7 +526,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InsetGroupedSection(child: form),
+        InsetGroupedSection(flat: true, child: form),
         if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
           ConnectionAttemptBanner(state: _attemptState),
@@ -809,7 +812,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return ConduitButton(
       text: buttonText,
-      onPressed: _isSigningIn
+      onPressed: _isSigningIn || !_canSubmit
           ? null
           : _authMode == AuthMode.sso
           ? _navigateToSso

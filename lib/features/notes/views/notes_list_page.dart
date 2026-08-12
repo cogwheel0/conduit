@@ -16,6 +16,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -427,7 +428,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         : dateFormat.format(note.updatedDateTime);
 
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.listPreviewMarkdown.replaceAll('\n', ' ').trim();
+    final preview = ConduitMarkdownPreprocessor.toPlainText(
+      note.listPreviewMarkdown,
+    );
     final hasContent = preview.isNotEmpty;
 
     // Compute opaque background for proper context menu snapshot rendering

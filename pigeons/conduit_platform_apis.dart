@@ -614,6 +614,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     required this.items,
     this.title,
     this.subtitle,
+    required this.clearSubtitle,
     this.detailSheets,
   });
 
@@ -621,6 +622,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   List<PlatformNativeSheetItem> items;
   String? title;
   String? subtitle;
+  bool clearSubtitle;
   List<PlatformNativeSheetDetail>? detailSheets;
 }
 

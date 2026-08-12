@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../theme/theme_extensions.dart';
 import '../adaptive_route_shell.dart';
 import '../adaptive_toolbar_components.dart';
+import '../chrome_gradient_fade.dart';
 import '../platform_ui/platform_ui.dart';
 
 /// Standard shell for settings and other calm, grouped utility screens.
@@ -37,6 +38,7 @@ class UtilityPageScaffold extends StatefulWidget {
     this.contentPadding,
     this.backNavigation,
     this.bottomActionPadding,
+    this.onTitleLongPress,
   }) : content = List<Widget>.unmodifiable(content);
 
   factory UtilityPageScaffold.auth({
@@ -46,6 +48,7 @@ class UtilityPageScaffold extends StatefulWidget {
     UtilityBackNavigation? backNavigation,
     Widget? bottomAction,
     Color? backgroundColor,
+    VoidCallback? onTitleLongPress,
   }) => UtilityPageScaffold._(
     key: key,
     title: title,
@@ -70,6 +73,7 @@ class UtilityPageScaffold extends StatefulWidget {
       Spacing.pagePadding,
       Spacing.md,
     ),
+    onTitleLongPress: onTitleLongPress,
   );
 
   factory UtilityPageScaffold.settings({
@@ -94,6 +98,7 @@ class UtilityPageScaffold extends StatefulWidget {
   final UtilityBackNavigation? backNavigation;
   final bool interactiveScrollbar;
   final EdgeInsets? bottomActionPadding;
+  final VoidCallback? onTitleLongPress;
 
   @override
   State<UtilityPageScaffold> createState() => _UtilityPageScaffoldState();
@@ -111,11 +116,22 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final defaultPadding = EdgeInsets.fromLTRB(
-      Spacing.pagePadding,
-      Spacing.lg,
-      Spacing.pagePadding,
-      Spacing.pagePadding + mediaQuery.viewPadding.bottom,
+    final basePadding =
+        (widget.contentPadding ??
+                const EdgeInsets.fromLTRB(
+                  Spacing.pagePadding,
+                  Spacing.lg,
+                  Spacing.pagePadding,
+                  Spacing.pagePadding,
+                ))
+            .resolve(Directionality.of(context));
+    final contentPadding = basePadding.copyWith(
+      top: context.usesCupertinoChrome
+          ? basePadding.top +
+                mediaQuery.viewPadding.top +
+                conduitAdaptiveToolbarHeightOf(context)
+          : basePadding.top,
+      bottom: basePadding.bottom + mediaQuery.viewPadding.bottom,
     );
     final list = ListView(
       controller: _controller,
@@ -124,7 +140,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
       physics:
           widget.physics ??
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-      padding: widget.contentPadding ?? defaultPadding,
+      padding: contentPadding,
       children: [
         for (final child in widget.content)
           Center(
@@ -144,19 +160,29 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           );
 
     final backNavigation = widget.backNavigation;
-    final backButton = backNavigation == null
+    final canPop = Navigator.of(context).canPop();
+    final backLabel =
+        backNavigation?.label ??
+        (context.usesCupertinoChrome
+            ? CupertinoLocalizations.of(context).backButtonLabel
+            : MaterialLocalizations.of(context).backButtonTooltip);
+    final backButton = backNavigation == null && !canPop
         ? null
         : AdaptiveTooltip(
-            message: backNavigation.label,
+            message: backLabel,
             child: Semantics(
-              label: backNavigation.label,
+              label: backLabel,
               button: true,
               child: ConduitAdaptiveAppBarIconButton(
-                key: backNavigation.buttonKey,
+                key:
+                    backNavigation?.buttonKey ??
+                    const ValueKey<String>('utility-route-back-button'),
                 icon: context.usesCupertinoChrome
                     ? CupertinoIcons.chevron_back
                     : Icons.arrow_back,
-                onPressed: backNavigation.onPressed,
+                onPressed:
+                    backNavigation?.onPressed ??
+                    () => Navigator.of(context).maybePop(),
               ),
             ),
           );
@@ -170,41 +196,81 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               child: backButton,
             ),
           );
-    final appBar = AdaptiveAppBar(
-      title: widget.title,
-      tintColor: context.conduitTheme.textPrimary,
-      leading: leading,
-    );
+    final title = widget.onTitleLongPress == null
+        ? Text(widget.title)
+        : GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: widget.onTitleLongPress,
+            child: Text(widget.title),
+          );
+    final appBar = context.usesCupertinoChrome
+        ? AdaptiveAppBar(
+            useNativeToolbar: false,
+            tintColor: context.conduitTheme.textPrimary,
+            cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+              textScaler: MediaQuery.textScalerOf(context),
+              leading: leading ?? const SizedBox.shrink(),
+              middle: title,
+              systemOverlayStyle: Theme.of(
+                context,
+              ).appBarTheme.systemOverlayStyle,
+            ),
+          )
+        : AdaptiveAppBar(
+            title: widget.title,
+            titleWidget: widget.onTitleLongPress == null ? null : title,
+            tintColor: context.conduitTheme.textPrimary,
+            leading: leading,
+          );
 
     return AdaptiveRouteShell(
       backgroundColor:
           widget.backgroundColor ?? context.conduitTheme.surfaceBackground,
       appBar: appBar,
-      body: PrimaryScrollController(
-        controller: _controller,
-        child: Column(
-          children: [
-            Expanded(child: scrollable),
-            if (widget.bottomAction != null)
-              SafeArea(
-                top: false,
-                minimum:
-                    widget.bottomActionPadding ??
-                    const EdgeInsets.fromLTRB(
-                      Spacing.pagePadding,
-                      Spacing.sm,
-                      Spacing.pagePadding,
-                      Spacing.sm,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: PrimaryScrollController(
+              controller: _controller,
+              child: Column(
+                children: [
+                  Expanded(child: scrollable),
+                  if (widget.bottomAction != null)
+                    SafeArea(
+                      top: false,
+                      minimum:
+                          widget.bottomActionPadding ??
+                          const EdgeInsets.fromLTRB(
+                            Spacing.pagePadding,
+                            Spacing.sm,
+                            Spacing.pagePadding,
+                            Spacing.sm,
+                          ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: widget.maxWidth,
+                          ),
+                          child: widget.bottomAction!,
+                        ),
+                      ),
                     ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                    child: widget.bottomAction!,
-                  ),
-                ),
+                ],
               ),
-          ],
-        ),
+            ),
+          ),
+          if (context.usesCupertinoChrome)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight:
+                    mediaQuery.viewPadding.top +
+                    conduitAdaptiveToolbarHeightOf(context),
+              ),
+            ),
+        ],
       ),
     );
   }

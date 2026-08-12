@@ -102,7 +102,7 @@
   "@settingsCategorySupport": {
     "description": "Settings category for project support and app information."
   },
-  "settingsDataAndConnection": "Data & Connection",
+  "settingsDataAndConnection": "Connection",
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
@@ -110,11 +110,11 @@
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
   },
-  "settingsAppearanceSubtitle": "Theme, color palette, and language",
+  "settingsAppearanceSubtitle": "Theme and language",
   "@settingsAppearanceSubtitle": {
     "description": "Subtitle for the app appearance settings destination."
   },
-  "settingsChatSubtitle": "Chat behavior, quick actions, and advanced prompts",
+  "settingsChatSubtitle": "Models, quick actions, and chat behavior",
   "@settingsChatSubtitle": {
     "description": "Subtitle for the chat settings destination."
   },
@@ -181,7 +181,7 @@
       }
     }
   },
-  "signOut": "Sign Out",
+  "signOut": "Sign out",
   "@signOut": {
     "description": "Button/title for signing out of the app."
   },
@@ -201,7 +201,7 @@
   "@keepServerDetailsDescription": {
     "description": "Description of the data retained by the keep-server-details option."
   },
-  "defaultModel": "Default Model",
+  "defaultModel": "Default model",
   "@defaultModel": {
     "description": "Label for choosing a default AI model."
   },
@@ -381,7 +381,7 @@
   "@backToServerSetup": {
     "description": "Button/back label to return to server configuration flow."
   },
-  "connectedToServer": "Connected to Server",
+  "connectedToServer": "Connected",
   "@connectedToServer": {
     "description": "Status label indicating a successful server connection."
   },
@@ -409,7 +409,7 @@
   "@credentials": {
     "description": "Authentication method label for username/password sign-in."
   },
-  "apiKey": "API Key",
+  "apiKey": "API key",
   "@apiKey": {
     "description": "Label for API key input field."
   },
@@ -417,7 +417,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "Token",
   "@jwt": {
     "description": "Authentication method label for JWT token sign-in."
   },
@@ -437,19 +437,15 @@
   "@hidePassword": {
     "description": "Tooltip for obscuring a password or session token field."
   },
-  "signInWithToken": "Sign in with token",
+  "signInWithToken": "Sign in with session token",
   "@signInWithToken": {
     "description": "Alternative sign-in method using a JWT token."
   },
-  "connectToServer": "Connect to Server",
+  "connectToServer": "Connect to server",
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
   },
-  "enterServerAddress": "Enter the address you use to open Open WebUI.",
-  "@enterServerAddress": {
-    "description": "Instruction telling user to provide server URL to begin."
-  },
-  "serverUrl": "Open WebUI address",
+  "serverUrl": "Server address",
   "@serverUrl": {
     "description": "Label for server URL field."
   },
@@ -521,7 +517,7 @@
   "@serverNotOpenWebUI": {
     "description": "Validation error when the server does not resemble Open WebUI."
   },
-  "serverUrlEmpty": "Server URL cannot be empty",
+  "serverUrlEmpty": "Enter your server address.",
   "@serverUrlEmpty": {
     "description": "Validation message for empty server URL."
   },
@@ -1133,7 +1129,7 @@
   "@aboutApp": {
     "description": "Settings tile title to view app information."
   },
-  "aboutAppSubtitle": "Conduit information and links",
+  "aboutAppSubtitle": "Version and links",
   "@aboutAppSubtitle": {
     "description": "Subtitle/description for the About section."
   },
@@ -1164,6 +1160,10 @@
   "darkMode": "Dark Mode",
   "@darkMode": {
     "description": "Label for toggling dark theme."
+  },
+  "colorScheme": "Color scheme",
+  "@colorScheme": {
+    "description": "Label for choosing System, Light, or Dark appearance."
   },
   "webSearch": "Web Search",
   "@webSearch": {
@@ -1510,7 +1510,7 @@
       }
     }
   },
-  "githubRepository": "GitHub Repository",
+  "githubRepository": "GitHub repository",
   "@githubRepository": {
     "description": "Link label pointing to the app repository."
   },
@@ -1548,11 +1548,11 @@
   "@appCustomization": {
     "description": "Title of the customization settings page."
   },
-  "appCustomizationSubtitle": "Theme, language, voice, and quickpills",
+  "appCustomizationSubtitle": "Theme, language, voice, and quick actions",
   "@appCustomizationSubtitle": {
     "description": "Subtitle shown under App Customization tile and page header."
   },
-  "quickActionsDescription": "Quickpills in chat",
+  "quickActionsDescription": "Quick actions in chat",
   "@quickActionsDescription": {
     "description": "Helper text explaining quick action pill selection in customization."
   },
@@ -1574,11 +1574,11 @@
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
   },
-  "sendOnEnter": "Send on Enter",
+  "sendOnEnter": "Send with Enter",
   "@sendOnEnter": {
     "description": "Toggle title for sending messages when pressing Enter."
   },
-  "sendOnEnterDescription": "Enter sends (soft keyboard). Cmd/Ctrl+Enter also available",
+  "sendOnEnterDescription": "Press Enter to send when using a hardware keyboard.",
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
@@ -1610,7 +1610,7 @@
   "@androidAssistantVoiceCallOption": {
     "description": "Option label for jumping straight into voice call from assistant trigger."
   },
-  "sttSettings": "Speech to Text",
+  "sttSettings": "Speech to text",
   "@sttSettings": {
     "description": "Section header for speech-to-text settings."
   },
@@ -1626,11 +1626,11 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Keep audio on this device. Voice input stops working if on-device speech recognition isn’t supported.",
+  "sttEngineDeviceDescription": "Processed on this device.",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Always send recordings to your OpenWebUI server for transcription.",
+  "sttEngineServerDescription": "Always send recordings to your Open WebUI server for transcription.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1710,11 +1710,11 @@
   "@ttsEngineServer": {
     "description": "Chip label for using server-side text-to-speech."
   },
-  "ttsEngineDeviceDescription": "Keep synthesis on this device. Voice playback stops working if on-device TTS isn’t supported.",
+  "ttsEngineDeviceDescription": "Create speech privately on this device.",
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Always request audio from your OpenWebUI server.",
+  "ttsEngineServerDescription": "Create speech using your Open WebUI server.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1726,15 +1726,15 @@
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
   },
-  "ttsSettings": "Text to Speech",
+  "ttsSettings": "Text to speech",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."
   },
-  "ttsVoice": "Voice",
+  "ttsVoice": "Playback voice",
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech Rate",
+  "ttsSpeechRate": "Speech rate",
   "@ttsSpeechRate": {
     "description": "Title for speech rate slider."
   },
@@ -1746,11 +1746,11 @@
   "@ttsVolume": {
     "description": "Title for volume slider."
   },
-  "ttsPreview": "Preview Voice",
+  "ttsPreview": "Preview voice",
   "@ttsPreview": {
     "description": "Title for preview button."
   },
-  "ttsSystemDefault": "System Default",
+  "ttsSystemDefault": "System default",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
   },
@@ -1758,7 +1758,7 @@
   "@ttsSelectVoice": {
     "description": "Title for voice picker bottom sheet."
   },
-  "ttsPreviewText": "This is a preview of the selected voice.",
+  "ttsPreviewText": "Conduit can read responses aloud using this voice.",
   "@ttsPreviewText": {
     "description": "Sample text spoken during voice preview."
   },
@@ -1970,7 +1970,7 @@
   "@searchNotes": {
     "description": "Placeholder text for notes search field."
   },
-  "createNote": "Create Note",
+  "createNote": "Create note",
   "@createNote": {
     "description": "Tooltip/button label for creating a new note."
   },
@@ -1990,7 +1990,7 @@
   "@noteConflictCopyBadge": {
     "description": "Badge label shown on a conflict-copy note in the list and editor so the user understands two copies of the note exist."
   },
-  "createFirstNoteHint": "Tap the + button to create your first note.",
+  "createFirstNoteHint": "Capture an idea, task, or reference.",
   "@createFirstNoteHint": {
     "description": "Hint text encouraging user to create their first note."
   },
@@ -2402,11 +2402,11 @@
   "@saveChat": {
     "description": "Action to save a temporary chat to history."
   },
-  "temporaryChatByDefault": "Temporary Chat by Default",
+  "temporaryChatByDefault": "Start temporary chats",
   "@temporaryChatByDefault": {
     "description": "Setting to make all new chats temporary by default."
   },
-  "temporaryChatByDefaultDescription": "New chats won't be saved to history unless you choose to save them",
+  "temporaryChatByDefaultDescription": "Do not save new chats unless you choose to keep them.",
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
@@ -2607,7 +2607,7 @@
   "@closeSidebar": {
     "description": "Tooltip for the sidebar close button"
   },
-  "channelCreateTitle": "Create Channel",
+  "channelCreateTitle": "Create channel",
   "@channelCreateTitle": {
     "description": "Title for the create channel dialog"
   },
@@ -2648,6 +2648,7 @@
     "description": "Confirmation message when leaving a channel"
   },
   "channelEmptyState": "No channels yet",
+  "channelEmptyHint": "Create a channel to start a group conversation.",
   "@channelEmptyState": {
     "description": "Message shown when there are no channels"
   },
@@ -2719,7 +2720,7 @@
       }
     }
   },
-  "shareChat": "Share Chat",
+  "shareChat": "Share chat",
   "@shareChat": {
     "description": "Dialog title and action label for sharing a chat."
   },
@@ -2739,11 +2740,11 @@
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
-  "copyLink": "Copy Link",
+  "copyLink": "Copy link",
   "@copyLink": {
     "description": "Button label to copy a newly created shared chat URL."
   },
-  "updateAndCopyLink": "Update and Copy Link",
+  "updateAndCopyLink": "Update and copy link",
   "@updateAndCopyLink": {
     "description": "Button label to refresh a shared chat snapshot and copy the URL."
   },
@@ -2767,27 +2768,27 @@
   "@deleteSharedLinkFailed": {
     "description": "Snackbar shown when deleting a shared chat link fails."
   },
-  "systemPrompts": "System Prompts",
+  "systemPrompts": "System prompts",
   "@systemPrompts": {
     "description": "Section title for server-backed system prompt settings."
   },
   "globalSystemPrompt": "Global system prompt",
   "@globalSystemPrompt": {
-    "description": "Title for the OpenWebUI user-level system prompt setting."
+    "description": "Title for the Open WebUI user-level system prompt setting."
   },
   "modelSystemPrompts": "Model system prompts",
   "@modelSystemPrompts": {
-    "description": "Title for the OpenWebUI model-level system prompts list."
+    "description": "Title for the Open WebUI model-level system prompts list."
   },
   "folderSystemPrompts": "Folder system prompts",
   "@folderSystemPrompts": {
-    "description": "Title for the OpenWebUI folder-level system prompts list."
+    "description": "Title for the Open WebUI folder-level system prompts list."
   },
-  "openWebuiModelSettings": "OpenWebUI model settings",
+  "openWebuiModelSettings": "Open WebUI model settings",
   "@openWebuiModelSettings": {
     "description": "Subtitle for model prompt settings before models load."
   },
-  "openWebuiFolderSettings": "OpenWebUI folder settings",
+  "openWebuiFolderSettings": "Open WebUI folder settings",
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
@@ -2811,9 +2812,9 @@
       }
     }
   },
-  "unableToLoadOpenWebuiSettings": "Unable to load OpenWebUI settings.",
+  "unableToLoadOpenWebuiSettings": "Unable to load Open WebUI settings.",
   "@unableToLoadOpenWebuiSettings": {
-    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+    "description": "Error shown when user settings cannot be loaded from Open WebUI."
   },
   "unableToLoadModels": "Unable to load models.",
   "@unableToLoadModels": {
@@ -2835,11 +2836,11 @@
   "@tapToLoadServerPromptSettings": {
     "description": "Subtitle for model rows whose prompt details are loaded on demand."
   },
-  "loadingFromOpenWebui": "Loading from OpenWebUI...",
+  "loadingFromOpenWebui": "Loading from Open WebUI...",
   "@loadingFromOpenWebui": {
     "description": "Loading subtitle for server-backed settings."
   },
-  "globalSystemPromptEditorDescription": "Saved to your OpenWebUI user settings and used as the default chat system prompt.",
+  "globalSystemPromptEditorDescription": "Saved to your Open WebUI user settings and used as the default chat system prompt.",
   "@globalSystemPromptEditorDescription": {
     "description": "Description in the global system prompt editor."
   },
@@ -2857,7 +2858,7 @@
       }
     }
   },
-  "modelSystemPromptEditorDescription": "Saved to OpenWebUI model params.system.",
+  "modelSystemPromptEditorDescription": "Saved to Open WebUI model params.system.",
   "@modelSystemPromptEditorDescription": {
     "description": "Description for editable model system prompts."
   },
@@ -2879,7 +2880,7 @@
       }
     }
   },
-  "folderSystemPromptEditorDescription": "Saved to OpenWebUI folder data.system_prompt.",
+  "folderSystemPromptEditorDescription": "Saved to Open WebUI folder data.system_prompt.",
   "@folderSystemPromptEditorDescription": {
     "description": "Description for folder system prompt editors."
   },
@@ -2895,7 +2896,7 @@
   "@close": {
     "description": "Button label to close a dialog or sheet."
   },
-  "connectionHealth": "Connection Health",
+  "connectionHealth": "Connection health",
   "@connectionHealth": {
     "description": "Section title for connection health information."
   },
@@ -2903,7 +2904,7 @@
   "@personalization": {
     "description": "Title for the personalization settings page."
   },
-  "personalizationSubtitle": "Default model, personal prompt, and memories",
+  "personalizationSubtitle": "Personal prompt and memories",
   "defaultImageGenerationModel": "Default image generation model",
   "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
   "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
@@ -2923,7 +2924,7 @@
   "@yourSystemPrompt": {
     "description": "Label for the user's server-backed system prompt."
   },
-  "yourSystemPromptDescription": "Set a personal system prompt that OpenWebUI will apply to your chats.",
+  "yourSystemPromptDescription": "Set a personal system prompt that Open WebUI applies to your chats.",
   "@yourSystemPromptDescription": {
     "description": "Helper text for editing the user's system prompt."
   },
@@ -2935,7 +2936,7 @@
   "@memoryEnabledDescription": {
     "description": "Description shown when memory is enabled."
   },
-  "memoryDisabledDescription": "Saved memories stay on the server, but they will not be injected into chats.",
+  "memoryDisabledDescription": "Memory is off. Saved memories remain on the server.",
   "@memoryDisabledDescription": {
     "description": "Description shown when memory is disabled."
   },
@@ -3003,7 +3004,7 @@
   "@advancedPromptOverrides": {
     "description": "Title for advanced model/folder prompt override settings."
   },
-  "advancedPromptOverridesDescription": "Model-level prompt overrides live in App & Chat.",
+  "advancedPromptOverridesDescription": "Set a custom system prompt for individual models.",
   "@advancedPromptOverridesDescription": {
     "description": "Subtitle for the advanced prompt overrides shortcut."
   },
@@ -3011,7 +3012,7 @@
   "@audioSettingsTitle": {
     "description": "Title for the audio settings page."
   },
-  "audioSettingsSubtitle": "Speech to text and text to speech",
+  "audioSettingsSubtitle": "Dictation and spoken responses",
   "@audioSettingsSubtitle": {
     "description": "Subtitle for the audio settings hub tile."
   },
@@ -3250,6 +3251,14 @@
   "passwordChangesLabel": "Password changes",
   "@passwordChangesLabel": {
     "description": "Label for whether password changes are enabled."
+  },
+  "passwordChangeDescription": "Update your account password",
+  "@passwordChangeDescription": {
+    "description": "Subtitle for the action that updates the account password."
+  },
+  "profileDetailsSummary": "Bio, gender, and birthday",
+  "@profileDetailsSummary": {
+    "description": "Subtitle for the profile details editor."
   },
   "apiKeysLabel": "API keys",
   "@apiKeysLabel": {
@@ -3807,7 +3816,7 @@
   "@notificationsTitle": {
     "description": "Title of the notification settings page and the profile row that opens it."
   },
-  "notificationsSubtitle": "Alerts for replies, messages, and finished responses",
+  "notificationsSubtitle": "Banners, system alerts, and sounds",
   "@notificationsSubtitle": {
     "description": "Subtitle for the Notifications row in the profile/settings list."
   },
@@ -3815,7 +3824,7 @@
   "@notificationsEnabledTitle": {
     "description": "Master toggle title for all notifications."
   },
-  "notificationsEnabledDescription": "Receive alerts when the app is in the background and inside the app.",
+  "notificationsEnabledDescription": "Allow notification banners and system alerts.",
   "@notificationsEnabledDescription": {
     "description": "Master toggle description."
   },
@@ -3847,7 +3856,7 @@
   "@notificationSystemTitle": {
     "description": "Toggle title for OS-level notifications shown when the app is backgrounded."
   },
-  "notificationSystemDescription": "Show notifications outside the app when it is in the background.",
+  "notificationSystemDescription": "Show an alert when Conduit is in the background.",
   "@notificationSystemDescription": {
     "description": "Toggle description for system notifications."
   },
@@ -3866,6 +3875,22 @@
   "notificationChannelDescription": "Notify when someone sends a message in a channel or DM.",
   "@notificationChannelDescription": {
     "description": "Toggle description for channel-message notifications."
+  },
+  "notificationRequiresMaster": "Turn on notifications to change this setting.",
+  "@notificationRequiresMaster": {
+    "description": "Shown when an option is unavailable because notifications are off."
+  },
+  "notificationRequiresSound": "Turn on Sound to change this setting.",
+  "@notificationRequiresSound": {
+    "description": "Shown when Always play sound is unavailable because Sound is off."
+  },
+  "enabled": "On",
+  "@enabled": {
+    "description": "Short status label for an enabled setting."
+  },
+  "disabled": "Off",
+  "@disabled": {
+    "description": "Short status label for a disabled setting."
   },
   "notificationChannelMessagesName": "Messages",
   "@notificationChannelMessagesName": {
@@ -3888,16 +3913,16 @@
     "description": "Shown when the user enables notifications but the OS permission was denied."
   },
   "workspaceTitle": "Workspace",
-  "workspaceSubtitle": "Manage server resources and access.",
+  "workspaceSubtitle": "Manage server resources and access",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
   "workspacePrompts": "Prompts",
   "workspaceTools": "Tools",
   "workspaceSkills": "Skills",
   "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
+  "workspaceEmpty": "No items yet.",
   "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
+  "workspaceUnsupported": "This server does not support workspace management.",
   "workspaceLoadFailed": "Workspace could not be loaded.",
   "workspaceRetry": "Retry",
   "workspaceSelectItem": "Select an item to view its details.",
@@ -4463,7 +4488,7 @@
   "@workspaceToolContentHint": {"description":"Placeholder for the empty tool Python source editor."},
   "workspaceToolContentRequired": "Add Python source before saving.",
   "@workspaceToolContentRequired": {"description":"Validation error when the tool source is empty."},
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
+  "workspaceToolWarning": "Tools run arbitrary Python on the server. Only add code from sources you trust.",
   "@workspaceToolWarning": {"description":"Security warning shown beneath the tool source editor."},
   "workspaceToolSaved": "Tool saved",
   "@workspaceToolSaved": {"description":"Confirmation that a tool was saved."},
@@ -4501,7 +4526,7 @@
   "@workspaceToolImportUrlFailed": {"description":"Error shown when a tool URL import fails."},
   "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
   "@workspaceToolImportUrlHost": {"description":"Validation error when the tool import URL is not a permitted GitHub host."},
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
+  "workspaceToolImportUrlLoaded": "Tool loaded. Review and save.",
   "@workspaceToolImportUrlLoaded": {"description":"Confirmation that a tool was loaded from a URL into the unsaved editor."},
   "workspaceToolExport": "Export tools",
   "@workspaceToolExport": {"description":"Overflow action that exports tools as JSON."},
@@ -4557,7 +4582,7 @@
   "@hermesAgentSettingsTitle": {
     "description": "Title for the profile option that opens Hermes Agent settings."
   },
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
+  "hermesAgentSettingsSubtitle": "Self-hosted agent",
   "@hermesAgentSettingsSubtitle": {
     "description": "Subtitle for the profile option that opens Hermes Agent settings."
   },
@@ -4573,7 +4598,7 @@
   "@directConnectionsTitle": {
     "description": "Title for settings that manage direct model API connections."
   },
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
+  "directConnectionsSubtitle": "OpenAI-compatible APIs and Ollama",
   "@directConnectionsSubtitle": {
     "description": "Subtitle for the direct connections profile option."
   },
@@ -4771,7 +4796,7 @@
   "@ollamaCloudBaseUrlHint": {
     "description": "Base URL field hint for the official Ollama Cloud API."
   },
-  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
+  "ollamaCloudBaseUrlDescription": "Connect to Ollama Cloud with an API key.",
   "@ollamaCloudBaseUrlDescription": {
     "description": "Help text for configuring the official Ollama Cloud API."
   },
@@ -4893,7 +4918,7 @@
   "@directOpenRouterUrlInvalid": {
     "description": "Validation error shown when an OpenRouter direct connection does not use an approved API root."
   },
-  "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
+  "directOpenRouterBaseUrlDescription": "Connect with an OpenRouter API key.",
   "@directOpenRouterBaseUrlDescription": {
     "description": "Help text shown below the OpenRouter direct connection base URL."
   },
@@ -4913,7 +4938,7 @@
   "@directResponses": {
     "description": "Option for the OpenAI Responses protocol."
   },
-  "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
+  "directChatCompletionsDescription": "For OpenAI-compatible APIs.",
   "@directChatCompletionsDescription": {
     "description": "Help text for the direct Chat Completions option."
   },
@@ -4983,11 +5008,11 @@
   "@syncDirectHistory": {
     "description": "Title for the direct chat history synchronization preference."
   },
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
+  "syncDirectHistorySubtitle": "Save new direct chats to your Open WebUI account.",
   "@syncDirectHistorySubtitle": {
     "description": "Description of the default direct chat history policy."
   },
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
+  "directHistoryLocalOnlySubtitle": "Keep new direct chats only on this device.",
   "@directHistoryLocalOnlySubtitle": {
     "description": "Description shown when direct chat history sync is disabled."
   },
@@ -4995,7 +5020,7 @@
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
+  "backendChooserDirectSubtitle": "Connect an API provider and keep its credentials on this device.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -5015,17 +5040,13 @@
   "@directProfilesEmptyTitle": {
     "description": "Empty-state title on direct connections settings."
   },
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
+  "directProfilesEmptySubtitle": "Add an API provider to start chatting.",
   "@directProfilesEmptySubtitle": {
     "description": "Empty-state description on direct connections settings."
   },
   "directConnectionsSectionTitle": "Connections",
   "@directConnectionsSectionTitle": {
     "description": "Section title above configured direct provider profiles."
-  },
-  "directSetupRequiresConnection": "Add and enable at least one valid connection to continue.",
-  "@directSetupRequiresConnection": {
-    "description": "Onboarding hint shown until a usable direct connection exists."
   },
   "directSavedDataUnreadable": "The saved connection data could not be read.",
   "@directSavedDataUnreadable": {
@@ -5051,7 +5072,7 @@
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."
   },
-  "backendChooserPrompt": "Choose a service to start with. You can add others later.",
+  "backendChooserPrompt": "You can add other services later.",
   "@backendChooserPrompt": {
     "description": "Prompt on the first-run backend chooser."
   },
@@ -5067,7 +5088,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Use a self-hosted Hermes Agent without Open WebUI.",
+  "backendChooserHermesSubtitle": "Connect your self-hosted agent.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
@@ -5111,11 +5132,11 @@
   "@hermesApiKeyTitle": {
     "description": "Label for the Hermes API key field."
   },
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
+  "hermesConfiguredReplacePlaceholder": "Configured; enter to replace",
   "@hermesConfiguredReplacePlaceholder": {
     "description": "Placeholder for a configured Hermes secret."
   },
-  "hermesApiKeyPlaceholder": "Enter API_SERVER_KEY",
+  "hermesApiKeyPlaceholder": "Enter API key",
   "@hermesApiKeyPlaceholder": {
     "description": "Placeholder for an unconfigured Hermes API key."
   },
@@ -5123,7 +5144,7 @@
   "@hermesMemoryKeyTitle": {
     "description": "Label for the optional Hermes memory key."
   },
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
+  "hermesMemoryKeyDescription": "Keeps long-term memory separate for this device. Conduit creates a key if you leave this blank.",
   "@hermesMemoryKeyDescription": {
     "description": "Help text explaining how the optional Hermes memory key scopes long-term memory."
   },
@@ -5155,7 +5176,7 @@
   "@hermesCapabilitySessions": {
     "description": "Hermes sessions capability label."
   },
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
+  "hermesTabInfoTitle": "Conversations and schedules",
   "@hermesTabInfoTitle": {
     "description": "Title explaining the Hermes sidebar tab."
   },
@@ -5171,7 +5192,7 @@
   "@hermesSelfHostedAgentLabel": {
     "description": "Fallback host label in the Hermes-only native profile sheet."
   },
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
+  "hermesNoConversationsMessage": "No conversations yet",
   "@hermesNoConversationsMessage": {
     "description": "Empty-state message in the Hermes conversations sidebar."
   },
@@ -5191,7 +5212,7 @@
   "@hermesSchedulesUnavailable": {
     "description": "Status shown when Hermes schedules cannot be loaded."
   },
-  "hermesNoSchedulesYet": "No schedules yet",
+  "hermesNoSchedulesYet": "No schedules",
   "@hermesNoSchedulesYet": {
     "description": "Status shown when no Hermes schedules exist."
   },
@@ -5217,6 +5238,55 @@
   "@hermesScheduledAgentsTitle": {
     "description": "Title of the Hermes schedules launcher."
   },
+  "hermesJobNew": "New scheduled job",
+  "hermesJobAdminDisabled": "Job administration is disabled on this server. Schedules are read-only.",
+  "hermesJobEmptyMessage": "Create a scheduled job to run a prompt automatically.",
+  "hermesJobLoadFailed": "Could not load scheduled jobs. Check the Hermes connection and try again.",
+  "hermesJobCreateFailed": "Could not create scheduled job.",
+  "hermesJobCreated": "Scheduled job created.",
+  "hermesJobPaused": "Paused",
+  "hermesJobRunNow": "Run now",
+  "hermesJobEdit": "Edit scheduled job",
+  "hermesJobDelete": "Delete scheduled job",
+  "hermesJobResumeFailed": "Could not resume scheduled job.",
+  "hermesJobPauseFailed": "Could not pause scheduled job.",
+  "hermesJobResumed": "Scheduled job resumed.",
+  "hermesJobPausedSuccess": "Scheduled job paused.",
+  "hermesJobRunFailed": "Could not run scheduled job.",
+  "hermesJobStarted": "Scheduled job started.",
+  "hermesJobUpdateFailed": "Could not update scheduled job.",
+  "hermesJobUpdated": "Scheduled job updated.",
+  "hermesJobDeleteTitle": "Delete job",
+  "hermesJobDeleteMessage": "Delete this scheduled job? This cannot be undone.",
+  "hermesJobDeleteFailed": "Could not delete scheduled job.",
+  "hermesJobDeleted": "Scheduled job deleted.",
+  "hermesJobEditorEditTitle": "Edit job",
+  "hermesJobNameHint": "Daily summary",
+  "hermesJobPromptLabel": "Prompt",
+  "hermesJobPromptHint": "What should the agent do each run?",
+  "hermesJobScheduleLabel": "Schedule",
+  "hermesJobScheduleHint": "0 9 * * * or every 2h",
+  "hermesJobTooLong": "Use {count} characters or fewer",
+  "@hermesJobTooLong": {"placeholders": {"count": {"type": "int"}}},
+  "hermesJobScheduleInvalid": "Enter a duration, interval, date, time, or valid cron schedule.",
+  "hermesJobScheduleHelp": "Use cron (0 9 * * *), an interval (every 2h), a delay (30m), or an ISO date and time.",
+  "hermesJobsSheetSubtitle": "Pause schedules or review what runs next.",
+  "hermesJobsSheetReview": "Review run times and pause schedules.",
+  "hermesJobsManageDescription": "Create, edit, run, or delete schedules.",
+  "hermesJobsEmptyManageHint": "Use Manage to create a scheduled prompt.",
+  "hermesLastStatus": "Last status: {status}",
+  "@hermesLastStatus": {"placeholders": {"status": {"type": "String"}}},
+  "hermesSessionUntitled": "Untitled conversation",
+  "hermesSessionFork": "Fork",
+  "hermesSessionRenameTitle": "Rename conversation",
+  "hermesSessionNameHint": "Conversation name",
+  "hermesSessionDeleteTitle": "Delete conversation",
+  "hermesSessionDeleteMessage": "Delete this Hermes conversation? This cannot be undone.",
+  "hermesSessionForkFailed": "Could not fork conversation.",
+  "hermesSessionRenameFailed": "Could not rename conversation.",
+  "hermesSessionDeleteFailed": "Could not delete conversation.",
+  "hermesSessionLoadFailed": "Could not load this conversation. Check the connection and try again.",
+  "hermesMemoryKeyFieldLabel": "Memory key",
   "ollamaThinking": "Thinking",
   "@ollamaThinking": {
     "description": "Title for an Ollama Cloud model thinking-level setting."
@@ -5279,7 +5349,7 @@
   "@hermesOnboardingFailed": {"description":"Error shown when Hermes onboarding fails after the server was reached."},
   "hermesConnectionDetailsTitle": "Connection details",
   "@hermesConnectionDetailsTitle": {"description":"Section title above Hermes endpoint and API key fields."},
-  "hermesMemoryKeyShortDescription": "Keeps the agent's long-term memory scoped to you. Leave blank and Conduit creates one.",
+  "hermesMemoryKeyShortDescription": "Keeps long-term memory tied to you.",
   "@hermesMemoryKeyShortDescription": {"description":"Concise summary shown on the collapsed Hermes memory-key disclosure."},
   "hermesConnectAction": "Connect Hermes",
   "@hermesConnectAction": {"description":"Primary onboarding action that tests and saves a Hermes connection."},

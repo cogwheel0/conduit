@@ -81,6 +81,7 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     final foreground = widget.destructive ? theme.error : theme.textPrimary;
     final opacity = widget.enabled ? 1.0 : 0.45;
     final semantics =
@@ -148,8 +149,10 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                             children: [
                               Text(
                                 widget.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                                maxLines: usesLargeText ? null : 2,
+                                overflow: usesLargeText
+                                    ? TextOverflow.visible
+                                    : TextOverflow.ellipsis,
                                 style: AppTypography.bodyMediumStyle.copyWith(
                                   color: foreground,
                                   fontWeight: FontWeight.w600,
@@ -164,8 +167,12 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                                     Flexible(
                                       child: Text(
                                         widget.subtitle!,
-                                        maxLines: widget.subtitleMaxLines,
-                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: usesLargeText
+                                            ? null
+                                            : widget.subtitleMaxLines,
+                                        overflow: usesLargeText
+                                            ? TextOverflow.visible
+                                            : TextOverflow.ellipsis,
                                         style: AppTypography.bodySmallStyle
                                             .copyWith(
                                               color: theme.textSecondary,
@@ -235,7 +242,7 @@ class UtilitySelectionRow extends StatelessWidget {
 
   final Widget leading;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
   final bool showDivider;
@@ -251,7 +258,10 @@ class UtilitySelectionRow extends StatelessWidget {
       subtitle: subtitle,
       selected: selected,
       onTap: onTap,
-      semanticLabel: '$title. $subtitle',
+      semanticLabel: [
+        title,
+        if (subtitle?.isNotEmpty ?? false) subtitle,
+      ].join('. '),
       padding: const EdgeInsets.symmetric(vertical: Spacing.md),
       trailing:
           trailing ??
@@ -302,6 +312,7 @@ class UtilityValueRow extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.monospace = false,
+    this.stacked = false,
     this.showDivider = false,
   });
 
@@ -311,31 +322,32 @@ class UtilityValueRow extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool monospace;
+  final bool stacked;
   final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final valueText = SelectableText(
+      value,
+      maxLines: 2,
+      textAlign: stacked ? TextAlign.start : TextAlign.end,
+      style: AppTypography.bodySmallStyle.copyWith(
+        color: theme.textSecondary,
+        fontWeight: FontWeight.w600,
+        fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
+      ),
+    );
     final row = UtilityRow(
       title: label,
+      subtitle: stacked ? value : null,
       leading: leading,
       trailing: trailing,
       onTap: onTap,
       hapticType: onTap == null ? null : HapticType.selection,
       semanticLabel: '$label. $value',
       padding: const EdgeInsets.all(Spacing.md),
-      // Selectable text is retained as a dedicated trailing value for rows
-      // that expose connection identifiers and URLs.
-      status: SelectableText(
-        value,
-        maxLines: 2,
-        textAlign: TextAlign.end,
-        style: AppTypography.bodySmallStyle.copyWith(
-          color: theme.textSecondary,
-          fontWeight: FontWeight.w600,
-          fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
-        ),
-      ),
+      status: stacked ? null : valueText,
     );
     if (!showDivider) return row;
     return DecoratedBox(

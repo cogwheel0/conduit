@@ -22,6 +22,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -794,7 +795,7 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: collection.items.isEmpty
-                  ? _emptyState(context, section)
+                  ? _emptyState(context, section, canCreate: canCreate)
                   : RefreshIndicator(
                       onRefresh: binding.onRefresh,
                       child: ListView.builder(
@@ -913,6 +914,11 @@ class _WorkspaceIosCollectionShellState
       data: (collection) => collection.query,
       orElse: () => '',
     );
+    final showSearch = binding.value.maybeWhen(
+      data: (collection) =>
+          collection.items.isNotEmpty || collection.query.isNotEmpty,
+      orElse: () => true,
+    );
     // The iOS 26 navigation bar is a native overlay rather than part of the
     // Flutter scaffold layout. Reserve exactly its safe-area and toolbar
     // extent so the search field begins below the chrome instead of behind
@@ -926,21 +932,22 @@ class _WorkspaceIosCollectionShellState
       CupertinoSliverRefreshControl(onRefresh: binding.onRefresh),
       if (nativeTopInset > 0)
         SliverToBoxAdapter(child: SizedBox(height: nativeTopInset)),
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.md,
-          ),
-          child: _WorkspaceCupertinoSearchField(
-            section: section,
-            initialQuery: currentQuery,
-            onSearch: binding.onSearch,
+      if (showSearch)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.pagePadding,
+              Spacing.md,
+              Spacing.pagePadding,
+              Spacing.md,
+            ),
+            child: _WorkspaceCupertinoSearchField(
+              section: section,
+              initialQuery: currentQuery,
+              onSearch: binding.onSearch,
+            ),
           ),
         ),
-      ),
       if (binding.filterBar != null)
         SliverToBoxAdapter(
           child: ColoredBox(
@@ -956,7 +963,7 @@ class _WorkspaceIosCollectionShellState
             ),
           ),
         ),
-      ..._contentSlivers<T>(binding, section),
+      ..._contentSlivers<T>(binding, section, canCreate: canCreate),
     ];
 
     return AdaptiveRouteShell(
@@ -967,20 +974,36 @@ class _WorkspaceIosCollectionShellState
         permitted: widget.permitted,
         canCreate: canCreate,
       ),
-      body: Material(
-        color: Colors.transparent,
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: slivers,
-        ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: slivers,
+              ),
+            ),
+          ),
+          if (PlatformInfo.isIOS)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight: nativeTopInset,
+              ),
+            ),
+        ],
       ),
     );
   }
 
   List<Widget> _contentSlivers<T>(
     _CollectionBinding<T> binding,
-    WorkspaceSection section,
-  ) {
+    WorkspaceSection section, {
+    required bool canCreate,
+  }) {
     final l10n = AppLocalizations.of(context)!;
     return binding.value.when(
       loading: () => [
@@ -1008,9 +1031,16 @@ class _WorkspaceIosCollectionShellState
         }
         if (collection.items.isEmpty) {
           return [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _emptyState(context, section),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.pagePadding,
+                  Spacing.xxl,
+                  Spacing.pagePadding,
+                  Spacing.pagePadding,
+                ),
+                child: _emptyState(context, section, canCreate: canCreate),
+              ),
             ),
           ];
         }
@@ -1085,13 +1115,24 @@ Widget _resourceTile<T>(
 }
 
 /// Shared empty-collection placeholder, keyed `workspace-empty-<section>`.
-Widget _emptyState(BuildContext context, WorkspaceSection section) {
+Widget _emptyState(
+  BuildContext context,
+  WorkspaceSection section, {
+  required bool canCreate,
+}) {
   final l10n = AppLocalizations.of(context)!;
   return ConduitEmptyState(
     key: Key('workspace-empty-${section.name}'),
     icon: _sectionIcon(section),
     title: _sectionLabel(l10n, section),
     message: l10n.workspaceEmpty,
+    action: canCreate
+        ? ConduitButton(
+            text: l10n.workspaceCreate,
+            icon: Icons.add,
+            onPressed: () => context.push(section.routes.createPattern),
+          )
+        : null,
   );
 }
 

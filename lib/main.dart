@@ -39,6 +39,8 @@ import 'features/release_notes/release_notes_coordinator.dart';
 import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
 import 'features/tools/providers/tools_providers.dart';
+import 'features/workspace/providers/workspace_capabilities_provider.dart';
+import 'features/workspace/workspace_navigation.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
 import 'core/models/tool.dart';
@@ -530,9 +532,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             ),
           );
         case NativeSheetRoutes.workspace:
+          final capabilities = ref.read(workspaceCapabilitiesProvider).value;
+          final permitted = capabilities == null
+              ? const <WorkspaceSection>[]
+              : permittedWorkspaceSections(capabilities);
+          final destination = permitted.isEmpty
+              ? Routes.workspace
+              : permitted.first.path;
           unawaited(
-            NavigationService.router.pushNamed<void>(
-              RouteNames.workspace,
+            NavigationService.router.push<void>(
+              destination,
               extra: const NativeSheetNavigationOrigin(),
             ),
           );

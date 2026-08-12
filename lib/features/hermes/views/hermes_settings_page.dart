@@ -1,5 +1,4 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -56,6 +55,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       );
 
   Future<void> _finishOnboarding() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final l10n = AppLocalizations.of(context)!;
     final result = await _connectionController.finishOnboarding(
       saved: ref.read(hermesConfigProvider),
@@ -157,92 +157,40 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
         ),
-      UtilityIdentityHeader(
-        leading: ConnectionMark(
-          color: theme.surfaceContainerHighest,
-          child: Image.asset(
-            'assets/icons/hermes_agent.png',
-            width: 28,
-            height: 28,
-            fit: BoxFit.contain,
-            color: theme.textPrimary,
-            colorBlendMode: BlendMode.srcIn,
-            filterQuality: FilterQuality.medium,
-            excludeFromSemantics: true,
-          ),
-        ),
-        title: widget.isOnboarding
-            ? l10n.backendChooserHermesTitle
-            : l10n.hermesAgentSettingsTitle,
-        subtitle: widget.isOnboarding
-            ? l10n.backendChooserHermesSubtitle
-            : l10n.hermesAgentSettingsSubtitle,
-      ),
-      const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
-        InsetGroupedSection(
-          title: l10n.enabledLabel,
-          child: InkWell(
-            onTap: () => _setHermesEnabled(!config.enabled),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.hermesEnableTitle,
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        l10n.hermesEnableSubtitle,
-                        style: AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.md),
-                AdaptiveSwitch(
-                  value: config.enabled,
-                  onChanged: _setHermesEnabled,
-                ),
-              ],
+        InsetGroupedList(
+          children: [
+            UtilityRow(
+              title: l10n.hermesEnableTitle,
+              subtitle: l10n.hermesEnableSubtitle,
+              trailing: AdaptiveSwitch(
+                value: config.enabled,
+                onChanged: _setHermesEnabled,
+              ),
+              onTap: () => _setHermesEnabled(!config.enabled),
             ),
-          ),
+          ],
         ),
         if (config.enabled && _capabilities.jobs) ...[
           const SizedBox(height: Spacing.lg),
-          InsetGroupedSection(
+          InsetGroupedList(
             title: l10n.hermesScheduledAgentsTitle,
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            child: UtilitySelectionRow(
-              leading: _badge(context, Icons.schedule),
-              title: l10n.hermesScheduledAgentsTitle,
-              subtitle: l10n.hermesReviewSchedules,
-              selected: false,
-              showSelectionIndicator: false,
-              trailing: Icon(
-                context.usesCupertinoChrome
-                    ? CupertinoIcons.chevron_forward
-                    : Icons.chevron_right,
-                color: theme.iconSecondary,
-                size: IconSize.small,
+            children: [
+              UtilityRow(
+                leading: _badge(context, Icons.schedule),
+                title: l10n.hermesReviewSchedules,
+                showChevron: true,
+                onTap: () => context.pushNamed(RouteNames.hermesJobs),
               ),
-              onTap: () => context.pushNamed(RouteNames.hermesJobs),
-            ),
+            ],
           ),
         ],
         const SizedBox(height: Spacing.lg),
       ],
       InsetGroupedSection(
         title: l10n.hermesConnectionDetailsTitle,
+        flat: true,
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -256,6 +204,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               autocorrect: false,
               errorText: urlError,
               onChanged: (_) => _connectionController.markUrlChanged(),
+              isRequired: true,
             ),
             const SizedBox(height: Spacing.md),
             AccessibleFormField(
@@ -270,6 +219,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               textInputAction: TextInputAction.next,
               autocorrect: false,
               onChanged: (_) => _connectionController.markApiKeyChanged(),
+              isRequired: true,
             ),
           ],
         ),
@@ -279,13 +229,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         key: const ValueKey<String>('hermes-memory-key-disclosure'),
         title: l10n.hermesMemoryKeyTitle,
         subtitle: l10n.hermesMemoryKeyShortDescription,
-        leading: Icon(
-          context.usesCupertinoChrome
-              ? CupertinoIcons.person_crop_circle
-              : Icons.key_outlined,
-          color: theme.iconSecondary,
-          size: IconSize.medium,
-        ),
+        flat: true,
+        contentPadding: const EdgeInsets.only(top: Spacing.md),
         expanded: _connectionController.showMemoryKey,
         onChanged: _connectionController.setShowMemoryKey,
         child: Column(
@@ -293,7 +238,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           children: [
             AccessibleFormField(
               enabled: !_connectionController.operation.isBusy,
-              label: l10n.hermesMemoryKeyTitle,
+              label: l10n.hermesMemoryKeyFieldLabel,
               hint: config.sessionKey == null || config.sessionKey!.isEmpty
                   ? l10n.hermesMemoryKeyPlaceholder
                   : l10n.hermesConfiguredReplacePlaceholder,
@@ -316,28 +261,16 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       ),
       if (!widget.isOnboarding) ...[
         const SizedBox(height: Spacing.lg),
-        Wrap(
-          spacing: Spacing.md,
-          runSpacing: Spacing.sm,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ConduitButton(
-              text: l10n.save,
-              isLoading:
-                  _connectionController.operation ==
-                  HermesConnectionOperation.saving,
-              onPressed:
-                  _connectionController.draftIsUsable(config) &&
-                      !_connectionController.operation.isBusy
-                  ? _saveSettings
-                  : null,
-            ),
             ConduitButton(
               text: l10n.testDirectConnection,
               isSecondary: true,
               isLoading:
                   _connectionController.operation ==
                   HermesConnectionOperation.testing,
+              isFullWidth: true,
               useNativeLabel: true,
               onPressed:
                   _connectionController.draftIsUsable(config) &&
@@ -345,13 +278,28 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                   ? _testConnection
                   : null,
             ),
-            if (_connectionController.attempt.isVisible)
+            const SizedBox(height: Spacing.sm),
+            ConduitButton(
+              text: l10n.save,
+              isLoading:
+                  _connectionController.operation ==
+                  HermesConnectionOperation.saving,
+              isFullWidth: true,
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
+                  ? _saveSettings
+                  : null,
+            ),
+            if (_connectionController.attempt.isVisible) ...[
+              const SizedBox(height: Spacing.sm),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 320),
                 child: ConnectionAttemptBanner(
                   state: _connectionController.attempt,
                 ),
               ),
+            ],
           ],
         ),
       ],

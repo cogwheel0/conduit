@@ -60,9 +60,14 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
 }
 
 final class DirectConnectionProviderSection extends StatelessWidget {
-  const DirectConnectionProviderSection({super.key, required this.form});
+  const DirectConnectionProviderSection({
+    super.key,
+    required this.form,
+    this.flat = false,
+  });
 
   final DirectConnectionEditorForm form;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +76,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
     if (!form.policy.editsProvider) {
       return InsetGroupedSection(
         title: l10n.directProvider,
+        flat: flat,
         child: Row(
           children: [
             _ProviderIcon(
@@ -114,6 +120,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
     return InsetGroupedSection(
       key: const ValueKey<String>('direct-provider-preset-selector'),
       title: l10n.directProvider,
+      flat: flat,
       padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
       child: Column(
         children: [
@@ -124,7 +131,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
                   : Icons.api_rounded,
             ),
             title: l10n.openAICompatible,
-            subtitle: l10n.directChatCompletionsDescription,
+            subtitle: null,
             selected: form.providerPreset == kOpenAiCompatibleAdapterKey,
             showDivider: true,
             onTap: () => select(kOpenAiCompatibleAdapterKey),
@@ -136,7 +143,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
                   : Icons.explore_outlined,
             ),
             title: l10n.openRouterProviderName,
-            subtitle: l10n.directOpenRouterBaseUrlDescription,
+            subtitle: null,
             selected: form.providerPreset == kOpenRouterProviderPreset,
             showDivider: true,
             onTap: () => select(kOpenRouterProviderPreset),
@@ -148,7 +155,7 @@ final class DirectConnectionProviderSection extends StatelessWidget {
                   : Icons.computer_outlined,
             ),
             title: l10n.ollama,
-            subtitle: l10n.ollamaCloudBaseUrlDescription,
+            subtitle: null,
             selected: form.providerPreset == kOllamaAdapterKey,
             onTap: () => select(kOllamaAdapterKey),
           ),
@@ -159,9 +166,14 @@ final class DirectConnectionProviderSection extends StatelessWidget {
 }
 
 final class DirectConnectionDetailsSection extends StatelessWidget {
-  const DirectConnectionDetailsSection({super.key, required this.form});
+  const DirectConnectionDetailsSection({
+    super.key,
+    required this.form,
+    this.flat = false,
+  });
 
   final DirectConnectionEditorForm form;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +184,7 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
     final isOpenRouter = form.isOpenRouter;
     return InsetGroupedSection(
       title: l10n.directConnectionDetailsTitle,
+      flat: flat,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -322,9 +335,11 @@ final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
   const DirectConnectionAdvancedSettingsSection({
     super.key,
     required this.form,
+    this.flat = false,
   });
 
   final DirectConnectionEditorForm form;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -334,6 +349,7 @@ final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
     return UtilityDisclosureSection(
       key: const ValueKey<String>('direct-advanced-settings-toggle'),
       title: l10n.advancedSettings,
+      flat: flat,
       subtitle: form.customHeaders.isEmpty
           ? null
           : '${l10n.directCustomHeaders}: ${form.customHeaders.length}',

@@ -84,13 +84,15 @@ class AppCustomizationPage extends ConsumerWidget {
           themeMode,
           themeDescription,
           activeTheme,
-          settings,
-          showQuickPills: hasOpenWebUiAccount,
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
       ],
       AppCustomizationSection.chat => <Widget>[
+        if (hasOpenWebUiAccount) ...[
+          _buildQuickPillsSection(context, ref, settings),
+          _sectionGap,
+        ],
         _buildChatSection(context, ref, settings),
         if (hasOpenWebUiAccount) ...[
           _sectionGap,
@@ -113,24 +115,30 @@ class AppCustomizationPage extends ConsumerWidget {
     ThemeMode themeMode,
     String themeDescription,
     TweakcnThemeDefinition activeTheme,
-    AppSettings settings, {
-    required bool showQuickPills,
-  }) {
+  ) {
+    final theme = context.conduitTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionHeader(title: AppLocalizations.of(context)!.display),
         const SizedBox(height: Spacing.sm),
-        ExpandableCard(
-          title: AppLocalizations.of(context)!.darkMode,
-          subtitle: themeDescription,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.moon_stars,
-            android: Icons.dark_mode,
-          ),
+        InsetGroupedSection(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                AppLocalizations.of(context)!.colorScheme,
+                style: theme.bodyMedium?.copyWith(
+                  color: theme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: Spacing.xxs),
+              Text(
+                themeDescription,
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
+              const SizedBox(height: Spacing.sm),
               ThemeModeSegmentedControl(
                 value: themeMode,
                 onChanged: (mode) {
@@ -140,12 +148,10 @@ class AppCustomizationPage extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: Spacing.md),
-        _buildPaletteSelector(context, ref, activeTheme),
-        if (showQuickPills) ...[
-          const SizedBox(height: Spacing.md),
-          _buildQuickPillsSection(context, ref, settings),
-        ],
+        const SizedBox(height: Spacing.sm),
+        InsetGroupedList(
+          children: [_buildPaletteSelector(context, ref, activeTheme)],
+        ),
       ],
     );
   }
@@ -161,34 +167,36 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: AppLocalizations.of(context)!.appLanguage),
-        const SizedBox(height: Spacing.sm),
-        CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.globe,
-              android: Icons.language,
+        InsetGroupedList(
+          children: [
+            UtilityRow(
+              leading: _buildIconBadge(
+                context,
+                UiUtils.platformIcon(
+                  ios: CupertinoIcons.globe,
+                  android: Icons.language,
+                ),
+                color: theme.buttonPrimary,
+              ),
+              title: AppLocalizations.of(context)!.appLanguage,
+              subtitle: languageLabel,
+              onTap: () async {
+                final selected = await _showLanguageSelector(
+                  context,
+                  currentLanguageTag,
+                );
+                if (selected == null) return;
+                if (selected == 'system') {
+                  await ref.read(appLocaleProvider.notifier).setLocale(null);
+                } else {
+                  final parsed = _parseLocaleTag(selected);
+                  await ref
+                      .read(appLocaleProvider.notifier)
+                      .setLocale(parsed ?? Locale(selected));
+                }
+              },
             ),
-            color: theme.buttonPrimary,
-          ),
-          title: AppLocalizations.of(context)!.appLanguage,
-          subtitle: languageLabel,
-          onTap: () async {
-            final selected = await _showLanguageSelector(
-              context,
-              currentLanguageTag,
-            );
-            if (selected == null) return;
-            if (selected == 'system') {
-              await ref.read(appLocaleProvider.notifier).setLocale(null);
-            } else {
-              final parsed = _parseLocaleTag(selected);
-              await ref
-                  .read(appLocaleProvider.notifier)
-                  .setLocale(parsed ?? Locale(selected));
-            }
-          },
+          ],
         ),
       ],
     );
@@ -202,7 +210,7 @@ class AppCustomizationPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
 
-    return CustomizationTile(
+    return UtilityRow(
       leading: _buildIconBadge(
         context,
         UiUtils.platformIcon(

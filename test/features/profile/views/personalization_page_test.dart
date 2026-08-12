@@ -28,12 +28,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Default Model'), findsWidgets);
+    expect(find.text('Default model'), findsWidgets);
     expect(find.text('Your System Prompt'), findsNothing);
     expect(find.text('Memory'), findsNothing);
     expect(find.text('Advanced prompt overrides'), findsNothing);
 
-    await tester.tap(find.text('Default Model').last);
+    await tester.tap(find.text('Default model').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Alpha'), findsOneWidget);

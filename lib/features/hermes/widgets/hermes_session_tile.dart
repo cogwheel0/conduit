@@ -6,6 +6,8 @@ import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
@@ -43,7 +45,7 @@ class HermesSessionTile extends ConsumerWidget {
       actions: _contextMenuActions(context, ref),
       previewBuilder: buildConversationTileContextPreview,
       child: ConversationTile(
-        title: _displayTitle(),
+        title: _displayTitle(context),
         pinned: false,
         selected: selected,
         isLoading: false,
@@ -55,35 +57,39 @@ class HermesSessionTile extends ConsumerWidget {
 
   /// Single-line label: the title, falling back to the transcript preview when
   /// the server left it untitled (e.g. cron/telegram sessions).
-  String _displayTitle() {
+  String _displayTitle(BuildContext context) {
     final title = session.title.trim();
     if (title.isNotEmpty && title != 'Untitled session') return title;
     final preview = session.preview?.trim();
     if (preview != null && preview.isNotEmpty) return preview;
-    return title.isEmpty ? 'Untitled session' : title;
+    return title.isEmpty
+        ? (AppLocalizations.of(context) ?? AppLocalizationsEn())
+              .hermesSessionUntitled
+        : title;
   }
 
   List<ConduitContextMenuAction> _contextMenuActions(
     BuildContext context,
     WidgetRef ref,
   ) {
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.arrow_branch,
         materialIcon: Icons.call_split,
-        label: 'Fork',
+        label: l10n.hermesSessionFork,
         onSelected: () => _fork(context, ref),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_outlined,
-        label: 'Rename',
+        label: l10n.rename,
         onSelected: () => _rename(context, ref),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
         materialIcon: Icons.delete_outline,
-        label: 'Delete',
+        label: l10n.delete,
         destructive: true,
         onSelected: () => _delete(context, ref),
       ),
@@ -114,7 +120,7 @@ class HermesSessionTile extends ConsumerWidget {
   Future<void> _fork(BuildContext context, WidgetRef ref) {
     return _runSessionAction(
       context,
-      'Could not fork conversation.',
+      AppLocalizations.of(context)!.hermesSessionForkFailed,
       () => ref.read(hermesSessionsProvider.notifier).fork(session.id),
     );
   }
@@ -122,15 +128,15 @@ class HermesSessionTile extends ConsumerWidget {
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
     final name = await ThemedDialogs.promptTextInput(
       context,
-      title: 'Rename conversation',
-      hintText: 'Conversation name',
+      title: AppLocalizations.of(context)!.hermesSessionRenameTitle,
+      hintText: AppLocalizations.of(context)!.hermesSessionNameHint,
       initialValue: session.title,
     );
     if (name == null || name.trim().isEmpty) return;
     if (!context.mounted) return;
     await _runSessionAction(
       context,
-      'Could not rename conversation.',
+      AppLocalizations.of(context)!.hermesSessionRenameFailed,
       () => ref
           .read(hermesSessionsProvider.notifier)
           .rename(session.id, name.trim()),
@@ -140,15 +146,15 @@ class HermesSessionTile extends ConsumerWidget {
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final confirmed = await ThemedDialogs.confirm(
       context,
-      title: 'Delete conversation',
-      message: 'Delete this Hermes conversation? This cannot be undone.',
-      confirmText: 'Delete',
+      title: AppLocalizations.of(context)!.hermesSessionDeleteTitle,
+      message: AppLocalizations.of(context)!.hermesSessionDeleteMessage,
+      confirmText: AppLocalizations.of(context)!.delete,
       isDestructive: true,
     );
     if (!confirmed || !context.mounted) return;
     await _runSessionAction(
       context,
-      'Could not delete conversation.',
+      AppLocalizations.of(context)!.hermesSessionDeleteFailed,
       () => deleteHermesSession(ref, session.id),
     );
   }
@@ -265,7 +271,7 @@ Future<void> openHermesSession(
     if (context.mounted) {
       UiUtils.showMessage(
         context,
-        'Could not load this conversation. Check the connection and try again.',
+        AppLocalizations.of(context)!.hermesSessionLoadFailed,
         isError: true,
       );
     }

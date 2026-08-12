@@ -479,6 +479,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     required List<NativeSheetItemConfig> items,
     String? title,
     String? subtitle,
+    bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) async {
     if (!_isIOS) return false;
@@ -489,6 +490,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           items: items.map((item) => item.toPlatform()).toList(),
           title: title,
           subtitle: subtitle,
+          clearSubtitle: clearSubtitle,
           detailSheets: detailSheets.isEmpty
               ? null
               : detailSheets.map((detail) => detail.toPlatform()).toList(),

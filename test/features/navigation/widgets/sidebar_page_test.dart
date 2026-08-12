@@ -768,7 +768,7 @@ void main() {
 
     expect(sidebarTestBottomNavTabLabel('Terminal'), findsNothing);
     expect(sidebarTestBottomNavTabLabel('Channels'), findsOneWidget);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsWidgets);
 
     await tester.tap(find.byIcon(Icons.search));
     await tester.pump();

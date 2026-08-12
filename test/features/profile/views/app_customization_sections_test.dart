@@ -24,8 +24,8 @@ void main() {
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Display'), findsOneWidget);
     expect(find.text('App Language'), findsWidgets);
-    expect(find.text('Quickpills in chat'), findsNothing);
-    expect(find.text('Send on Enter'), findsNothing);
+    expect(find.text('Quick actions in chat'), findsNothing);
+    expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('Transport mode'), findsNothing);
   });
 
@@ -36,33 +36,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Chat'), findsWidgets);
-    expect(find.text('Send on Enter'), findsOneWidget);
-    expect(find.text('Temporary Chat by Default'), findsOneWidget);
+    expect(find.text('Send with Enter'), findsOneWidget);
+    expect(find.text('Start temporary chats'), findsOneWidget);
     expect(find.text('Advanced prompt overrides'), findsNothing);
     expect(find.text('App Language'), findsNothing);
     expect(find.text('Transport mode'), findsNothing);
   });
 
-  testWidgets(
-    'Open WebUI Appearance opens Quick Pills without ListTile error',
-    (tester) async {
-      await tester.pumpWidget(
-        _sectionHarness(
-          AppCustomizationSection.appearance,
-          hasOpenWebUiAccount: true,
-        ),
-      );
-      await tester.pumpAndSettle();
+  testWidgets('Open WebUI Chat opens quick actions without ListTile error', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _sectionHarness(AppCustomizationSection.chat, hasOpenWebUiAccount: true),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('Quickpills in chat'), findsOneWidget);
-      await tester.tap(find.text('Quickpills in chat'));
-      await tester.pumpAndSettle();
+    expect(find.text('Quick actions in chat'), findsOneWidget);
+    await tester.tap(find.text('Quick actions in chat'));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Web'), findsOneWidget);
-      expect(find.text('Image Gen'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(find.text('Web'), findsOneWidget);
+    expect(find.text('Image Gen'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Open WebUI Chat exposes advanced prompt settings', (
     tester,
@@ -87,10 +83,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Data & Connection'), findsWidgets);
+    expect(find.text('Connection'), findsWidgets);
     expect(find.text('Transport mode'), findsOneWidget);
     expect(find.text('Disable haptics while streaming'), findsOneWidget);
-    expect(find.text('Send on Enter'), findsNothing);
+    expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('App Language'), findsNothing);
   });
 }

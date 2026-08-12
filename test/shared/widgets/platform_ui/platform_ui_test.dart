@@ -266,7 +266,7 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 sidebar tab bar uses the standard icon extent', (
+  testWidgets('iOS 26 sidebar tab bar uses the native icon extent', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -296,7 +296,7 @@ void main() {
     );
 
     final tabBar = tester.widget<CNTabBar>(find.byType(CNTabBar));
-    expect(tabBar.iconSize, kCupertinoNativeControlSymbolExtent);
+    expect(tabBar.iconSize, isNull);
     expect(tabBar.shrinkCentered, isTrue);
   });
 

@@ -66,6 +66,7 @@ class UtilityDisclosureSection extends StatelessWidget {
     this.subtitle,
     this.leading,
     this.contentPadding = const EdgeInsets.all(Spacing.md),
+    this.flat = false,
   });
 
   final String title;
@@ -75,6 +76,7 @@ class UtilityDisclosureSection extends StatelessWidget {
   final ValueChanged<bool> onChanged;
   final Widget child;
   final EdgeInsetsGeometry contentPadding;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +84,7 @@ class UtilityDisclosureSection extends StatelessWidget {
     final duration = context.motionDuration(AnimationDuration.microInteraction);
     return InsetGroupedSection(
       padding: EdgeInsets.zero,
+      flat: flat,
       child: Column(
         children: [
           UtilityRow(

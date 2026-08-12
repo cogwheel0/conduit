@@ -14,8 +14,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_search_providers.dart';
@@ -23,6 +23,7 @@ import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';
 import '../../navigation/widgets/conversation_tile.dart';
+import '../../navigation/utils/sidebar_create_action.dart';
 import '../providers/notes_providers.dart';
 import '../utils/note_context_actions.dart';
 
@@ -150,9 +151,15 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             ),
             const SizedBox(height: Spacing.md),
             ConduitButton(
-              text: refreshLabel,
-              icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-              onPressed: () => unawaited(_refreshEmptyStateNotes()),
+              text: message == AppLocalizations.of(context)!.noNotesYet
+                  ? AppLocalizations.of(context)!.createNote
+                  : refreshLabel,
+              icon: message == AppLocalizations.of(context)!.noNotesYet
+                  ? (Platform.isIOS ? CupertinoIcons.add : Icons.add)
+                  : (Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh),
+              onPressed: message == AppLocalizations.of(context)!.noNotesYet
+                  ? () => unawaited(noteSidebarCreateAction.run(context, ref))
+                  : () => unawaited(_refreshEmptyStateNotes()),
               isSecondary: true,
               isCompact: true,
               isLoading: _isRefreshingEmptyState,
@@ -412,10 +419,8 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.listPreviewMarkdown.replaceAll('\n', ' ').trim();
-    final timeAgo = LocaleDisplayFormatters.compactRelativeTime(
-      context,
-      note.updatedDateTime,
+    final preview = ConduitMarkdownPreprocessor.toPlainText(
+      note.listPreviewMarkdown,
     );
 
     return ConduitContextMenu(
@@ -439,22 +444,9 @@ class _NoteListTile extends StatelessWidget {
             horizontal: Spacing.md,
             vertical: Spacing.sm,
           ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (note.isPinned) ...[
-                Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                timeAgo,
-                style: AppTypography.sidebarSupportingStyle.copyWith(
-                  color: theme.textSecondary,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-          ),
+          trailing: note.isPinned
+              ? Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary)
+              : null,
         ),
       ),
     );

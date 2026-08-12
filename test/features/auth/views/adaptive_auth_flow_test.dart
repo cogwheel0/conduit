@@ -120,7 +120,7 @@ void main() {
       );
       check(
         adaptiveSelector.labels,
-      ).deepEquals(['Password', 'SSO', 'LDAP', 'JWT']);
+      ).deepEquals(['Password', 'SSO', 'LDAP', 'Token']);
       for (final field in tester.widgetList<AccessibleFormField>(
         find.byType(AccessibleFormField),
       )) {
@@ -158,7 +158,7 @@ void main() {
       check(renderedField.cupertinoDecoration!.border).isNull();
 
       await tester.tap(
-        find.descendant(of: selectorFinder, matching: find.text('JWT')),
+        find.descendant(of: selectorFinder, matching: find.text('Token')),
       );
       await tester.pump();
 
@@ -236,7 +236,7 @@ void main() {
     final selector = tester.widget<AdaptiveSegmentedControl>(
       find.byType(AdaptiveSegmentedControl),
     );
-    check(selector.labels).deepEquals(['LDAP', 'JWT']);
+    check(selector.labels).deepEquals(['LDAP', 'Token']);
     expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
 
     await harness.unmount(tester);
@@ -258,7 +258,7 @@ void main() {
     final selector = tester.widget<AdaptiveSegmentedControl>(
       find.byType(AdaptiveSegmentedControl),
     );
-    check(selector.labels).deepEquals(['Password', 'SSO', 'JWT']);
+    check(selector.labels).deepEquals(['Password', 'SSO', 'Token']);
 
     await harness.unmount(tester);
   });
@@ -325,7 +325,7 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
-    expect(find.text('JWT'), findsNothing);
+    expect(find.text('Token'), findsOneWidget);
 
     await harness.unmount(tester);
   });

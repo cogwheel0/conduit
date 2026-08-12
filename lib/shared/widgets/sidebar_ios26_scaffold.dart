@@ -3,6 +3,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
 
 import 'adaptive_toolbar_components.dart';
+import 'chrome_gradient_fade.dart';
 
 const double _nativeTabBarPlaceholderHeight = 50;
 
@@ -81,6 +82,16 @@ class SidebarIos26Scaffold extends StatelessWidget {
             style: TextStyle(color: textColor, fontSize: 17),
             child: body,
           ),
+          if (hasNavigationBar)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight:
+                    safePadding.top + conduitAdaptiveToolbarHeightOf(context),
+              ),
+            ),
           if (renderedBottomNavigation != null)
             Positioned(
               left: 0,

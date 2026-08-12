@@ -54,6 +54,7 @@ Future<void> directTestSubmitOnboarding(WidgetTester tester) async {
     find.byKey(const ValueKey<String>('direct-api-key-field')),
     'test-secret',
   );
+  await tester.pump();
   await tester.tap(
     find.byKey(const ValueKey<String>('direct-editor-save-button')),
   );

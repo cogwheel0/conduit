@@ -4,7 +4,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/models/model.dart';
@@ -13,7 +12,6 @@ import '../../../core/models/server_memory.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -85,8 +83,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
             ref.watch(personalizationSettingsProvider),
             ref.watch(userMemoriesProvider),
           ),
-          settingsSectionGap,
-          _buildAdvancedPromptTile(context),
         ],
       ],
     );
@@ -449,23 +445,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
           ),
         ],
       ],
-    );
-  }
-
-  Widget _buildAdvancedPromptTile(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return CustomizationTile(
-      leading: SettingsIconBadge(
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.slider_horizontal_3,
-          android: Icons.tune,
-        ),
-        color: context.conduitTheme.buttonPrimary,
-      ),
-      title: l10n.advancedPromptOverrides,
-      subtitle: l10n.advancedPromptOverridesDescription,
-      onTap: () => context.pushNamed(RouteNames.chatSettings),
     );
   }
 

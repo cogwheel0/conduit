@@ -100,6 +100,20 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     originChanged: originChanged,
   );
 
+  bool get isReadyToSubmit {
+    if (authentication == DirectAuthenticationMode.unsupported) return false;
+    if (policy.editsName && name.text.trim().isEmpty) return false;
+    final normalizedUrl = normalizeDirectBaseUrl(baseUrl.text);
+    if (DirectConnectionProfile.originOf(normalizedUrl) == null) return false;
+    if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedUrl)) return false;
+    if (!originBoundSecretsReviewed) return false;
+    if (!apiKeyRequired) return true;
+    final effectiveKey = apiKeyDirty || originChanged
+        ? apiKey.text.trim()
+        : savedProfile?.apiKey?.trim() ?? '';
+    return effectiveKey.isNotEmpty;
+  }
+
   void hydrate(
     DirectConnectionProfile? profile, {
     DirectAuthenticationMode? authentication,

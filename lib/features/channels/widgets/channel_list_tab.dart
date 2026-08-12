@@ -12,6 +12,7 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -19,6 +20,7 @@ import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
 import '../../navigation/widgets/conversation_tile.dart';
+import '../../navigation/utils/sidebar_create_action.dart';
 import '../providers/channel_providers.dart';
 import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
@@ -234,7 +236,6 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
     final searchController = ref.watch(sidebarSearchFieldControllerProvider);
@@ -253,13 +254,22 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                       .toList();
 
             if (filtered.isEmpty) {
-              return Center(
-                child: Text(
-                  l10n.channelEmptyState,
-                  style: AppTypography.sidebarSupportingStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
+              return ConduitEmptyState(
+                icon: queryLower.isEmpty ? Icons.tag : Icons.search_off,
+                title: l10n.channelEmptyState,
+                message: queryLower.isEmpty
+                    ? l10n.channelEmptyHint
+                    : l10n.tryDifferentSearch,
+                isCompact: true,
+                action: queryLower.isEmpty
+                    ? ConduitButton(
+                        text: l10n.channelCreateTitle,
+                        icon: Icons.add,
+                        isCompact: true,
+                        onPressed: () =>
+                            channelSidebarCreateAction.run(context, ref),
+                      )
+                    : null,
               );
             }
 

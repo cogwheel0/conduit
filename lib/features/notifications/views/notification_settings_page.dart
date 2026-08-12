@@ -9,7 +9,6 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../services/local_notification_service.dart';
@@ -23,13 +22,11 @@ class NotificationSettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     final settings = ref.watch(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
     final enabled = settings.notificationsEnabled;
 
     Widget tile({
-      required IconData icon,
       required String title,
       required String subtitle,
       required bool value,
@@ -37,84 +34,80 @@ class NotificationSettingsPage extends ConsumerWidget {
       bool dependantOnMaster = true,
     }) {
       final interactive = !dependantOnMaster || enabled;
-      return Opacity(
-        opacity: interactive ? 1 : 0.5,
-        child: CustomizationTile(
-          leading: SettingsIconBadge(icon: icon, color: theme.buttonPrimary),
-          title: title,
-          subtitle: subtitle,
-          showChevron: false,
-          trailing: AdaptiveSwitch(
-            value: value,
-            onChanged: interactive ? onChanged : null,
-          ),
-          onTap: interactive ? () => onChanged(!value) : null,
+      return UtilityRow(
+        enabled: interactive,
+        title: title,
+        subtitle: subtitle,
+        semanticLabel:
+            '$title. ${value ? l10n.enabled : l10n.disabled}. $subtitle',
+        trailing: AdaptiveSwitch(
+          value: value,
+          onChanged: interactive ? onChanged : null,
         ),
+        onTap: interactive ? () => onChanged(!value) : null,
       );
     }
 
     return UtilityPageScaffold.settings(
       title: l10n.notificationsTitle,
       children: [
-        tile(
-          icon: CupertinoIcons.bell_fill,
-          title: l10n.notificationsEnabledTitle,
-          subtitle: l10n.notificationsEnabledDescription,
-          value: enabled,
-          dependantOnMaster: false,
-          onChanged: (value) => _setMaster(context, ref, value),
+        InsetGroupedList(
+          children: [
+            tile(
+              title: l10n.notificationsEnabledTitle,
+              subtitle: l10n.notificationsEnabledDescription,
+              value: enabled,
+              dependantOnMaster: false,
+              onChanged: (value) => _setMaster(context, ref, value),
+            ),
+          ],
         ),
-        const SizedBox(height: Spacing.sm),
-        SettingsSectionHeader(title: l10n.notificationSystemTitle),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.app_badge,
-          title: l10n.notificationInAppBannerTitle,
-          subtitle: l10n.notificationInAppBannerDescription,
-          value: settings.notificationInAppBanner,
-          onChanged: notifier.setNotificationInAppBanner,
-        ),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.bell,
+        settingsSectionGap,
+        InsetGroupedList(
           title: l10n.notificationSystemTitle,
-          subtitle: l10n.notificationSystemDescription,
-          value: settings.notificationSystem,
-          onChanged: notifier.setNotificationSystem,
-        ),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.speaker_2_fill,
-          title: l10n.notificationSoundTitle,
-          subtitle: l10n.notificationSoundDescription,
-          value: settings.notificationSound,
-          onChanged: (value) => _setSound(ref, value),
-        ),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.speaker_3_fill,
-          title: l10n.notificationSoundAlwaysTitle,
-          subtitle: l10n.notificationSoundAlwaysDescription,
-          value: settings.notificationSoundAlways,
-          onChanged: (value) => _setSoundAlways(ref, value),
+          children: [
+            tile(
+              title: l10n.notificationInAppBannerTitle,
+              subtitle: l10n.notificationInAppBannerDescription,
+              value: settings.notificationInAppBanner,
+              onChanged: notifier.setNotificationInAppBanner,
+            ),
+            tile(
+              title: l10n.notificationSystemTitle,
+              subtitle: l10n.notificationSystemDescription,
+              value: settings.notificationSystem,
+              onChanged: notifier.setNotificationSystem,
+            ),
+            tile(
+              title: l10n.notificationSoundTitle,
+              subtitle: l10n.notificationSoundDescription,
+              value: settings.notificationSound,
+              onChanged: (value) => _setSound(ref, value),
+            ),
+            tile(
+              title: l10n.notificationSoundAlwaysTitle,
+              subtitle: l10n.notificationSoundAlwaysDescription,
+              value: settings.notificationSoundAlways,
+              onChanged: (value) => _setSoundAlways(ref, value),
+            ),
+          ],
         ),
         const SizedBox(height: Spacing.lg),
-        SettingsSectionHeader(title: l10n.notificationsTitle),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.chat_bubble_2_fill,
-          title: l10n.notificationChatTitle,
-          subtitle: l10n.notificationChatDescription,
-          value: settings.notificationChatEnabled,
-          onChanged: notifier.setNotificationChatEnabled,
-        ),
-        const SizedBox(height: Spacing.sm),
-        tile(
-          icon: CupertinoIcons.number,
-          title: l10n.notificationChannelTitle,
-          subtitle: l10n.notificationChannelDescription,
-          value: settings.notificationChannelEnabled,
-          onChanged: notifier.setNotificationChannelEnabled,
+        InsetGroupedList(
+          children: [
+            tile(
+              title: l10n.notificationChatTitle,
+              subtitle: l10n.notificationChatDescription,
+              value: settings.notificationChatEnabled,
+              onChanged: notifier.setNotificationChatEnabled,
+            ),
+            tile(
+              title: l10n.notificationChannelTitle,
+              subtitle: l10n.notificationChannelDescription,
+              value: settings.notificationChannelEnabled,
+              onChanged: notifier.setNotificationChannelEnabled,
+            ),
+          ],
         ),
       ],
     );

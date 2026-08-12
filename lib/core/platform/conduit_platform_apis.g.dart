@@ -2480,6 +2480,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     required this.items,
     this.title,
     this.subtitle,
+    required this.clearSubtitle,
     this.detailSheets,
   });
 
@@ -2491,6 +2492,8 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   String? subtitle;
 
+  bool clearSubtitle;
+
   List<PlatformNativeSheetDetail>? detailSheets;
 
   List<Object?> _toList() {
@@ -2499,6 +2502,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
       items,
       title,
       subtitle,
+      clearSubtitle,
       detailSheets,
     ];
   }
@@ -2513,7 +2517,8 @@ class PlatformNativeSheetApplyDetailPatchRequest {
       items: (result[1]! as List<Object?>).cast<PlatformNativeSheetItem>(),
       title: result[2] as String?,
       subtitle: result[3] as String?,
-      detailSheets: (result[4] as List<Object?>?)?.cast<PlatformNativeSheetDetail>(),
+      clearSubtitle: result[4]! as bool,
+      detailSheets: (result[5] as List<Object?>?)?.cast<PlatformNativeSheetDetail>(),
     );
   }
 
@@ -2526,7 +2531,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(detailId, other.detailId) && _deepEquals(items, other.items) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(detailSheets, other.detailSheets);
+    return _deepEquals(detailId, other.detailId) && _deepEquals(items, other.items) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(clearSubtitle, other.clearSubtitle) && _deepEquals(detailSheets, other.detailSheets);
   }
 
   @override
@@ -2535,7 +2540,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, title: $title, subtitle: $subtitle, detailSheets: $detailSheets)';
+    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, title: $title, subtitle: $subtitle, clearSubtitle: $clearSubtitle, detailSheets: $detailSheets)';
   }
 }
 

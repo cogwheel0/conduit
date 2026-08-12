@@ -12,7 +12,6 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
@@ -220,62 +219,23 @@ class DirectConnectionsContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final content = <Widget>[
-      UtilityIdentityHeader(
-        leading: ConnectionMark(
-          child: Icon(
-            context.usesCupertinoChrome
-                ? CupertinoIcons.link
-                : Icons.link_rounded,
-            color: theme.buttonPrimary,
-            size: IconSize.medium,
-          ),
-        ),
-        title: l10n.directConnectionsTitle,
-        subtitle: l10n.directConnectionsCombinedDescription,
-      ),
-      const SizedBox(height: Spacing.xl),
       if (showHistorySync) ...[
-        InsetGroupedSection(
-          title: l10n.syncDirectHistory,
-          child: InkWell(
-            onTap: () => onSyncChanged(!syncWithOpenWebUi),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.syncDirectHistory,
-                        style: theme.bodyMedium?.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: Spacing.xxs),
-                      Text(
-                        syncWithOpenWebUi
-                            ? l10n.syncDirectHistorySubtitle
-                            : l10n.directHistoryLocalOnlySubtitle,
-                        style: theme.bodySmall?.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Spacing.md),
-                AdaptiveSwitch(
-                  value: syncWithOpenWebUi,
-                  onChanged: onSyncChanged,
-                ),
-              ],
+        InsetGroupedList(
+          children: [
+            UtilityRow(
+              title: l10n.syncDirectHistory,
+              subtitle: syncWithOpenWebUi
+                  ? l10n.syncDirectHistorySubtitle
+                  : l10n.directHistoryLocalOnlySubtitle,
+              trailing: AdaptiveSwitch(
+                value: syncWithOpenWebUi,
+                onChanged: onSyncChanged,
+              ),
+              onTap: () => onSyncChanged(!syncWithOpenWebUi),
             ),
-          ),
+          ],
         ),
         const SizedBox(height: Spacing.lg),
       ],
@@ -285,18 +245,19 @@ class DirectConnectionsContent extends StatelessWidget {
           onAdd: onAddOpenWebUi ?? onAdd,
           onEdit: onEditOpenWebUi ?? onEdit,
           onRetry: onRetryOpenWebUi,
+          flat: isOnboarding,
         ),
         const SizedBox(height: Spacing.xl),
       ],
       _DirectConnectionSection(
         title: l10n.deviceDirectConnectionsSectionTitle,
-        description: l10n.deviceDirectConnectionsSectionDescription,
         profiles: profiles,
         sourceLabel: l10n.deviceDirectConnectionSourceLabel,
         emptyTitle: l10n.directProfilesEmptyTitle,
         emptySubtitle: l10n.directProfilesEmptySubtitle,
         onAdd: onAdd,
         onEdit: onEdit,
+        flat: isOnboarding,
       ),
     ];
 
@@ -304,25 +265,12 @@ class DirectConnectionsContent extends StatelessWidget {
       context,
       isOnboarding: isOnboarding,
       children: content,
-      bottomAction: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (onFinishOnboarding == null) ...[
-            Text(
-              l10n.directSetupRequiresConnection,
-              textAlign: TextAlign.center,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.sm),
-          ],
-          ConduitButton(
-            key: const ValueKey<String>('finish-direct-onboarding-button'),
-            text: l10n.finishDirectSetup,
-            isFullWidth: true,
-            useNativeLabel: true,
-            onPressed: onFinishOnboarding,
-          ),
-        ],
+      bottomAction: ConduitButton(
+        key: const ValueKey<String>('finish-direct-onboarding-button'),
+        text: l10n.finishDirectSetup,
+        isFullWidth: true,
+        useNativeLabel: true,
+        onPressed: onFinishOnboarding,
       ),
     );
   }
@@ -373,12 +321,14 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
     required this.onAdd,
     required this.onEdit,
     this.onRetry,
+    this.flat = false,
   });
 
   final AsyncValue<OpenWebUiDirectConnectionsSnapshot?> connections;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
   final VoidCallback? onRetry;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -392,7 +342,6 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
       children: [
         _DirectConnectionSectionHeader(
           title: l10n.openWebUiDirectConnectionsSectionTitle,
-          description: l10n.openWebUiDirectConnectionsSectionDescription,
           onAdd: records.isNotEmpty ? onAdd : null,
         ),
         const SizedBox(height: Spacing.sm),
@@ -408,6 +357,8 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
             title: l10n.openWebUiDirectProfilesEmptyTitle,
             subtitle: l10n.openWebUiDirectProfilesEmptySubtitle,
             onAdd: onAdd,
+            flat: flat,
+            showSubtitle: !flat,
           ),
           if (connections.hasError) ...[
             const SizedBox(height: Spacing.sm),
@@ -415,6 +366,7 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
           ],
         ] else ...[
           _DirectConnectionListSurface(
+            flat: flat,
             children: [
               for (var index = 0; index < records.length; index++)
                 _DirectConnectionTile(
@@ -439,23 +391,23 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
 class _DirectConnectionSection extends StatelessWidget {
   const _DirectConnectionSection({
     required this.title,
-    required this.description,
     required this.profiles,
     required this.sourceLabel,
     required this.emptyTitle,
     required this.emptySubtitle,
     required this.onAdd,
     required this.onEdit,
+    this.flat = false,
   });
 
   final String title;
-  final String description;
   final List<DirectConnectionProfile> profiles;
   final String sourceLabel;
   final String emptyTitle;
   final String emptySubtitle;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -464,7 +416,6 @@ class _DirectConnectionSection extends StatelessWidget {
       children: [
         _DirectConnectionSectionHeader(
           title: title,
-          description: description,
           onAdd: profiles.isNotEmpty ? onAdd : null,
         ),
         const SizedBox(height: Spacing.sm),
@@ -473,9 +424,12 @@ class _DirectConnectionSection extends StatelessWidget {
             title: emptyTitle,
             subtitle: emptySubtitle,
             onAdd: onAdd,
+            flat: flat,
+            showSubtitle: !flat,
           )
         else
           _DirectConnectionListSurface(
+            flat: flat,
             children: [
               for (var index = 0; index < profiles.length; index++)
                 _DirectConnectionTile(
@@ -492,14 +446,9 @@ class _DirectConnectionSection extends StatelessWidget {
 }
 
 class _DirectConnectionSectionHeader extends StatelessWidget {
-  const _DirectConnectionSectionHeader({
-    required this.title,
-    required this.description,
-    this.onAdd,
-  });
+  const _DirectConnectionSectionHeader({required this.title, this.onAdd});
 
   final String title;
-  final String description;
   final VoidCallback? onAdd;
 
   @override
@@ -536,11 +485,6 @@ class _DirectConnectionSectionHeader extends StatelessWidget {
               ],
             ],
           ),
-        ),
-        const SizedBox(height: Spacing.xxs),
-        Text(
-          description,
-          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ],
     );
@@ -588,44 +532,37 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onAdd,
+    this.flat = false,
+    this.showSubtitle = true,
   });
 
   final String title;
   final String subtitle;
   final VoidCallback onAdd;
+  final bool flat;
+  final bool showSubtitle;
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.all(Spacing.lg),
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+    final content = UtilityRow(
+      title: title,
+      subtitle: showSubtitle ? subtitle : null,
+      trailing: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.add_circled
+            : Icons.add_circle_outline,
+        color: context.conduitTheme.buttonPrimary,
+        size: IconSize.medium,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: theme.headingSmall?.copyWith(color: theme.textPrimary),
-          ),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            subtitle,
-            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-          ),
-          const SizedBox(height: Spacing.md),
-          ConduitButton(
-            text: l10n.addDirectConnection,
-            useNativeLabel: true,
-            onPressed: onAdd,
-          ),
-        ],
-      ),
+      onTap: onAdd,
     );
+    if (flat) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+        child: content,
+      );
+    }
+    return InsetGroupedList(children: [content]);
   }
 }
 
@@ -700,23 +637,23 @@ class _DirectConnectionTile extends StatelessWidget {
 }
 
 class _DirectConnectionListSurface extends StatelessWidget {
-  const _DirectConnectionListSurface({required this.children});
+  const _DirectConnectionListSurface({
+    required this.children,
+    this.flat = false,
+  });
 
   final List<Widget> children;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
+    if (flat) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+        child: Column(children: children),
+      );
+    }
+    return InsetGroupedList(children: children);
   }
 }
 

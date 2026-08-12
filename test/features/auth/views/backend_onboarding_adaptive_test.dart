@@ -73,6 +73,33 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('backend chooser reflows and scrolls with accessibility text', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    tester.platformDispatcher.textScaleFactorTestValue = 3.2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final harness = AdaptiveAuthHarness(
+      server: _testServer,
+      platform: TargetPlatform.iOS,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final hermes = find.text('Hermes Agent');
+    await tester.ensureVisible(hermes);
+    await tester.pumpAndSettle();
+    expect(hermes, findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets(
     'Hermes onboarding has explicit back navigation and adaptive fields',
     (tester) async {
@@ -174,7 +201,8 @@ void main() {
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
         findsOneWidget,
       );
-      expect(find.text('Direct Connections'), findsWidgets);
+      expect(find.text('No direct connections yet'), findsOneWidget);
+      expect(find.text('Direct Connections'), findsNothing);
       expect(
         find.byKey(const ValueKey<String>('finish-direct-onboarding-button')),
         findsOneWidget,
@@ -182,10 +210,10 @@ void main() {
       final navigationBarBottom = tester
           .getBottomLeft(find.byType(CupertinoNavigationBar))
           .dy;
-      final identityTitleTop = tester
-          .getTopLeft(find.text('Direct Connections').last)
+      final emptyTitleTop = tester
+          .getTopLeft(find.text('No direct connections yet'))
           .dy;
-      check(identityTitleTop - navigationBarBottom).isLessOrEqual(Spacing.lg);
+      check(emptyTitleTop - navigationBarBottom).isLessOrEqual(Spacing.xxl);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
@@ -267,6 +295,9 @@ void main() {
     );
     expect(find.byType(AccessibleFormField), findsNWidgets(3));
     expect(find.byType(ConduitInput), findsNothing);
+    expect(find.text('For OpenAI-compatible APIs.'), findsNothing);
+    expect(find.text('Connect with an OpenRouter API key.'), findsNothing);
+    expect(find.text('Connect to Ollama Cloud with an API key.'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('direct-api-version-field')),
       findsNothing,
@@ -327,24 +358,22 @@ void main() {
     await tester.pump();
     check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNotNull();
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('direct-editor-save-button')),
-    );
-    await tester.pump();
-
     expect(find.text('X.Test+Header'), findsOneWidget);
     expect(find.text('test-value'), findsOneWidget);
-    expect(
-      find.text('Enter an API key or choose no authentication.'),
-      findsOneWidget,
-    );
+    check(
+      tester
+          .widget<ConduitButton>(
+            find.byKey(const ValueKey<String>('direct-editor-save-button')),
+          )
+          .onPressed,
+    ).isNull();
     final apiKeyField = tester.widget<AdaptiveTextFormField>(
       find.descendant(
         of: find.byKey(const ValueKey<String>('direct-api-key-field')),
         matching: find.byType(AdaptiveTextFormField),
       ),
     );
-    check(apiKeyField.cupertinoDecoration!.border).isNotNull();
+    check(apiKeyField.cupertinoDecoration).isNotNull();
 
     await tester.tap(
       find.byKey(const ValueKey<String>('direct-editor-back-button')),

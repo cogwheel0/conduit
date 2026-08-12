@@ -10,12 +10,14 @@ class InsetGroupedSection extends StatelessWidget {
     this.title,
     this.description,
     this.padding = const EdgeInsets.all(Spacing.md),
+    this.flat = false,
   });
 
   final String? title;
   final String? description;
   final Widget child;
   final EdgeInsetsGeometry padding;
+  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -49,19 +51,25 @@ class InsetGroupedSection extends StatelessWidget {
           ),
         ],
         if (hasTitle || hasDescription) const SizedBox(height: Spacing.sm),
-        Container(
-          clipBehavior: Clip.antiAlias,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.68),
-            borderRadius: BorderRadius.circular(AppBorderRadius.card),
-            border: Border.all(
-              color: theme.cardBorder,
-              width: BorderWidth.thin,
+        if (flat)
+          Padding(
+            padding: padding,
+            child: Material(type: MaterialType.transparency, child: child),
+          )
+        else
+          Container(
+            clipBehavior: Clip.antiAlias,
+            padding: padding,
+            decoration: BoxDecoration(
+              color: theme.surfaceContainer.withValues(alpha: 0.68),
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
             ),
+            child: Material(type: MaterialType.transparency, child: child),
           ),
-          child: Material(type: MaterialType.transparency, child: child),
-        ),
       ],
     );
   }

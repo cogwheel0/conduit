@@ -115,7 +115,7 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: Spacing.sm),
         ],
-        InsetGroupedList(children: items),
+        ...items,
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
         if (hasOpenWebUiAccount) const SizedBox(height: Spacing.xl),
@@ -157,24 +157,11 @@ class ProfilePage extends ConsumerWidget {
       ),
     ];
 
-    return Column(
+    return InsetGroupedList(
       key: const Key('settings-donations'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10n.supportConduit,
-          style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
-        ),
-        const SizedBox(height: Spacing.xs),
-        Text(
-          l10n.supportConduitSubtitle,
-          style: theme.bodySmall?.copyWith(
-            color: theme.sidebarForeground.withValues(alpha: 0.75),
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        InsetGroupedList(children: donationOptions),
-      ],
+      title: l10n.supportConduit,
+      description: l10n.supportConduitSubtitle,
+      children: donationOptions,
     );
   }
 
@@ -266,7 +253,7 @@ class ProfilePage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
-    return [
+    final appItems = <Widget>[
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -319,6 +306,8 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.personalizationSubtitle,
           onTap: () => context.pushNamed(RouteNames.personalization),
         ),
+    ];
+    final connectionItems = <Widget>[
       _buildAccountOption(
         context,
         iconAsset: 'assets/icons/hermes_agent.png',
@@ -371,7 +360,13 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.connectOpenWebUISubtitle,
           onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
-      _buildAboutTile(context),
+    ];
+    return [
+      InsetGroupedList(children: appItems),
+      const SizedBox(height: Spacing.lg),
+      InsetGroupedList(children: connectionItems),
+      const SizedBox(height: Spacing.lg),
+      InsetGroupedList(children: [_buildAboutTile(context)]),
     ];
   }
 
@@ -463,8 +458,8 @@ class ProfilePage extends ConsumerWidget {
       child: Image.asset(
         asset,
         key: const Key('hermes-settings-logo'),
-        width: IconSize.medium,
-        height: IconSize.medium,
+        width: IconSize.medium + 2,
+        height: IconSize.medium + 2,
         color: color,
         colorBlendMode: BlendMode.srcIn,
         filterQuality: FilterQuality.high,
