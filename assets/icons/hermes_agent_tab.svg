@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 252 256">
+  <!--
+    SVGKit honors the native tab bar's requested point size for SVG assets,
+    while its raster loader currently returns PNGs at their source dimensions.
+    Keeping the viewBox flush with the portrait lets it fill the same requested
+    canvas as the neighboring system symbols.
+  -->
+  <image width="252" height="256"
+         href="hermes_agent.png"
+         xlink:href="hermes_agent.png" />
+</svg>

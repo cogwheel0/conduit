@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -22,6 +21,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -232,9 +232,7 @@ void main() {
     },
   );
 
-  testWidgets('tab definitions own terminal panel transitions', (
-    tester,
-  ) async {
+  testWidgets('tab definitions own terminal panel transitions', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
     final terminalServers = [sidebarTestDefaultTerminalServers().first];
 
@@ -541,10 +539,55 @@ void main() {
     expect(find.byType(CNTabBar), findsNothing);
     final tabBar = tester.widget<CupertinoTabBar>(find.byType(CupertinoTabBar));
     expect(tabBar.items, hasLength(5));
+    expect(tabBar.items[1].icon, isA<ImageIcon>());
+    expect((tabBar.items[1].icon as ImageIcon).image, kHermesTabIcon);
     expect(
       tester.getSize(find.byType(CupertinoTabBar)).width,
       tester.getSize(find.byType(SidebarPage)).width,
     );
+  });
+
+  testWidgets('iOS 26 native overlay keeps the Hermes logo and tab labels', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(controllers: controllers, hermesEnabled: true),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final tabBar = tester.widget<CNTabBar>(find.byType(CNTabBar));
+    expect(tabBar.items, hasLength(5));
+    expect(tabBar.iconSize, isNull);
+    expect(tabBar.items.map((item) => item.label), [
+      'Chats',
+      'Hermes',
+      'Notes',
+      'Terminal',
+      'Channels',
+    ]);
+    expect(tabBar.items[1].icon, isNull);
+    expect(tabBar.items[1].imageAsset?.size, 26);
+    expect(tabBar.items[0].icon?.size, kCupertinoNativeControlSymbolExtent);
+    expect(tabBar.items[2].icon?.size, kCupertinoNativeControlSymbolExtent);
+    expect(tabBar.items[4].icon?.size, kCupertinoNativeControlSymbolExtent);
+    expect(
+      tabBar.items[1].imageAsset?.assetPath,
+      'assets/icons/hermes_agent_tab.svg',
+    );
+  });
+
+  test('native Hermes artwork fills its requested tab icon canvas', () async {
+    final svg = await rootBundle.loadString(
+      'assets/icons/hermes_agent_tab.svg',
+    );
+
+    expect(svg, contains('viewBox="0 0 252 256"'));
   });
 
   testWidgets('persistent tablet navigation remains usable at 2x text', (
@@ -590,10 +633,16 @@ void main() {
     Finder hermesImage() => find.byWidgetPredicate(
       (widget) => widget is Image && widget.image == kHermesTabIcon,
     );
+    Finder hermesImageIcon() =>
+        find.ancestor(of: hermesImage(), matching: find.byType(ImageIcon));
 
     expect(
       tester.widget<Image>(hermesImage()).color,
       conduitTheme.textSecondary,
+    );
+    expect(
+      tester.widget<ImageIcon>(hermesImageIcon()).size,
+      kHermesTabIconSize,
     );
 
     await tester.tap(sidebarTestBottomNavTabLabel('Hermes'));

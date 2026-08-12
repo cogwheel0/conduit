@@ -93,7 +93,7 @@ sealed class AdaptiveNavigationIcon {
       AdaptiveSymbolNavigationIcon;
   const factory AdaptiveNavigationIcon.icon(IconData data) =
       AdaptiveIconDataNavigationIcon;
-  const factory AdaptiveNavigationIcon.asset(String assetName) =
+  const factory AdaptiveNavigationIcon.asset(String assetName, {double size}) =
       AdaptiveAssetNavigationIcon;
 }
 
@@ -110,9 +110,10 @@ final class AdaptiveIconDataNavigationIcon extends AdaptiveNavigationIcon {
 }
 
 final class AdaptiveAssetNavigationIcon extends AdaptiveNavigationIcon {
-  const AdaptiveAssetNavigationIcon(this.assetName);
+  const AdaptiveAssetNavigationIcon(this.assetName, {this.size = 24.0});
 
   final String assetName;
+  final double size;
 }
 
 class AdaptiveNavigationDestination {
@@ -459,7 +460,6 @@ CNTabBar buildAdaptiveNativeTabBar(
     currentIndex: navigation.selectedIndex,
     onTap: navigation.onTap,
     tint: tint ?? navigation.selectedItemColor,
-    iconSize: kCupertinoNativeControlSymbolExtent,
   );
 }
 
@@ -481,7 +481,10 @@ CNTabBarItem adaptiveNativeTabItem(AdaptiveNavigationDestination item) {
 }
 
 CNSymbol? _adaptiveSymbol(AdaptiveNavigationIcon value) => switch (value) {
-  AdaptiveSymbolNavigationIcon(:final name) => CNSymbol(name),
+  AdaptiveSymbolNavigationIcon(:final name) => CNSymbol(
+    name,
+    size: kCupertinoNativeControlSymbolExtent,
+  ),
   _ => null,
 };
 
@@ -492,7 +495,8 @@ IconData? _adaptiveIconData(AdaptiveNavigationIcon value) => switch (value) {
 
 CNImageAsset? _adaptiveImageAsset(AdaptiveNavigationIcon value) =>
     switch (value) {
-      AdaptiveAssetNavigationIcon(:final assetName) => CNImageAsset(assetName),
+      AdaptiveAssetNavigationIcon(:final assetName, :final size) =>
+        CNImageAsset(assetName, size: size),
       _ => null,
     };
 

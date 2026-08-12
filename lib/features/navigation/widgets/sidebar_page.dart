@@ -128,13 +128,14 @@ class _SidebarSyncProgressBar extends StatelessWidget {
 /// The bundled asset is black with transparency, so a raw [Image] would stay
 /// black in dark mode instead of inheriting the navigation icon color.
 class _SidebarAssetTabImage extends StatelessWidget {
-  const _SidebarAssetTabImage(this.assetName);
+  const _SidebarAssetTabImage(this.assetName, {this.size = IconSize.tabBar});
 
   final String assetName;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return ImageIcon(AssetImage(assetName), size: IconSize.tabBar);
+    return ImageIcon(AssetImage(assetName), size: size);
   }
 }
 
@@ -196,10 +197,16 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
               NavigationDestination(
                 icon: item.descriptor.assetName == null
                     ? Icon(item.descriptor.materialIcon)
-                    : _SidebarAssetTabImage(item.descriptor.assetName!),
+                    : _SidebarAssetTabImage(
+                        item.descriptor.assetName!,
+                        size: item.descriptor.assetIconSize ?? IconSize.tabBar,
+                      ),
                 selectedIcon: item.descriptor.assetName == null
                     ? Icon(item.descriptor.selectedMaterialIcon)
-                    : _SidebarAssetTabImage(item.descriptor.assetName!),
+                    : _SidebarAssetTabImage(
+                        item.descriptor.assetName!,
+                        size: item.descriptor.assetIconSize ?? IconSize.tabBar,
+                      ),
                 label: item.label,
               ),
           ],
@@ -254,19 +261,38 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
 
   List<_SidebarNavigationItem> _sidebarNavigationItems(
     List<SidebarTabDescriptor> tabs,
-    AppLocalizations localizations,
-  ) {
+    AppLocalizations localizations, {
+    required bool useNativeOverlay,
+  }) {
     return <_SidebarNavigationItem>[
       for (final descriptor in tabs)
         _SidebarNavigationItem(
           label: descriptor.label(localizations),
           destination: AdaptiveNavigationDestination(
-            icon: descriptor.assetName == null
-                ? AdaptiveNavigationIcon.symbol(descriptor.sfSymbol)
-                : AdaptiveNavigationIcon.asset(descriptor.assetName!),
-            selectedIcon: descriptor.assetName == null
-                ? AdaptiveNavigationIcon.symbol(descriptor.selectedSfSymbol)
-                : AdaptiveNavigationIcon.asset(descriptor.assetName!),
+            icon: switch (useNativeOverlay
+                ? descriptor.nativeAssetName
+                : descriptor.assetName) {
+              final assetName? => AdaptiveNavigationIcon.asset(
+                assetName,
+                size: useNativeOverlay
+                    ? descriptor.nativeAssetIconSize ?? 24.0
+                    : 24.0,
+              ),
+              null => AdaptiveNavigationIcon.symbol(descriptor.sfSymbol),
+            },
+            selectedIcon: switch (useNativeOverlay
+                ? descriptor.nativeAssetName
+                : descriptor.assetName) {
+              final assetName? => AdaptiveNavigationIcon.asset(
+                assetName,
+                size: useNativeOverlay
+                    ? descriptor.nativeAssetIconSize ?? 24.0
+                    : 24.0,
+              ),
+              null => AdaptiveNavigationIcon.symbol(
+                descriptor.selectedSfSymbol,
+              ),
+            },
             label: descriptor.label(localizations),
           ),
           descriptor: descriptor,
@@ -442,7 +468,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final hasBottomNavigationBar = hasMultipleTabs;
     final activeTabNotifier = ref.read(sidebarActiveTabProvider.notifier);
     final activeIndex = navigation.selectedIndex;
-    final navigationItems = _sidebarNavigationItems(tabs, localizations);
+    final navigationItems = _sidebarNavigationItems(
+      tabs,
+      localizations,
+      useNativeOverlay: !persistentTabletSidebar,
+    );
 
     final conduitTheme = context.conduitTheme;
     final isSearchExpanded = ref.watch(sidebarHeaderSearchExpandedProvider);
