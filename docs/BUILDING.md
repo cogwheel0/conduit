@@ -60,8 +60,7 @@ isolated tool dependencies before regenerating platform bindings:
 
 ```bash
 dart pub get --directory tool/pigeon_codegen
-dart --packages=tool/pigeon_codegen/.dart_tool/package_config.json run pigeon \
-  --input pigeons/conduit_platform_apis.dart
+dart tool/pigeon_codegen/bin/generate.dart
 ```
 
 Use `--delete-conflicting-outputs` when generated files fall out of sync:

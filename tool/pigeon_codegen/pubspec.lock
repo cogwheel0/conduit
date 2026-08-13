@@ -165,10 +165,10 @@ packages:
     dependency: "direct main"
     description:
       name: pigeon
-      sha256: dff8a0619d49652daeba23064f5480961c2a0275779394e3b606d8df07eb2ff3
+      sha256: f90254ef7b22db026fd8d5fd44718fd60697d50968a144a8bc251e5e95d79e10
       url: "https://pub.dev"
     source: hosted
-    version: "27.2.0"
+    version: "27.3.0"
   pub_semver:
     dependency: transitive
     description:
