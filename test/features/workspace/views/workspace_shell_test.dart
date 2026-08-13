@@ -21,10 +21,47 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:mocktail/mocktail.dart';
 
 void main() {
+  testWidgets('compact iOS editor shares native workspace chrome', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: WorkspaceEditorScaffold(
+          title: 'Tool',
+          section: WorkspaceSection.tools,
+          mode: WorkspaceRouteMode.create,
+          onSave: () async {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final shell = tester.widget<AdaptiveRouteShell>(
+      find.byType(AdaptiveRouteShell),
+    );
+    expect(
+      shell.appBar!.cupertinoNavigationBar,
+      isA<ConduitAdaptiveCupertinoNavigationBar>(),
+    );
+    expect(find.byType(ConduitChromeGradientFade), findsOneWidget);
+    expect(find.text('Tool'), findsOneWidget);
+  });
+
   testWidgets('compact editor disables save and overflow actions while busy', (
     tester,
   ) async {

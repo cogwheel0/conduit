@@ -124,15 +124,56 @@ class _WorkspaceGateState extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final topInset = usesCupertinoChrome
+        ? MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context)
+        : 0.0;
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
-      appBar: AdaptiveAppBar(
-        title: l10n.workspaceTitle,
-        leading: _workspaceExitButton(context),
+      appBar: _workspaceSimpleAppBar(context, title: l10n.workspaceTitle),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.only(top: topInset),
+              child: _WorkspaceStatusContent(kind: kind, onRetry: onRetry),
+            ),
+          ),
+          if (usesCupertinoChrome)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(contentHeight: topInset),
+            ),
+        ],
       ),
-      body: _WorkspaceStatusContent(kind: kind, onRetry: onRetry),
     );
   }
+}
+
+AdaptiveAppBar _workspaceSimpleAppBar(
+  BuildContext context, {
+  required String title,
+}) {
+  final theme = context.conduitTheme;
+  return AdaptiveAppBar(
+    title: title,
+    useNativeToolbar: false,
+    tintColor: theme.textPrimary,
+    leading: _workspaceExitButton(context),
+    cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+      textScaler: MediaQuery.textScalerOf(context),
+      leading: _workspaceExitButton(context),
+      middle: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: conduitAdaptiveToolbarPillTextStyle(context),
+      ),
+    ),
+  );
 }
 
 class _WorkspaceStatusContent extends StatelessWidget {

@@ -367,7 +367,6 @@ class _WorkspaceKnowledgeFormState
                 ),
               ),
             InsetGroupedSection(
-              title: l10n.workspaceKnowledge,
               child: Column(
                 children: [
                   if (_session.isDetail) ...[

@@ -572,7 +572,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
           ),
           children: [
             InsetGroupedSection(
-              title: l10n.workspaceSkills,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

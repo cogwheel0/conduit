@@ -526,7 +526,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
           ),
           children: [
             InsetGroupedSection(
-              title: l10n.workspacePrompts,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

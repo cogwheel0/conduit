@@ -8,14 +8,13 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 import 'workspace_read_only_badge.dart';
-import 'workspace_tiles.dart';
 
 /// An overflow-menu action for [WorkspaceEditorScaffold].
 class WorkspaceEditorAction {
@@ -102,18 +101,15 @@ class WorkspaceEditorScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final compact = MediaQuery.sizeOf(context).width < 840;
+    // The route title already identifies compact editors. Repeating the same
+    // icon and title at the top of the form made these screens read like web
+    // detail pages rather than native push destinations.
     final effectiveHeader =
         header ??
-        (compact
-            ? UtilityIdentityHeader(
-                leading: WorkspaceIconBadge(
-                  icon: _identityIcon(section),
-                  color: theme.buttonPrimary,
-                ),
-                title: title,
-                subtitle: readOnly
-                    ? AppLocalizations.of(context)!.workspaceReadOnlyBadge
-                    : null,
+        (compact && readOnly
+            ? const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: WorkspaceReadOnlyBadge(),
               )
             : null);
     final content = Column(
@@ -171,22 +167,41 @@ class WorkspaceEditorScaffold extends StatelessWidget {
           ? AdaptiveRouteShell(
               backgroundColor: theme.surfaceBackground,
               appBar: _compactAppBar(context),
-              body: Material(color: Colors.transparent, child: content),
+              body: _compactBody(context, content),
             )
           : content,
     );
   }
 
-  IconData _identityIcon(WorkspaceSection value) => switch (value) {
-    WorkspaceSection.models => Icons.smart_toy_outlined,
-    WorkspaceSection.knowledge => Icons.menu_book_outlined,
-    WorkspaceSection.prompts => Icons.chat_bubble_outline,
-    WorkspaceSection.tools => Icons.build_outlined,
-    WorkspaceSection.skills => Icons.auto_awesome_outlined,
-  };
+  Widget _compactBody(BuildContext context, Widget content) {
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final topInset = usesCupertinoChrome
+        ? MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context)
+        : 0.0;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Padding(
+            padding: EdgeInsets.only(top: topInset),
+            child: Material(color: Colors.transparent, child: content),
+          ),
+        ),
+        if (usesCupertinoChrome)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: ConduitChromeGradientFade.top(contentHeight: topInset),
+          ),
+      ],
+    );
+  }
 
   AdaptiveAppBar _compactAppBar(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final textScaler = MediaQuery.textScalerOf(context);
     final actions = <AdaptiveAppBarAction>[
       if (mode == WorkspaceRouteMode.detail && onEdit != null)
         AdaptiveAppBarAction(title: l10n.edit, onPressed: onEdit!),
@@ -204,7 +219,8 @@ class WorkspaceEditorScaffold extends StatelessWidget {
     ];
     return AdaptiveAppBar(
       title: title,
-      tintColor: context.conduitTheme.textPrimary,
+      useNativeToolbar: false,
+      tintColor: theme.textPrimary,
       leading: AdaptiveTooltip(
         message: MaterialLocalizations.of(context).backButtonTooltip,
         child: ConduitAdaptiveAppBarIconButton(
@@ -216,6 +232,55 @@ class WorkspaceEditorScaffold extends StatelessWidget {
         ),
       ),
       actions: actions,
+      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: textScaler,
+        leading: AdaptiveTooltip(
+          message: MaterialLocalizations.of(context).backButtonTooltip,
+          child: ConduitAdaptiveAppBarIconButton(
+            key: const Key('workspace-editor-native-back'),
+            icon: CupertinoIcons.chevron_back,
+            iconColor: theme.textPrimary,
+            onPressed: () => _exitCompact(context),
+          ),
+        ),
+        middle: MiddleEllipsisText(
+          title,
+          style: conduitAdaptiveToolbarPillTextStyle(context),
+          semanticsLabel: title,
+        ),
+        trailing: _compactCupertinoActions(context, actions),
+      ),
+    );
+  }
+
+  Widget _compactCupertinoActions(
+    BuildContext context,
+    List<AdaptiveAppBarAction> actions,
+  ) {
+    if (actions.isEmpty) return const SizedBox.shrink();
+    final theme = context.conduitTheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final action in actions)
+          if (action.title != null)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              minimumSize: const Size(0, TouchTarget.minimum),
+              onPressed: action.onPressed,
+              child: Text(
+                action.title!,
+                style: TextStyle(color: theme.buttonPrimary),
+              ),
+            )
+          else
+            ConduitAdaptiveAppBarIconButton(
+              icon: action.icon ?? CupertinoIcons.ellipsis,
+              iosSymbol: action.iosSymbol,
+              iconColor: theme.textPrimary,
+              onPressed: action.onPressed,
+            ),
+      ],
     );
   }
 

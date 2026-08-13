@@ -563,7 +563,6 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
           ),
           children: [
             InsetGroupedSection(
-              title: l10n.workspaceTools,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
