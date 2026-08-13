@@ -60,8 +60,9 @@ dependencies:
   stupid_simple_sheet: ^0.9.1+1
   
   # Platform Features
-  vad: ^0.0.8
-  record: ^6.2.0
+  # Keep exact until VAD declares Record 7 support; see dependency_overrides.
+  vad: 0.0.8
+  record: ^7.1.1
   audio_session: ^0.2.2
   permission_handler: ^12.0.1
   image_picker: ^1.2.3
@@ -118,6 +119,10 @@ dependencies:
 dependency_overrides:
   mermaid_core:
     path: third_party/mermaid/packages/mermaid_core
+  # VAD 0.0.8 still declares record ^6.1.2. Conduit supplies its own Record 7
+  # PCM stream instead of using VAD's internal recorder. Remove this override
+  # once VAD publishes Record 7 support (upstream issue #22).
+  record: 7.1.1
 
 dev_dependencies:
   flutter_test:

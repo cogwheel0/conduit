@@ -1,15 +1,17 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
+import 'package:conduit/features/chat/services/server_vad_recorder.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler_platform_interface/permission_handler_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:vad/vad.dart';
+import 'package:record/record.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -37,9 +39,8 @@ void main() {
     });
 
     test('requests the microphone dialog when status is not granted', () async {
-      when(
-        () => mockPermissions.checkPermissionStatus(Permission.microphone),
-      ).thenAnswer((_) async => PermissionStatus.denied);
+      when(() => mockPermissions.checkPermissionStatus(Permission.microphone))
+          .thenAnswer((_) async => PermissionStatus.denied);
       when(() => mockPermissions.requestPermissions(any())).thenAnswer(
         (_) async => {Permission.microphone: PermissionStatus.granted},
       );
@@ -52,9 +53,8 @@ void main() {
     });
 
     test('does not re-prompt when permission is already granted', () async {
-      when(
-        () => mockPermissions.checkPermissionStatus(Permission.microphone),
-      ).thenAnswer((_) async => PermissionStatus.granted);
+      when(() => mockPermissions.checkPermissionStatus(Permission.microphone))
+          .thenAnswer((_) async => PermissionStatus.granted);
 
       final granted = await VoiceInputService().checkPermissions();
 
@@ -65,9 +65,8 @@ void main() {
     test(
       'returns false without granting when the user denies the request',
       () async {
-        when(
-          () => mockPermissions.checkPermissionStatus(Permission.microphone),
-        ).thenAnswer((_) async => PermissionStatus.denied);
+        when(() => mockPermissions.checkPermissionStatus(Permission.microphone))
+            .thenAnswer((_) async => PermissionStatus.denied);
         when(() => mockPermissions.requestPermissions(any())).thenAnswer(
           (_) async => {Permission.microphone: PermissionStatus.denied},
         );
@@ -189,9 +188,8 @@ void main() {
         service.setLocale(null);
         await service.initialize(forceLocalStt: true);
 
-        check(
-          nativeStt.availabilityLocaleIds,
-        ).deepEquals([null, 'pl-PL', 'en-GB', null]);
+        check(nativeStt.availabilityLocaleIds)
+            .deepEquals([null, 'pl-PL', 'en-GB', null]);
         check(service.selectedLocaleId).isNull();
       },
     );
@@ -277,10 +275,187 @@ void main() {
       );
 
       check(config.audioSource).equals(AndroidAudioSource.voiceCommunication);
-      check(
-        config.audioManagerMode,
-      ).equals(AudioManagerMode.modeInCommunication);
+      check(config.audioManagerMode)
+          .equals(AudioManagerMode.modeInCommunication);
       check(config.manageBluetooth).isTrue();
+    });
+  });
+
+  group('ServerVadRecorderSession', () {
+    test(
+      'rejects denied permission without connecting VAD or recording',
+      () async {
+        final recorder = _FakeServerVadRecorder(permissionGranted: false);
+        final session = ServerVadRecorderSession(recorder);
+        var connected = false;
+
+        await check(
+          session.start(
+            config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+            iosAudioSessionManagedExternally: false,
+            connectVad: (_) async => connected = true,
+            onRecorderError: (_, _) {},
+          ),
+        ).throws<StateError>();
+
+        check(connected).isFalse();
+        check(recorder.calls).deepEquals(['permission', 'dispose']);
+      },
+    );
+
+    test('connects VAD before starting externally managed iOS audio', () async {
+      final recorder = _FakeServerVadRecorder();
+      final session = ServerVadRecorderSession(recorder);
+      final received = <Uint8List>[];
+      StreamSubscription<Uint8List>? vadSubscription;
+
+      await session.start(
+        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        iosAudioSessionManagedExternally: true,
+        connectVad: (audioStream) async {
+          recorder.calls.add('vad-ready');
+          vadSubscription = audioStream.listen(received.add);
+        },
+        onRecorderError: (_, _) {},
+      );
+
+      check(recorder.calls).deepEquals([
+        'permission',
+        'manage-ios:false',
+        'vad-ready',
+        'start-stream',
+      ]);
+      recorder.audio.add(Uint8List.fromList([1, 2]));
+      await Future<void>.delayed(Duration.zero);
+      check(received.single).deepEquals(Uint8List.fromList([1, 2]));
+
+      await session.stopForwarding();
+      await vadSubscription?.cancel();
+      await session.stopRecorder();
+      await session.dispose();
+      check(recorder.calls).deepEquals([
+        'permission',
+        'manage-ios:false',
+        'vad-ready',
+        'start-stream',
+        'stop',
+        'dispose',
+      ]);
+      await recorder.close();
+    });
+
+    test(
+      'leaves standalone iOS audio-session management at Record defaults',
+      () async {
+        final recorder = _FakeServerVadRecorder();
+        final session = ServerVadRecorderSession(recorder);
+        StreamSubscription<Uint8List>? vadSubscription;
+
+        await session.start(
+          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          iosAudioSessionManagedExternally: false,
+          connectVad: (audioStream) async {
+            vadSubscription = audioStream.listen((_) {});
+          },
+          onRecorderError: (_, _) {},
+        );
+
+        check(recorder.calls).deepEquals(['permission', 'start-stream']);
+        await session.stopForwarding();
+        await vadSubscription?.cancel();
+        await session.stopRecorder();
+        await session.dispose();
+        await recorder.close();
+      },
+    );
+
+    test('preserves start failure when cleanup also fails', () async {
+      final recorder = _FakeServerVadRecorder(
+        startError: StateError('start failed'),
+        disposeError: StateError('dispose failed'),
+      );
+      final session = ServerVadRecorderSession(recorder);
+      StreamSubscription<Uint8List>? vadSubscription;
+
+      final future = session.start(
+        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        iosAudioSessionManagedExternally: false,
+        connectVad: (audioStream) async {
+          vadSubscription = audioStream.listen((_) {});
+        },
+        onRecorderError: (_, _) {},
+      );
+
+      await expectLater(
+        future,
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'start failed',
+          ),
+        ),
+      );
+      await vadSubscription?.cancel();
+      check(recorder.calls)
+          .deepEquals(['permission', 'start-stream', 'dispose']);
+      await recorder.close();
+    });
+
+    test(
+      'does not start Record after a stop races VAD initialization',
+      () async {
+        final recorder = _FakeServerVadRecorder();
+        final session = ServerVadRecorderSession(recorder);
+        final vadReady = Completer<void>();
+        StreamSubscription<Uint8List>? vadSubscription;
+
+        final startFuture = session.start(
+          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          iosAudioSessionManagedExternally: false,
+          connectVad: (audioStream) async {
+            vadSubscription = audioStream.listen((_) {});
+            await vadReady.future;
+          },
+          onRecorderError: (_, _) {},
+        );
+        await Future<void>.delayed(Duration.zero);
+        await session.stopForwarding();
+        vadReady.complete();
+
+        await expectLater(startFuture, throwsStateError);
+        await vadSubscription?.cancel();
+        check(recorder.calls).deepEquals(['permission', 'dispose']);
+        await recorder.close();
+      },
+    );
+
+    test('reports errors from an active Record stream', () async {
+      final recorder = _FakeServerVadRecorder();
+      final session = ServerVadRecorderSession(recorder);
+      final reportedError = Completer<Object>();
+      StreamSubscription<Uint8List>? vadSubscription;
+
+      await session.start(
+        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        iosAudioSessionManagedExternally: false,
+        connectVad: (audioStream) async {
+          vadSubscription = audioStream.listen((_) {});
+        },
+        onRecorderError: (error, _) => reportedError.complete(error),
+      );
+      recorder.audio.addError(StateError('stream failed'));
+
+      final error = await reportedError.future;
+      check(error)
+          .isA<StateError>()
+          .has((it) => it.message, 'message')
+          .equals('stream failed');
+      await session.stopForwarding();
+      await vadSubscription?.cancel();
+      await session.stopRecorder();
+      await session.dispose();
+      await recorder.close();
     });
   });
 
@@ -413,6 +588,52 @@ class _FakeVoiceInputService extends VoiceInputService {
 class _MockPermissionHandlerPlatform extends Mock
     with MockPlatformInterfaceMixin
     implements PermissionHandlerPlatform {}
+
+class _FakeServerVadRecorder implements ServerVadRecorderClient {
+  _FakeServerVadRecorder({
+    this.permissionGranted = true,
+    this.startError,
+    this.disposeError,
+  });
+
+  final bool permissionGranted;
+  final Object? startError;
+  final Object? disposeError;
+  final List<String> calls = <String>[];
+  final StreamController<Uint8List> audio =
+      StreamController<Uint8List>.broadcast();
+
+  Future<void> close() => audio.close();
+
+  @override
+  Future<bool> hasPermission() async {
+    calls.add('permission');
+    return permissionGranted;
+  }
+
+  @override
+  Future<void> manageIosAudioSession(bool manage) async {
+    calls.add('manage-ios:$manage');
+  }
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) async {
+    calls.add('start-stream');
+    if (startError case final error?) throw error;
+    return audio.stream;
+  }
+
+  @override
+  Future<void> stop() async {
+    calls.add('stop');
+  }
+
+  @override
+  Future<void> dispose() async {
+    calls.add('dispose');
+    if (disposeError case final error?) throw error;
+  }
+}
 
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({

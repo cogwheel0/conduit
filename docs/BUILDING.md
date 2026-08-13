@@ -70,6 +70,14 @@ Use `--delete-conflicting-outputs` when generated files fall out of sync:
 dart run build_runner build --delete-conflicting-outputs
 ```
 
+`vad` 0.0.8 still declares Record 6.x support. The root pubspec temporarily
+pins VAD and overrides `record` to 7.1.1; Conduit passes VAD a PCM stream owned
+by `VoiceInputService`, so VAD never creates its incompatible internal
+recorder. Remove the override and exact VAD pin when [upstream issue
+#22](https://github.com/keyur2maru/vad/issues/22) ships Record 7 support. Keep
+the Conduit-owned stream until upstream can also preserve externally managed
+iOS audio sessions.
+
 ## Verify
 
 ```bash
