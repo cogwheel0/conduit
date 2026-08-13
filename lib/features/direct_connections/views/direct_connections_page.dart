@@ -118,7 +118,6 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
           text: l10n.finishDirectSetup,
           isFullWidth: true,
           isLoading: true,
-          useNativeLabel: true,
         ),
       ),
       error: (error, _) => _buildDirectConnectionsScaffold(
@@ -269,7 +268,6 @@ class DirectConnectionsContent extends StatelessWidget {
         key: const ValueKey<String>('finish-direct-onboarding-button'),
         text: l10n.finishDirectSetup,
         isFullWidth: true,
-        useNativeLabel: true,
         onPressed: onFinishOnboarding,
       ),
     );
@@ -358,7 +356,6 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
             subtitle: l10n.openWebUiDirectProfilesEmptySubtitle,
             onAdd: onAdd,
             flat: flat,
-            showSubtitle: !flat,
           ),
           if (connections.hasError) ...[
             const SizedBox(height: Spacing.sm),
@@ -425,7 +422,6 @@ class _DirectConnectionSection extends StatelessWidget {
             subtitle: emptySubtitle,
             onAdd: onAdd,
             flat: flat,
-            showSubtitle: !flat,
           )
         else
           _DirectConnectionListSurface(
@@ -533,20 +529,18 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
     required this.subtitle,
     required this.onAdd,
     this.flat = false,
-    this.showSubtitle = true,
   });
 
   final String title;
   final String subtitle;
   final VoidCallback onAdd;
   final bool flat;
-  final bool showSubtitle;
 
   @override
   Widget build(BuildContext context) {
     final content = UtilityRow(
       title: title,
-      subtitle: showSubtitle ? subtitle : null,
+      subtitle: subtitle,
       trailing: Icon(
         context.usesCupertinoChrome
             ? CupertinoIcons.add_circled

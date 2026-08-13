@@ -100,8 +100,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.defaultModel),
-        const SizedBox(height: Spacing.sm),
         modelsAsync.when(
           data: (models) {
             final resolvedName = _resolveModelName(
@@ -164,8 +162,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             settingsSectionGap,
-            SettingsSectionHeader(title: l10n.defaultImageGenerationModel),
-            const SizedBox(height: Spacing.sm),
             CustomizationTile(
               leading: SettingsIconBadge(
                 icon: UiUtils.platformIcon(
@@ -207,8 +203,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.yourSystemPrompt),
-        const SizedBox(height: Spacing.sm),
         settingsAsync.when(
           data: (settings) {
             final prompt = settings.systemPrompt;
@@ -259,8 +253,6 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.memoryTitle),
-        const SizedBox(height: Spacing.sm),
         settingsAsync.when(
           data: (settings) {
             final enabled = settings.memoryEnabled;

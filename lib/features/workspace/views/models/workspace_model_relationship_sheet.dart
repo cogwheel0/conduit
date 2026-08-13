@@ -103,9 +103,9 @@ class _WorkspaceRelationshipSheetState
             height: TouchTarget.minimum,
             child: NavigationToolbar(
               centerMiddle: true,
-              leading: TextButton(
+              leading: ConduitTextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: Text(l10n.cancel),
+                text: l10n.cancel,
               ),
               middle: Text(
                 widget.title,
@@ -114,10 +114,11 @@ class _WorkspaceRelationshipSheetState
                 textAlign: TextAlign.center,
                 style: theme.headingSmall,
               ),
-              trailing: TextButton(
+              trailing: ConduitTextButton(
                 key: const Key('workspace-relationship-save'),
                 onPressed: () => Navigator.of(context).pop(_result()),
-                child: Text(l10n.save),
+                text: l10n.save,
+                isPrimary: true,
               ),
             ),
           ),

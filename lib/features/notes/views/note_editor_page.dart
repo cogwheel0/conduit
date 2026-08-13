@@ -34,6 +34,7 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -2246,26 +2247,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    Platform.isIOS ? CupertinoIcons.share : Icons.ios_share,
-                    size: IconSize.sm,
-                    color: theme.textSecondary,
-                  ),
+                ConduitIconButton(
+                  icon: Platform.isIOS ? CupertinoIcons.share : Icons.ios_share,
+                  iconColor: theme.textSecondary,
                   tooltip: l10n.shareSystemSheet,
                   onPressed: inFlight ? null : () => _sharePendingAudio(item),
+                  isCompact: true,
                 ),
                 if (retryable)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.arrow_clockwise
-                          : Icons.refresh_rounded,
-                      size: IconSize.sm,
-                      color: theme.buttonPrimary,
-                    ),
+                  ConduitIconButton(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.arrow_clockwise
+                        : Icons.refresh_rounded,
+                    iconColor: theme.buttonPrimary,
                     tooltip: l10n.retry,
                     onPressed: () => unawaited(
                       _retryPendingAudioUploads(
@@ -2273,6 +2267,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                         showFeedback: true,
                       ),
                     ),
+                    isCompact: true,
                   ),
               ],
             ),

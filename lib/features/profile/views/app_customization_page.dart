@@ -120,8 +120,6 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: AppLocalizations.of(context)!.display),
-        const SizedBox(height: Spacing.sm),
         InsetGroupedSection(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -410,8 +408,6 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.chatSettings),
-        const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: _buildIconBadge(
             context,
@@ -491,8 +487,6 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.settingsDataAndConnection),
-        const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: _buildIconBadge(
             context,

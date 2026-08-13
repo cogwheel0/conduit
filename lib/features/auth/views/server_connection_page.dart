@@ -1530,7 +1530,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 onPressed: _canAddCustomHeader ? _addCustomHeader : null,
                 isSecondary: true,
                 isFullWidth: true,
-                useNativeLabel: true,
               ),
 
               // Header list
@@ -1628,7 +1627,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : _connectToServer,
       isLoading: _isConnecting,
       isFullWidth: true,
-      useNativeLabel: true,
     );
   }
 

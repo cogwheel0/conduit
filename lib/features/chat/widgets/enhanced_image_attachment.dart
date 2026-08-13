@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/widgets/jovial_svg_image.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1319,17 +1320,17 @@ class FullScreenImageViewer extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: Icon(
-                    Platform.isIOS ? Icons.ios_share : Icons.share_outlined,
-                    color: iconColor,
-                    size: 26,
-                  ),
+                ConduitIconButton(
+                  icon: Platform.isIOS ? Icons.ios_share : Icons.share_outlined,
+                  iconColor: iconColor,
+                  tooltip: AppLocalizations.of(context)!.shareSystemSheet,
                   onPressed: () => _shareImage(context, ref),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(Icons.close, color: iconColor, size: 28),
+                ConduitIconButton(
+                  icon: Icons.close,
+                  iconColor: iconColor,
+                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],

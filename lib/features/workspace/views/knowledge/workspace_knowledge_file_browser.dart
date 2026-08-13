@@ -133,11 +133,11 @@ class _Browser extends ConsumerWidget {
                 style: theme.headingSmall,
               ),
             ),
-            IconButton(
+            ConduitIconButton(
               key: const Key('knowledge-files-refresh'),
               tooltip: l10n.workspaceKnowledgeRefreshFiles,
               onPressed: () => _notifier(ref).refresh(),
-              icon: const Icon(Icons.refresh),
+              icon: Icons.refresh,
             ),
             if (!readOnly)
               _AddMenu(
@@ -526,11 +526,12 @@ class _AddMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return PopupMenuButton<int>(
+    return AdaptivePopupMenuButton.icon<int>(
       key: const Key('knowledge-add-menu'),
-      tooltip: l10n.workspaceKnowledgeAddMenu,
-      icon: const Icon(Icons.add),
-      onSelected: (value) {
+      icon: Platform.isIOS ? 'plus' : Icons.add,
+      buttonStyle: PopupButtonStyle.plain,
+      onSelected: (_, entry) {
+        final value = entry.value;
         switch (value) {
           case 0:
             onUpload();
@@ -544,31 +545,40 @@ class _AddMenu extends StatelessWidget {
             onNewFolder();
         }
       },
-      itemBuilder: (context) => [
-        PopupMenuItem(
+      items: [
+        AdaptivePopupMenuItem(
           key: const Key('knowledge-add-upload'),
           value: 0,
-          child: Text(l10n.workspaceKnowledgeUpload),
+          label: l10n.workspaceKnowledgeUpload,
+          icon: Platform.isIOS ? 'square.and.arrow.up' : Icons.upload_file,
         ),
-        PopupMenuItem(
+        AdaptivePopupMenuItem(
           key: const Key('knowledge-add-upload-multiple'),
           value: 1,
-          child: Text(l10n.workspaceKnowledgeBatchAttach),
+          label: l10n.workspaceKnowledgeBatchAttach,
+          icon: Platform.isIOS
+              ? 'square.stack.3d.up'
+              : Icons.file_upload_outlined,
         ),
-        PopupMenuItem(
+        AdaptivePopupMenuItem(
           key: const Key('knowledge-add-attach'),
           value: 2,
-          child: Text(l10n.workspaceKnowledgeAttachExisting),
+          label: l10n.workspaceKnowledgeAttachExisting,
+          icon: Platform.isIOS ? 'paperclip' : Icons.attach_file,
         ),
-        PopupMenuItem(
+        AdaptivePopupMenuItem(
           key: const Key('knowledge-add-text'),
           value: 3,
-          child: Text(l10n.workspaceKnowledgeAddText),
+          label: l10n.workspaceKnowledgeAddText,
+          icon: Platform.isIOS ? 'doc.text' : Icons.note_add_outlined,
         ),
-        PopupMenuItem(
+        AdaptivePopupMenuItem(
           key: const Key('knowledge-add-folder'),
           value: 4,
-          child: Text(l10n.workspaceKnowledgeNewFolder),
+          label: l10n.workspaceKnowledgeNewFolder,
+          icon: Platform.isIOS
+              ? 'folder.badge.plus'
+              : Icons.create_new_folder_outlined,
         ),
       ],
     );
@@ -648,19 +658,23 @@ class _DirectoryTile extends StatelessWidget {
         showChevron: readOnly,
         trailing: readOnly
             ? null
-            : PopupMenuButton<int>(
+            : AdaptivePopupMenuButton.icon<int>(
                 key: Key('knowledge-directory-menu-${directory.id}'),
-                tooltip: l10n.workspaceKnowledgeRenameFolder,
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) => value == 0 ? onRename() : onDelete(),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
+                icon: Platform.isIOS ? 'ellipsis' : Icons.more_vert,
+                buttonStyle: PopupButtonStyle.plain,
+                onSelected: (_, entry) =>
+                    entry.value == 0 ? onRename() : onDelete(),
+                items: [
+                  AdaptivePopupMenuItem(
                     value: 0,
-                    child: Text(l10n.workspaceKnowledgeRenameFolder),
+                    label: l10n.workspaceKnowledgeRenameFolder,
+                    icon: Platform.isIOS ? 'pencil' : Icons.edit_outlined,
                   ),
-                  PopupMenuItem(
+                  AdaptivePopupMenuItem(
                     value: 1,
-                    child: Text(l10n.workspaceKnowledgeDeleteFolder),
+                    label: l10n.workspaceKnowledgeDeleteFolder,
+                    icon: Platform.isIOS ? 'trash' : Icons.delete_outline,
+                    isDestructive: true,
                   ),
                 ],
               ),
@@ -729,11 +743,12 @@ class _FileTile extends StatelessWidget {
         subtitle: file.size == null ? null : _formatSize(file.size!),
         trailing: readOnly
             ? null
-            : PopupMenuButton<int>(
+            : AdaptivePopupMenuButton.icon<int>(
                 key: Key('knowledge-file-menu-${file.id}'),
-                tooltip: l10n.workspaceKnowledgeFileRename,
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) {
+                icon: Platform.isIOS ? 'ellipsis' : Icons.more_vert,
+                buttonStyle: PopupButtonStyle.plain,
+                onSelected: (_, entry) {
+                  final value = entry.value;
                   switch (value) {
                     case 0:
                       onRename();
@@ -745,23 +760,30 @@ class _FileTile extends StatelessWidget {
                       onDetach();
                   }
                 },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
+                items: [
+                  AdaptivePopupMenuItem(
                     value: 0,
-                    child: Text(l10n.workspaceKnowledgeFileRename),
+                    label: l10n.workspaceKnowledgeFileRename,
+                    icon: Platform.isIOS ? 'pencil' : Icons.edit_outlined,
                   ),
-                  PopupMenuItem(
+                  AdaptivePopupMenuItem(
                     value: 1,
-                    child: Text(l10n.workspaceKnowledgeFileRefresh),
+                    label: l10n.workspaceKnowledgeFileRefresh,
+                    icon: Platform.isIOS ? 'arrow.clockwise' : Icons.refresh,
                   ),
-                  PopupMenuItem(
+                  AdaptivePopupMenuItem(
                     value: 2,
-                    child: Text(l10n.workspaceKnowledgeFileMove),
+                    label: l10n.workspaceKnowledgeFileMove,
+                    icon: Platform.isIOS
+                        ? 'folder'
+                        : Icons.drive_file_move_outline,
                   ),
-                  PopupMenuItem(
+                  AdaptivePopupMenuItem(
                     key: Key('knowledge-file-detach-${file.id}'),
                     value: 3,
-                    child: Text(l10n.workspaceKnowledgeFileDetach),
+                    label: l10n.workspaceKnowledgeFileDetach,
+                    icon: Platform.isIOS ? 'link.badge.minus' : Icons.link_off,
+                    isDestructive: true,
                   ),
                 ],
               ),

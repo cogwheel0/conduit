@@ -271,7 +271,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                   _connectionController.operation ==
                   HermesConnectionOperation.testing,
               isFullWidth: true,
-              useNativeLabel: true,
               onPressed:
                   _connectionController.draftIsUsable(config) &&
                       !_connectionController.operation.isBusy
@@ -333,7 +332,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               isLoading:
                   _connectionController.operation ==
                   HermesConnectionOperation.finishing,
-              useNativeLabel: true,
               onPressed:
                   _connectionController.draftIsUsable(config) &&
                       !_connectionController.operation.isBusy

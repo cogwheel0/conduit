@@ -276,15 +276,19 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   onPressed: _busy ? null : _runNow,
                 ),
                 const Spacer(),
-                IconButton(
-                  icon: Icon(Icons.edit_outlined, color: theme.iconSecondary),
+                ConduitIconButton(
+                  icon: Icons.edit_outlined,
+                  iconColor: theme.iconSecondary,
                   tooltip: l10n.hermesJobEdit,
                   onPressed: _busy ? null : _editJob,
+                  isCompact: true,
                 ),
-                IconButton(
-                  icon: Icon(Icons.delete_outline, color: theme.error),
+                ConduitIconButton(
+                  icon: Icons.delete_outline,
+                  iconColor: theme.error,
                   tooltip: l10n.hermesJobDelete,
                   onPressed: _busy ? null : _deleteJob,
+                  isCompact: true,
                 ),
               ],
             ),

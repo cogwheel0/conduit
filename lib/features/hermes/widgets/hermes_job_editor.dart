@@ -262,11 +262,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ConduitTextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.cancel),
+          text: l10n.cancel,
         ),
-        TextButton(onPressed: _save, child: Text(l10n.save)),
+        ConduitTextButton(text: l10n.save, onPressed: _save, isPrimary: true),
       ],
     );
   }

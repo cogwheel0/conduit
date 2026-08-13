@@ -298,14 +298,12 @@ class _SelectorHeader extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: isBack
-              ? IconButton(
+              ? ConduitIconButton(
                   onPressed: onPressed,
                   tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  icon: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.back
-                        : Icons.arrow_back_rounded,
-                  ),
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.back
+                      : Icons.arrow_back_rounded,
                 )
               : SheetCloseButton(
                   onPressed: onPressed,

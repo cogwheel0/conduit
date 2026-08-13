@@ -1,7 +1,8 @@
+import 'dart:io' show Platform;
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -161,7 +162,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
         if (didPop) return;
         final shouldPop = await _confirmDiscard(context);
         if (shouldPop && context.mounted) {
-          context.go(section.path);
+          context.goWorkspace(section.path);
         }
       },
       child: compact
@@ -287,7 +288,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
 
   Future<void> _exitCompact(BuildContext context) async {
     if (isDirty && !await _confirmDiscard(context)) return;
-    if (context.mounted) context.go(section.path);
+    if (context.mounted) context.goWorkspace(section.path);
   }
 
   Future<void> _showActions(BuildContext context) async {
@@ -380,43 +381,26 @@ class WorkspaceEditorScaffold extends StatelessWidget {
             ),
           ],
           if (actions.isNotEmpty)
-            PopupMenuButton<WorkspaceEditorAction>(
-              key: const Key('workspace-editor-overflow'),
-              enabled: !isSaving,
-              tooltip: l10n.workspaceEditorMoreActions,
-              icon: const Icon(Icons.more_vert),
-              onSelected: (action) => action.onSelected?.call(),
-              itemBuilder: (context) => [
-                for (final action in actions)
-                  PopupMenuItem<WorkspaceEditorAction>(
-                    key: action.menuKey,
-                    value: action,
-                    enabled: !isSaving && action.onSelected != null,
-                    child: Row(
-                      children: [
-                        if (action.icon != null) ...[
-                          Icon(
-                            action.icon,
-                            size: IconSize.small,
-                            color: action.isDestructive
-                                ? theme.error
-                                : theme.iconSecondary,
-                          ),
-                          const SizedBox(width: Spacing.sm),
-                        ],
-                        Flexible(
-                          child: Text(
-                            action.label,
-                            overflow: TextOverflow.ellipsis,
-                            style: action.isDestructive
-                                ? TextStyle(color: theme.error)
-                                : null,
-                          ),
-                        ),
-                      ],
+            Material(
+              type: MaterialType.transparency,
+              child: AdaptivePopupMenuButton.icon<WorkspaceEditorAction>(
+                key: const Key('workspace-editor-overflow'),
+                enabled: !isSaving,
+                icon: Platform.isIOS ? 'ellipsis' : Icons.more_vert,
+                buttonStyle: PopupButtonStyle.plain,
+                onSelected: (_, entry) => entry.value?.onSelected?.call(),
+                items: [
+                  for (final action in actions)
+                    AdaptivePopupMenuItem<WorkspaceEditorAction>(
+                      key: action.menuKey,
+                      value: action,
+                      label: action.label,
+                      icon: action.icon,
+                      enabled: !isSaving && action.onSelected != null,
+                      isDestructive: action.isDestructive,
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
         ],
       ),

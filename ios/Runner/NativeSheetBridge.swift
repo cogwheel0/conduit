@@ -4649,8 +4649,19 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(
                 cell,
                 item: item,
-                showsDisclosure: item.url != nil || canNavigate(item)
+                showsDisclosure: item.url != nil
+                    || canNavigate(item)
+                    || isInlineEditorItem(item)
             )
+        }
+    }
+
+    private func isInlineEditorItem(_ item: NativeSheetItem) -> Bool {
+        switch item.id {
+        case "profile-photo", "profile-name", "profile-about", "profile-details":
+            return true
+        default:
+            return false
         }
     }
 
@@ -6830,6 +6841,16 @@ private enum NativeSheetSettingsStyle {
     static let defaultCellHeight: CGFloat = 48
     static let iconSize: CGFloat = 24
     static let iconSpacing: CGFloat = 12
+    static let secondaryForeground = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.74)
+            : UIColor.secondaryLabel
+    }
+    static let iconForeground = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.68)
+            : UIColor.secondaryLabel
+    }
 
     static var horizontalMargin: CGFloat {
         let isWidePhone = UIDevice.current.userInterfaceIdiom == .phone &&
@@ -6861,13 +6882,13 @@ private enum NativeSheetSettingsStyle {
         content.textProperties.color = .label
         content.textProperties.numberOfLines = 2
         content.secondaryTextProperties.font = .preferredFont(forTextStyle: .footnote)
-        content.secondaryTextProperties.color = .secondaryLabel
+        content.secondaryTextProperties.color = secondaryForeground
         content.secondaryTextProperties.numberOfLines = 2
         content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
             pointSize: iconSize,
             weight: .regular
         )
-        content.imageProperties.tintColor = .secondaryLabel
+        content.imageProperties.tintColor = iconForeground
         content.imageToTextPadding = iconSpacing
     }
 
@@ -6889,7 +6910,7 @@ private enum NativeSheetSettingsStyle {
     static func applyHeaderFooterStyle(_ view: UIView) {
         guard let headerFooter = view as? UITableViewHeaderFooterView else { return }
         headerFooter.textLabel?.font = .preferredFont(forTextStyle: .footnote)
-        headerFooter.textLabel?.textColor = .secondaryLabel
+        headerFooter.textLabel?.textColor = secondaryForeground
         headerFooter.textLabel?.numberOfLines = 0
     }
 }

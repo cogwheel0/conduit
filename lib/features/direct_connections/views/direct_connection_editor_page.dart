@@ -211,7 +211,6 @@ class _DirectConnectionEditorPageState
           text: AppLocalizations.of(context)!.save,
           isFullWidth: true,
           isLoading: true,
-          useNativeLabel: true,
         ),
       ),
       DirectEditorLoadFailure() => _buildEditorScaffold(
@@ -303,7 +302,7 @@ class _DirectConnectionEditorPageState
         directDraftValidationMessage(l10n, _form.errors.form) ??
         _form.errors.profile;
     final content = <Widget>[
-      if (!widget.isOnboarding)
+      if (!widget.isOnboarding && !_mode.isNew)
         UtilityIdentityHeader(
           leading: ConnectionMark(
             child: Icon(
@@ -331,7 +330,8 @@ class _DirectConnectionEditorPageState
                 )
               : null,
         ),
-      if (!widget.isOnboarding) const SizedBox(height: Spacing.xl),
+      if (!widget.isOnboarding && !_mode.isNew)
+        const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
         DirectConnectionAvailabilitySection(form: _form),
         const SizedBox(height: Spacing.lg),
@@ -369,7 +369,6 @@ class _DirectConnectionEditorPageState
           children: [
             ConduitButton(
               text: l10n.save,
-              icon: Icons.check,
               isLoading: _saving,
               onPressed:
                   _testing ||
@@ -383,7 +382,6 @@ class _DirectConnectionEditorPageState
               text: l10n.testDirectConnection,
               isSecondary: true,
               isLoading: _testing,
-              useNativeLabel: true,
               onPressed:
                   _saving ||
                       _deleting ||
@@ -404,7 +402,6 @@ class _DirectConnectionEditorPageState
         const SizedBox(height: Spacing.xl),
         ConduitButton(
           text: 'Delete connection',
-          icon: Icons.delete_outline,
           isDestructive: true,
           isLoading: _deleting,
           onPressed: _saving || _testing ? null : _delete,
@@ -435,7 +432,6 @@ class _DirectConnectionEditorPageState
                   text: l10n.directConnectProvider,
                   isFullWidth: true,
                   isLoading: _testing || _saving,
-                  useNativeLabel: true,
                   onPressed:
                       _testing || _saving || _deleting || !_form.isReadyToSubmit
                       ? null

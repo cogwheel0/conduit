@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../../shared/widgets/utility_components.dart';
 import '../../providers/workspace_model_relationships.dart';
 import 'workspace_model_editor_controller.dart';
@@ -73,29 +74,28 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
         baseModels.any((option) => option.id == selectedId);
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: DropdownButtonFormField<String?>(
+      child: AdaptiveDropdownField<String?>(
         key: const Key('workspace-model-base'),
-        initialValue: selectedId,
-        isExpanded: true,
+        value: selectedId,
         decoration: InputDecoration(
           labelText: l10n.workspaceModelBaseModel,
           isDense: true,
           border: const OutlineInputBorder(),
         ),
-        items: [
-          DropdownMenuItem<String?>(
+        options: [
+          AdaptiveDropdownOption<String?>(
             value: null,
-            child: Text(l10n.workspaceModelBaseModelNone),
+            label: l10n.workspaceModelBaseModelNone,
           ),
           if (!hasSelectedOption)
-            DropdownMenuItem<String?>(
+            AdaptiveDropdownOption<String?>(
               value: selectedId,
-              child: Text(selectedId, overflow: TextOverflow.ellipsis),
+              label: selectedId,
             ),
           for (final option in baseModels)
-            DropdownMenuItem<String?>(
+            AdaptiveDropdownOption<String?>(
               value: option.id,
-              child: Text(option.label, overflow: TextOverflow.ellipsis),
+              label: option.label,
             ),
         ],
         onChanged: controller.readOnly ? null : controller.setBaseModel,

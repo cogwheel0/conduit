@@ -313,6 +313,7 @@ class UtilityValueRow extends StatelessWidget {
     this.onTap,
     this.monospace = false,
     this.stacked = false,
+    this.showChevron = false,
     this.showDivider = false,
   });
 
@@ -323,27 +324,38 @@ class UtilityValueRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool monospace;
   final bool stacked;
+  final bool showChevron;
   final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final valueText = SelectableText(
-      value,
-      maxLines: 2,
-      textAlign: stacked ? TextAlign.start : TextAlign.end,
-      style: AppTypography.bodySmallStyle.copyWith(
-        color: theme.textSecondary,
-        fontWeight: FontWeight.w600,
-        fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
-      ),
+    final valueStyle = AppTypography.bodySmallStyle.copyWith(
+      color: theme.textSecondary,
+      fontWeight: FontWeight.w600,
+      fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
     );
+    final valueText = onTap == null
+        ? SelectableText(
+            value,
+            maxLines: 2,
+            textAlign: stacked ? TextAlign.start : TextAlign.end,
+            style: valueStyle,
+          )
+        : Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: stacked ? TextAlign.start : TextAlign.end,
+            style: valueStyle,
+          );
     final row = UtilityRow(
       title: label,
       subtitle: stacked ? value : null,
       leading: leading,
       trailing: trailing,
       onTap: onTap,
+      showChevron: showChevron,
       hapticType: onTap == null ? null : HapticType.selection,
       semanticLabel: '$label. $value',
       padding: const EdgeInsets.all(Spacing.md),

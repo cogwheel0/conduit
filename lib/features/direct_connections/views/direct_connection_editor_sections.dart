@@ -2,6 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -23,7 +24,6 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedSection(
-      title: l10n.enabledLabel,
       child: InkWell(
         onTap: () => form.setEnabled(!form.enabled),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
@@ -116,6 +116,61 @@ final class DirectConnectionProviderSection extends StatelessWidget {
       ollamaDefaultName: l10n.ollamaCloudDefaultName,
       openRouterDefaultName: l10n.openRouterProviderName,
     );
+
+    if (PlatformInfo.isIOS) {
+      final currentLabel = switch (form.providerPreset) {
+        kOpenRouterProviderPreset => l10n.openRouterProviderName,
+        kOllamaAdapterKey => l10n.ollama,
+        _ => l10n.openAICompatible,
+      };
+      return Builder(
+        builder: (anchorContext) => InsetGroupedList(
+          children: [
+            UtilityValueRow(
+              key: const ValueKey<String>('direct-provider-preset-selector'),
+              label: l10n.directProvider,
+              value: currentLabel,
+              showChevron: true,
+              onTap: () async {
+                final selected = await IosNativeDropdownBridge.instance
+                    .showFromContext(
+                      context: anchorContext,
+                      title: l10n.directProvider,
+                      cancelLabel: MaterialLocalizations.of(context)
+                          .cancelButtonLabel,
+                      options: [
+                        IosNativeDropdownOption(
+                          id: kOpenAiCompatibleAdapterKey,
+                          label: l10n.openAICompatible,
+                          sfSymbol:
+                              form.providerPreset == kOpenAiCompatibleAdapterKey
+                              ? 'checkmark'
+                              : null,
+                        ),
+                        IosNativeDropdownOption(
+                          id: kOpenRouterProviderPreset,
+                          label: l10n.openRouterProviderName,
+                          sfSymbol:
+                              form.providerPreset == kOpenRouterProviderPreset
+                              ? 'checkmark'
+                              : null,
+                        ),
+                        IosNativeDropdownOption(
+                          id: kOllamaAdapterKey,
+                          label: l10n.ollama,
+                          sfSymbol: form.providerPreset == kOllamaAdapterKey
+                              ? 'checkmark'
+                              : null,
+                        ),
+                      ],
+                    );
+                if (selected != null) select(selected);
+              },
+            ),
+          ],
+        ),
+      );
+    }
 
     return InsetGroupedSection(
       key: const ValueKey<String>('direct-provider-preset-selector'),
@@ -231,51 +286,66 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: Spacing.lg),
-          Text(
-            l10n.directAuthentication,
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: theme.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: Spacing.sm),
-          Material(
-            type: MaterialType.transparency,
-            child: DropdownButtonFormField<DirectAuthenticationMode>(
-              key: ValueKey<String>(
-                'direct-authentication-selector-${form.providerPreset}',
+          if (!PlatformInfo.isIOS) ...[
+            Text(
+              l10n.directAuthentication,
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textPrimary,
+                fontWeight: FontWeight.w500,
               ),
-              initialValue: form.authentication,
-              isExpanded: true,
-              decoration: context.conduitInputStyles.standard(),
-              dropdownColor: theme.surfaceBackground,
-              items: [
-                DropdownMenuItem(
-                  value: DirectAuthenticationMode.bearer,
-                  child: Text(l10n.bearerToken),
-                ),
-                if (form.canSelectApiKeyHeader)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.apiKeyHeader,
-                    child: Text(l10n.directApiKeyHeader),
-                  ),
-                if (form.canSelectNoAuthentication)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.none,
-                    child: Text(l10n.noAuthentication),
-                  ),
-                if (form.authentication == DirectAuthenticationMode.unsupported)
-                  DropdownMenuItem(
-                    value: DirectAuthenticationMode.unsupported,
-                    enabled: false,
-                    child: Text(l10n.directConnectionUnavailableLabel),
-                  ),
-              ],
-              onChanged: (value) {
-                if (value != null) form.setAuthentication(value);
-              },
             ),
-          ),
+            const SizedBox(height: Spacing.sm),
+          ],
+          if (PlatformInfo.isIOS)
+            Builder(
+              builder: (anchorContext) => _NativeAuthenticationSelector(
+                key: ValueKey<String>(
+                  'direct-authentication-selector-${form.providerPreset}',
+                ),
+                value: form.authentication,
+                options: _authenticationOptions(l10n, form),
+                onTap: () => _selectAuthentication(anchorContext, l10n, form),
+              ),
+            )
+          else
+            Material(
+              type: MaterialType.transparency,
+              child: DropdownButtonFormField<DirectAuthenticationMode>(
+                key: ValueKey<String>(
+                  'direct-authentication-selector-${form.providerPreset}',
+                ),
+                initialValue: form.authentication,
+                isExpanded: true,
+                decoration: context.conduitInputStyles.standard(),
+                dropdownColor: theme.surfaceBackground,
+                items: [
+                  DropdownMenuItem(
+                    value: DirectAuthenticationMode.bearer,
+                    child: Text(l10n.bearerToken),
+                  ),
+                  if (form.canSelectApiKeyHeader)
+                    DropdownMenuItem(
+                      value: DirectAuthenticationMode.apiKeyHeader,
+                      child: Text(l10n.directApiKeyHeader),
+                    ),
+                  if (form.canSelectNoAuthentication)
+                    DropdownMenuItem(
+                      value: DirectAuthenticationMode.none,
+                      child: Text(l10n.noAuthentication),
+                    ),
+                  if (form.authentication ==
+                      DirectAuthenticationMode.unsupported)
+                    DropdownMenuItem(
+                      value: DirectAuthenticationMode.unsupported,
+                      enabled: false,
+                      child: Text(l10n.directConnectionUnavailableLabel),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) form.setAuthentication(value);
+                },
+              ),
+            ),
           if (form.authentication == DirectAuthenticationMode.apiKeyHeader) ...[
             const SizedBox(height: Spacing.sm),
             Text(
@@ -308,25 +378,113 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
               keyboardType: TextInputType.visiblePassword,
               textInputAction: TextInputAction.next,
               autocorrect: false,
-              suffixIcon: IconButton(
+              suffixIcon: ConduitIconButton(
                 tooltip: form.showApiKey
                     ? l10n.hidePassword
                     : l10n.showPassword,
                 onPressed: () => form.setShowApiKey(!form.showApiKey),
-                icon: Icon(
-                  form.showApiKey
-                      ? (usesCupertinoChrome
-                            ? CupertinoIcons.eye_slash
-                            : Icons.visibility_off)
-                      : (usesCupertinoChrome
-                            ? CupertinoIcons.eye
-                            : Icons.visibility),
-                ),
+                icon: form.showApiKey
+                    ? (usesCupertinoChrome
+                          ? CupertinoIcons.eye_slash
+                          : Icons.visibility_off)
+                    : (usesCupertinoChrome
+                          ? CupertinoIcons.eye
+                          : Icons.visibility),
               ),
             ),
           ],
         ],
       ),
+    );
+  }
+}
+
+List<({DirectAuthenticationMode value, String label, bool enabled})>
+_authenticationOptions(
+  AppLocalizations l10n,
+  DirectConnectionEditorForm form,
+) => [
+  (
+    value: DirectAuthenticationMode.bearer,
+    label: l10n.bearerToken,
+    enabled: true,
+  ),
+  if (form.canSelectApiKeyHeader)
+    (
+      value: DirectAuthenticationMode.apiKeyHeader,
+      label: l10n.directApiKeyHeader,
+      enabled: true,
+    ),
+  if (form.canSelectNoAuthentication)
+    (
+      value: DirectAuthenticationMode.none,
+      label: l10n.noAuthentication,
+      enabled: true,
+    ),
+  if (form.authentication == DirectAuthenticationMode.unsupported)
+    (
+      value: DirectAuthenticationMode.unsupported,
+      label: l10n.directConnectionUnavailableLabel,
+      enabled: false,
+    ),
+];
+
+Future<void> _selectAuthentication(
+  BuildContext context,
+  AppLocalizations l10n,
+  DirectConnectionEditorForm form,
+) async {
+  final options = _authenticationOptions(l10n, form);
+  final selected = await IosNativeDropdownBridge.instance.showFromContext(
+    context: context,
+    title: l10n.directAuthentication,
+    cancelLabel: MaterialLocalizations.of(context).cancelButtonLabel,
+    options: [
+      for (final option in options)
+        IosNativeDropdownOption(
+          id: option.value.name,
+          label: option.label,
+          enabled: option.enabled,
+          sfSymbol: option.value == form.authentication ? 'checkmark' : null,
+        ),
+    ],
+  );
+  if (selected == null) return;
+  for (final option in options) {
+    if (option.value.name == selected && option.enabled) {
+      form.setAuthentication(option.value);
+      return;
+    }
+  }
+}
+
+class _NativeAuthenticationSelector extends StatelessWidget {
+  const _NativeAuthenticationSelector({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onTap,
+  });
+
+  final DirectAuthenticationMode value;
+  final List<({DirectAuthenticationMode value, String label, bool enabled})>
+  options;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final label = options
+        .firstWhere(
+          (option) => option.value == value,
+          orElse: () => options.first,
+        )
+        .label;
+    return UtilityValueRow(
+      label: l10n.directAuthentication,
+      value: label,
+      showChevron: true,
+      onTap: onTap,
     );
   }
 }
@@ -445,7 +603,6 @@ final class _AdvancedSettingsContent extends StatelessWidget {
           text: l10n.addHeader,
           isSecondary: true,
           isFullWidth: true,
-          useNativeLabel: true,
           onPressed: form.canAddCustomHeader ? form.addCustomHeader : null,
         ),
         if (form.customHeaders.isNotEmpty) ...[

@@ -34,7 +34,6 @@ class BackendChooserPage extends ConsumerWidget {
           ),
           const SizedBox(height: Spacing.sm),
           InsetGroupedSection(
-            title: '',
             padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
             flat: true,
             child: Column(

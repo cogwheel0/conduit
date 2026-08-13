@@ -317,10 +317,11 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
               children: [
                 Text(l10n.channelLoadError),
                 const SizedBox(height: 8),
-                TextButton(
+                ConduitTextButton(
                   onPressed: () =>
                       ref.read(channelsListProvider.notifier).refresh(),
-                  child: Text(l10n.retry),
+                  text: l10n.retry,
+                  isPrimary: true,
                 ),
               ],
             ),

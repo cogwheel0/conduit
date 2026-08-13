@@ -10,6 +10,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -86,17 +87,7 @@ class ToggleTile extends StatelessWidget {
             ),
             const SizedBox(width: Spacing.sm),
             IgnorePointer(
-              child: Platform.isIOS
-                  ? CupertinoSwitch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeTrackColor: theme.buttonPrimary,
-                    )
-                  : Switch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeThumbColor: theme.buttonPrimary,
-                    ),
+              child: AdaptiveSwitch(value: selected, onChanged: (_) {}),
             ),
           ],
         ),

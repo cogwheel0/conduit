@@ -1515,39 +1515,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             spacing: Spacing.xs,
             runSpacing: Spacing.xs,
             children: [
-              TextButton.icon(
+              ConduitButton(
                 onPressed: () => _retryQueuedCompletion(info),
-                icon: Icon(
-                  Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-                  size: 16,
-                ),
-                label: Text(l10n.retry),
-                style: TextButton.styleFrom(
-                  foregroundColor: accentColor,
-                  minimumSize: const Size(0, 34),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: 6,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                text: l10n.retry,
+                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                isCompact: true,
               ),
-              TextButton.icon(
+              ConduitButton(
                 onPressed: () => _cancelQueuedCompletion(info),
-                icon: Icon(
-                  Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                  size: 16,
-                ),
-                label: Text(l10n.cancel),
-                style: TextButton.styleFrom(
-                  foregroundColor: conduitTheme.textSecondary,
-                  minimumSize: const Size(0, 34),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: 6,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                text: l10n.cancel,
+                icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                isCompact: true,
+                isSecondary: true,
               ),
             ],
           ),

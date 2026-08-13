@@ -24,6 +24,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -140,13 +141,20 @@ void main() {
     );
     await tester.pump();
 
-    check(
+    expect(find.byKey(const Key('workspace-editor-overflow')), findsOneWidget);
+    expect(
       tester
-          .widget<PopupMenuButton<WorkspaceEditorAction>>(
-            find.byKey(const Key('workspace-editor-overflow')),
+          .widget<IgnorePointer>(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('workspace-editor-overflow')),
+                  matching: find.byType(IgnorePointer),
+                )
+                .first,
           )
-          .enabled,
-    ).isFalse();
+          .ignoring,
+      isTrue,
+    );
   });
 
   testWidgets('compact shell shows app bar section menu and collection', (
@@ -189,7 +197,7 @@ void main() {
 
     final activeSectionLabel = find.descendant(
       of: find.byKey(const Key('workspace-section-tabs')),
-      matching: find.text('Workspace · Models'),
+      matching: find.text('Models'),
     );
     check(activeSectionLabel.evaluate()).length.equals(1);
 
@@ -303,6 +311,40 @@ void main() {
     expect(find.text('0 functions'), findsOneWidget);
   });
 
+  testWidgets('iOS 26 section selector uses a stable native menu trigger', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(_workspaceHarness());
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('workspace-section-tabs')),
+        matching: find.byType(CNPopupMenuButton),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('workspace-section-tabs')),
+        matching: find.byKey(const Key('workspace-section-chevron')),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 500));
+  });
+
   testWidgets('section changes retain a back button that exits workspace', (
     tester,
   ) async {
@@ -362,6 +404,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('origin'), findsOneWidget);
+  });
+
+  testWidgets('native settings origin exits workspace to chat', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: Routes.profile,
+      routes: [
+        GoRoute(
+          path: Routes.chat,
+          builder: (_, _) => const Scaffold(body: Text('chat')),
+        ),
+        GoRoute(
+          path: Routes.profile,
+          builder: (_, _) => const Scaffold(body: Text('settings')),
+        ),
+        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+          GoRoute(
+            path: section.path,
+            builder: (_, state) => WorkspacePage(
+              section: section,
+              openedFromNativeSheet: state.extra is NativeSheetNavigationOrigin,
+            ),
+          ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => _capabilities,
+          ),
+          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    router.push(
+      WorkspaceSection.models.path,
+      extra: const NativeSheetNavigationOrigin(),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-section-tabs')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-exit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('chat'), findsOneWidget);
+    expect(find.text('settings'), findsNothing);
   });
 
   testWidgets('tablet shell keeps section rail, list, and detail placeholder', (

@@ -7,6 +7,8 @@ import 'package:conduit/features/direct_connections/services/openwebui_direct_co
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,6 +116,49 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'iOS editor removes repeated headers and uses compact selectors',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directConnectionProfilesProvider.overrideWith(
+              () => DirectTestStaticDirectProfiles(const []),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(platform: TargetPlatform.iOS),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const DirectConnectionEditorPage(
+              mode: DirectConnectionEditorMode.create(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connect a provider'), findsNothing);
+      expect(find.text('Enabled'), findsOneWidget);
+      final providerFinder = find.byKey(
+        const ValueKey<String>('direct-provider-preset-selector'),
+      );
+      expect(providerFinder, findsOneWidget);
+      final providerRow = tester.widget<UtilityValueRow>(providerFinder);
+      expect(providerRow.leading, isNull);
+      expect(providerRow.showChevron, isTrue);
+      expect(find.byType(UtilityValueRow), findsAtLeastNWidgets(1));
+      expect(find.text('OpenRouter'), findsNothing);
+      expect(find.text('Ollama'), findsNothing);
+      expect(find.byType(DropdownButtonFormField), findsNothing);
+    },
+  );
 
   testWidgets('onboarding does not save an unreachable direct provider', (
     tester,

@@ -2,7 +2,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
@@ -493,7 +492,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
       onEdit: _session.isDetail && _writeAccess
-          ? () => context.push(
+          ? () => context.pushWorkspace(
               WorkspaceSection.prompts.routes.editLocation(summary!.id),
             )
           : null,

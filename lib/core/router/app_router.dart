@@ -731,6 +731,7 @@ List<GoRoute> _workspaceRoutes() {
           section: section,
           mode: mode,
           resourceId: state.pathParameters['id'],
+          openedFromNativeSheet: state.extra is NativeSheetNavigationOrigin,
         ),
       ),
     );

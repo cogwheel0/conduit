@@ -23,7 +23,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Appearance'), findsOneWidget);
-    expect(find.text('Display'), findsOneWidget);
+    expect(find.text('Display'), findsNothing);
     expect(find.text('App Language'), findsWidgets);
     expect(find.text('Quick actions in chat'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);

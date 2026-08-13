@@ -31,6 +31,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -1958,20 +1959,16 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              ConduitTextButton(
                 onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-                child: Text(l10n.cancel),
+                text: l10n.cancel,
               ),
               const SizedBox(width: Spacing.sm),
-              FilledButton(
+              ConduitButton(
                 onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l10n.save),
+                text: l10n.save,
+                isCompact: true,
+                isLoading: _isSaving,
               ),
             ],
           ),
@@ -2131,20 +2128,16 @@ class _FolderSystemPromptSheetState
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              ConduitTextButton(
                 onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-                child: Text(l10n.cancel),
+                text: l10n.cancel,
               ),
               const SizedBox(width: Spacing.sm),
-              FilledButton(
+              ConduitButton(
                 onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l10n.save),
+                text: l10n.save,
+                isCompact: true,
+                isLoading: _isSaving,
               ),
             ],
           ),

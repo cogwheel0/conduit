@@ -59,21 +59,16 @@ class OllamaModelActionsButton extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     if (isBusy) {
       return const SizedBox.square(
-        dimension: 32,
+        dimension: TouchTarget.minimum,
         child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       );
     }
-    return IconButton(
+    return ConduitIconButton(
       key: ValueKey('ollama-model-actions:$profileId:$remoteModelId'),
       tooltip: l10n.ollamaModelActions,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      padding: EdgeInsets.zero,
-      iconSize: IconSize.small,
-      icon: Icon(
-        Platform.isIOS ? CupertinoIcons.ellipsis : Icons.more_horiz_rounded,
-        color: context.conduitTheme.textSecondary,
-      ),
+      isCompact: true,
+      icon: Platform.isIOS ? CupertinoIcons.ellipsis : Icons.more_horiz_rounded,
+      iconColor: context.conduitTheme.textSecondary,
       onPressed: () => _showActions(context, ref),
     );
   }

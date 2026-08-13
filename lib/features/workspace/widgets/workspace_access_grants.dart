@@ -537,12 +537,12 @@ class _WorkspaceAccessGrantSheetState
               ),
             ),
             if (canEdit)
-              IconButton(
+              ConduitIconButton(
                 key: Key(
                   'workspace-access-remove-${principal.type.name}-${principal.id}',
                 ),
                 tooltip: l10n.workspaceAccessRemoveGrant,
-                icon: const Icon(Icons.close),
+                icon: Icons.close,
                 onPressed: () => _update(
                   removeWorkspacePrincipal(
                     _grants,
@@ -550,6 +550,7 @@ class _WorkspaceAccessGrantSheetState
                     principal.id,
                   ),
                 ),
+                isCompact: true,
               ),
           ],
         ),

@@ -1238,22 +1238,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ),
         ),
         const Spacer(),
-        IconButton(
+        ConduitIconButton(
           tooltip: AppLocalizations.of(context)!.newFolder,
-          constraints: const BoxConstraints.tightFor(
-            width: TouchTarget.minimum,
-            height: TouchTarget.minimum,
-          ),
-          padding: const EdgeInsets.all(
-            (TouchTarget.minimum - IconSize.md) / 2,
-          ),
-          icon: Icon(
-            Platform.isIOS
-                ? CupertinoIcons.folder_badge_plus
-                : Icons.create_new_folder_outlined,
-            color: theme.iconPrimary,
-            size: IconSize.md,
-          ),
+          icon: Platform.isIOS
+              ? CupertinoIcons.folder_badge_plus
+              : Icons.create_new_folder_outlined,
+          iconColor: theme.iconPrimary,
+          isCompact: true,
           onPressed: () =>
               CreateFolderDialog.show(context, ref, onError: _showDrawerError),
         ),
@@ -1323,30 +1314,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     ),
                   ),
                   const SizedBox(width: Spacing.sm),
-                  SizedBox(
-                    width: TouchTarget.minimum,
-                    height: TouchTarget.minimum,
-                    child: IconButton(
-                      key: ValueKey<String>('folder-expand-$folderId'),
-                      iconSize: IconSize.sm,
-                      padding: const EdgeInsets.all(
-                        (TouchTarget.minimum - IconSize.sm) / 2,
-                      ),
-                      constraints: const BoxConstraints.tightFor(
-                        width: TouchTarget.minimum,
-                        height: TouchTarget.minimum,
-                      ),
-                      style: IconButton.styleFrom(shape: const CircleBorder()),
-                      icon: Icon(
-                        _chatsDrawerDisclosureIcon(isExpanded),
-                        color: theme.iconSecondary,
-                        size: IconSize.sm,
-                      ),
-                      onPressed: () {
-                        ConduitHaptics.selectionClick();
-                        _setFolderExpanded(folderId, !isExpanded);
-                      },
-                    ),
+                  ConduitIconButton(
+                    key: ValueKey<String>('folder-expand-$folderId'),
+                    icon: _chatsDrawerDisclosureIcon(isExpanded),
+                    iconColor: theme.iconSecondary,
+                    tooltip: name,
+                    isCompact: true,
+                    onPressed: () {
+                      ConduitHaptics.selectionClick();
+                      _setFolderExpanded(folderId, !isExpanded);
+                    },
                   ),
                 ],
               ),

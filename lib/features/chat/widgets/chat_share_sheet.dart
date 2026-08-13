@@ -324,12 +324,12 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
             ),
             if (hasExistingShare) ...[
               const SizedBox(height: Spacing.md),
-              TextButton(
+              ConduitTextButton(
                 onPressed: _isDeleting || _isSharing ? null : _deleteLink,
-                child: Text(
-                  '${l10n.shareChatDeleteLink} '
-                  '${l10n.shareChatDeleteAndCreate}',
-                ),
+                text:
+                    '${l10n.shareChatDeleteLink} '
+                    '${l10n.shareChatDeleteAndCreate}',
+                isDestructive: true,
               ),
             ],
             const SizedBox(height: Spacing.lg),

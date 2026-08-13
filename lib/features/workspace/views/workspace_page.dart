@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/ios_native_dropdown_bridge.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
@@ -33,24 +34,29 @@ class WorkspacePage extends ConsumerWidget {
     this.section,
     this.mode = WorkspaceRouteMode.collection,
     this.resourceId,
+    this.openedFromNativeSheet = false,
   });
 
   final WorkspaceSection? section;
   final WorkspaceRouteMode mode;
   final String? resourceId;
+  final bool openedFromNativeSheet;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = section;
-    return WorkspaceGate(
-      section: selected,
-      child: selected == null
-          ? const SizedBox.shrink()
-          : WorkspaceScaffold(
-              section: selected,
-              mode: mode,
-              resourceId: resourceId,
-            ),
+    return WorkspaceNavigationScope(
+      openedFromNativeSheet: openedFromNativeSheet,
+      child: WorkspaceGate(
+        section: selected,
+        child: selected == null
+            ? const SizedBox.shrink()
+            : WorkspaceScaffold(
+                section: selected,
+                mode: mode,
+                resourceId: resourceId,
+              ),
+      ),
     );
   }
 }
@@ -389,7 +395,7 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
       child: ConduitAdaptiveAppBarIconButton(
         icon: PlatformInfo.isIOS ? CupertinoIcons.add : Icons.add,
         iconColor: theme.textPrimary,
-        onPressed: () => context.push(section.routes.createPattern),
+        onPressed: () => context.pushWorkspace(section.routes.createPattern),
       ),
     ),
   );
@@ -455,7 +461,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final label = '${l10n.workspaceTitle} · ${_sectionLabel(l10n, selected)}';
+    final label = _sectionLabel(l10n, selected);
     if (permitted.length < 2) {
       return Text(label, style: conduitAdaptiveToolbarPillTextStyle(context));
     }
@@ -473,11 +479,57 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       textStyle: textStyle,
       maxWidth: maxPillWidth,
       minWidth: maxPillWidth < 120 ? maxPillWidth : 120,
-      horizontalPadding: 18,
+      horizontalPadding: 24,
       trailingWidth: iconSize + Spacing.sm,
     );
 
     final menuSize = Size(targetWidth, 32 * controlScale);
+    final items = [
+      for (final item in permitted)
+        AdaptivePopupMenuItem<WorkspaceSection>(
+          value: item,
+          label: _sectionLabel(l10n, item),
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: _sectionIosSymbol(item),
+            materialIcon: _sectionIcon(item),
+          ),
+          checked: item == selected,
+        ),
+    ];
+
+    if (PlatformInfo.isIOS) {
+      return Builder(
+        builder: (anchorContext) => buildConduitAdaptiveToolbarPillSurface(
+          width: menuSize.width,
+          height: menuSize.height,
+          semanticLabel: label,
+          onPressed: () => _showNativeSectionMenu(anchorContext, l10n),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                ConduitSystemAdaptiveIcon(
+                  CupertinoIcons.chevron_down,
+                  key: const Key('workspace-section-chevron'),
+                  size: iconSize,
+                  color: context.conduitTheme.iconSecondary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return ThemedSheets.hideNativeChromeWhileCovered(
       replacement: SizedBox.fromSize(size: menuSize),
       child: AdaptivePopupMenuButton.widget<WorkspaceSection>(
@@ -498,6 +550,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
                 ),
                 const SizedBox(width: Spacing.sm),
                 ConduitSystemAdaptiveIcon(
+                  key: const Key('workspace-section-chevron'),
                   PlatformInfo.isIOS
                       ? CupertinoIcons.chevron_down
                       : Icons.keyboard_arrow_down_rounded,
@@ -508,29 +561,42 @@ class _WorkspaceSectionMenu extends StatelessWidget {
             ),
           ),
         ),
-        items: [
-          for (final item in permitted)
-            AdaptivePopupMenuItem<WorkspaceSection>(
-              value: item,
-              label: _sectionLabel(l10n, item),
-              icon: conduitAdaptivePopupMenuIcon(
-                iosSymbol: item == selected
-                    ? 'checkmark'
-                    : _sectionIosSymbol(item),
-                materialIcon: item == selected
-                    ? Icons.check_rounded
-                    : _sectionIcon(item),
-              ),
-            ),
-        ],
-        onSelected: (_, entry) {
-          final next = entry.value;
-          if (next != null && next != selected) {
-            context.pushReplacement(next.path);
-          }
-        },
+        items: items,
+        onSelected: (_, entry) => _selectSection(context, entry.value),
       ),
     );
+  }
+
+  void _selectSection(BuildContext context, WorkspaceSection? next) {
+    if (next != null && next != selected) {
+      context.replaceWorkspace(next.path);
+    }
+  }
+
+  Future<void> _showNativeSectionMenu(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    final nextName = await IosNativeDropdownBridge.instance.showFromContext(
+      context: context,
+      title: l10n.workspaceTitle,
+      cancelLabel: MaterialLocalizations.of(context).cancelButtonLabel,
+      options: [
+        for (final item in permitted)
+          IosNativeDropdownOption(
+            id: item.name,
+            label: _sectionLabel(l10n, item),
+            sfSymbol: item == selected ? 'checkmark' : _sectionIosSymbol(item),
+          ),
+      ],
+    );
+    if (!context.mounted || nextName == null) return;
+    for (final item in permitted) {
+      if (item.name == nextName) {
+        _selectSection(context, item);
+        return;
+      }
+    }
   }
 }
 
@@ -578,7 +644,7 @@ class _WorkspaceSectionRail extends StatelessWidget {
             ),
             leading: Icon(_sectionIcon(item), size: IconSize.small),
             title: Text(_sectionLabel(l10n, item)),
-            onTap: () => context.pushReplacement(item.path),
+            onTap: () => context.replaceWorkspace(item.path),
           ),
       ],
     );
@@ -593,6 +659,11 @@ Widget _workspaceExitButton(BuildContext context) {
       icon: PlatformInfo.isIOS ? CupertinoIcons.back : Icons.arrow_back,
       iconColor: context.conduitTheme.textPrimary,
       onPressed: () {
+        if (WorkspaceNavigationScope.maybeOf(context)?.openedFromNativeSheet ==
+            true) {
+          context.go(Routes.chat);
+          return;
+        }
         if (context.canPop()) {
           context.pop();
         } else {
@@ -811,12 +882,12 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                   ),
                   if (canCreate && showCreateAction) ...[
                     const SizedBox(width: Spacing.sm),
-                    IconButton(
+                    ConduitIconButton(
                       key: Key('workspace-create-${section.name}'),
                       tooltip: l10n.workspaceCreate,
                       onPressed: () =>
-                          context.push(section.routes.createPattern),
-                      icon: const Icon(Icons.add),
+                          context.pushWorkspace(section.routes.createPattern),
+                      icon: Icons.add,
                     ),
                   ],
                 ],
@@ -1165,13 +1236,14 @@ Widget _emptyState(
   return ConduitEmptyState(
     key: Key('workspace-empty-${section.name}'),
     icon: _sectionIcon(section),
-    title: _sectionLabel(l10n, section),
-    message: l10n.workspaceEmpty,
-    action: canCreate
+    title: l10n.workspaceEmpty,
+    message: '',
+    action: canCreate && !PlatformInfo.isIOS
         ? ConduitButton(
             text: l10n.workspaceCreate,
             icon: Icons.add,
-            onPressed: () => context.push(section.routes.createPattern),
+            onPressed: () =>
+                context.pushWorkspace(section.routes.createPattern),
           )
         : null,
   );
@@ -1429,7 +1501,7 @@ class _WorkspaceDetailPanel extends ConsumerWidget {
         key: Key('workspace-${section.name}-${mode.name}-$id'),
         title: _detailTitle(value) ?? id,
         showEdit: mode == WorkspaceRouteMode.detail,
-        onEdit: () => context.push(section.routes.editLocation(id)),
+        onEdit: () => context.pushWorkspace(section.routes.editLocation(id)),
       ),
     );
   }
@@ -1560,10 +1632,8 @@ class _KnowledgeFilterBar extends ConsumerWidget {
   }
 }
 
-/// Inline value picker for the knowledge filter bar, presented as a native
-/// adaptive menu. Wrapped in a [KeyedSubtree] because
-/// [AdaptivePopupMenuButton.text] does not forward its own `key`; the subtree
-/// keeps the stable test key on the trigger.
+/// Inline value picker for the Knowledge filter bar. iOS presents the shared
+/// native action sheet; other platforms keep the anchored adaptive menu.
 class _WorkspaceFilterMenu extends StatelessWidget {
   const _WorkspaceFilterMenu({
     required this.menuKey,
@@ -1580,25 +1650,89 @@ class _WorkspaceFilterMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = options[currentValue] ?? options.values.first;
-    return KeyedSubtree(
-      key: menuKey,
-      child: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: AdaptivePopupMenuButton.text<String>(
-          label: label,
-          tint: context.conduitTheme.buttonPrimary,
-          buttonStyle: PopupButtonStyle.bordered,
-          items: [
-            for (final entry in options.entries)
-              AdaptivePopupMenuItem<String>(
-                label: entry.value,
-                value: entry.key,
+    final textStyle =
+        context.conduitTheme.bodyMedium ??
+        Theme.of(context).textTheme.bodyMedium ??
+        const TextStyle();
+    final height = 32 * conduitSystemControlScaleOf(context);
+    final trigger = DecoratedBox(
+      decoration: BoxDecoration(
+        color: context.conduitTheme.surfaceContainer.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(height / 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textStyle,
               ),
+            ),
+            const SizedBox(width: Spacing.xs),
+            ConduitSystemAdaptiveIcon(
+              PlatformInfo.isIOS
+                  ? CupertinoIcons.chevron_down
+                  : Icons.keyboard_arrow_down_rounded,
+              size: IconSize.small,
+              color: context.conduitTheme.iconSecondary,
+            ),
           ],
-          onSelected: (_, entry) => onSelected(entry.value ?? ''),
         ),
       ),
     );
+    if (PlatformInfo.isIOS) {
+      return SizedBox(
+        key: menuKey,
+        height: height,
+        child: Builder(
+          builder: (anchorContext) => Semantics(
+            button: true,
+            label: label,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showNativeMenu(anchorContext),
+              child: trigger,
+            ),
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      key: menuKey,
+      height: height,
+      child: AdaptivePopupMenuButton.widget<String>(
+        child: trigger,
+        items: [
+          for (final entry in options.entries)
+            AdaptivePopupMenuItem<String>(
+              label: entry.value,
+              value: entry.key,
+              checked: entry.key == currentValue,
+            ),
+        ],
+        onSelected: (_, entry) => onSelected(entry.value ?? ''),
+      ),
+    );
+  }
+
+  Future<void> _showNativeMenu(BuildContext context) async {
+    final selected = await IosNativeDropdownBridge.instance.showFromContext(
+      context: context,
+      cancelLabel: MaterialLocalizations.of(context).cancelButtonLabel,
+      options: [
+        for (final entry in options.entries)
+          IosNativeDropdownOption(
+            id: entry.key,
+            label: entry.value,
+            sfSymbol: entry.key == currentValue ? 'checkmark' : null,
+          ),
+      ],
+    );
+    if (selected != null) onSelected(selected);
   }
 }
 

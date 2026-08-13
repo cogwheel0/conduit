@@ -1,5 +1,4 @@
 import 'package:material_ui/material_ui.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -123,7 +122,8 @@ class WorkspaceCollectionResourceTile extends StatelessWidget {
       trailing: trailing ?? status,
       selected: selected,
       grouped: groupedIndex != null,
-      onTap: () => context.push(section.routes.detailLocation(resourceId)),
+      onTap: () =>
+          context.pushWorkspace(section.routes.detailLocation(resourceId)),
     );
     final index = groupedIndex;
     if (index == null) {

@@ -193,23 +193,15 @@ class _WorkspaceToolValvesSheetState
             ],
           ),
           const SizedBox(height: Spacing.sm),
-          SegmentedButton<bool>(
+          AdaptiveSegmentedControl(
             key: const Key('workspace-tool-valves-scope'),
-            showSelectedIcon: false,
-            segments: [
-              ButtonSegment(
-                value: false,
-                label: Text(l10n.workspaceToolValvesServer),
-              ),
-              ButtonSegment(
-                value: true,
-                label: Text(l10n.workspaceToolValvesUser),
-              ),
+            labels: [
+              l10n.workspaceToolValvesServer,
+              l10n.workspaceToolValvesUser,
             ],
-            selected: {_userScope},
-            onSelectionChanged: _saving
-                ? null
-                : (value) => setState(() => _userScope = value.first),
+            selectedIndex: _userScope ? 1 : 0,
+            enabled: !_saving,
+            onValueChanged: (value) => setState(() => _userScope = value == 1),
           ),
           const SizedBox(height: Spacing.sm),
           if (_loading)

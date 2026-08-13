@@ -462,7 +462,7 @@ class ConduitButton extends ConsumerWidget {
     this.width,
     this.isFullWidth = false,
     this.isCompact = false,
-    this.useNativeLabel = false,
+    this.useNativeLabel = true,
     this.useNative = true,
   });
 
@@ -475,9 +475,16 @@ class ConduitButton extends ConsumerWidget {
         : isSecondary
         ? styles.secondary()
         : styles.primary();
+    final isEnabled = !isLoading && onPressed != null;
     final backgroundColor = variant.background;
     final textColor = variant.foreground;
-    final height = isCompact ? TouchTarget.medium : TouchTarget.comfortable;
+    final displayedBackgroundColor = isEnabled
+        ? backgroundColor
+        : context.conduitTheme.buttonDisabled;
+    final displayedTextColor = isEnabled
+        ? textColor
+        : context.conduitTheme.buttonDisabledText;
+    final height = isCompact ? TouchTarget.minimum : TouchTarget.comfortable;
     final horizontalPadding = isCompact ? Spacing.md : Spacing.buttonPadding;
     final textStyle = AppTypography.standard.copyWith(
       fontWeight: FontWeight.w600,
@@ -497,7 +504,7 @@ class ConduitButton extends ConsumerWidget {
     return Semantics(
       label: semanticLabel,
       button: true,
-      enabled: !isLoading && onPressed != null,
+      enabled: isEnabled,
       child: GestureDetector(
         // Trigger haptic feedback on tap down for immediate tactile response
         onTapDown: (onPressed != null && !isLoading)
@@ -515,16 +522,62 @@ class ConduitButton extends ConsumerWidget {
                 ? constraints.maxWidth
                 : minWidth;
 
-            return SizedBox(
+            if (!useNativeLabel && !isEnabled && !isLoading) {
+              return SizedBox(
+                width: isFullWidth ? double.infinity : width,
+                height: height,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: context.conduitTheme.buttonDisabled,
+                    borderRadius: BorderRadius.circular(height / 2),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                      vertical: Spacing.sm,
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (icon != null) ...[
+                            Icon(
+                              icon,
+                              size: IconSize.small,
+                              color: context.conduitTheme.buttonDisabledText,
+                            ),
+                            SizedBox(width: Spacing.iconSpacing),
+                          ],
+                          Flexible(
+                            child: Text(
+                              text,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textStyle.copyWith(
+                                color: context.conduitTheme.buttonDisabledText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final button = SizedBox(
               width: isFullWidth ? double.infinity : width,
               height: height,
-              child: useNativeLabel && icon == null && !isLoading
+              child: useNativeLabel && icon == null
                   ? AdaptiveButton(
-                      onPressed: onPressed,
-                      label: text,
-                      enabled: onPressed != null,
-                      color: backgroundColor,
-                      textColor: textColor,
+                      onPressed: isEnabled ? onPressed : null,
+                      label: isLoading ? '$text…' : text,
+                      enabled: isEnabled,
+                      color: displayedBackgroundColor,
+                      textColor: displayedTextColor,
+                      labelStyle: textStyle.copyWith(color: displayedTextColor),
                       style: variant.adaptiveStyle,
                       size: isCompact
                           ? AdaptiveButtonSize.small
@@ -533,9 +586,7 @@ class ConduitButton extends ConsumerWidget {
                         horizontal: horizontalPadding,
                         vertical: Spacing.sm,
                       ),
-                      borderRadius: BorderRadius.circular(
-                        AppBorderRadius.button,
-                      ),
+                      borderRadius: BorderRadius.circular(height / 2),
                       minSize: Size(effectiveMinWidth, height),
                       useNative: useNative,
                     )
@@ -551,9 +602,7 @@ class ConduitButton extends ConsumerWidget {
                         horizontal: horizontalPadding,
                         vertical: Spacing.sm,
                       ),
-                      borderRadius: BorderRadius.circular(
-                        AppBorderRadius.button,
-                      ),
+                      borderRadius: BorderRadius.circular(height / 2),
                       minSize: Size(effectiveMinWidth, height),
                       useNative: useNative,
                       child: isLoading
@@ -598,6 +647,7 @@ class ConduitButton extends ConsumerWidget {
                             ),
                     ),
             );
+            return ExcludeSemantics(child: button);
           },
         ),
       ),
@@ -979,7 +1029,9 @@ class ConduitIconButton extends ConsumerWidget {
       semanticLabel = '$semanticLabel, active';
     }
 
-    final double size = isCompact ? TouchTarget.medium : TouchTarget.minimum;
+    final double size = isCompact
+        ? TouchTarget.minimum
+        : TouchTarget.comfortable;
     final borderRadius = BorderRadius.circular(
       isCircular ? AppBorderRadius.circular : AppBorderRadius.standard,
     );
@@ -988,45 +1040,48 @@ class ConduitIconButton extends ConsumerWidget {
       label: semanticLabel,
       button: true,
       enabled: onPressed != null,
-      child: AdaptiveTooltip(
-        message: tooltip ?? '',
-        child: AdaptiveButton.child(
-          onPressed: onPressed != null
-              ? () {
-                  PlatformService.hapticFeedbackWithSettings(
-                    type: HapticType.selection,
-                    hapticEnabled: hapticEnabled,
-                  );
-                  onPressed!();
-                }
-              : null,
-          enabled: onPressed != null,
-          color: effectiveBackgroundColor,
-          style: variant.adaptiveStyle,
-          borderRadius: borderRadius,
-          minSize: Size(size, size),
-          padding: EdgeInsets.zero,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: borderRadius,
-              border: isActive
-                  ? Border.all(
-                      color: context.conduitTheme.buttonPrimary.withValues(
-                        alpha: Alpha.standard,
-                      ),
-                      width: BorderWidth.standard,
-                    )
-                  : null,
-            ),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Center(
-                child: Icon(
-                  icon,
-                  size: isCompact ? IconSize.small : IconSize.medium,
-                  color: effectiveIconColor,
-                  semanticLabel: tooltip,
+      child: SizedBox.square(
+        dimension: size,
+        child: AdaptiveTooltip(
+          message: tooltip ?? '',
+          child: AdaptiveButton.child(
+            onPressed: onPressed != null
+                ? () {
+                    PlatformService.hapticFeedbackWithSettings(
+                      type: HapticType.selection,
+                      hapticEnabled: hapticEnabled,
+                    );
+                    onPressed!();
+                  }
+                : null,
+            enabled: onPressed != null,
+            color: effectiveBackgroundColor,
+            style: variant.adaptiveStyle,
+            borderRadius: borderRadius,
+            minSize: Size(size, size),
+            padding: EdgeInsets.zero,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: borderRadius,
+                border: isActive
+                    ? Border.all(
+                        color: context.conduitTheme.buttonPrimary.withValues(
+                          alpha: Alpha.standard,
+                        ),
+                        width: BorderWidth.standard,
+                      )
+                    : null,
+              ),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: Center(
+                  child: Icon(
+                    icon,
+                    size: isCompact ? IconSize.small : IconSize.medium,
+                    color: effectiveIconColor,
+                    semanticLabel: tooltip,
+                  ),
                 ),
               ),
             ),
@@ -1076,7 +1131,7 @@ class ConduitTextButton extends ConsumerWidget {
       textColor = styles.ghost().foreground;
     }
 
-    return AdaptiveButton.child(
+    return AdaptiveButton(
       onPressed: onPressed != null
           ? () {
               PlatformService.hapticFeedbackWithSettings(
@@ -1087,19 +1142,18 @@ class ConduitTextButton extends ConsumerWidget {
             }
           : null,
       enabled: onPressed != null,
+      label: text,
       style: AdaptiveButtonStyle.plain,
       padding: const EdgeInsets.symmetric(
         horizontal: Spacing.md,
         vertical: Spacing.sm,
       ),
-      child: Text(
-        text,
-        style: AppTypography.standard.copyWith(
-          color: textColor,
-          fontWeight: isPrimary || isDestructive
-              ? FontWeight.w600
-              : FontWeight.normal,
-        ),
+      textColor: textColor,
+      labelStyle: AppTypography.standard.copyWith(
+        color: textColor,
+        fontWeight: isPrimary || isDestructive
+            ? FontWeight.w600
+            : FontWeight.normal,
       ),
     );
   }
@@ -1195,16 +1249,18 @@ class ConduitEmptyState extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: Spacing.sm),
-              Text(
-                message,
-                style: AppTypography.standard.copyWith(
-                  color: context.conduitTheme.textSecondary,
+              if (message.isNotEmpty) ...[
+                const SizedBox(height: Spacing.sm),
+                Text(
+                  message,
+                  style: AppTypography.standard.copyWith(
+                    color: context.conduitTheme.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: isCompact ? 2 : null,
+                  overflow: isCompact ? TextOverflow.ellipsis : null,
                 ),
-                textAlign: TextAlign.center,
-                maxLines: isCompact ? 2 : null,
-                overflow: isCompact ? TextOverflow.ellipsis : null,
-              ),
+              ],
               if (action != null) ...[
                 SizedBox(height: isCompact ? Spacing.md : Spacing.lg),
                 action!,

@@ -8,6 +8,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
+import '../../../shared/widgets/conduit_components.dart';
 
 /// A widget that displays a file attachment in a note.
 ///
@@ -152,33 +153,28 @@ class NoteFileAttachment extends StatelessWidget {
 
             // Play button for audio
             if (_isAudio && !isLoading)
-              IconButton(
-                icon: Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.play_circle_fill
-                      : Icons.play_circle_filled_rounded,
-                  color: _iconColor(theme),
-                  size: IconSize.lg,
-                ),
+              ConduitIconButton(
+                icon: Platform.isIOS
+                    ? CupertinoIcons.play_circle_fill
+                    : Icons.play_circle_filled_rounded,
+                iconColor: _iconColor(theme),
                 onPressed: onTap,
                 tooltip: l10n.playAudio,
               ),
 
             // Delete button
             if (showDelete && !isLoading)
-              IconButton(
-                icon: Icon(
-                  Platform.isIOS
-                      ? CupertinoIcons.xmark_circle_fill
-                      : Icons.cancel_rounded,
-                  color: theme.textSecondary.withValues(alpha: 0.5),
-                  size: IconSize.md,
-                ),
+              ConduitIconButton(
+                icon: Platform.isIOS
+                    ? CupertinoIcons.xmark_circle_fill
+                    : Icons.cancel_rounded,
+                iconColor: theme.textSecondary.withValues(alpha: 0.5),
                 onPressed: () {
                   ConduitHaptics.lightImpact();
                   onDelete?.call();
                 },
                 tooltip: l10n.removeFile,
+                isCompact: true,
               ),
           ],
         ),

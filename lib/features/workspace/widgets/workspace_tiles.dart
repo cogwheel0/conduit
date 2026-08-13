@@ -86,6 +86,7 @@ class WorkspaceResourceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     final badgeColor = iconColor ?? theme.buttonPrimary;
     final resolvedLeading =
         leading ??
@@ -126,7 +127,7 @@ class WorkspaceResourceTile extends StatelessWidget {
                 Text(
                   subtitle!,
                   style: profileSubtitleTextStyle(context),
-                  maxLines: 2,
+                  maxLines: usesLargeText ? null : 3,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],

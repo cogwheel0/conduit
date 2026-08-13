@@ -24,6 +24,7 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
@@ -1530,15 +1531,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          size: 16,
-                          color: theme.textSecondary,
-                        ),
+                      ConduitIconButton(
+                        icon: Icons.close,
+                        iconColor: theme.textSecondary,
+                        tooltip: MaterialLocalizations.of(context)
+                            .closeButtonTooltip,
                         onPressed: _clearReplyTo,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        isCompact: true,
                       ),
                     ],
                   ),
@@ -1910,13 +1909,17 @@ class _MessageBubble extends StatelessWidget {
                             onSubmitted: (_) => onSubmitEdit?.call(),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.check, size: 18),
+                        ConduitIconButton(
+                          icon: Icons.check,
+                          tooltip: AppLocalizations.of(context)!.save,
                           onPressed: onSubmitEdit,
+                          isCompact: true,
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 18),
+                        ConduitIconButton(
+                          icon: Icons.close,
+                          tooltip: AppLocalizations.of(context)!.cancel,
                           onPressed: onCancelEdit,
+                          isCompact: true,
                         ),
                       ],
                     )

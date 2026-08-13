@@ -1,7 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -329,7 +328,7 @@ class _WorkspaceKnowledgeFormState
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
       onEdit: _session.isDetail && _writeAccess && !_isExternal
-          ? () => context.push(
+          ? () => context.pushWorkspace(
               WorkspaceSection.knowledge.routes.editLocation(summary!.id),
             )
           : null,

@@ -64,7 +64,6 @@ class NotificationSettingsPage extends ConsumerWidget {
         ),
         settingsSectionGap,
         InsetGroupedList(
-          title: l10n.notificationSystemTitle,
           children: [
             tile(
               title: l10n.notificationInAppBannerTitle,

@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
@@ -10,6 +11,7 @@ import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
@@ -113,10 +115,11 @@ void main() {
     expect(find.byType(MaterialApp), findsNothing);
   });
 
-  testWidgets('switch adapter constructs native controls only on iOS 26', (
+  testWidgets('switch adapter stays constrained and legible on iOS 26', (
     tester,
   ) async {
-    Widget host() => CupertinoApp(
+    Widget host({Brightness brightness = Brightness.light}) => CupertinoApp(
+      theme: CupertinoThemeData(brightness: brightness),
       home: LegacyDesignCompatibility(
         child: CupertinoPageScaffold(
           child: Material(
@@ -136,8 +139,18 @@ void main() {
 
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
-    await tester.pumpWidget(host());
-    expect(find.byType(CNSwitch), findsOneWidget);
+    await tester.pumpWidget(host(brightness: Brightness.dark));
+    expect(find.byType(CNSwitch), findsNothing);
+    expect(find.byType(CupertinoSwitch), findsOneWidget);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('adaptive-switch-frame')),
+      ),
+      const Size(51, 31),
+    );
+    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
+    expect(toggle.activeTrackColor, CupertinoColors.activeGreen);
+    expect(toggle.inactiveTrackColor, isNot(CupertinoColors.white));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -180,6 +193,111 @@ void main() {
     expect(find.byType(CNSlider), findsOneWidget);
     expect(find.byType(CNSegmentedControl), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Conduit buttons keep geometry and typography across states', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    Widget host({required VoidCallback? onPressed, bool isLoading = false}) =>
+        ProviderScope(
+          child: MaterialApp(
+            home: LegacyDesignCompatibility(
+              child: Scaffold(
+                body: Center(
+                  child: ConduitButton(
+                    text: 'Connect',
+                    onPressed: onPressed,
+                    isLoading: isLoading,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(host(onPressed: () {}));
+    await tester.pump(const Duration(milliseconds: 500));
+    final enabled = tester.widget<CNButton>(find.byType(CNButton));
+    expect(enabled.config.minHeight, TouchTarget.comfortable);
+    expect(enabled.config.borderRadius, TouchTarget.comfortable / 2);
+    expect(enabled.config.labelFontWeight, FontWeight.w600);
+    expect(find.bySemanticsLabel('Connect'), findsOneWidget);
+
+    await tester.pumpWidget(host(onPressed: null));
+    await tester.pump(const Duration(milliseconds: 500));
+    final disabled = tester.widget<CNButton>(find.byType(CNButton));
+    expect(disabled.config.minHeight, enabled.config.minHeight);
+    expect(disabled.config.borderRadius, enabled.config.borderRadius);
+    expect(disabled.config.labelFontWeight, enabled.config.labelFontWeight);
+    expect(disabled.tint, isNot(enabled.tint));
+    expect(disabled.config.labelColor, isNot(enabled.config.labelColor));
+    expect(find.bySemanticsLabel('Connect'), findsOneWidget);
+
+    await tester.pumpWidget(host(onPressed: () {}, isLoading: true));
+    await tester.pump(const Duration(milliseconds: 500));
+    final loading = tester.widget<CNButton>(find.byType(CNButton));
+    expect(loading.config.minHeight, enabled.config.minHeight);
+    expect(loading.config.borderRadius, enabled.config.borderRadius);
+    expect(loading.config.labelFontWeight, enabled.config.labelFontWeight);
+    expect(loading.label, 'Connect…');
+    expect(find.bySemanticsLabel('Loading: Connect'), findsOneWidget);
+  });
+
+  testWidgets('compact variants are smaller than regular variants', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: LegacyDesignCompatibility(
+            child: Scaffold(
+              body: Column(
+                children: [
+                  ConduitButton(
+                    key: const Key('compact-text'),
+                    text: 'Compact',
+                    isCompact: true,
+                    onPressed: () {},
+                  ),
+                  ConduitButton(
+                    key: const Key('regular-text'),
+                    text: 'Regular',
+                    onPressed: () {},
+                  ),
+                  ConduitIconButton(
+                    key: const Key('compact-icon'),
+                    icon: Icons.add,
+                    isCompact: true,
+                    onPressed: () {},
+                  ),
+                  ConduitIconButton(
+                    key: const Key('regular-icon'),
+                    icon: Icons.add,
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.getSize(find.byKey(const Key('compact-text'))).height, 44);
+    expect(tester.getSize(find.byKey(const Key('regular-text'))).height, 48);
+    expect(
+      tester.getSize(find.byKey(const Key('compact-icon'))),
+      const Size(44, 44),
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('regular-icon'))),
+      const Size(48, 48),
+    );
   });
 
   testWidgets('glass backdrop constructs a native surface only on iOS 26', (
@@ -908,6 +1026,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(CupertinoIcons.delete), findsOneWidget);
+  });
+
+  testWidgets('Flutter popup fallbacks preserve item keys', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdaptivePopupMenuButton.text<int>(
+            label: 'Menu',
+            items: const [
+              AdaptivePopupMenuItem<int>(
+                key: Key('second-action'),
+                label: 'Second',
+                value: 2,
+              ),
+            ],
+            onSelected: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('second-action')), findsOneWidget);
   });
 }
 

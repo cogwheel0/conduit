@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../theme/theme_extensions.dart';
 
-const double kConduitChromeFadeHeight = 30.0;
+const double kConduitChromeFadeHeight = 42.0;
 
 enum ConduitChromeFadeEdge { top, bottom }
 
@@ -39,16 +39,16 @@ class ConduitChromeGradientFade extends StatelessWidget {
     final height = contentHeight + fadeHeight;
     final colors = edge == ConduitChromeFadeEdge.top
         ? [
-            baseColor.withValues(alpha: 0.92),
-            baseColor.withValues(alpha: 0.72),
-            baseColor.withValues(alpha: 0.28),
+            baseColor.withValues(alpha: 0.98),
+            baseColor.withValues(alpha: 0.88),
+            baseColor.withValues(alpha: 0.46),
             baseColor.withValues(alpha: 0.0),
           ]
         : [
             baseColor.withValues(alpha: 0.0),
-            baseColor.withValues(alpha: 0.28),
-            baseColor.withValues(alpha: 0.72),
-            baseColor.withValues(alpha: 0.92),
+            baseColor.withValues(alpha: 0.46),
+            baseColor.withValues(alpha: 0.88),
+            baseColor.withValues(alpha: 0.98),
           ];
     final blurMaskColors = edge == ConduitChromeFadeEdge.top
         ? const [Color(0xffffffff), Color(0x00ffffff)]

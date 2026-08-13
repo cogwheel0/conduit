@@ -821,7 +821,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,
-      useNativeLabel: true,
     );
   }
 }

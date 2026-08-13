@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../../../shared/widgets/conduit_components.dart';
 import '../../../../shared/widgets/utility_components.dart';
 import '../../widgets/workspace_editor_fields.dart';
 import 'workspace_model_editor_controller.dart';
@@ -61,10 +62,11 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
               title: Text(controller.draft.suggestionPrompts[index]),
               trailing: controller.readOnly
                   ? null
-                  : IconButton(
+                  : ConduitIconButton(
                       tooltip: l10n.workspaceModelRemoveSuggestion,
-                      icon: const Icon(Icons.close, size: IconSize.small),
+                      icon: Icons.close,
                       onPressed: () => controller.removeSuggestion(index),
+                      isCompact: true,
                     ),
             ),
           if (!controller.readOnly)

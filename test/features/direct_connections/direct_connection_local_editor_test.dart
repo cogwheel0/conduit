@@ -10,6 +10,7 @@ import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dar
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -99,6 +100,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
     await tester.tap(find.text('OpenRouter'));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));

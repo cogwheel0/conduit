@@ -78,7 +78,7 @@ NativeSheetDetailConfig buildNativeLoadingDetail({
   return NativeSheetDetailConfig(
     id: id,
     title: title,
-    subtitle: subtitle ?? l10n.loadingShort,
+    subtitle: subtitle,
     items: [buildNativeLoadingItem(l10n, id: '$id-loading')],
   );
 }
@@ -451,7 +451,6 @@ List<NativeSheetDetailConfig> buildNativeModelPromptLoadingDetails(
       NativeSheetDetailConfig(
         id: 'model-prompt:${Uri.encodeComponent(model.id)}',
         title: l10n.modelSystemPromptTitle(model.name),
-        subtitle: l10n.loadingShort,
         items: [
           buildNativeLoadingItem(
             l10n,

@@ -101,20 +101,18 @@ class ReleaseNotesBanner extends ConsumerWidget {
                                 ],
                               ),
                             ),
-                            IconButton(
+                            ConduitIconButton(
                               key: releaseNotesBannerCloseKey,
                               tooltip: MaterialLocalizations.of(context)
                                   .closeButtonTooltip,
                               onPressed: () => ref
                                   .read(releaseNotesBannerProvider.notifier)
                                   .dismiss(),
-                              icon: Icon(
-                                Platform.isIOS
-                                    ? CupertinoIcons.xmark
-                                    : Icons.close_rounded,
-                                size: IconSize.sm,
-                                color: theme.textSecondary,
-                              ),
+                              icon: Platform.isIOS
+                                  ? CupertinoIcons.xmark
+                                  : Icons.close_rounded,
+                              iconColor: theme.textSecondary,
+                              isCompact: true,
                             ),
                           ],
                         ),

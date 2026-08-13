@@ -67,6 +67,7 @@ class AdaptiveButton extends StatelessWidget {
     required this.label,
     this.color,
     this.textColor,
+    this.labelStyle,
     this.style = AdaptiveButtonStyle.filled,
     this.size = AdaptiveButtonSize.medium,
     this.padding,
@@ -95,6 +96,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        icon = null,
        iconColor = null,
        sfSymbol = null;
@@ -115,6 +117,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        child = null,
        sfSymbol = null;
 
@@ -133,6 +136,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        child = null,
        icon = null,
        iconColor = null;
@@ -144,6 +148,7 @@ class AdaptiveButton extends StatelessWidget {
   final SFSymbol? sfSymbol;
   final Color? color;
   final Color? textColor;
+  final TextStyle? labelStyle;
   final Color? iconColor;
   final AdaptiveButtonStyle style;
   final AdaptiveButtonSize size;
@@ -186,6 +191,9 @@ class AdaptiveButton extends StatelessWidget {
         shrinkWrap: label != null,
         style: _nativeStyle,
         labelColor: textColor,
+        labelFontFamily: labelStyle?.fontFamily,
+        labelFontSize: labelStyle?.fontSize,
+        labelFontWeight: labelStyle?.fontWeight,
       );
       final active = enabled && onPressed != null;
       Widget button;
@@ -249,7 +257,10 @@ class AdaptiveButton extends StatelessWidget {
         child: customChild,
       );
     }
-    return Text(label ?? '', style: TextStyle(color: fallbackColor));
+    return Text(
+      label ?? '',
+      style: (labelStyle ?? const TextStyle()).copyWith(color: fallbackColor),
+    );
   }
 
   Widget _buildCupertino(BuildContext context) {
@@ -453,21 +464,24 @@ class AdaptiveSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (PlatformUiCapabilities.usesNativeIOS26 && thumbColor == null) {
-      return CNSwitch(
-        value: value,
-        onChanged: onChanged ?? (_) {},
-        enabled: onChanged != null,
-        color: activeColor,
-      );
-    }
     if (PlatformUiCapabilities.isIOS) {
-      return CupertinoSwitch(
-        value: value,
-        onChanged: onChanged,
-        activeTrackColor:
-            activeColor ?? CupertinoTheme.of(context).primaryColor,
-        thumbColor: thumbColor,
+      final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+      return SizedBox(
+        key: const ValueKey<String>('adaptive-switch-frame'),
+        width: 51,
+        height: 31,
+        child: FittedBox(
+          fit: BoxFit.fill,
+          child: CupertinoSwitch(
+            value: value,
+            onChanged: onChanged,
+            activeTrackColor: activeColor ?? CupertinoColors.activeGreen,
+            inactiveTrackColor: isDark
+                ? const Color(0xFF39393D)
+                : const Color(0xFFE5E5EA),
+            thumbColor: thumbColor ?? CupertinoColors.white,
+          ),
+        ),
       );
     }
     return Switch(
@@ -779,6 +793,7 @@ abstract class AdaptivePopupMenuEntry {
 
 class AdaptivePopupMenuItem<T> extends AdaptivePopupMenuEntry {
   const AdaptivePopupMenuItem({
+    this.key,
     required this.label,
     this.subtitle,
     this.icon,
@@ -789,6 +804,7 @@ class AdaptivePopupMenuItem<T> extends AdaptivePopupMenuEntry {
     this.value,
   });
 
+  final Key? key;
   final String label;
   final String? subtitle;
   final dynamic icon;
@@ -1022,6 +1038,7 @@ class AdaptivePopupMenuButton<T> {
             const PopupMenuDivider()
           else
             PopupMenuItem<int>(
+              key: (items[index] as AdaptivePopupMenuItem<T>).key,
               value: index,
               enabled: (items[index] as AdaptivePopupMenuItem<T>).enabled,
               child: _menuItemContent(
