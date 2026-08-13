@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
+
 import 'chat_completion_transport.dart';
 import '../models/account_metadata.dart';
 import '../models/backend_config.dart';
@@ -128,12 +130,17 @@ CancelToken _linkedPublicHealthCancelToken(CancelToken parent) {
   return child;
 }
 
-typedef PublicHealthAddressResolver =
-    Future<List<InternetAddress>> Function(String host);
-typedef PublicHealthSocketConnector =
-    Future<ConnectionTask<Socket>> Function(InternetAddress address, int port);
-typedef PublicHealthSocketUpgrader =
-    Future<Socket> Function(Socket socket, String host);
+typedef PublicHealthAddressResolver = Future<List<InternetAddress>> Function(
+  String host,
+);
+typedef PublicHealthSocketConnector = Future<ConnectionTask<Socket>> Function(
+  InternetAddress address,
+  int port,
+);
+typedef PublicHealthSocketUpgrader = Future<Socket> Function(
+  Socket socket,
+  String host,
+);
 
 final class _PublicHealthNat64Prefix {
   const _PublicHealthNat64Prefix(this.bytes, this.length);
@@ -943,25 +950,30 @@ class ApiService {
               !isCredentialSafeRedirectTarget(options.uri, target)) {
             return handler.next(error);
           }
-          options.extra = Map<String, dynamic>.of(options.extra)
-            ..[_sameOriginRedirectHopExtraKey] = hops + 1;
+          final redirectedOptions = options.copyWith(
+            path: target.toString(),
+            queryParameters: const <String, dynamic>{},
+            extra: Map<String, dynamic>.of(options.extra)
+              ..[_sameOriginRedirectHopExtraKey] = hops + 1,
+            headers: Map<String, dynamic>.of(options.headers),
+          );
           // Location carries the complete target including its query; the
           // original queryParameters must not be re-merged on top of it.
-          options.path = target.toString();
-          options.queryParameters = <String, dynamic>{};
           if (convertsToGet) {
-            options.method = 'GET';
-            options.data = null;
+            redirectedOptions.method = 'GET';
+            redirectedOptions.data = null;
             // Stale body headers would make the bodyless GET claim content it
             // never sends, which the server-side parser rejects.
-            options.headers.removeWhere((name, _) {
+            redirectedOptions.headers.removeWhere((name, _) {
               final normalized = name.toLowerCase();
               return normalized == Headers.contentLengthHeader ||
                   normalized == Headers.contentTypeHeader;
             });
           }
           try {
-            final redirected = await _dio.fetch<dynamic>(options);
+            final redirected = await _replaySameOriginRedirect(
+              redirectedOptions,
+            );
             return handler.resolve(redirected);
           } on DioException catch (redirectError) {
             return handler.next(redirectError);
@@ -1017,6 +1029,103 @@ class ApiService {
         },
       ),
     );
+  }
+
+  Future<Response<dynamic>> _replaySameOriginRedirect(
+    RequestOptions initialOptions,
+  ) async {
+    var options = initialOptions;
+
+    while (true) {
+      final redirectDio = Dio();
+      ServerTlsHttpClientFactory.configureDio(
+        redirectDio,
+        serverConfig,
+        userAgent: ConduitUserAgent.value,
+      );
+      late final Response<dynamic> response;
+      try {
+        response = await redirectDio.requestUri<dynamic>(
+          options.uri,
+          data: options.data,
+          options: Options(
+            method: options.method,
+            sendTimeout: options.sendTimeout,
+            receiveTimeout: options.receiveTimeout,
+            transformTimeout: options.transformTimeout,
+            connectTimeout: options.connectTimeout,
+            extra: options.extra,
+            headers: options.headers,
+            preserveHeaderCase: options.preserveHeaderCase,
+            responseType: options.responseType,
+            validateStatus: (status) => status != null,
+            receiveDataWhenStatusError: options.receiveDataWhenStatusError,
+            followRedirects: false,
+            maxRedirects: 0,
+            persistentConnection: options.persistentConnection,
+            requestEncoder: options.requestEncoder,
+            responseDecoder: options.responseDecoder,
+            listFormat: options.listFormat,
+          ),
+          cancelToken: options.cancelToken,
+          onSendProgress: options.onSendProgress,
+          onReceiveProgress: options.onReceiveProgress,
+        );
+      } finally {
+        redirectDio.close();
+      }
+
+      final status = response.statusCode;
+      if (status != null && options.validateStatus(status)) {
+        return response;
+      }
+      if (status == null ||
+          !_publicHealthRedirectStatusCodes.contains(status)) {
+        throw DioException.badResponse(
+          statusCode: status ?? 0,
+          requestOptions: response.requestOptions,
+          response: response,
+        );
+      }
+
+      final method = options.method.toUpperCase();
+      final convertsToGet = status == HttpStatus.seeOther && method != 'HEAD';
+      final locationValue = response.headers.value(HttpHeaders.locationHeader);
+      final location = locationValue == null
+          ? null
+          : Uri.tryParse(locationValue);
+      final nextTarget = location == null
+          ? null
+          : options.uri.resolveUri(location);
+      final hops = (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
+      if ((method != 'GET' && method != 'HEAD' && !convertsToGet) ||
+          nextTarget == null ||
+          hops >= _maximumSameOriginRedirectHops ||
+          !isCredentialSafeRedirectTarget(options.uri, nextTarget)) {
+        throw DioException.badResponse(
+          statusCode: status,
+          requestOptions: response.requestOptions,
+          response: response,
+        );
+      }
+
+      options = options.copyWith(
+        path: nextTarget.toString(),
+        queryParameters: const <String, dynamic>{},
+        extra: Map<String, dynamic>.of(options.extra)
+          ..[_sameOriginRedirectHopExtraKey] = hops + 1,
+        headers: Map<String, dynamic>.of(options.headers),
+      );
+      if (convertsToGet) {
+        options.method = 'GET';
+        options.data = null;
+        options.headers.removeWhere((name, _) {
+          final normalized = name.toLowerCase();
+          return normalized == Headers.contentLengthHeader ||
+              normalized == Headers.contentTypeHeader;
+        });
+      }
+    }
   }
 
   Future<Uint8List> fetchImageBytes(
@@ -1651,7 +1760,9 @@ class ApiService {
       }
 
       _setChatRequestMetadataFormatFromVersion(data['version']);
-      return _enrichBackendConfigWithAudioConfig(BackendConfig.fromJson(data));
+      return await _enrichBackendConfigWithAudioConfig(
+        BackendConfig.fromJson(data),
+      );
     } catch (e) {
       return null;
     }
@@ -1674,7 +1785,7 @@ class ApiService {
         return null;
       }
       _setChatRequestMetadataFormatFromVersion(jsonMap['version']);
-      return _enrichBackendConfigWithAudioConfig(
+      return await _enrichBackendConfigWithAudioConfig(
         BackendConfig.fromJson(jsonMap),
       );
     } on DioException catch (e, stackTrace) {
@@ -2215,7 +2326,7 @@ class ApiService {
         scope: scope,
         data: {'code': response.statusCode},
       );
-      return _parseConversationSummaryPayload(
+      return await _parseConversationSummaryPayload(
         regular: (!pinned && !archived) ? response.data : const <dynamic>[],
         pinned: pinned ? response.data : const <dynamic>[],
         archived: archived ? response.data : const <dynamic>[],
@@ -4713,9 +4824,9 @@ class ApiService {
       '/api/v1/knowledge/$id/files/pending',
       queryParameters: const {'stream': false},
     );
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspacePendingFile.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspacePendingFile.fromJson)
+        .toList(growable: false);
   }
 
   Future<WorkspaceKnowledgeDetail?> attachWorkspaceKnowledgeFile(
@@ -6227,9 +6338,9 @@ class ApiService {
 
   Future<List<WorkspaceModelDetail>> exportWorkspaceModels() async {
     final response = await _dio.get('/api/v1/models/export');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspaceModelSummary.fromJson)
+        .toList(growable: false);
   }
 
   Future<bool> importWorkspaceModels(List<Map<String, dynamic>> models) async {
@@ -6242,9 +6353,9 @@ class ApiService {
 
   Future<List<WorkspaceModelDetail>> syncWorkspaceModels() async {
     final response = await _dio.post('/api/v1/models/sync');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspaceModelSummary.fromJson)
+        .toList(growable: false);
   }
 
   Future<List<String>> getWorkspaceModelTags() async {
@@ -6257,9 +6368,9 @@ class ApiService {
   /// distinct from the user-facing `/models/list`).
   Future<List<WorkspaceModelSummary>> getWorkspaceBaseModels() async {
     final response = await _dio.get('/api/v1/models/base');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspaceModelSummary.fromJson)
+        .toList(growable: false);
   }
 
   /// Fetches a model's profile image bytes from the dedicated
@@ -6377,9 +6488,9 @@ class ApiService {
 
   Future<List<WorkspaceSkillDetail>> exportWorkspaceSkills() async {
     final response = await _dio.get('/api/v1/skills/export');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspaceSkillSummary.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspaceSkillSummary.fromJson)
+        .toList(growable: false);
   }
 
   Future<WorkspaceSkillDetail?> toggleWorkspaceSkill(String id) async {
@@ -6410,9 +6521,9 @@ class ApiService {
 
   Future<List<WorkspacePrincipalPreview>> getWorkspaceGroups() async {
     final response = await _dio.get('/api/v1/groups/');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspacePrincipalPreview.group).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspacePrincipalPreview.group)
+        .toList(growable: false);
   }
 
   // Prompts
@@ -6581,9 +6692,9 @@ class ApiService {
       '/api/v1/prompts/id/$id/history',
       queryParameters: {'page': page < 0 ? 0 : page},
     );
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspacePromptHistoryEntry.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspacePromptHistoryEntry.fromJson)
+        .toList(growable: false);
   }
 
   Future<WorkspacePromptHistoryEntry> getWorkspacePromptHistoryEntry(
@@ -6694,9 +6805,9 @@ class ApiService {
 
   Future<List<WorkspaceToolSummary>> getWorkspaceTools() async {
     final response = await _dio.get('/api/v1/tools/list');
-    return workspaceJsonList(
-      response.data,
-    ).map(WorkspaceToolSummary.fromJson).toList(growable: false);
+    return workspaceJsonList(response.data)
+        .map(WorkspaceToolSummary.fromJson)
+        .toList(growable: false);
   }
 
   Future<List<Map<String, dynamic>>> getFunctions() async {
@@ -8851,12 +8962,12 @@ class ApiService {
 
       final data = response.data;
       if (data is List) {
-        return _normalizeList(data, debugLabel: 'parse_message_search');
+        return await _normalizeList(data, debugLabel: 'parse_message_search');
       }
       if (data is Map<String, dynamic>) {
         final list = (data['items'] ?? data['results'] ?? data['messages']);
         if (list is List) {
-          return _normalizeList(
+          return await _normalizeList(
             list,
             debugLabel: 'parse_message_search_wrapped',
           );
@@ -9274,8 +9385,7 @@ $content
   }) async {
     _traceApi('Enhancing note content with AI, model: $modelId');
 
-    const systemPrompt =
-        '''Enhance existing notes using the content's primary language. Your task is to make the notes more useful and comprehensive.
+    const systemPrompt = '''Enhance existing notes using the content's primary language. Your task is to make the notes more useful and comprehensive.
 
 # Output Format
 

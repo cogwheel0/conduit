@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -174,7 +174,7 @@ class _ReleaseHeader extends StatelessWidget {
           children: [
             Expanded(
               child: Semantics(
-                header: true,
+                headingLevel: 1,
                 child: Text(
                   title,
                   style: AppTypography.headlineMediumStyle.copyWith(

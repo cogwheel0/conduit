@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_sharing_intent/flutter_sharing_intent.dart';
@@ -17,7 +17,9 @@ import '../../features/direct_connections/direct_connections.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../core/providers/app_providers.dart';
 import 'media_upload_controller.dart';
+
 import 'package:path/path.dart' as path;
+
 import 'navigation_service.dart';
 import 'share_staging_cleanup.dart';
 import '../utils/debug_logger.dart';
@@ -636,7 +638,9 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     if (!Platform.isAndroid) return null;
 
     try {
-      return peekPendingNativeSharePayloadForTest(_androidShareTextChannel);
+      return await peekPendingNativeSharePayloadForTest(
+        _androidShareTextChannel,
+      );
     } catch (error) {
       DebugLogger.log(
         'ShareReceiver: failed to get Android staged share payload',
@@ -670,12 +674,14 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
 
   Future<SharedPayload?> takePendingNativeShareImportPayload() async {
     if (Platform.isAndroid) {
-      return takePendingAndroidStagedSharePayload();
+      return await takePendingAndroidStagedSharePayload();
     }
     if (!Platform.isIOS) return null;
 
     try {
-      return peekPendingNativeSharePayloadForTest(_androidShareTextChannel);
+      return await peekPendingNativeSharePayloadForTest(
+        _androidShareTextChannel,
+      );
     } catch (error) {
       DebugLogger.log(
         'ShareReceiver: failed to get native share import payload',

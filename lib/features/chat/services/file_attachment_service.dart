@@ -1,12 +1,14 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart';
+
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/models/file_info.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -147,7 +149,7 @@ Future<String?> convertImageFileToDataUrl(
 
       final convertedBytes = await _convertToJpeg(imageFile);
       if (convertedBytes != null) {
-        return _encodeToDataUrl(convertedBytes, 'image/jpeg', worker);
+        return await _encodeToDataUrl(convertedBytes, 'image/jpeg', worker);
       }
 
       DebugLogger.warning(
@@ -160,13 +162,13 @@ Future<String?> convertImageFileToDataUrl(
     if (_shouldPreserve(ext)) {
       final bytes = await imageFile.readAsBytes();
       final mimeType = ext == '.gif' ? 'image/gif' : 'image/webp';
-      return _encodeToDataUrl(bytes, mimeType, worker);
+      return await _encodeToDataUrl(bytes, mimeType, worker);
     }
 
     // Pass through standard browser-readable formats as-is.
     final bytes = await imageFile.readAsBytes();
     final mimeType = _mimeTypeForExtension(ext);
-    return _encodeToDataUrl(bytes, mimeType, worker);
+    return await _encodeToDataUrl(bytes, mimeType, worker);
   } catch (e) {
     DebugLogger.error('convert-image-failed', scope: 'attachments', error: e);
     return null;

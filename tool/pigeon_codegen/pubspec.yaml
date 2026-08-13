@@ -1,0 +1,8 @@
+name: conduit_pigeon_codegen
+publish_to: none
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+
+dependencies:
+  pigeon: 27.2.0

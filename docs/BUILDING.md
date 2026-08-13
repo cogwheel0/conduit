@@ -10,8 +10,8 @@ instead.
 
 | | |
 | --- | --- |
-| Flutter SDK | Recent stable, with Dart `3.9.2` or newer |
-| Android | Java 17, Android SDK (compile/target SDK 36), Android 7.0+ (API 24) at runtime |
+| Flutter SDK | Flutter `3.47.0` or newer, with Dart `3.13.0` or newer |
+| Android | Java 17+, AGP 9.1.0, KGP 2.4.0, Gradle 9.3.1, Android SDK 36, Android 7.0+ (API 24) at runtime |
 | iOS | Xcode with an iOS 16.0+ deployment target |
 | Backend | An Open WebUI instance, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
 
@@ -53,6 +53,16 @@ models, JSON serialization, Drift tables, and Pigeon bindings all generate into
 new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
+
+Pigeon remains pinned separately because its analyzer constraint does not
+overlap the Dart 3.13-compatible Riverpod and Freezed generators. Install its
+isolated tool dependencies before regenerating platform bindings:
+
+```bash
+dart pub get --directory tool/pigeon_codegen
+dart --packages=tool/pigeon_codegen/.dart_tool/package_config.json run pigeon \
+  --input pigeons/conduit_platform_apis.dart
+```
 
 Use `--delete-conflicting-outputs` when generated files fall out of sync:
 

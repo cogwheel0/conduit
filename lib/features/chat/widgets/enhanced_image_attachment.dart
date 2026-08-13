@@ -1,19 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:dio/dio.dart' as dio;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/widgets/jovial_svg_image.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -223,7 +227,7 @@ class _ImageAttachmentLoader {
     }
 
     if (cached?.needsDecode == true && cached?.resolvedData != null) {
-      return _decodeResolvedData(
+      return await _decodeResolvedData(
         attachmentId: attachmentId,
         cacheScope: cacheScope,
         workerManager: workerManager,
@@ -247,7 +251,7 @@ class _ImageAttachmentLoader {
           isSvg: isSvgContent,
         );
       }
-      return _decodeResolvedData(
+      return await _decodeResolvedData(
         attachmentId: attachmentId,
         cacheScope: cacheScope,
         workerManager: workerManager,
@@ -318,7 +322,7 @@ class _ImageAttachmentLoader {
         return _ImageLoadResult(resolvedData: fileContent, isSvg: isSvgFile);
       }
 
-      return _decodeResolvedData(
+      return await _decodeResolvedData(
         attachmentId: attachmentId,
         cacheScope: cacheScope,
         workerManager: workerManager,
@@ -968,9 +972,8 @@ class _EnhancedImageAttachmentState
       cacheIdentity: networkCacheKey,
       placeholderBuilder: (context) => _buildSkeletonPlaceholder(),
       errorBuilder: (context, error, stackTrace) {
-        _errorMessage = AppLocalizations.of(
-          context,
-        )!.failedToLoadImage(error.toString());
+        _errorMessage = AppLocalizations.of(context)!
+            .failedToLoadImage(error.toString());
         return _buildErrorState();
       },
     );

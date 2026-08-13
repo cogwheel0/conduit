@@ -9,12 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// false replaces its result, which lets tests pause or fail a specific write
 /// without replacing SharedPreferences' transitive platform implementation.
 @visibleForTesting
-typedef PreferenceWriteInterceptor =
-    Future<bool?> Function(
-      SharedPreferences preferences,
-      String key,
-      Object? value,
-    );
+typedef PreferenceWriteInterceptor = Future<bool?> Function(
+  SharedPreferences preferences,
+  String key,
+  Object? value,
+);
 
 /// Synchronous key-value preference store backed by a single preloaded
 /// [SharedPreferences] instance.
@@ -216,25 +215,25 @@ class PreferencesStore {
       }
       if (beforeWrite != null && !beforeWrite()) return true;
       if (value == null) {
-        return prefs.remove(key);
+        return await prefs.remove(key);
       }
       if (value is bool) {
-        return prefs.setBool(key, value);
+        return await prefs.setBool(key, value);
       } else if (value is int) {
-        return prefs.setInt(key, value);
+        return await prefs.setInt(key, value);
       } else if (value is double) {
-        return prefs.setDouble(key, value);
+        return await prefs.setDouble(key, value);
       } else if (value is String) {
-        return prefs.setString(key, value);
+        return await prefs.setString(key, value);
       } else if (value is List<String>) {
-        return prefs.setStringList(key, value);
+        return await prefs.setStringList(key, value);
       } else if (value is List) {
-        return prefs.setStringList(
+        return await prefs.setStringList(
           key,
           value.map((e) => e.toString()).toList(growable: false),
         );
       } else {
-        return prefs.setString(key, value.toString());
+        return await prefs.setString(key, value.toString());
       }
     } finally {
       _activeWrites--;
