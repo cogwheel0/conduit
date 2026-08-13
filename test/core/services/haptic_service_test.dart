@@ -18,109 +18,68 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  test('falls back to Flutter haptics when gaimon is unavailable', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+  final haptics = <String, Future<void> Function()>{
+    'HapticFeedbackType.lightImpact': ConduitHaptics.lightImpact,
+    'HapticFeedbackType.mediumImpact': ConduitHaptics.mediumImpact,
+    'HapticFeedbackType.heavyImpact': ConduitHaptics.heavyImpact,
+    'HapticFeedbackType.selectionClick': ConduitHaptics.selectionClick,
+    'HapticFeedbackType.successNotification': ConduitHaptics.success,
+    'HapticFeedbackType.warningNotification': ConduitHaptics.warning,
+    'HapticFeedbackType.errorNotification': ConduitHaptics.error,
+  };
 
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final platformCalls = <_RecordedPlatformCall>[];
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    test(
+      'uses Flutter system haptics for every operation on $platform',
+      () async {
+        debugDefaultTargetPlatformOverride = platform;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final platformCalls = <_RecordedPlatformCall>[];
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
+          return null;
+        });
 
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
-      return null;
-    });
+        try {
+          for (final callback in haptics.values) {
+            await callback();
+          }
+        } finally {
+          messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        }
 
-    try {
-      await ConduitHaptics.mediumImpact();
-    } finally {
-      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
-    }
-
-    expect(
-      platformCalls,
-      contains(
-        isA<_RecordedPlatformCall>()
-            .having((call) => call.method, 'method', 'HapticFeedback.vibrate')
-            .having(
-              (call) => call.arguments,
-              'arguments',
-              'HapticFeedbackType.mediumImpact',
-            ),
-      ),
+        expect(
+          platformCalls.map((call) => call.method),
+          everyElement('HapticFeedback.vibrate'),
+        );
+        expect(platformCalls.map((call) => call.arguments), haptics.keys);
+      },
     );
-  });
+  }
 
   test(
-    'android prefers Flutter system haptics even when gaimon is available',
+    'does not invoke the platform channel on unsupported platforms',
     () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      final pluginCalls = <String>[];
-      final platformCalls = <_RecordedPlatformCall>[];
-
-      messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), (
-        call,
-      ) async {
-        pluginCalls.add(call.method);
-        return null;
-      });
+      final platformCalls = <MethodCall>[];
       messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-        platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
+        platformCalls.add(call);
         return null;
       });
 
       try {
-        await ConduitHaptics.mediumImpact();
+        await ConduitHaptics.success();
+        await ConduitHaptics.vibrate();
       } finally {
-        messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), null);
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
       }
 
-      expect(pluginCalls, isEmpty);
-      expect(
-        platformCalls,
-        contains(
-          isA<_RecordedPlatformCall>()
-              .having((call) => call.method, 'method', 'HapticFeedback.vibrate')
-              .having(
-                (call) => call.arguments,
-                'arguments',
-                'HapticFeedbackType.mediumImpact',
-              ),
-        ),
-      );
+      expect(platformCalls, isEmpty);
     },
   );
-
-  test('ios routes supported haptics through gaimon when available', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final pluginCalls = <String>[];
-    final platformCalls = <_RecordedPlatformCall>[];
-
-    messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), (
-      call,
-    ) async {
-      pluginCalls.add(call.method);
-      return null;
-    });
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
-      return null;
-    });
-
-    try {
-      await ConduitHaptics.selectionClick();
-    } finally {
-      messenger.setMockMethodCallHandler(const MethodChannel('gaimon'), null);
-      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
-    }
-
-    expect(pluginCalls, ['selection']);
-    expect(platformCalls, isEmpty);
-  });
 }

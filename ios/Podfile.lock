@@ -35,8 +35,6 @@ PODS:
     - FlutterMacOS
   - flutter_sharing_intent (1.0.1):
     - Flutter
-  - gaimon (0.0.1):
-    - Flutter
   - geolocator_apple (1.2.0):
     - Flutter
     - FlutterMacOS
@@ -131,7 +129,6 @@ DEPENDENCIES:
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - flutter_sharing_intent (from `.symlinks/plugins/flutter_sharing_intent/ios`)
-  - gaimon (from `.symlinks/plugins/gaimon/ios`)
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - home_widget (from `.symlinks/plugins/home_widget/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
@@ -185,8 +182,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
   flutter_sharing_intent:
     :path: ".symlinks/plugins/flutter_sharing_intent/ios"
-  gaimon:
-    :path: ".symlinks/plugins/gaimon/ios"
   geolocator_apple:
     :path: ".symlinks/plugins/geolocator_apple/darwin"
   home_widget:
@@ -234,7 +229,6 @@ SPEC CHECKSUMS:
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   flutter_sharing_intent: 0c1e53949f09fa8df8ac2268505687bde8ff264c
-  gaimon: 1979ed07cdcfd0bf0d208f255f550936a196cf5a
   geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
   home_widget: 54b4f6b36ed8d64cfee594a476225c35c3e45091
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
