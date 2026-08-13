@@ -4,9 +4,10 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/server_version_warning_card.dart';
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -37,7 +38,7 @@ Widget _buildCard({
     ],
     child: MaterialApp(
       theme: ThemeData(platform: TargetPlatform.android),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: body ?? const Center(child: ServerVersionWarningCard()),

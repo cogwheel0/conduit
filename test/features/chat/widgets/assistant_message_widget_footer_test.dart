@@ -14,13 +14,14 @@ import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,7 +78,7 @@ class _CountingTextToSpeechController extends TextToSpeechController {
 Widget _buildHarness(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: child),
   );
@@ -104,12 +105,11 @@ Widget _buildAssistantHarness(
     ],
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(disableAnimations: disableAnimations),
+        data: MediaQuery.of(context)
+            .copyWith(disableAnimations: disableAnimations),
         child: child!,
       ),
       home: Scaffold(
@@ -189,7 +189,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -383,9 +383,8 @@ void main() {
       check(calls).equals(1);
 
       gate.complete(Uri.parse('https://www.help.openai.com/en/articles/'));
-      check(
-        await Future.wait([first, second]),
-      ).deepEquals(['help.openai.com', 'help.openai.com']);
+      check(await Future.wait([first, second]))
+          .deepEquals(['help.openai.com', 'help.openai.com']);
       check(
         await resolveSourceFaviconDomain(
           groundingUrl,
@@ -1137,7 +1136,7 @@ void main() {
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: AssistantMessageWidget(
@@ -1179,7 +1178,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -1325,7 +1324,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -1369,27 +1368,26 @@ void main() {
           textToSpeechControllerProvider.overrideWith(
             _TestTextToSpeechController.new,
           ),
-          queuedCompletionInfoForMessageProvider(
-            'queued-assistant',
-          ).overrideWith(
-            (ref) => Stream<QueuedCompletionInfo?>.value(
-              const QueuedCompletionInfo(
-                databaseOwner: Object(),
-                seq: 42,
-                chatId: 'chat-1',
-                scopedChatId: 'chat-1',
-                assistantMessageId: 'queued-assistant',
-                phase: QueuedCompletionPhase.pending,
-                isOffline: true,
-                lastError: 'offline',
-                nextAttemptAt: 123,
+          queuedCompletionInfoForMessageProvider('queued-assistant')
+              .overrideWith(
+                (ref) => Stream<QueuedCompletionInfo?>.value(
+                  const QueuedCompletionInfo(
+                    databaseOwner: Object(),
+                    seq: 42,
+                    chatId: 'chat-1',
+                    scopedChatId: 'chat-1',
+                    assistantMessageId: 'queued-assistant',
+                    phase: QueuedCompletionPhase.pending,
+                    isOffline: true,
+                    lastError: 'offline',
+                    nextAttemptAt: 123,
+                  ),
+                ),
               ),
-            ),
-          ),
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -1435,26 +1433,25 @@ void main() {
           textToSpeechControllerProvider.overrideWith(
             _TestTextToSpeechController.new,
           ),
-          queuedCompletionInfoForMessageProvider(
-            'partial-assistant',
-          ).overrideWith(
-            (ref) => Stream<QueuedCompletionInfo?>.value(
-              const QueuedCompletionInfo(
-                databaseOwner: Object(),
-                seq: 43,
-                chatId: 'chat-1',
-                scopedChatId: 'chat-1',
-                assistantMessageId: 'partial-assistant',
-                phase: QueuedCompletionPhase.failed,
-                isOffline: false,
-                lastError: 'boom',
+          queuedCompletionInfoForMessageProvider('partial-assistant')
+              .overrideWith(
+                (ref) => Stream<QueuedCompletionInfo?>.value(
+                  const QueuedCompletionInfo(
+                    databaseOwner: Object(),
+                    seq: 43,
+                    chatId: 'chat-1',
+                    scopedChatId: 'chat-1',
+                    assistantMessageId: 'partial-assistant',
+                    phase: QueuedCompletionPhase.failed,
+                    isOffline: false,
+                    lastError: 'boom',
+                  ),
+                ),
               ),
-            ),
-          ),
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -1497,26 +1494,25 @@ void main() {
           textToSpeechControllerProvider.overrideWith(
             _TestTextToSpeechController.new,
           ),
-          queuedCompletionInfoForMessageProvider(
-            'pending-partial-assistant',
-          ).overrideWith(
-            (ref) => Stream<QueuedCompletionInfo?>.value(
-              const QueuedCompletionInfo(
-                databaseOwner: Object(),
-                seq: 44,
-                chatId: 'chat-1',
-                scopedChatId: 'chat-1',
-                assistantMessageId: 'pending-partial-assistant',
-                phase: QueuedCompletionPhase.pending,
-                isOffline: true,
-                lastError: 'offline',
+          queuedCompletionInfoForMessageProvider('pending-partial-assistant')
+              .overrideWith(
+                (ref) => Stream<QueuedCompletionInfo?>.value(
+                  const QueuedCompletionInfo(
+                    databaseOwner: Object(),
+                    seq: 44,
+                    chatId: 'chat-1',
+                    scopedChatId: 'chat-1',
+                    assistantMessageId: 'pending-partial-assistant',
+                    phase: QueuedCompletionPhase.pending,
+                    isOffline: true,
+                    lastError: 'offline',
+                  ),
+                ),
               ),
-            ),
-          ),
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(

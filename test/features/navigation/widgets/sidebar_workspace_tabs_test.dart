@@ -13,10 +13,11 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -220,7 +221,7 @@ void main() {
           hermesOnlyModeProvider.overrideWithValue(true),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const Scaffold(body: SidebarProfileAppBarLeading()),
         ),
@@ -272,7 +273,7 @@ void main() {
           }),
         ],
         child: MaterialApp.router(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         ),
@@ -348,9 +349,9 @@ void main() {
     expect(find.text('Alpha Chat'), findsOneWidget);
     expect(find.text('Beta Chat'), findsOneWidget);
 
-    ProviderScope.containerOf(
-      tester.element(find.byType(SidebarPage)),
-    ).read(sidebarHeaderSearchExpandedProvider.notifier).setExpanded(true);
+    ProviderScope.containerOf(tester.element(find.byType(SidebarPage)))
+        .read(sidebarHeaderSearchExpandedProvider.notifier)
+        .setExpanded(true);
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'zzz');

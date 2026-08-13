@@ -12,7 +12,9 @@ import 'package:conduit/features/direct_connections/controllers/direct_connectio
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,9 +32,8 @@ class AdaptiveAuthHarness {
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => _storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => _storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
@@ -52,6 +53,7 @@ class AdaptiveAuthHarness {
   bool _disposed = false;
 
   Widget build({required String initialLocation}) {
+    PlatformUiCapabilities.debugPlatformOverride = platform;
     router = GoRouter(
       initialLocation: initialLocation,
       routes: [
@@ -82,7 +84,7 @@ class AdaptiveAuthHarness {
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: platform),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(
@@ -104,6 +106,7 @@ class AdaptiveAuthHarness {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    PlatformUiCapabilities.debugPlatformOverride = null;
     router.dispose();
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
@@ -154,6 +157,7 @@ class BackendOnboardingHarness {
   bool _disposed = false;
 
   Widget build({required String initialLocation}) {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     router.go(initialLocation);
     return ProviderScope(
       overrides: [
@@ -161,7 +165,7 @@ class BackendOnboardingHarness {
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: TargetPlatform.iOS),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         routerConfig: router,
       ),
@@ -176,6 +180,7 @@ class BackendOnboardingHarness {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    PlatformUiCapabilities.debugPlatformOverride = null;
     router.dispose();
   }
 }

@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:go_router/go_router.dart';
@@ -15,7 +15,9 @@ import '../../../core/models/server_config.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/widgets/connection_components.dart';
 
 /// Whether a proxy page is allowed to expose cookies or localStorage tokens.

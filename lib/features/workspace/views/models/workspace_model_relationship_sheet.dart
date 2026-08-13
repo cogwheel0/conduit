@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/l10n/app_localizations.dart';

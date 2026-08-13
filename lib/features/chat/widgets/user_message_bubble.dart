@@ -4,8 +4,8 @@ import 'dart:math' as math;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';

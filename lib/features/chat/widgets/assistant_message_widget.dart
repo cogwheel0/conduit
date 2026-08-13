@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart' show CancelToken;
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
@@ -20,9 +21,13 @@ import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_run_transport.dart';
 import '../../hermes/widgets/hermes_approval_card.dart';
 import 'enhanced_image_attachment.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import 'enhanced_attachment.dart';
+
 import 'package:conduit/shared/widgets/chat_action_button.dart';
+
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -705,9 +710,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final we = ttsState.wordEndInSentence;
 
     final baseStyle =
-        Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: theme.textPrimary) ??
+        Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: theme.textPrimary) ??
         AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary);
     final highlightStyle = baseStyle.copyWith(
       backgroundColor: theme.buttonPrimary.withValues(alpha: 0.25),
@@ -1498,9 +1502,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     const SizedBox(height: 2),
                     Text(
                       message,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: conduitTheme.textSecondary,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: conduitTheme.textSecondary),
                     ),
                   ],
                 ),

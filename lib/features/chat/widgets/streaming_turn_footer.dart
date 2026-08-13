@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
@@ -119,9 +119,8 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
                   alignment: AlignmentDirectional.centerStart,
                   child: Padding(
                     padding: EdgeInsets.only(
-                      top: ConduitMarkdownStyle.fromTheme(
-                        context,
-                      ).paragraphSpacing,
+                      top: ConduitMarkdownStyle.fromTheme(context)
+                          .paragraphSpacing,
                       bottom: Spacing.xs,
                     ),
                     child: RepaintBoundary(

@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../core/services/raster_media_policy.dart';
 import '../../../l10n/app_localizations.dart';
@@ -218,9 +218,8 @@ class TerminalFilesSection extends StatelessWidget {
             if (entry.size != null)
               LocaleDisplayFormatters.bytes(context, entry.size!),
             if (entry.modifiedAt != null)
-              MaterialLocalizations.of(
-                context,
-              ).formatShortDate(entry.modifiedAt!),
+              MaterialLocalizations.of(context)
+                  .formatShortDate(entry.modifiedAt!),
           ].join(' • ');
 
     return DecoratedBox(

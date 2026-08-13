@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 
 /// Marks content that owns horizontal gestures so an ancestor recognizer can
@@ -145,8 +145,7 @@ class PrioritizedHorizontalGesture extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      HorizontalGesturePriorityScope.maybeOf(
-        context,
-      )?.buildPrioritizedGestureArena(child) ??
+      HorizontalGesturePriorityScope.maybeOf(context)
+          ?.buildPrioritizedGestureArena(child) ??
       child;
 }

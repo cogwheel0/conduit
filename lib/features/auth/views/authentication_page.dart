@@ -1,6 +1,6 @@
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,7 +17,9 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/utils/debug_logger.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../providers/unified_auth_providers.dart';
 import '../../../core/auth/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';

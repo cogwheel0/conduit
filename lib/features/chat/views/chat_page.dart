@@ -1,20 +1,25 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'dart:io' show Platform;
 import 'dart:collection';
 import 'dart:math' as math;
 
 import '../../../shared/widgets/sidebar_layout_contract.dart';
+
 import 'dart:async';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
@@ -1662,9 +1667,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final message = error is StateError
           ? error.message.toString()
           : AppLocalizations.of(context)!.errorMessage;
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

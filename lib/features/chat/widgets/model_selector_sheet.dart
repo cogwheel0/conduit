@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
@@ -106,14 +106,12 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       await setReasoningEffort(ref.read, normalizeReasoningEffort(effort));
     } on FormatException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
     }
   }
 

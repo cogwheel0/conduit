@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/profile/widgets/profile_text_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';

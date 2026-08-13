@@ -1,11 +1,14 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 

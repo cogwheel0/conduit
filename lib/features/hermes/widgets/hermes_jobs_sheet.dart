@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -76,10 +76,8 @@ Future<bool> _showNativeHermesJobsSheet(BuildContext context) async {
   if (!context.mounted) return true;
 
   final subscription = NativeSheetBridge.instance.events.listen((event) {
-    if (event case NativeSheetControlChanged(
-      :final id,
-      :final value,
-    ) when id.startsWith(_nativeJobTogglePrefix) && value is bool) {
+    if (event case NativeSheetControlChanged(:final id, :final value)
+        when id.startsWith(_nativeJobTogglePrefix) && value is bool) {
       final encodedId = id.substring(_nativeJobTogglePrefix.length);
       unawaited(
         _toggleNativeJob(

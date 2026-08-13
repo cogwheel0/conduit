@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:jovial_svg/jovial_svg.dart';
 
-typedef JovialSvgImageErrorBuilder =
-    Widget Function(BuildContext context, Object error, StackTrace? stackTrace);
+typedef JovialSvgImageErrorBuilder = Widget Function(
+  BuildContext context,
+  Object error,
+  StackTrace? stackTrace,
+);
 
 /// Loads and renders SVG content with `jovial_svg`.
 ///

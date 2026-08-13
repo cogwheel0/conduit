@@ -11,8 +11,8 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -50,9 +50,8 @@ Future<void> _showNativeChatShareSheet({
   final conversationId = conversationScopedId(conversation);
 
   void showMessage(String message) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Rect? shareOriginForContext() {
@@ -259,9 +258,8 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

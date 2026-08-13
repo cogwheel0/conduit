@@ -19,8 +19,8 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,24 +73,20 @@ void main() {
 
   test('native profile glass reuses cached avatar bytes', () {
     final bytes = Uint8List.fromList(const [1, 2, 3]);
-    final target =
-        buildSidebarProfileButton(
-              supportsNativeGlass: true,
-              onPressed: () {},
-              fallbackStyle: AdaptiveButtonStyle.glass,
-              nativeAvatarBytes: bytes,
-              child: const SizedBox.square(dimension: 36),
-            )
-            as SizedBox;
+    final target = buildSidebarProfileButton(
+      supportsNativeGlass: true,
+      onPressed: () {},
+      fallbackStyle: AdaptiveButtonStyle.glass,
+      nativeAvatarBytes: bytes,
+      child: const SizedBox.square(dimension: 36),
+    ) as SizedBox;
     final button = target.child! as CNButton;
-    final placeholderTarget =
-        buildSidebarProfileButton(
-              supportsNativeGlass: true,
-              onPressed: () {},
-              fallbackStyle: AdaptiveButtonStyle.glass,
-              child: const SizedBox.square(dimension: 36),
-            )
-            as SizedBox;
+    final placeholderTarget = buildSidebarProfileButton(
+      supportsNativeGlass: true,
+      onPressed: () {},
+      fallbackStyle: AdaptiveButtonStyle.glass,
+      child: const SizedBox.square(dimension: 36),
+    ) as SizedBox;
     final placeholderButton = placeholderTarget.child! as CNButton;
 
     expect(identical(button.imageAsset?.imageData, bytes), isTrue);
@@ -103,9 +99,8 @@ void main() {
   });
 
   test('Hermes profile host fallback comes from localizations', () {
-    check(
-      AppLocalizationsEn().hermesSelfHostedAgentLabel,
-    ).equals('Self-hosted agent');
+    check(AppLocalizationsEn().hermesSelfHostedAgentLabel)
+        .equals('Self-hosted agent');
   });
 
   test('accountless native fallback targets generic settings', () {
@@ -249,15 +244,13 @@ void main() {
 
     await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
     await tester.pump();
-    check(
-      container.read(terminalSidebarPanelProvider),
-    ).equals(TerminalSidebarPanel.files);
+    check(container.read(terminalSidebarPanelProvider))
+        .equals(TerminalSidebarPanel.files);
 
     await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
     await tester.pump();
-    check(
-      container.read(terminalSidebarPanelProvider),
-    ).equals(TerminalSidebarPanel.console);
+    check(container.read(terminalSidebarPanelProvider))
+        .equals(TerminalSidebarPanel.console);
   });
 
   testWidgets(
@@ -298,9 +291,8 @@ void main() {
     await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
     await tester.pump();
 
-    check(
-      controllers.activeTabNotifier.currentValue,
-    ).equals(SidebarTabId.notes);
+    check(controllers.activeTabNotifier.currentValue)
+        .equals(SidebarTabId.notes);
     check(controllers.activeTabNotifier.pendingLegacyIndex()).isNull();
   });
 

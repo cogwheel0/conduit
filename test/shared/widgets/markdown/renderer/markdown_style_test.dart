@@ -4,7 +4,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -50,15 +50,12 @@ void main() {
         ),
       );
 
-      check(
-        materialTheme.textTheme.bodyMedium?.fontFamily,
-      ).equals(AppTypography.fontFamily);
-      check(
-        AppTypography.codeStyle.fontFamily,
-      ).equals(AppTypography.monospaceFontFamily);
-      check(
-        conduitTheme.code?.fontFamily,
-      ).equals(AppTypography.monospaceFontFamily);
+      check(materialTheme.textTheme.bodyMedium?.fontFamily)
+          .equals(AppTypography.fontFamily);
+      check(AppTypography.codeStyle.fontFamily)
+          .equals(AppTypography.monospaceFontFamily);
+      check(conduitTheme.code?.fontFamily)
+          .equals(AppTypography.monospaceFontFamily);
     });
 
     testWidgets('uses the same reading hierarchy on Android and iOS', (

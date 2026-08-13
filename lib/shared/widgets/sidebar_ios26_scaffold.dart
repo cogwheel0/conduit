@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 
 import 'adaptive_toolbar_components.dart';
 import 'chrome_gradient_fade.dart';

@@ -12,24 +12,23 @@ import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('native composer glass uses non-animated cursor opacity', () {
-    check(
-      composerCursorOpacityAnimates(usesNativePlatformView: true),
-    ).equals(false);
-    check(
-      composerCursorOpacityAnimates(usesNativePlatformView: false),
-    ).equals(true);
+    check(composerCursorOpacityAnimates(usesNativePlatformView: true))
+        .equals(false);
+    check(composerCursorOpacityAnimates(usesNativePlatformView: false))
+        .equals(true);
   });
 
   test('iOS composer uses the native system menu whenever supported', () {
@@ -112,9 +111,8 @@ void main() {
     check(params[0].containsKey('symbolSize')).isFalse();
     check(params[1]['iosSymbol']).equals('ellipsis');
     final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
-    check(
-      menuItems.map((item) => item['label']),
-    ).deepEquals(['Rename', 'Delete']);
+    check(menuItems.map((item) => item['label']))
+        .deepEquals(['Rename', 'Delete']);
     check(menuItems[1]['isDestructive']).equals(true);
   });
 
@@ -164,9 +162,8 @@ void main() {
     );
 
     check(action).isNotNull();
-    check(
-      action!.menuItems.map((item) => item.label),
-    ).deepEquals(['Edit', 'Delete']);
+    check(action!.menuItems.map((item) => item.label))
+        .deepEquals(['Edit', 'Delete']);
     check(action.menuItems[0].isChecked).isTrue();
     check(action.menuItems[1].enabled).isFalse();
     check(action.menuItems[1].isDestructive).isTrue();
@@ -184,9 +181,8 @@ void main() {
       ),
     );
 
-    check(
-      ConduitNativeToolbarActionGroup(actions: actions).actions,
-    ).length.equals(3);
+    check(ConduitNativeToolbarActionGroup(actions: actions).actions).length
+        .equals(3);
   });
 
   test('composer measurement style matches recording typography', () {
@@ -333,7 +329,7 @@ void main() {
           apiServiceProvider.overrideWithValue(api),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const Scaffold(
             body: ComposerAttachmentKeyboard(onImageAttachment: _noop),
@@ -370,7 +366,7 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: ModernChatInput(
@@ -457,7 +453,7 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: ValueListenableBuilder<double>(
               valueListenable: keyboardInset,
@@ -548,7 +544,7 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: ModernChatInput(
@@ -612,12 +608,11 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.4)),
               child: child!,
             ),
             home: Scaffold(
@@ -674,7 +669,7 @@ void main() {
           imageGenerationAvailableProvider.overrideWithValue(false),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -752,7 +747,7 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: ModernChatInput(
@@ -830,7 +825,7 @@ void main() {
             imageGenerationAvailableProvider.overrideWithValue(false),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
           ),
@@ -866,7 +861,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Navigator(
             onGenerateRoute: (_) => MaterialPageRoute<void>(
@@ -911,7 +906,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1005,7 +1000,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1092,7 +1087,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1144,7 +1139,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1178,7 +1173,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1218,12 +1213,11 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(2)),
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
             child: child!,
           ),
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
@@ -1253,7 +1247,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1287,7 +1281,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1339,7 +1333,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),
@@ -1377,7 +1371,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1443,7 +1437,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1513,7 +1507,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1531,9 +1525,8 @@ void main() {
     );
 
     expect(
-      actionButton(
-        find.byKey(const ValueKey('composer-overflow-button')),
-      ).style,
+      actionButton(find.byKey(const ValueKey('composer-overflow-button')))
+          .style,
       AdaptiveButtonStyle.plain,
     );
 
@@ -1543,9 +1536,8 @@ void main() {
     await tester.pump();
 
     expect(
-      actionButton(
-        find.byKey(const ValueKey('create-draft-note-button')),
-      ).style,
+      actionButton(find.byKey(const ValueKey('create-draft-note-button')))
+          .style,
       AdaptiveButtonStyle.plain,
     );
     final noteVisualRect = tester.getRect(
@@ -1575,7 +1567,7 @@ void main() {
             voiceInputAvailableProvider.overrideWith((_) async => true),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: ModernChatInput(
@@ -1666,7 +1658,7 @@ void main() {
       ProviderScope(
         overrides: [apiServiceProvider.overrideWithValue(null)],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ModernChatInput(
@@ -1720,7 +1712,7 @@ void main() {
           webSearchAvailableProvider.overrideWithValue(true),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
         ),

@@ -3,8 +3,9 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/model_list_tile.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'direct_connections_ui_test_support.dart';
@@ -20,36 +21,30 @@ void main() {
     });
 
     test('rejects non-string custom header values', () {
-      check(
-        () => parseDirectCustomHeaders('{"X-Retry": 2}'),
-      ).throws<FormatException>();
+      check(() => parseDirectCustomHeaders('{"X-Retry": 2}'))
+          .throws<FormatException>();
     });
 
     test('normalizes surrounding custom header name whitespace', () {
-      check(
-        parseDirectCustomHeaders('{" X-Organization ":"team-a"}'),
-      ).deepEquals({'X-Organization': 'team-a'});
+      check(parseDirectCustomHeaders('{" X-Organization ":"team-a"}'))
+          .deepEquals({'X-Organization': 'team-a'});
     });
 
     test('deduplicates manual model ids while preserving order', () {
-      check(
-        parseDirectManualModelIds('model-a\n model-b,model-a\n'),
-      ).deepEquals(['model-a', 'model-b']);
+      check(parseDirectManualModelIds('model-a\n model-b,model-a\n'))
+          .deepEquals(['model-a', 'model-b']);
     });
 
     test('deduplicates model tags while preserving order', () {
-      check(
-        parseDirectModelTags('local, private\nlocal'),
-      ).deepEquals(['local', 'private']);
+      check(parseDirectModelTags('local, private\nlocal'))
+          .deepEquals(['local', 'private']);
     });
 
     test('normalizes whitespace and trailing slash', () {
-      check(
-        normalizeDirectBaseUrl(' https://provider.example/v1/ '),
-      ).equals('https://provider.example/v1');
-      check(
-        normalizeDirectBaseUrl('http://localhost:11434/'),
-      ).equals('http://localhost:11434/');
+      check(normalizeDirectBaseUrl(' https://provider.example/v1/ '))
+          .equals('https://provider.example/v1');
+      check(normalizeDirectBaseUrl('http://localhost:11434/'))
+          .equals('http://localhost:11434/');
     });
 
     test('route target canonicalizes create/edit and source state', () {
@@ -188,9 +183,8 @@ void main() {
       metadata: {'backend': 'direct', 'profileName': 'Home Ollama'},
     );
     check(directModelSourceLabel(model)).equals('Home Ollama');
-    check(
-      directModelSourceLabel(const Model(id: 'server', name: 'Server')),
-    ).isNull();
+    check(directModelSourceLabel(const Model(id: 'server', name: 'Server')))
+        .isNull();
   });
 
   testWidgets('direct source and model tags deduplicate case-insensitively', (
@@ -208,7 +202,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: ModelListTile(
@@ -231,7 +225,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: ModelListTile(
@@ -256,7 +250,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: ModelListTile(

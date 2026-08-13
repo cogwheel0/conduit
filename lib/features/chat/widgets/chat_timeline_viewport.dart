@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart'
     show RenderBox, RenderObject, ScrollCacheExtent, ScrollDirection;
 
@@ -22,8 +22,10 @@ const Duration _trailingRefreshTimeout = Duration(seconds: 20);
 /// The viewport defensively removes duplicate IDs for rendering and semantics,
 /// but preserves this raw source index so callers keep their source-list
 /// mapping.
-typedef ChatTimelineRowBuilder =
-    Widget Function(BuildContext context, int sourceIndex);
+typedef ChatTimelineRowBuilder = Widget Function(
+  BuildContext context,
+  int sourceIndex,
+);
 
 class _TimelineRowKey extends ValueKey<String> {
   const _TimelineRowKey(super.value);
@@ -564,17 +566,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
     unawaited(
-      Future<void>.sync(widget.onNativeScrollToTop).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        DebugLogger.error(
-          'native-scroll-to-top-failed',
-          scope: 'chat/timeline/viewport',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }),
+      Future<void>.sync(widget.onNativeScrollToTop)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'native-scroll-to-top-failed',
+              scope: 'chat/timeline/viewport',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
     );
   }
 

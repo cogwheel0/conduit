@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,7 +16,9 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -233,9 +235,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         width: IconSize.sm,
         height: IconSize.sm,
         child: Semantics(
-          label: MaterialLocalizations.of(
-            context,
-          ).refreshIndicatorSemanticLabel,
+          label: MaterialLocalizations.of(context)
+              .refreshIndicatorSemanticLabel,
           child: usesCupertinoChrome
               ? CupertinoActivityIndicator(
                   radius: IconSize.sm / 2,
@@ -404,9 +405,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildEmptyState(String message) {
     final theme = context.conduitTheme;
-    final refreshLabel = MaterialLocalizations.of(
-      context,
-    ).refreshIndicatorSemanticLabel;
+    final refreshLabel = MaterialLocalizations.of(context)
+        .refreshIndicatorSemanticLabel;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.lg),
@@ -1647,9 +1647,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                           ? CupertinoIcons.folder_badge_minus
                           : Icons.folder_off_outlined,
                       label: l10n.topLevel,
-                      onTap: () => Navigator.of(
-                        sheetContext,
-                      ).pop(const _FolderMoveTarget(parentId: null)),
+                      onTap: () =>
+                          Navigator.of(sheetContext)
+                              .pop(const _FolderMoveTarget(parentId: null)),
                     ),
                   for (final entry in moveTargets)
                     FolderTreeHierarchyNode(
@@ -1664,9 +1664,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                             ? CupertinoIcons.folder
                             : Icons.folder_outlined,
                         label: entry.folder.name,
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(_FolderMoveTarget(parentId: entry.folder.id)),
+                        onTap: () => Navigator.of(sheetContext)
+                            .pop(_FolderMoveTarget(parentId: entry.folder.id)),
                       ),
                     ),
                 ],

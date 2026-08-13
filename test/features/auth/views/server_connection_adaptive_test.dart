@@ -6,7 +6,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/adaptive_auth_harness.dart';
@@ -30,9 +30,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.authentication);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.authentication);
       check(harness.router.canPop()).isFalse();
 
       await tester.tap(
@@ -40,9 +39,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.serverConnection);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.serverConnection);
       check(harness.router.canPop()).isFalse();
       expect(
         find.byKey(const ValueKey<String>('server-connection-back-button')),
@@ -54,9 +52,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.backendChooser);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.backendChooser);
       expect(find.byType(BackendChooserPage), findsOneWidget);
       await harness.unmount(tester);
     },

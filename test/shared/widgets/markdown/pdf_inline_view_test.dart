@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -151,12 +151,10 @@ void main() {
     });
 
     test('rejects non-PDF paths and query-only PDF names', () {
-      check(
-        PdfInlineView.isPdfLink('https://example.com/report.html'),
-      ).isFalse();
-      check(
-        PdfInlineView.isPdfLink('https://example.com/download?file=q1.pdf'),
-      ).isFalse();
+      check(PdfInlineView.isPdfLink('https://example.com/report.html'))
+          .isFalse();
+      check(PdfInlineView.isPdfLink('https://example.com/download?file=q1.pdf'))
+          .isFalse();
       check(PdfInlineView.isPdfLink('')).isFalse();
     });
   });

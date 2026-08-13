@@ -5,7 +5,8 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,7 +29,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionsContent(
             profiles: profiles,
@@ -85,7 +86,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionsContent(
             profiles: [local],
@@ -125,7 +126,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionsContent(
             profiles: const [],
@@ -169,7 +170,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionsContent(
             profiles: [
@@ -223,7 +224,7 @@ void main() {
           openWebUiDirectConnectionsProvider.overrideWith(() => controller),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Consumer(
             builder: (context, ref, _) => DirectConnectionsContent(
@@ -289,7 +290,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionsPage(),
         ),

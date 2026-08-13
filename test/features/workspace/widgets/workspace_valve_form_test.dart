@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/widgets/workspace_valve_form.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
   Widget harness(
@@ -12,7 +13,7 @@ void main() {
     void Function(Map<String, dynamic>)? onChanged,
   }) {
     return MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: SingleChildScrollView(
@@ -42,15 +43,19 @@ void main() {
     await tester.pumpWidget(harness(spec));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-tool-valve-api_key')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-tool-valve-enabled')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-tool-valve-api_key')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('workspace-tool-valve-enabled')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('workspace-tool-valve-mode')), findsOneWidget);
   });
 
   testWidgets('empty spec shows the no-valves message', (tester) async {
-    await tester.pumpWidget(
-      harness(const WorkspaceValveSpec(schema: {})),
-    );
+    await tester.pumpWidget(harness(const WorkspaceValveSpec(schema: {})));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const Key('workspace-tool-valves-empty')),
@@ -58,7 +63,9 @@ void main() {
     );
   });
 
-  testWidgets('default/custom toggle reveals the input control', (tester) async {
+  testWidgets('default/custom toggle reveals the input control', (
+    tester,
+  ) async {
     final spec = WorkspaceValveSpec.fromJson(const {
       'properties': {
         'api_key': {'type': 'string', 'title': 'API Key', 'default': 'seed'},
@@ -201,7 +208,9 @@ void main() {
       expect(emitted!['level'], isA<int>());
 
       // Selecting the second option stores the int 2, not "2".
-      await tester.tap(find.byKey(const Key('workspace-tool-valve-input-level')));
+      await tester.tap(
+        find.byKey(const Key('workspace-tool-valve-input-level')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('2').last);
       await tester.pumpAndSettle();

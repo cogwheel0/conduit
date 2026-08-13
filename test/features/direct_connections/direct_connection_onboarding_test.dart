@@ -6,7 +6,8 @@ import 'package:conduit/features/direct_connections/models/direct_remote_model.d
 import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,7 +46,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(
@@ -87,7 +88,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: ThemeData(platform: TargetPlatform.iOS),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.create(),
@@ -132,7 +133,7 @@ void main() {
           directConnectionProfilesProvider.overrideWith(() => controller),
         ],
         child: MaterialApp.router(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         ),
@@ -162,7 +163,7 @@ void main() {
           directConnectionProfilesProvider.overrideWith(() => controller),
         ],
         child: MaterialApp.router(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         ),
@@ -195,7 +196,7 @@ void main() {
           directConnectionProfilesProvider.overrideWith(() => controller),
         ],
         child: MaterialApp.router(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         ),

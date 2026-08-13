@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,14 +11,12 @@ import 'package:conduit/features/workspace/views/skills/workspace_skill_editor.d
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 TextField _textFieldByKey(WidgetTester tester, String key) {
   return tester.widget<TextField>(
-    find.descendant(
-      of: find.byKey(Key(key)),
-      matching: find.byType(TextField),
-    ),
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField)),
   );
 }
 
@@ -43,7 +41,10 @@ void main() {
 
     expect(find.byKey(const Key('workspace-skill-name')), findsOneWidget);
     expect(find.byKey(const Key('workspace-skill-id')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-skill-description')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-skill-description')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('workspace-skill-content')), findsOneWidget);
 
     await tester.enterText(
@@ -91,10 +92,10 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('workspace-skill-content')),
       '---\n'
-          'name: code_review_guidelines\n'
-          'description: Review checklist\n'
-          '---\n'
-          'Body.',
+      'name: code_review_guidelines\n'
+      'description: Review checklist\n'
+      '---\n'
+      'Body.',
     );
     await tester.pump();
 
@@ -213,8 +214,7 @@ void main() {
       _harness(
         skills,
         mode: WorkspaceRouteMode.create,
-        markdownPicker: () async =>
-            '---\nname: Imported Skill\ndescription: From file\n---\nBody text.',
+        markdownPicker: () async => '---\nname: Imported Skill\ndescription: From file\n---\nBody text.',
       ),
     );
     await tester.pumpAndSettle();
@@ -299,7 +299,9 @@ void main() {
     expect(report.failureCount, 2);
   });
 
-  testWidgets('read-only skill hides save and mutation actions', (tester) async {
+  testWidgets('read-only skill hides save and mutation actions', (
+    tester,
+  ) async {
     final skills = _FakeSkills();
     await tester.pumpWidget(
       _harness(
@@ -318,10 +320,7 @@ void main() {
     // Only the read-only-safe access action is offered.
     await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const Key('workspace-skill-action-clone')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('workspace-skill-action-clone')), findsNothing);
     expect(
       find.byKey(const Key('workspace-skill-action-delete')),
       findsNothing,
@@ -405,9 +404,8 @@ Widget _harness(
       workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
       workspaceSkillsProvider.overrideWith(() => skills),
       if (resourceId != null && detail != null)
-        workspaceSkillDetailProvider(
-          resourceId,
-        ).overrideWith((ref) async => detail),
+        workspaceSkillDetailProvider(resourceId)
+            .overrideWith((ref) async => detail),
     ],
     child: _app(mode, resourceId, markdownPicker),
   );
@@ -440,7 +438,7 @@ Widget _app(
   );
   return MaterialApp.router(
     routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );
 }

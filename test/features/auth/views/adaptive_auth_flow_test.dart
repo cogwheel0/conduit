@@ -9,8 +9,8 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/adaptive_auth_harness.dart';
@@ -23,56 +23,52 @@ void main() {
     isActive: true,
   );
 
-  test(
-    'authentication server ownership requires the full tokenless transport identity',
-    () {
-      const expected = ServerConfig(
-        id: 'server-1',
-        name: 'Open WebUI',
-        url: 'https://open-webui.example',
-        apiKey: 'legacy-token-that-selection-must-strip',
-        customHeaders: {'Cookie': 'proxy=session'},
-        isActive: true,
-        allowSelfSignedCertificates: true,
-        mtlsCertificateChainPem: 'certificate',
-        mtlsPrivateKeyPem: 'private-key',
-        mtlsPrivateKeyPassword: 'passphrase',
-      );
-      final selected = expected.copyWith(
-        url: 'https://OPEN-WEBUI.example/',
-        apiKey: null,
-      );
+  test('authentication server ownership requires the full tokenless transport identity', () {
+    const expected = ServerConfig(
+      id: 'server-1',
+      name: 'Open WebUI',
+      url: 'https://open-webui.example',
+      apiKey: 'legacy-token-that-selection-must-strip',
+      customHeaders: {'Cookie': 'proxy=session'},
+      isActive: true,
+      allowSelfSignedCertificates: true,
+      mtlsCertificateChainPem: 'certificate',
+      mtlsPrivateKeyPem: 'private-key',
+      mtlsPrivateKeyPassword: 'passphrase',
+    );
+    final selected = expected.copyWith(
+      url: 'https://OPEN-WEBUI.example/',
+      apiKey: null,
+    );
 
-      check(authenticationServerMatchesSelection(selected, expected)).isTrue();
-      for (final mismatched in <ServerConfig>[
-        selected.copyWith(id: 'replacement-id'),
-        selected.copyWith(url: 'https://replacement.example'),
-        selected.copyWith(apiKey: 'stale-bearer'),
-        selected.copyWith(customHeaders: const {'Cookie': 'proxy=other'}),
-        selected.copyWith(allowSelfSignedCertificates: false),
-        selected.copyWith(mtlsCertificateChainPem: 'other-certificate'),
-        selected.copyWith(mtlsPrivateKeyPem: 'other-private-key'),
-        selected.copyWith(mtlsPrivateKeyPassword: 'other-passphrase'),
-      ]) {
-        check(
-          authenticationServerMatchesSelection(mismatched, expected),
-        ).isFalse();
-      }
-      check(authenticationServerMatchesSelection(null, expected)).isFalse();
+    check(authenticationServerMatchesSelection(selected, expected)).isTrue();
+    for (final mismatched in <ServerConfig>[
+      selected.copyWith(id: 'replacement-id'),
+      selected.copyWith(url: 'https://replacement.example'),
+      selected.copyWith(apiKey: 'stale-bearer'),
+      selected.copyWith(customHeaders: const {'Cookie': 'proxy=other'}),
+      selected.copyWith(allowSelfSignedCertificates: false),
+      selected.copyWith(mtlsCertificateChainPem: 'other-certificate'),
+      selected.copyWith(mtlsPrivateKeyPem: 'other-private-key'),
+      selected.copyWith(mtlsPrivateKeyPassword: 'other-passphrase'),
+    ]) {
+      check(authenticationServerMatchesSelection(mismatched, expected))
+          .isFalse();
+    }
+    check(authenticationServerMatchesSelection(null, expected)).isFalse();
 
-      final workerManager = WorkerManager();
-      final api = ApiService(
-        serverConfig: selected,
-        workerManager: workerManager,
-      );
-      addTearDown(api.dispose);
-      addTearDown(workerManager.dispose);
-      check(authenticationApiMatchesSelection(api, expected)).isTrue();
+    final workerManager = WorkerManager();
+    final api = ApiService(
+      serverConfig: selected,
+      workerManager: workerManager,
+    );
+    addTearDown(api.dispose);
+    addTearDown(workerManager.dispose);
+    check(authenticationApiMatchesSelection(api, expected)).isTrue();
 
-      api.updateAuthToken('prior-session-bearer');
-      check(authenticationApiMatchesSelection(api, expected)).isFalse();
-    },
-  );
+    api.updateAuthToken('prior-session-bearer');
+    check(authenticationApiMatchesSelection(api, expected)).isFalse();
+  });
 
   for (final platform in <TargetPlatform>[
     TargetPlatform.iOS,
@@ -118,9 +114,8 @@ void main() {
           matching: find.byType(AdaptiveSegmentedControl),
         ),
       );
-      check(
-        adaptiveSelector.labels,
-      ).deepEquals(['Password', 'SSO', 'LDAP', 'Token']);
+      check(adaptiveSelector.labels)
+          .deepEquals(['Password', 'SSO', 'LDAP', 'Token']);
       for (final field in tester.widgetList<AccessibleFormField>(
         find.byType(AccessibleFormField),
       )) {
@@ -336,8 +331,7 @@ void main() {
     const serverWithSecrets = ServerConfig(
       id: 'server-with-secrets',
       name: 'Open WebUI',
-      url:
-          'https://user:password@example.com:8443/openwebui?token=secret#private',
+      url: 'https://user:password@example.com:8443/openwebui?token=secret#private',
       isActive: true,
     );
     final harness = AdaptiveAuthHarness(server: serverWithSecrets);

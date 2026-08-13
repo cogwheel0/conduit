@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter_driver/driver_extension.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'core/widgets/error_boundary.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
@@ -38,6 +41,8 @@ import 'features/release_notes/release_notes_bootstrap.dart';
 import 'features/release_notes/release_notes_coordinator.dart';
 import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
+import 'l10n/conduit_localizations.dart';
+import 'shared/widgets/legacy_design_compatibility.dart';
 import 'features/tools/providers/tools_providers.dart';
 import 'features/workspace/providers/workspace_capabilities_provider.dart';
 import 'features/workspace/workspace_navigation.dart';
@@ -46,6 +51,7 @@ import 'core/utils/system_ui_style.dart';
 import 'core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
@@ -935,7 +941,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       cupertinoDarkTheme: cupertinoDark,
       themeMode: themeMode,
       locale: locale,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       localeListResolutionCallback: (deviceLocales, supported) {
         if (locale != null) return locale;
@@ -983,8 +989,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
         return Theme(
           data: materialTheme,
-          child: ReleaseNotesCoordinator(
-            child: _KeyboardDismissOnScroll(child: safeChild),
+          child: Builder(
+            builder: (context) => LegacyDesignCompatibility(
+              child: ReleaseNotesCoordinator(
+                child: _KeyboardDismissOnScroll(child: safeChild),
+              ),
+            ),
           ),
         );
       },

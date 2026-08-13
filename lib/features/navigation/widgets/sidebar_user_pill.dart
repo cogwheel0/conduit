@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -37,8 +37,9 @@ import 'sidebar_tab_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
-typedef SidebarNativeProfilePresenter =
-    Future<bool> Function(NativeProfileSheetConfig config);
+typedef SidebarNativeProfilePresenter = Future<bool> Function(
+  NativeProfileSheetConfig config,
+);
 
 const double _sidebarProfileAvatarSize = 36;
 const double _sidebarNativeProfileAvatarSize = 28;

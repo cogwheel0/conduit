@@ -1,14 +1,16 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+
 // app_theme not required here; using theme extension tokens
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,6 +18,7 @@ import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
@@ -46,7 +49,9 @@ import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
@@ -865,17 +870,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         lease.tryCommit(() {
           _clipboardService.claimNativePasteSync(prepared, (attachments) {
             unawaited(
-              currentOnPasted(attachments).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                DebugLogger.error(
-                  'Native pasted attachment processing failed',
-                  scope: 'clipboard/native-paste',
-                  error: error,
-                  stackTrace: stackTrace,
-                );
-              }),
+              currentOnPasted(attachments)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    DebugLogger.error(
+                      'Native pasted attachment processing failed',
+                      scope: 'clipboard/native-paste',
+                      error: error,
+                      stackTrace: stackTrace,
+                    );
+                  }),
             );
           });
         });

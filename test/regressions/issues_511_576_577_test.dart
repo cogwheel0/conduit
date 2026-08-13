@@ -7,7 +7,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_preprocessor.dart';
 import 'package:fleather/fleather.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -22,9 +22,8 @@ void main() {
 
 **After**''';
 
-      check(
-        ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
-      ).equals('Before\n\n**After**');
+      check(ConduitMarkdownPreprocessor.sanitizeForClipboard(input))
+          .equals('Before\n\n**After**');
     });
 
     test('preserves ordinary details and literal tool-call examples', () {
@@ -42,9 +41,8 @@ void main() {
 <details type="tool_calls">example</details>
 ````''';
 
-      check(
-        ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
-      ).equals(input);
+      check(ConduitMarkdownPreprocessor.sanitizeForClipboard(input))
+          .equals(input);
     });
 
     test('removes tool-call details that contain code spans', () {
@@ -61,9 +59,8 @@ private fenced payload
 
 After''';
 
-      check(
-        ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
-      ).equals('Before\n\nAfter');
+      check(ConduitMarkdownPreprocessor.sanitizeForClipboard(input))
+          .equals('Before\n\nAfter');
     });
   });
 

@@ -3,7 +3,7 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -276,57 +276,54 @@ void main() {
       expect(message.content, 'Hello world');
     });
 
-    test(
-      'appendStatusUpdate skips duplicate rows and notifies on meaningful changes',
-      () {
-        final container = buildContainer();
-        addTearDown(container.dispose);
+    test('appendStatusUpdate skips duplicate rows and notifies on meaningful changes', () {
+      final container = buildContainer();
+      addTearDown(container.dispose);
 
-        final notifier = container.read(chatMessagesProvider.notifier);
-        final timestamp = DateTime(2024, 1, 1, 12);
-        final baselineStatus = ChatStatusUpdate(
-          action: 'search',
-          description: 'Searching',
-          done: false,
-          occurredAt: timestamp,
-        );
-        notifier.setMessages([
-          _assistantMessage(statusHistory: [baselineStatus]),
-        ]);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final timestamp = DateTime(2024, 1, 1, 12);
+      final baselineStatus = ChatStatusUpdate(
+        action: 'search',
+        description: 'Searching',
+        done: false,
+        occurredAt: timestamp,
+      );
+      notifier.setMessages([
+        _assistantMessage(statusHistory: [baselineStatus]),
+      ]);
 
-        var notifications = 0;
-        final subscription = container.listen<List<ChatMessage>>(
-          chatMessagesProvider,
-          (_, _) => notifications += 1,
-          fireImmediately: false,
-        );
-        addTearDown(subscription.close);
+      var notifications = 0;
+      final subscription = container.listen<List<ChatMessage>>(
+        chatMessagesProvider,
+        (_, _) => notifications += 1,
+        fireImmediately: false,
+      );
+      addTearDown(subscription.close);
 
-        notifier.appendStatusUpdate(
-          'assistant-1',
-          baselineStatus.copyWith(
-            occurredAt: timestamp.add(const Duration(seconds: 1)),
-          ),
-        );
-        expect(notifications, 0);
-        expect(container.read(chatMessagesProvider).single.statusHistory, [
-          baselineStatus,
-        ]);
+      notifier.appendStatusUpdate(
+        'assistant-1',
+        baselineStatus.copyWith(
+          occurredAt: timestamp.add(const Duration(seconds: 1)),
+        ),
+      );
+      expect(notifications, 0);
+      expect(container.read(chatMessagesProvider).single.statusHistory, [
+        baselineStatus,
+      ]);
 
-        notifier.appendStatusUpdate(
-          'assistant-1',
-          baselineStatus.copyWith(
-            done: true,
-            occurredAt: timestamp.add(const Duration(seconds: 2)),
-          ),
-        );
-        expect(notifications, 1);
-        expect(
-          container.read(chatMessagesProvider).single.statusHistory.single.done,
-          isTrue,
-        );
-      },
-    );
+      notifier.appendStatusUpdate(
+        'assistant-1',
+        baselineStatus.copyWith(
+          done: true,
+          occurredAt: timestamp.add(const Duration(seconds: 2)),
+        ),
+      );
+      expect(notifications, 1);
+      expect(
+        container.read(chatMessagesProvider).single.statusHistory.single.done,
+        isTrue,
+      );
+    });
 
     test('Hermes tool failure replaces and finishes its pending row', () {
       final container = buildContainer();
@@ -363,77 +360,70 @@ void main() {
       );
     });
 
-    test(
-      'reasoning updates keep one row without splitting an interleaved Hermes tool',
-      () {
-        final container = buildContainer();
-        addTearDown(container.dispose);
+    test('reasoning updates keep one row without splitting an interleaved Hermes tool', () {
+      final container = buildContainer();
+      addTearDown(container.dispose);
 
-        final notifier = container.read(chatMessagesProvider.notifier);
-        notifier.setMessages([_assistantMessage(isStreaming: true)]);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([_assistantMessage(isStreaming: true)]);
 
-        var maxHistoryLength = 0;
-        final subscription = container.listen<List<ChatMessage>>(
-          chatMessagesProvider,
-          (_, next) {
-            maxHistoryLength =
-                next.single.statusHistory.length > maxHistoryLength
-                ? next.single.statusHistory.length
-                : maxHistoryLength;
-          },
-          fireImmediately: false,
-        );
-        addTearDown(subscription.close);
+      var maxHistoryLength = 0;
+      final subscription = container.listen<List<ChatMessage>>(
+        chatMessagesProvider,
+        (_, next) {
+          maxHistoryLength = next.single.statusHistory.length > maxHistoryLength
+              ? next.single.statusHistory.length
+              : maxHistoryLength;
+        },
+        fireImmediately: false,
+      );
+      addTearDown(subscription.close);
 
+      notifier.appendStatusUpdate(
+        'assistant-1',
+        const ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: false,
+        ),
+      );
+      for (var index = 0; index < 2000; index++) {
         notifier.appendStatusUpdate(
           'assistant-1',
-          const ChatStatusUpdate(
-            action: 'hermes_tool_web_search',
-            description: 'web_search',
+          ChatStatusUpdate(
+            action: 'reasoning',
+            description: 'Thinking… fragment $index',
             done: false,
           ),
         );
-        for (var index = 0; index < 2000; index++) {
-          notifier.appendStatusUpdate(
-            'assistant-1',
-            ChatStatusUpdate(
-              action: 'reasoning',
-              description: 'Thinking… fragment $index',
-              done: false,
-            ),
-          );
-        }
-        notifier.appendStatusUpdate(
-          'assistant-1',
-          const ChatStatusUpdate(
-            action: 'hermes_tool_web_search',
-            description: 'web_search',
-            done: true,
-          ),
-        );
+      }
+      notifier.appendStatusUpdate(
+        'assistant-1',
+        const ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: true,
+        ),
+      );
 
-        final history = container
-            .read(chatMessagesProvider)
-            .single
-            .statusHistory;
-        expect(maxHistoryLength, 2);
-        expect(history, hasLength(2));
-        expect(
-          history.where((status) => status.action == 'reasoning'),
-          hasLength(1),
-        );
-        expect(
-          history
-              .singleWhere((status) => status.action == 'reasoning')
-              .description,
-          'Thinking… fragment 1999',
-        );
-        final tool = history.singleWhere(
-          (status) => status.action == 'hermes_tool_web_search',
-        );
-        expect(tool.done, isTrue);
-      },
-    );
+      final history = container.read(chatMessagesProvider).single.statusHistory;
+      expect(maxHistoryLength, 2);
+      expect(history, hasLength(2));
+      expect(
+        history.where((status) => status.action == 'reasoning'),
+        hasLength(1),
+      );
+      expect(
+        history
+            .singleWhere((status) => status.action == 'reasoning')
+            .description,
+        'Thinking… fragment 1999',
+      );
+      final tool = history.singleWhere(
+        (status) => status.action == 'hermes_tool_web_search',
+      );
+      expect(tool.done, isTrue);
+    });
 
     test('a repeated Hermes tool keeps its completed history row', () {
       final container = buildContainer();

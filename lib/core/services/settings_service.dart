@@ -1,8 +1,9 @@
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import 'animation_service.dart';
@@ -437,9 +438,8 @@ class SettingsService {
     }
 
     final normalized = trimmed.replaceAll('_', '-');
-    if (!RegExp(
-      r'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$',
-    ).hasMatch(normalized)) {
+    if (!RegExp(r'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$')
+        .hasMatch(normalized)) {
       return null;
     }
 

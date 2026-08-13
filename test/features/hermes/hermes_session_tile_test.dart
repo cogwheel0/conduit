@@ -17,7 +17,7 @@ import 'package:conduit/features/hermes/services/hermes_local_document_trust_sto
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -192,13 +192,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      check(
-        service.operationLog,
-      ).deepEquals(['delete-start:same-id', 'get:same-id']);
+      check(service.operationLog)
+          .deepEquals(['delete-start:same-id', 'get:same-id']);
       check(container.read(hermesActiveSessionProvider)).equals('same-id');
-      check(
-        container.read(activeConversationProvider)?.id,
-      ).equals('local:hermes_same-id');
+      check(container.read(activeConversationProvider)?.id)
+          .equals('local:hermes_same-id');
 
       deleteGate.complete();
       await deletion;
@@ -326,9 +324,8 @@ void main() {
 
       check(originalService.operationLog).isEmpty();
       check(container.read(hermesActiveSessionProvider)).equals('cleanup-race');
-      check(
-        container.read(activeConversationProvider)?.id,
-      ).equals('local:hermes_cleanup-race');
+      check(container.read(activeConversationProvider)?.id)
+          .equals('local:hermes_cleanup-race');
     },
   );
 
@@ -406,9 +403,8 @@ void main() {
       await tester.pumpAndSettle();
 
       check(container.read(hermesActiveSessionProvider)).equals('session-1');
-      check(
-        container.read(activeConversationProvider)?.id,
-      ).equals('local:hermes_session-1');
+      check(container.read(activeConversationProvider)?.id)
+          .equals('local:hermes_session-1');
     },
   );
 
@@ -551,9 +547,8 @@ void main() {
       check(activeConversation).isNotNull();
       check(activeConversation!.id).equals('local:hermes_session-1');
       check(activeConversation.model).equals(kHermesDefaultModelId);
-      check(
-        activeConversation.messages.single.model,
-      ).equals(kHermesDefaultModelId);
+      check(activeConversation.messages.single.model)
+          .equals(kHermesDefaultModelId);
     });
   }
 

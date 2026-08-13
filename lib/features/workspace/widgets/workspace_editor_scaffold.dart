@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -14,6 +14,7 @@ import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+
 import 'workspace_read_only_badge.dart';
 
 /// An overflow-menu action for [WorkspaceEditorScaffold].

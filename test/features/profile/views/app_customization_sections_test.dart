@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +11,7 @@ import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/profile/views/app_customization_page.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
   testWidgets('Appearance contains only display and language settings', (
@@ -109,7 +110,7 @@ Widget _sectionHarness(
     ],
     child: MaterialApp(
       theme: ThemeData(platform: TargetPlatform.android),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: AppCustomizationPage(section: section),
     ),

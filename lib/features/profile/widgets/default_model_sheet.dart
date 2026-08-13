@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
@@ -146,9 +146,8 @@ class DefaultModelBottomSheetState
                                           ),
                                           const SizedBox(height: Spacing.md),
                                           Text(
-                                            AppLocalizations.of(
-                                              context,
-                                            )!.noResults,
+                                            AppLocalizations.of(context)!
+                                                .noResults,
                                             style: context
                                                 .conduitTheme
                                                 .bodyMedium
@@ -227,9 +226,8 @@ class DefaultModelBottomSheetState
                                   const SizedBox(height: Spacing.md),
                                   ConduitGlassSearchField(
                                     controller: _searchController,
-                                    hintText: AppLocalizations.of(
-                                      context,
-                                    )!.searchModels,
+                                    hintText: AppLocalizations.of(context)!
+                                        .searchModels,
                                     onChanged: _filterModels,
                                     query: _searchQuery,
                                     onClear: () {
@@ -241,9 +239,8 @@ class DefaultModelBottomSheetState
                                   Row(
                                     children: [
                                       Text(
-                                        AppLocalizations.of(
-                                          context,
-                                        )!.availableModels,
+                                        AppLocalizations.of(context)!
+                                            .availableModels,
                                         style: context.conduitTheme.bodySmall
                                             ?.copyWith(
                                               fontWeight: FontWeight.w600,

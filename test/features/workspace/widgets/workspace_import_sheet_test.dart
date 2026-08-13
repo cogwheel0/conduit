@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
   group('runWorkspaceImport', () {
@@ -36,12 +37,9 @@ void main() {
     });
 
     test('all-success report has no failures', () async {
-      final report = await runWorkspaceImport(
-        [
-          {'name': 'Only'},
-        ],
-        importItem: (_) async {},
-      );
+      final report = await runWorkspaceImport([
+        {'name': 'Only'},
+      ], importItem: (_) async {});
       expect(report.hasFailures, isFalse);
       expect(report.successCount, 1);
     });
@@ -98,7 +96,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: WorkspaceImportSheet(
@@ -118,9 +116,7 @@ void main() {
         find.byKey(const Key('workspace-import-json-field')),
         '[{"name":"Alpha"},{"name":"Bravo"}]',
       );
-      await tester.ensureVisible(
-        find.byKey(const Key('workspace-import-run')),
-      );
+      await tester.ensureVisible(find.byKey(const Key('workspace-import-run')));
       await tester.tap(find.byKey(const Key('workspace-import-run')));
       await tester.pumpAndSettle();
 
@@ -139,42 +135,43 @@ void main() {
       expect(find.byIcon(Icons.error_outline), findsWidgets);
     });
 
-    testWidgets('invalid JSON shows an inline error and does not run importer', (
-      tester,
-    ) async {
-      var importerCalls = 0;
-      await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: Scaffold(
-              body: WorkspaceImportSheet(
-                title: 'Import models',
-                importer: (items) async {
-                  importerCalls++;
-                  return const WorkspaceImportReport([]);
-                },
+    testWidgets(
+      'invalid JSON shows an inline error and does not run importer',
+      (tester) async {
+        var importerCalls = 0;
+        await tester.pumpWidget(
+          ProviderScope(
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: WorkspaceImportSheet(
+                  title: 'Import models',
+                  importer: (items) async {
+                    importerCalls++;
+                    return const WorkspaceImportReport([]);
+                  },
+                ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byKey(const Key('workspace-import-json-field')),
-        'not json',
-      );
-      await tester.ensureVisible(
-        find.byKey(const Key('workspace-import-run')),
-      );
-      await tester.tap(find.byKey(const Key('workspace-import-run')));
-      await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('workspace-import-json-field')),
+          'not json',
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('workspace-import-run')),
+        );
+        await tester.tap(find.byKey(const Key('workspace-import-run')));
+        await tester.pumpAndSettle();
 
-      expect(importerCalls, 0);
-      expect(find.byKey(const Key('workspace-import-error')), findsOneWidget);
-      expect(find.byKey(const Key('workspace-import-summary')), findsNothing);
-    });
+        expect(importerCalls, 0);
+        expect(find.byKey(const Key('workspace-import-error')), findsOneWidget);
+        expect(find.byKey(const Key('workspace-import-summary')), findsNothing);
+      },
+    );
   });
 }

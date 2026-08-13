@@ -5,8 +5,8 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -23,9 +23,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.iOS),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.iOS),
         home: Builder(
           builder: (context) => CupertinoPageScaffold(
             child: CupertinoButton(

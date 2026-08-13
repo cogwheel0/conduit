@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:cupertino_native_better/cupertino_native_better.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'platform_ui_capabilities.dart';
 
@@ -291,9 +291,9 @@ class AdaptiveAlertDialog {
             TextButton(
               style: action.style == AlertActionStyle.destructive
                   ? TextButton.styleFrom(
-                      foregroundColor: Theme.of(
-                        dialogContext,
-                      ).colorScheme.error,
+                      foregroundColor: Theme.of(dialogContext)
+                          .colorScheme
+                          .error,
                     )
                   : null,
               onPressed:
@@ -349,9 +349,8 @@ class AdaptiveAlertDialog {
                       : () {
                           final isCancel =
                               action.style == AlertActionStyle.cancel;
-                          Navigator.of(
-                            dialogContext,
-                          ).pop(isCancel ? null : controller.text);
+                          Navigator.of(dialogContext)
+                              .pop(isCancel ? null : controller.text);
                           action.onPressed();
                         },
                   isDefaultAction: action.style == AlertActionStyle.primary,
@@ -380,9 +379,9 @@ class AdaptiveAlertDialog {
               TextButton(
                 style: action.style == AlertActionStyle.destructive
                     ? TextButton.styleFrom(
-                        foregroundColor: Theme.of(
-                          dialogContext,
-                        ).colorScheme.error,
+                        foregroundColor: Theme.of(dialogContext)
+                            .colorScheme
+                            .error,
                       )
                     : null,
                 onPressed:

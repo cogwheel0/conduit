@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';

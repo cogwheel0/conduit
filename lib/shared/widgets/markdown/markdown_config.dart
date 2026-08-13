@@ -6,7 +6,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +27,7 @@ import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
 import 'renderer/markdown_style.dart';
+
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/services/raster_media_policy.dart';
@@ -1363,9 +1364,8 @@ class _CollapseToggle extends StatelessWidget {
               duration: context.motionDuration(AnimationDuration.fast),
               child: Text(
                 isCollapsed
-                    ? AppLocalizations.of(
-                        context,
-                      )!.markdownShowMoreLines(hiddenLineCount)
+                    ? AppLocalizations.of(context)!
+                          .markdownShowMoreLines(hiddenLineCount)
                     : AppLocalizations.of(context)!.markdownShowLess,
                 key: ValueKey(isCollapsed),
                 style: markdownStyle.codeChrome.copyWith(
@@ -2285,9 +2285,8 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         padding: const EdgeInsets.all(Spacing.md),
         child: SelectableText(
           '$error',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.error,
-          ),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: Theme.of(context).colorScheme.error),
         ),
       ),
     );

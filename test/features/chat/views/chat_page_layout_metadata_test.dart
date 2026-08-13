@@ -16,7 +16,7 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -332,15 +332,12 @@ void main() {
   });
 
   test('undispatched screen context retries use bounded backoff', () {
-    check(
-      debugScreenContextRetryDelayForTesting(completedRetries: 0),
-    ).equals(const Duration(milliseconds: 250));
-    check(
-      debugScreenContextRetryDelayForTesting(completedRetries: 1),
-    ).equals(const Duration(milliseconds: 500));
-    check(
-      debugScreenContextRetryDelayForTesting(completedRetries: 2),
-    ).equals(const Duration(seconds: 1));
+    check(debugScreenContextRetryDelayForTesting(completedRetries: 0))
+        .equals(const Duration(milliseconds: 250));
+    check(debugScreenContextRetryDelayForTesting(completedRetries: 1))
+        .equals(const Duration(milliseconds: 500));
+    check(debugScreenContextRetryDelayForTesting(completedRetries: 2))
+        .equals(const Duration(seconds: 1));
     check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
   });
 
@@ -552,53 +549,50 @@ void main() {
     ).isFalse();
   });
 
-  test(
-    'bottom anchor controller hysteresis keeps the button shown across the band',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
+  test('bottom anchor controller hysteresis keeps the button shown across the band', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
 
-      // Detach so the button is currently visible.
-      controller.updateAnchor(
+    // Detach so the button is currently visible.
+    controller.updateAnchor(
+      hasScrollableContent: true,
+      distanceFromBottom: 320,
+    );
+
+    // Already showing: in the 150-300 band the button stays shown (the hide
+    // check uses hideThreshold, not showThreshold).
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
         hasScrollableContent: true,
-        distanceFromBottom: 320,
-      );
+        distanceFromBottom: 200,
+      ),
+      isTrue,
+    );
 
-      // Already showing: in the 150-300 band the button stays shown (the hide
-      // check uses hideThreshold, not showThreshold).
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: true,
-          hasScrollableContent: true,
-          distanceFromBottom: 200,
-        ),
-        isTrue,
-      );
+    // Already showing: at/under hideThreshold the button hides.
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
+        hasScrollableContent: true,
+        distanceFromBottom: 100,
+      ),
+      isFalse,
+    );
 
-      // Already showing: at/under hideThreshold the button hides.
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: true,
-          hasScrollableContent: true,
-          distanceFromBottom: 100,
-        ),
-        isFalse,
-      );
-
-      // Contrast: a hidden button does not appear yet in the same band (the show
-      // check uses showThreshold).
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: false,
-          hasScrollableContent: true,
-          distanceFromBottom: 200,
-        ),
-        isFalse,
-      );
-    },
-  );
+    // Contrast: a hidden button does not appear yet in the same band (the show
+    // check uses showThreshold).
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 200,
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'bottom anchor controller preserves explicit short-content detachment',
@@ -867,9 +861,8 @@ void main() {
         directModelRegistry: registry,
       );
 
-      check(
-        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
-      ).equals(1);
+      check(debugChatListStableLayoutSignatureBuildCountForTesting(cache))
+          .equals(1);
 
       debugResolveChatListStableLayoutCacheForTesting(
         cache,
@@ -877,9 +870,8 @@ void main() {
         models: null,
         directModelRegistry: registry,
       );
-      check(
-        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
-      ).equals(2);
+      check(debugChatListStableLayoutSignatureBuildCountForTesting(cache))
+          .equals(2);
     },
   );
 
@@ -1516,9 +1508,8 @@ void main() {
       await refreshActiveOpenWebUiConversation(container);
 
       check(api.fetches).equals(0);
-      check(
-        identical(container.read(activeConversationProvider), native),
-      ).isTrue();
+      check(identical(container.read(activeConversationProvider), native))
+          .isTrue();
       check(
         isNativeHermesConversation(container.read(activeConversationProvider)),
       ).isTrue();
@@ -1531,9 +1522,8 @@ void main() {
       await refreshActiveOpenWebUiConversation(container);
 
       check(api.fetches).equals(0);
-      check(
-        identical(container.read(activeConversationProvider), direct),
-      ).isTrue();
+      check(identical(container.read(activeConversationProvider), direct))
+          .isTrue();
     },
   );
 
@@ -1562,9 +1552,8 @@ void main() {
     api.response.complete(_refreshConversation(rawId, 'Stale response'));
     await refresh;
 
-    check(
-      identical(container.read(activeConversationProvider), replacement),
-    ).isTrue();
+    check(identical(container.read(activeConversationProvider), replacement))
+        .isTrue();
   });
 
   test('refresh replaces an unchanged OpenWebUI conversation', () async {
@@ -1613,9 +1602,8 @@ void main() {
     api.response.complete(_refreshConversation('different-id', 'Wrong row'));
     await refresh;
 
-    check(
-      identical(container.read(activeConversationProvider), original),
-    ).isTrue();
+    check(identical(container.read(activeConversationProvider), original))
+        .isTrue();
   });
 
   test('refresh exposes API errors for the caller to report', () async {
@@ -1638,9 +1626,8 @@ void main() {
     api.response.completeError(StateError('refresh failed'));
 
     await expectLater(refresh, throwsA(isA<StateError>()));
-    check(
-      identical(container.read(activeConversationProvider), original),
-    ).isTrue();
+    check(identical(container.read(activeConversationProvider), original))
+        .isTrue();
   });
 }
 

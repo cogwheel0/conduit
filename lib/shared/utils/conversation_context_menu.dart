@@ -9,8 +9,8 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/measure_size.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -498,9 +498,9 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
                         ? CupertinoIcons.folder_badge_minus
                         : Icons.folder_off_outlined,
                     label: l10n.noFolder,
-                    onTap: () => Navigator.of(
-                      sheetContext,
-                    ).pop(const _ConversationMoveTarget(folderId: null)),
+                    onTap: () =>
+                        Navigator.of(sheetContext)
+                            .pop(const _ConversationMoveTarget(folderId: null)),
                   ),
                 for (final entry in treeEntries)
                   FolderTreeHierarchyNode(

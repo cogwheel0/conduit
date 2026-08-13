@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';

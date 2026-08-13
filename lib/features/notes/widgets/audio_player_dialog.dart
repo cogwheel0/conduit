@@ -3,8 +3,8 @@ import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';

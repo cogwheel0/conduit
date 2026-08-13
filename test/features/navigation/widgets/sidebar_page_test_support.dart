@@ -34,8 +34,10 @@ import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -219,9 +221,8 @@ Widget sidebarTestBuildHarness({
         ),
       ),
       for (final entry in loadedConversations.entries)
-        loadConversationProvider(
-          entry.key,
-        ).overrideWith((ref) async => entry.value),
+        loadConversationProvider(entry.key)
+            .overrideWith((ref) async => entry.value),
       for (final entry in pendingLoadedConversations.entries)
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
@@ -288,17 +289,19 @@ Widget sidebarTestBuildHarness({
     ],
     child: MaterialApp.router(
       theme: theme,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(
-          textScaler: TextScaler.linear(textScale),
-          disableAnimations: disableAnimations,
-        ),
-        child: PersistentTabletSidebarScope(
-          active: persistentTabletSidebar,
-          child: child ?? const SizedBox.shrink(),
+      builder: (context, child) => LegacyDesignCompatibility(
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScale),
+            disableAnimations: disableAnimations,
+          ),
+          child: PersistentTabletSidebarScope(
+            active: persistentTabletSidebar,
+            child: child ?? const SizedBox.shrink(),
+          ),
         ),
       ),
     ),

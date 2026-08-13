@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

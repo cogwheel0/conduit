@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
@@ -359,9 +359,8 @@ class AppCustomizationPage extends ConsumerWidget {
                       if (i != options.length - 1)
                         Divider(
                           height: 1,
-                          color: Theme.of(
-                            context,
-                          ).dividerColor.withValues(alpha: 0.2),
+                          color: Theme.of(context).dividerColor
+                              .withValues(alpha: 0.2),
                         ),
                     ],
                   ],

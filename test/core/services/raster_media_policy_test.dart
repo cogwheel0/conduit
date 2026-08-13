@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/raster_media_policy.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -70,9 +70,8 @@ void main() {
     );
 
     check(landscape).equals(const RasterDecodeTarget(width: 1536, height: 864));
-    check(
-      landscape.hashCode,
-    ).equals(const RasterDecodeTarget(width: 1536, height: 864).hashCode);
+    check(landscape.hashCode)
+        .equals(const RasterDecodeTarget(width: 1536, height: 864).hashCode);
     check(portrait).equals(const RasterDecodeTarget(width: 864, height: 1536));
     check(noUpscale).equals(const RasterDecodeTarget(width: 100, height: 60));
     check(landscape == portrait).isFalse();
@@ -127,9 +126,8 @@ void main() {
     );
 
     check(thumbnailProvider).isA<ResizeImage>();
-    check(
-      (thumbnailProvider as ResizeImage).policy,
-    ).equals(ResizeImagePolicy.fit);
+    check((thumbnailProvider as ResizeImage).policy)
+        .equals(ResizeImagePolicy.fit);
     final thumbnailKey = await thumbnailProvider.obtainKey(
       ImageConfiguration.empty,
     );

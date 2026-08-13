@@ -13,8 +13,9 @@ import 'package:conduit/features/release_notes/release_notes_bootstrap.dart';
 import 'package:conduit/features/release_notes/release_notes_coordinator.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_banner.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -494,7 +495,7 @@ Widget _app({
     theme: ThemeData(platform: platform),
     locale: locale,
     navigatorKey: NavigationService.navigatorKey,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: home,
   );

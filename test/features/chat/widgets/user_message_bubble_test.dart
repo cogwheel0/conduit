@@ -13,13 +13,14 @@ import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
 import 'package:dio/dio.dart' show CancelToken;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -33,7 +34,7 @@ void main() {
       overrides: overrides,
       child: MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: Align(
@@ -216,7 +217,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: UserMessageBubble(

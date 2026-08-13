@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -91,9 +91,8 @@ class _ContextAttachmentChip extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: theme.textPrimary),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: theme.textPrimary),
             ),
           ),
           const SizedBox(width: Spacing.xs),

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/core/services/api_service.dart';
@@ -189,8 +189,9 @@ List<WorkspaceSharedPrincipal> workspaceSharedPrincipals(
 // tests can substitute in-memory fakes.
 // ---------------------------------------------------------------------------
 
-typedef WorkspaceUserSearch =
-    Future<List<WorkspacePrincipalPreview>> Function(String query);
+typedef WorkspaceUserSearch = Future<List<WorkspacePrincipalPreview>> Function(
+  String query,
+);
 typedef WorkspaceGroupLoader =
     Future<List<WorkspacePrincipalPreview>> Function();
 

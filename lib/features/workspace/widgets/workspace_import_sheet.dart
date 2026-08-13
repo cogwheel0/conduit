@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
@@ -122,8 +122,9 @@ List<Map<String, dynamic>> workspaceImportItemsFromJson(dynamic decoded) {
   return const [];
 }
 
-typedef WorkspaceImporter =
-    Future<WorkspaceImportReport> Function(List<Map<String, dynamic>> items);
+typedef WorkspaceImporter = Future<WorkspaceImportReport> Function(
+  List<Map<String, dynamic>> items,
+);
 
 /// Reads the contents of a user-picked JSON file, or null if cancelled.
 typedef WorkspaceImportFilePicker = Future<String?> Function();

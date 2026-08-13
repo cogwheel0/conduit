@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../theme/theme_extensions.dart';
 import '../adaptive_route_shell.dart';
@@ -211,9 +211,9 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               textScaler: MediaQuery.textScalerOf(context),
               leading: leading ?? const SizedBox.shrink(),
               middle: title,
-              systemOverlayStyle: Theme.of(
-                context,
-              ).appBarTheme.systemOverlayStyle,
+              systemOverlayStyle: Theme.of(context)
+                  .appBarTheme
+                  .systemOverlayStyle,
             ),
           )
         : AdaptiveAppBar(

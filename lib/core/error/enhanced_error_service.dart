@@ -1,13 +1,16 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import 'api_error.dart';
 import 'api_error_handler.dart';
 import 'api_error_interceptor.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/themed_dialogs.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../utils/debug_logger.dart';
 
 /// Enhanced error service with comprehensive error handling capabilities

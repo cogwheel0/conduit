@@ -10,7 +10,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -62,9 +62,10 @@ List<CachedNetworkImageProvider> _cachedProviders(WidgetTester tester) => tester
     .whereType<CachedNetworkImageProvider>()
     .toList(growable: false);
 
-List<String?> _cacheKeys(WidgetTester tester) => _cachedProviders(
-  tester,
-).map((provider) => provider.cacheKey).toList(growable: false);
+List<String?> _cacheKeys(WidgetTester tester) =>
+    _cachedProviders(tester)
+        .map((provider) => provider.cacheKey)
+        .toList(growable: false);
 
 void main() {
   testWidgets(

@@ -12,10 +12,11 @@ import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -75,7 +76,7 @@ void main() {
           container: container,
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: const ChannelPage(channelId: 'channel-1'),
           ),
@@ -127,9 +128,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
 
       check(replacementApi.getChannelCalls).equals(1);
-      check(
-        container.read(activeChannelProvider)?.name,
-      ).equals('Replacement channel');
+      check(container.read(activeChannelProvider)?.name)
+          .equals('Replacement channel');
       expect(find.text('Replying to Alice'), findsNothing);
       expect(find.byType(ThreadPanel), findsNothing);
       check(
@@ -174,9 +174,9 @@ void main() {
       final replacementComposer = tester.widget<ModernChatInput>(
         find.byType(ModernChatInput).first,
       );
-      final replacementSend =
-          replacementComposer.onSendMessage('Replacement owner message')
-              as Future<void>;
+      final replacementSend = replacementComposer.onSendMessage(
+        'Replacement owner message',
+      ) as Future<void>;
       await tester.pump(const Duration(milliseconds: 1));
       check(replacementApi.postChannelMessageCalls).equals(1);
 
@@ -192,9 +192,8 @@ void main() {
 
       firstResponse.complete(_channelJson('Stale channel'));
       await tester.pump(const Duration(milliseconds: 1));
-      check(
-        container.read(activeChannelProvider)?.name,
-      ).equals('Replacement channel');
+      check(container.read(activeChannelProvider)?.name)
+          .equals('Replacement channel');
 
       container.read(_channelApiOwnerProvider.notifier).set(null);
       container.read(_channelAuthEpochProvider.notifier).rotate();
@@ -224,7 +223,7 @@ void main() {
       container: container,
       child: MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: ChannelPage(channelId: channelId),
       ),

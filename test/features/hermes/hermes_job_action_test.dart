@@ -12,7 +12,7 @@ import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/features/hermes/widgets/hermes_jobs_sheet.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,22 +44,17 @@ void main() {
 
   test('common Hermes cron schedules have concise cadence labels', () {
     check(describeHermesCronSchedule('* * * * *')).equals('Every minute');
-    check(
-      describeHermesCronSchedule('*/15 * * * *'),
-    ).equals('Every 15 minutes');
+    check(describeHermesCronSchedule('*/15 * * * *'))
+        .equals('Every 15 minutes');
     check(describeHermesCronSchedule('0 * * * *')).equals('Every hour');
-    check(
-      describeHermesCronSchedule('30 */6 * * *'),
-    ).equals('Every 6 hours at :30');
-    check(
-      describeHermesCronSchedule('0 9 * * 1-5'),
-    ).equals('Weekdays at 9:00 AM');
-    check(
-      describeHermesCronSchedule('30 18 * * MON'),
-    ).equals('Every Monday at 6:30 PM');
-    check(
-      describeHermesCronSchedule('0 8 1 * *'),
-    ).equals('Monthly on the 1st at 8:00 AM');
+    check(describeHermesCronSchedule('30 */6 * * *'))
+        .equals('Every 6 hours at :30');
+    check(describeHermesCronSchedule('0 9 * * 1-5'))
+        .equals('Weekdays at 9:00 AM');
+    check(describeHermesCronSchedule('30 18 * * MON'))
+        .equals('Every Monday at 6:30 PM');
+    check(describeHermesCronSchedule('0 8 1 * *'))
+        .equals('Monthly on the 1st at 8:00 AM');
     check(describeHermesCronSchedule('5,35 * * * *')).equals('5,35 * * * *');
     check(hermesScheduleNeedsRawDisplay('0 9 * * 1-5')).isTrue();
     check(hermesScheduleNeedsRawDisplay('5,35 * * * *')).isFalse();

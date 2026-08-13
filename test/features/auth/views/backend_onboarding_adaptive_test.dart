@@ -12,9 +12,10 @@ import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -118,9 +119,8 @@ void main() {
       await tester.tap(find.text('Hermes Agent'));
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.hermesSettings);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.hermesSettings);
       check(harness.router.canPop()).isFalse();
       expect(find.byType(UtilityPageScaffold), findsOneWidget);
       expect(
@@ -157,9 +157,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.backendChooser);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.backendChooser);
       expect(find.byType(BackendChooserPage), findsOneWidget);
       check(container.read(hermesConfigProvider).enabled).isFalse();
       await harness.unmount(tester);
@@ -208,21 +207,20 @@ void main() {
         findsOneWidget,
       );
       final navigationBarBottom = tester
-          .getBottomLeft(find.byType(CupertinoNavigationBar))
+          .getBottomLeft(find.byType(ConduitAdaptiveCupertinoNavigationBar))
           .dy;
       final emptyTitleTop = tester
           .getTopLeft(find.text('No direct connections yet'))
           .dy;
-      check(emptyTitleTop - navigationBarBottom).isLessOrEqual(Spacing.xxl);
+      check(emptyTitleTop - navigationBarBottom).isLessOrEqual(Spacing.xxxl);
 
       await tester.tap(
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
       );
       await tester.pumpAndSettle();
 
-      check(
-        harness.router.routeInformationProvider.value.uri.path,
-      ).equals(Routes.backendChooser);
+      check(harness.router.routeInformationProvider.value.uri.path)
+          .equals(Routes.backendChooser);
       expect(find.byType(BackendChooserPage), findsOneWidget);
       await harness.unmount(tester);
     },

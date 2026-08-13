@@ -4,8 +4,8 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -344,9 +344,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
       }
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {

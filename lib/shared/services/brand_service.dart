@@ -1,8 +1,12 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
+
 import 'dart:io' show Platform;
+
 import '../theme/color_tokens.dart';
 import '../theme/tweakcn_themes.dart';
 

@@ -1,9 +1,10 @@
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_overlay.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,9 +64,9 @@ void main() {
     addTearDown(container.dispose);
 
     await tester.pumpWidget(_buildActiveHarness(container));
-    final controller =
-        container.read(chatVoiceModeControllerProvider.notifier)
-            as _TestVoiceModeController;
+    final controller = container.read(
+      chatVoiceModeControllerProvider.notifier,
+    ) as _TestVoiceModeController;
     final dotFinder = find.byKey(const ValueKey('voice-status-dot'));
     final scaleFinder = find.byKey(const ValueKey('voice-status-dot-scale'));
     final initialSize = tester.getSize(dotFinder);
@@ -144,7 +145,7 @@ Widget _buildActiveHarness(
     container: container,
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: MediaQuery(

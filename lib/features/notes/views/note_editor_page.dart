@@ -5,8 +5,8 @@ import 'dart:io' show File, Platform;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:fleather/fleather.dart';
@@ -16,6 +16,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';

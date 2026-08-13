@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/account_metadata.dart';
@@ -820,9 +820,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                   child: Row(
                     children: [
                       ConduitTextButton(
-                        text: MaterialLocalizations.of(
-                          context,
-                        ).cancelButtonLabel,
+                        text: MaterialLocalizations.of(context)
+                            .cancelButtonLabel,
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                       const Spacer(),

@@ -7,8 +7,8 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'sidebar_page_test_support.dart';
@@ -25,9 +25,8 @@ void main() {
 
     final context = tester.element(find.byType(SidebarPage));
     final l10n = AppLocalizations.of(context)!;
-    final refreshLabel = MaterialLocalizations.of(
-      context,
-    ).refreshIndicatorSemanticLabel;
+    final refreshLabel = MaterialLocalizations.of(context)
+        .refreshIndicatorSemanticLabel;
 
     final refreshAction = sidebarTestCheckEmptyStateRefreshButtonBelow(
       tester,
@@ -96,9 +95,8 @@ void main() {
         ),
         findsOneWidget,
       );
-      check(
-        tester.getBottomLeft(progress).dy <= tester.getTopLeft(tile).dy,
-      ).isTrue();
+      check(tester.getBottomLeft(progress).dy <= tester.getTopLeft(tile).dy)
+          .isTrue();
       check(tester.getSize(refreshSlot).height > idleSlotHeight).isTrue();
 
       pendingRefresh.complete();
@@ -234,16 +232,15 @@ void main() {
       expect(loadMoreButton, findsOneWidget);
       final loadMoreSemantics = find.bySemanticsLabel(loadMoreLabel);
       final hasEnabledLoadMoreButton =
-          Iterable<int>.generate(loadMoreSemantics.evaluate().length).any((
-            index,
-          ) {
-            final semantics = tester
-                .getSemantics(loadMoreSemantics.at(index))
-                .getSemanticsData();
-            return semantics.label == loadMoreLabel &&
-                semantics.flagsCollection.isButton &&
-                semantics.flagsCollection.isEnabled == Tristate.isTrue;
-          });
+          Iterable<int>.generate(loadMoreSemantics.evaluate().length)
+              .any((index) {
+                final semantics = tester
+                    .getSemantics(loadMoreSemantics.at(index))
+                    .getSemanticsData();
+                return semantics.label == loadMoreLabel &&
+                    semantics.flagsCollection.isButton &&
+                    semantics.flagsCollection.isEnabled == Tristate.isTrue;
+              });
       check(hasEnabledLoadMoreButton).isTrue();
 
       await tester.tap(loadMoreButton);
@@ -399,16 +396,15 @@ void main() {
       archivedLoadMoreLabel,
     );
     final hasEnabledArchivedLoadMore =
-        Iterable<int>.generate(archivedLoadMoreSemantics.evaluate().length).any(
-          (index) {
-            final semantics = tester
-                .getSemantics(archivedLoadMoreSemantics.at(index))
-                .getSemanticsData();
-            return semantics.label == archivedLoadMoreLabel &&
-                semantics.flagsCollection.isButton &&
-                semantics.flagsCollection.isEnabled == Tristate.isTrue;
-          },
-        );
+        Iterable<int>.generate(archivedLoadMoreSemantics.evaluate().length)
+            .any((index) {
+              final semantics = tester
+                  .getSemantics(archivedLoadMoreSemantics.at(index))
+                  .getSemanticsData();
+              return semantics.label == archivedLoadMoreLabel &&
+                  semantics.flagsCollection.isButton &&
+                  semantics.flagsCollection.isEnabled == Tristate.isTrue;
+            });
     check(hasEnabledArchivedLoadMore).isTrue();
 
     await tester.tap(archivedLoadMore);

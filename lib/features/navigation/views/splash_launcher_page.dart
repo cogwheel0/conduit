@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 

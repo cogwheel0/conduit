@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +23,7 @@ import 'package:conduit/features/workspace/views/models/workspace_model_editor.d
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 
 void main() {
@@ -114,9 +115,8 @@ void main() {
     check(find.text('Discard changes?').evaluate()).length.equals(1);
     await tester.tap(find.text('Keep editing'));
     await tester.pumpAndSettle();
-    check(
-      find.byKey(const Key('workspace-model-id')).evaluate(),
-    ).length.equals(1);
+    check(find.byKey(const Key('workspace-model-id')).evaluate()).length
+        .equals(1);
     check(find.text('unsaved-model').evaluate()).length.equals(1);
 
     await tester.tap(find.byKey(const Key('workspace-editor-back')));
@@ -184,7 +184,7 @@ void main() {
           ],
           child: MaterialApp.router(
             routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
           ),
         ),
@@ -203,9 +203,8 @@ void main() {
 
       // The detail error branch replaces the form while the server mutation is
       // still pending, reproducing the provider-invalidates-editor lifecycle.
-      check(
-        find.byKey(const Key('workspace-editor-save')).evaluate(),
-      ).isEmpty();
+      check(find.byKey(const Key('workspace-editor-save')).evaluate())
+          .isEmpty();
       fake.completeUpdate();
       await tester.pumpAndSettle();
 
@@ -245,13 +244,12 @@ void main() {
       ProviderScope(
         overrides: [
           ..._baseOverrides(fake),
-          workspaceModelDetailProvider(
-            'model-1',
-          ).overrideWith((ref) async => _writableModel()),
+          workspaceModelDetailProvider('model-1')
+              .overrideWith((ref) async => _writableModel()),
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -361,8 +359,7 @@ void main() {
           userId: 'owner',
           writeAccess: true,
           meta: {
-            'profile_image_url':
-                'https://open-webui.example/api/v1/models/model/profile/image?id=model-1',
+            'profile_image_url': 'https://open-webui.example/api/v1/models/model/profile/image?id=model-1',
           },
         ),
       ),
@@ -540,9 +537,8 @@ void main() {
           // The tools collection fails to load; opening the picker must surface
           // an error snackbar rather than throw unhandled from the callback.
           workspaceToolsProvider.overrideWith(_FailingWorkspaceTools.new),
-          workspaceModelDetailProvider(
-            'model-1',
-          ).overrideWith((ref) async => _writableModel()),
+          workspaceModelDetailProvider('model-1')
+              .overrideWith((ref) async => _writableModel()),
         ],
         child: _app(WorkspaceRouteMode.edit, 'model-1'),
       ),
@@ -694,9 +690,8 @@ Widget _harness({
     overrides: [
       ..._baseOverrides(models, tools: tools, api: api),
       if (resourceId != null && detail != null)
-        workspaceModelDetailProvider(
-          resourceId,
-        ).overrideWith((ref) async => detail),
+        workspaceModelDetailProvider(resourceId)
+            .overrideWith((ref) async => detail),
     ],
     child: _app(mode, resourceId),
   );
@@ -744,7 +739,7 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
   return MaterialApp.router(
     routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );
 }

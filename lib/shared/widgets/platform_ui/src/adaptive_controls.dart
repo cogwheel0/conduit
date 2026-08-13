@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:cupertino_native_better/cupertino_native_better.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'platform_ui_capabilities.dart';
 

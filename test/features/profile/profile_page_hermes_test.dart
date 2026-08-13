@@ -4,7 +4,8 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,7 +31,7 @@ void main() {
           hermesOnlyModeProvider.overrideWithValue(true),
         ],
         child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: ProfilePage(),
         ),
@@ -100,7 +101,7 @@ void main() {
           ),
         ],
         child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: ProfilePage(),
         ),

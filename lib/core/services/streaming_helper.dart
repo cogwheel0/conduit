@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../auth/api_auth_interceptor.dart';
 import '../../core/models/chat_message.dart';
@@ -1559,17 +1559,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     final localComparison = readLocalMessageComparisonSnapshot(localMessage);
     final localContent = localComparison.comparisonContent.trim();
-    final serverContent = extractServerMessageContent(
-      serverMessage['content'],
-    ).trim();
+    final serverContent = extractServerMessageContent(serverMessage['content'])
+        .trim();
     if (localContent.isNotEmpty && serverContent.isNotEmpty) {
       return localContent == serverContent;
     }
 
     final localError = localComparison.message.error?.content?.trim();
-    final serverError = extractServerErrorContent(
-      serverMessage['error'],
-    )?.trim();
+    final serverError = extractServerErrorContent(serverMessage['error'])
+        ?.trim();
     return localError != null &&
         localError.isNotEmpty &&
         serverError != null &&
@@ -4395,9 +4393,8 @@ Future<String?> _showInputDialog(Map<String, dynamic> data) async {
                   ? placeholder
                   : 'Enter a value',
               onSubmitted: (value) {
-                Navigator.of(
-                  dialogCtx,
-                ).pop(value.trim().isEmpty ? null : value.trim());
+                Navigator.of(dialogCtx)
+                    .pop(value.trim().isEmpty ? null : value.trim());
               },
             ),
           ],

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -37,9 +37,8 @@ void main() {
   });
 
   test('parser rejects a note without bullets', () {
-    check(
-      () => parseReleaseNotes('{"notes":[{"version":"1.0.0"}]}'),
-    ).throws<FormatException>();
+    check(() => parseReleaseNotes('{"notes":[{"version":"1.0.0"}]}'))
+        .throws<FormatException>();
   });
 
   test('parser rejects a non-string bullet icon with FormatException', () {

@@ -9,10 +9,11 @@ import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -336,9 +337,8 @@ void main() {
     final metrics = controller.metrics!;
     check(metrics.pixels).isCloseTo(metrics.minScrollExtent, 1);
     final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-    check(
-      controller.rowRect(ids.first)!.top,
-    ).isCloseTo(viewportTop + _topContentInset, 1);
+    check(controller.rowRect(ids.first)!.top)
+        .isCloseTo(viewportTop + _topContentInset, 1);
   });
 
   _viewportTest('native iOS status-bar tap scrolls to the oldest row', (
@@ -371,18 +371,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    check(
-      controller.metrics!.pixels - controller.metrics!.minScrollExtent,
-    ).isGreaterThan(200);
+    check(controller.metrics!.pixels - controller.metrics!.minScrollExtent)
+        .isGreaterThan(200);
 
     tester.simulateStatusBarTap();
     await tester.pumpAndSettle();
 
     check(nativeScrollToTopCalls).equals(1);
     final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-    check(
-      controller.rowRect(ids.first)!.top,
-    ).isCloseTo(viewportTop + _topContentInset, 1);
+    check(controller.rowRect(ids.first)!.top)
+        .isCloseTo(viewportTop + _topContentInset, 1);
   });
 
   _viewportTest('pinned prompt clears the toolbar without clipping glass', (
@@ -407,15 +405,12 @@ void main() {
     await tester.pump();
 
     final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-    check(
-      controller.rowRect('user')!.top,
-    ).isCloseTo(viewportTop + _topContentInset, 1);
-    check(
-      controller.rowRect('history-assistant')!.bottom,
-    ).isLessOrEqual(controller.rowRect('user')!.top + 1);
-    check(
-      controller.rowRect('history-assistant')!.bottom,
-    ).isGreaterThan(viewportTop);
+    check(controller.rowRect('user')!.top)
+        .isCloseTo(viewportTop + _topContentInset, 1);
+    check(controller.rowRect('history-assistant')!.bottom)
+        .isLessOrEqual(controller.rowRect('user')!.top + 1);
+    check(controller.rowRect('history-assistant')!.bottom)
+        .isGreaterThan(viewportTop);
     check(
       find
           .byKey(const ValueKey<String>('chat-pinned-turn-top-clearance'))
@@ -485,7 +480,7 @@ void main() {
               },
             ),
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
           ),
         ),
@@ -506,9 +501,8 @@ void main() {
       final contentRect = tester.getRect(
         find.text('Previous response content'),
       );
-      check(
-        contentRect.top,
-      ).isGreaterOrEqual(viewportTop + _topContentInset - 1);
+      check(contentRect.top)
+          .isGreaterOrEqual(viewportTop + _topContentInset - 1);
       check(controller.distanceFromLatest).isLessThan(1);
     },
   );
@@ -562,9 +556,8 @@ void main() {
       rebuild(() => footerHeight = 60);
       await tester.pump();
       await tester.pump();
-      check(
-        controller.rowRect('assistant')!.height,
-      ).isCloseTo(assistantHeight, 0.1);
+      check(controller.rowRect('assistant')!.height)
+          .isCloseTo(assistantHeight, 0.1);
       check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
 
       rebuild(() => footerVisible = false);
@@ -889,7 +882,7 @@ void main() {
               },
             ),
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
           ),
         ),
@@ -909,9 +902,8 @@ void main() {
           .set(streamedContent);
       await tester.pumpAndSettle();
 
-      check(
-        controller.rowRect('assistant')!.height,
-      ).isGreaterThan(assistantBefore);
+      check(controller.rowRect('assistant')!.height)
+          .isGreaterThan(assistantBefore);
       check(controller.rowRect('message-12')!.top).isCloseTo(before, 1);
       final streamingExtent = controller.rowRect('assistant')!.height;
       final completedContent =
@@ -925,9 +917,8 @@ void main() {
         );
       });
       await tester.pumpAndSettle();
-      check(
-        controller.rowRect('assistant')!.height,
-      ).isGreaterThan(streamingExtent);
+      check(controller.rowRect('assistant')!.height)
+          .isGreaterThan(streamingExtent);
       check(controller.rowRect('message-12')!.top).isCloseTo(before, 1);
     },
   );
@@ -1263,9 +1254,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    check(
-      find.byKey(const ValueKey('server-warning-slot')).evaluate(),
-    ).length.equals(1);
+    check(find.byKey(const ValueKey('server-warning-slot')).evaluate()).length
+        .equals(1);
     final originalSpace = pinEndSpace;
 
     rebuild(() => noticeHeight = 140);
@@ -1654,9 +1644,8 @@ void main() {
     await tester.pumpAndSettle();
     check(await animated).isTrue();
     final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-    check(
-      controller.rowRect('message-2')!.top,
-    ).isCloseTo(viewportTop + _topContentInset, 1);
+    check(controller.rowRect('message-2')!.top)
+        .isCloseTo(viewportTop + _topContentInset, 1);
 
     controller.jumpToLatest();
     await tester.pumpAndSettle();
@@ -1664,9 +1653,8 @@ void main() {
     final jumped = controller.jumpMessageToTop('message-60');
     await tester.pumpAndSettle();
     check(await jumped).isTrue();
-    check(
-      controller.rowRect('message-60')!.top,
-    ).isCloseTo(viewportTop + _topContentInset, 1);
+    check(controller.rowRect('message-60')!.top)
+        .isCloseTo(viewportTop + _topContentInset, 1);
   });
 
   _viewportTest('failed off-cache navigation restores its entry offset', (
@@ -1760,9 +1748,8 @@ void main() {
       supersedingDistances.add(controller.distanceFromLatest);
     }
     for (var index = 1; index < supersedingDistances.length; index += 1) {
-      check(
-        supersedingDistances[index],
-      ).isLessOrEqual(supersedingDistances[index - 1] + 0.5);
+      check(supersedingDistances[index])
+          .isLessOrEqual(supersedingDistances[index - 1] + 0.5);
     }
     check(supersedingDistances.first).isLessOrEqual(firstDistance);
     await tester.pumpAndSettle();
@@ -2326,9 +2313,8 @@ void main() {
     check(staleNavigationCompleted).isTrue();
     check(controller.isProgrammaticNavigationActive).isFalse();
     check(controller.distanceFromLatest).isCloseTo(0, 1);
-    check(
-      controller.visibleMessageIds.where((id) => id.startsWith('old-')),
-    ).isEmpty();
+    check(controller.visibleMessageIds.where((id) => id.startsWith('old-')))
+        .isEmpty();
     check(controller.visibleMessageIds).isNotEmpty();
   });
 
@@ -2388,9 +2374,8 @@ void main() {
     // The later duplicate is intentionally omitted from the rendered timeline.
     check(find.text('source-2').evaluate()).isEmpty();
     check(find.text('source-3').evaluate().length).equals(1);
-    check(
-      controller.visibleMessageIds,
-    ).deepEquals(['first', 'duplicate', 'last']);
+    check(controller.visibleMessageIds)
+        .deepEquals(['first', 'duplicate', 'last']);
   });
 }
 

@@ -3,8 +3,8 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -53,10 +53,13 @@ import '../providers/conversation_selection_provider.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
 
-typedef FolderPastedAttachmentUploader =
-    Future<void> Function(LocalAttachment attachment, int fileSize);
-typedef FolderPastedAttachmentRollback =
-    Future<void> Function(LocalAttachment attachment);
+typedef FolderPastedAttachmentUploader = Future<void> Function(
+  LocalAttachment attachment,
+  int fileSize,
+);
+typedef FolderPastedAttachmentRollback = Future<void> Function(
+  LocalAttachment attachment,
+);
 
 @visibleForTesting
 Future<void> acceptFolderPastedAttachments({
@@ -802,9 +805,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       final message = error is StateError
           ? error.message.toString()
           : AppLocalizations.of(context)!.errorMessage;
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -1841,9 +1843,8 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -2056,9 +2057,8 @@ class _FolderSystemPromptSheetState
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
       return;
     }
 
@@ -2090,9 +2090,8 @@ class _FolderSystemPromptSheetState
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
     }
   }
 

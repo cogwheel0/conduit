@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';

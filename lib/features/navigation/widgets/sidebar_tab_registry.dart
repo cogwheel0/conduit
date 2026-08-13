@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../channels/widgets/channel_list_tab.dart';
@@ -23,10 +23,13 @@ const double kHermesTabIconSize = 17.0;
 const double kHermesNativeTabIconSize = 26.0;
 
 typedef SidebarTabLabelBuilder = String Function(AppLocalizations l10n);
-typedef SidebarTabBodyBuilder =
-    Widget Function({required bool showBottomNavigation, required bool active});
-typedef SidebarTabVisibilityPredicate =
-    bool Function(SidebarTabAvailability availability);
+typedef SidebarTabBodyBuilder = Widget Function({
+  required bool showBottomNavigation,
+  required bool active,
+});
+typedef SidebarTabVisibilityPredicate = bool Function(
+  SidebarTabAvailability availability,
+);
 
 /// Canonical visibility, presentation, and behavior for a sidebar destination.
 @immutable

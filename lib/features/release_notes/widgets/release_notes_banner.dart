@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -103,9 +103,8 @@ class ReleaseNotesBanner extends ConsumerWidget {
                             ),
                             IconButton(
                               key: releaseNotesBannerCloseKey,
-                              tooltip: MaterialLocalizations.of(
-                                context,
-                              ).closeButtonTooltip,
+                              tooltip: MaterialLocalizations.of(context)
+                                  .closeButtonTooltip,
                               onPressed: () => ref
                                   .read(releaseNotesBannerProvider.notifier)
                                   .dismiss(),

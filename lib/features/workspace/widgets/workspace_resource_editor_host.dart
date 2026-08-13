@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../workspace_navigation.dart';
@@ -35,10 +35,14 @@ final class WorkspaceInvalidEditorTarget extends WorkspaceEditorTarget {
   const WorkspaceInvalidEditorTarget();
 }
 
-typedef WorkspaceResourceDetailLoader<T> =
-    AsyncValue<T?> Function(WidgetRef ref, String resourceId);
-typedef WorkspaceResourceRetry =
-    void Function(WidgetRef ref, String resourceId);
+typedef WorkspaceResourceDetailLoader<T> = AsyncValue<T?> Function(
+  WidgetRef ref,
+  String resourceId,
+);
+typedef WorkspaceResourceRetry = void Function(
+  WidgetRef ref,
+  String resourceId,
+);
 
 /// Resolves create versus existing-resource routes once for every editor.
 class WorkspaceResourceEditorRoute<T> extends ConsumerWidget {

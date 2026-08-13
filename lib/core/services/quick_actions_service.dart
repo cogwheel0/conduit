@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:quick_actions/quick_actions.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -239,9 +239,8 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
               ? error.message.toString()
               : AppLocalizations.of(context)?.errorMessage ??
                     'Unable to start a voice call.';
-          ScaffoldMessenger.maybeOf(
-            context,
-          )?.showSnackBar(SnackBar(content: Text(message)));
+          ScaffoldMessenger.maybeOf(context)
+              ?.showSnackBar(SnackBar(content: Text(message)));
         }
         return;
       default:

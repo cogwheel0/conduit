@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
@@ -24,7 +25,7 @@ import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -581,9 +582,8 @@ void main() {
     () {
       CompiledMarkdownDocument streamingDocumentWithTail(String tail) {
         final frozen = compilePreparedMarkdownSync('Intro paragraph.\n\n');
-        final mutableTail = compilePreparedMarkdownSync(
-          tail,
-        ).rebaseRootIds(rootNodeOffset: frozen.rootNodeCount);
+        final mutableTail = compilePreparedMarkdownSync(tail)
+            .rebaseRootIds(rootNodeOffset: frozen.rootNodeCount);
         return CompiledMarkdownDocument.compose(
           normalizedContent: 'Intro paragraph.\n\n$tail',
           segments: <CompiledMarkdownDocument>[frozen, mutableTail],
@@ -709,114 +709,102 @@ void main() {
     expect(partIds.toSet().length, partIds.length);
   });
 
-  test(
-    'display parts mark only the last block mutable when no mutable metadata is present',
-    () {
-      final document = compilePreparedMarkdownSync('A\n\nB');
-      // A full sync compile carries no incremental tail metadata, so the
-      // isStreaming && index == last fallback is exercised.
-      expect(document.hasMutableBlockMetadata, isFalse);
-      expect(document.blocks.length, greaterThanOrEqualTo(2));
+  test('display parts mark only the last block mutable when no mutable metadata is present', () {
+    final document = compilePreparedMarkdownSync('A\n\nB');
+    // A full sync compile carries no incremental tail metadata, so the
+    // isStreaming && index == last fallback is exercised.
+    expect(document.hasMutableBlockMetadata, isFalse);
+    expect(document.blocks.length, greaterThanOrEqualTo(2));
 
-      final streamingParts = buildMarkdownDisplayParts(
-        document,
-        isStreaming: true,
-      );
-      expect(streamingParts.first.isMutableTail, isFalse);
-      expect(streamingParts.last.isMutableTail, isTrue);
+    final streamingParts = buildMarkdownDisplayParts(
+      document,
+      isStreaming: true,
+    );
+    expect(streamingParts.first.isMutableTail, isFalse);
+    expect(streamingParts.last.isMutableTail, isTrue);
 
-      final frozenParts = buildMarkdownDisplayParts(
-        document,
-        isStreaming: false,
-      );
-      expect(frozenParts.every((part) => !part.isMutableTail), isTrue);
-    },
-  );
+    final frozenParts = buildMarkdownDisplayParts(document, isStreaming: false);
+    expect(frozenParts.every((part) => !part.isMutableTail), isTrue);
+  });
 
-  test(
-    'details display parts keep a non-empty single-block document without a root node',
-    () {
-      final detailsDoc = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
-        ].join('\n'),
-      );
-      final detailsBlock = detailsDoc.blocks
-          .whereType<CompiledMarkdownDetailsBlock>()
-          .first;
+  test('details display parts keep a non-empty single-block document without a root node', () {
+    final detailsDoc = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final detailsBlock = detailsDoc.blocks
+        .whereType<CompiledMarkdownDetailsBlock>()
+        .first;
 
-      // Rebuild the document without the correlated root node so
-      // _normalizedContentForBlock must fall back to _normalizedContentForDetails
-      // (summary text) rather than the empty element textContent.
-      final documentWithoutRootNodes = CompiledMarkdownDocument(
-        normalizedContent: detailsDoc.normalizedContent,
-        renderTier: MarkdownRenderTier.blocks,
-        containsCitations: false,
-        heavyBlockCount: 0,
-        blocks: <CompiledMarkdownBlock>[detailsBlock],
-        nodes: const <CompiledMarkdownNode>[],
-        blockLatexExpressions: const <String, String>{},
-        inlineLatexExpressions: const <String, String>{},
-      );
+    // Rebuild the document without the correlated root node so
+    // _normalizedContentForBlock must fall back to _normalizedContentForDetails
+    // (summary text) rather than the empty element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: detailsDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[detailsBlock],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
 
-      final parts = buildMarkdownDisplayParts(
-        documentWithoutRootNodes,
-        isStreaming: false,
-      );
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
 
-      expect(parts, hasLength(1));
-      final part = parts.single;
-      // Non-empty so ConduitMarkdownWidget.build does not short-circuit and drop
-      // the reasoning/tool-call block.
-      expect(part.document.isEmpty, isFalse);
-      expect(part.document.blocks, hasLength(1));
-      expect(part.document.blocks.single, isA<CompiledMarkdownDetailsBlock>());
-      expect(part.document.normalizedContent.trim(), isNotEmpty);
-      expect(part.document.normalizedContent, contains('search'));
-    },
-  );
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    // Non-empty so ConduitMarkdownWidget.build does not short-circuit and drop
+    // the reasoning/tool-call block.
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.blocks, hasLength(1));
+    expect(part.document.blocks.single, isA<CompiledMarkdownDetailsBlock>());
+    expect(part.document.normalizedContent.trim(), isNotEmpty);
+    expect(part.document.normalizedContent, contains('search'));
+  });
 
-  test(
-    'blank details display part falls back to blockId so the chrome is not shrunk away',
-    () {
-      // A details block with empty summary/body still needs non-empty
-      // normalizedContent — otherwise ConduitMarkdownWidget short-circuits to
-      // SizedBox.shrink and the split-render path drops the block entirely.
-      const blankDetails = CompiledMarkdownDetailsBlock(
-        blockId: 'detailsBlock:blank',
-        detailsData: CompiledMarkdownDetailsData(
-          summaryText: '',
-          bodyMarkdown: '',
-          bodyStartIndex: 0,
-          hasBody: false,
-          kind: CompiledMarkdownDetailsKind.reasoning,
-          type: 'reasoning',
-          name: '',
-          isDone: false,
-          isPending: true,
-          durationSeconds: 0,
-        ),
-      );
-      final document = CompiledMarkdownDocument(
-        normalizedContent: '',
-        renderTier: MarkdownRenderTier.blocks,
-        containsCitations: false,
-        heavyBlockCount: 0,
-        blocks: const <CompiledMarkdownBlock>[blankDetails],
-        nodes: const <CompiledMarkdownNode>[],
-        blockLatexExpressions: const <String, String>{},
-        inlineLatexExpressions: const <String, String>{},
-      );
+  test('blank details display part falls back to blockId so the chrome is not shrunk away', () {
+    // A details block with empty summary/body still needs non-empty
+    // normalizedContent — otherwise ConduitMarkdownWidget short-circuits to
+    // SizedBox.shrink and the split-render path drops the block entirely.
+    const blankDetails = CompiledMarkdownDetailsBlock(
+      blockId: 'detailsBlock:blank',
+      detailsData: CompiledMarkdownDetailsData(
+        summaryText: '',
+        bodyMarkdown: '',
+        bodyStartIndex: 0,
+        hasBody: false,
+        kind: CompiledMarkdownDetailsKind.reasoning,
+        type: 'reasoning',
+        name: '',
+        isDone: false,
+        isPending: true,
+        durationSeconds: 0,
+      ),
+    );
+    final document = CompiledMarkdownDocument(
+      normalizedContent: '',
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: const <CompiledMarkdownBlock>[blankDetails],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
 
-      final parts = buildMarkdownDisplayParts(document, isStreaming: true);
+    final parts = buildMarkdownDisplayParts(document, isStreaming: true);
 
-      expect(parts, hasLength(1));
-      expect(parts.single.document.normalizedContent, 'detailsBlock:blank');
-      expect(parts.single.document.isEmpty, isFalse);
-    },
-  );
+    expect(parts, hasLength(1));
+    expect(parts.single.document.normalizedContent, 'detailsBlock:blank');
+    expect(parts.single.document.isEmpty, isFalse);
+  });
 
   test(
     'buildMarkdownDisplayParts returns an empty list for an empty document',
@@ -829,57 +817,54 @@ void main() {
     },
   );
 
-  test(
-    'details group display part joins every grouped summary into one part',
-    () {
-      final first = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
-        ].join('\n'),
-      );
-      final second = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="browser">',
-          '<summary>browser</summary>',
-          '</details>',
-        ].join('\n'),
-      ).rebaseRootIds(rootNodeOffset: first.rootNodeCount);
-      final groupDoc = CompiledMarkdownDocument.compose(
-        normalizedContent:
-            '${first.normalizedContent}\n${second.normalizedContent}',
-        segments: <CompiledMarkdownDocument>[first, second],
-      );
-      final group = groupDoc.blocks
-          .whereType<CompiledMarkdownDetailsGroup>()
-          .single;
+  test('details group display part joins every grouped summary into one part', () {
+    final first = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final second = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+      ].join('\n'),
+    ).rebaseRootIds(rootNodeOffset: first.rootNodeCount);
+    final groupDoc = CompiledMarkdownDocument.compose(
+      normalizedContent:
+          '${first.normalizedContent}\n${second.normalizedContent}',
+      segments: <CompiledMarkdownDocument>[first, second],
+    );
+    final group = groupDoc.blocks
+        .whereType<CompiledMarkdownDetailsGroup>()
+        .single;
 
-      // Drop root nodes so _normalizedContentForBlock takes the detailsGroup join
-      // branch (joined summaries) instead of the element textContent.
-      final documentWithoutRootNodes = CompiledMarkdownDocument(
-        normalizedContent: groupDoc.normalizedContent,
-        renderTier: MarkdownRenderTier.blocks,
-        containsCitations: false,
-        heavyBlockCount: 0,
-        blocks: <CompiledMarkdownBlock>[group],
-        nodes: const <CompiledMarkdownNode>[],
-        blockLatexExpressions: const <String, String>{},
-        inlineLatexExpressions: const <String, String>{},
-      );
+    // Drop root nodes so _normalizedContentForBlock takes the detailsGroup join
+    // branch (joined summaries) instead of the element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: groupDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[group],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
 
-      final parts = buildMarkdownDisplayParts(
-        documentWithoutRootNodes,
-        isStreaming: false,
-      );
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
 
-      expect(parts, hasLength(1));
-      final part = parts.single;
-      expect(part.document.isEmpty, isFalse);
-      expect(part.document.normalizedContent, contains('search'));
-      expect(part.document.normalizedContent, contains('browser'));
-    },
-  );
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.normalizedContent, contains('search'));
+    expect(part.document.normalizedContent, contains('browser'));
+  });
 
   test(
     'partially resolved details groups fall back to complete block data',
@@ -1026,7 +1011,7 @@ void main() {
       child: MaterialApp(
         locale: locale,
         theme: theme ?? defaultHarnessTheme,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: SingleChildScrollView(
@@ -1061,7 +1046,7 @@ void main() {
       container: container,
       child: MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: MediaQuery(
@@ -1233,7 +1218,7 @@ graph TD
             theme: AppTheme.light(TweakcnThemes.t3Chat),
             darkTheme: AppTheme.dark(TweakcnThemes.t3Chat),
             themeMode: mode,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -2036,8 +2021,7 @@ graph TD
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           home: Scaffold(
             body: StreamingMarkdownWidget(
-              content:
-                  'Hi <@U:user-id|Tuna>, see [<@M:model-id|Model>](https://a.test).',
+              content: 'Hi <@U:user-id|Tuna>, see [<@M:model-id|Model>](https://a.test).',
               isStreaming: false,
               onTapLink: (_, _) {},
             ),
@@ -2233,7 +2217,7 @@ After
         ProviderScope(
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: StatefulBuilder(
@@ -2305,7 +2289,7 @@ Tail
         ProviderScope(
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: StatefulBuilder(
@@ -2386,7 +2370,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -2428,7 +2412,7 @@ Tail keeps growing
         overrides: [markdownCompileServiceProvider.overrideWithValue(compiler)],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SingleChildScrollView(
@@ -2461,9 +2445,8 @@ Tail keeps growing
     (tester) async {
       const initial = 'First line\nSecond line';
       const equivalentUpdate = 'First line\r\nSecond line';
-      check(
-        prepareMarkdownContent(initial, streaming: false),
-      ).equals(prepareMarkdownContent(equivalentUpdate, streaming: false));
+      check(prepareMarkdownContent(initial, streaming: false))
+          .equals(prepareMarkdownContent(equivalentUpdate, streaming: false));
       final compiler = _GatedEquivalentSettledPrepareService();
       addTearDown(() {
         compiler.release();
@@ -2519,7 +2502,7 @@ Tail keeps growing
           child: MaterialApp(
             navigatorKey: navigatorKey,
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: StatefulBuilder(
               builder: (context, setState) {
@@ -2581,7 +2564,7 @@ Tail keeps growing
       ProviderScope(
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: StatefulBuilder(
             builder: (context, setState) {
@@ -3526,56 +3509,53 @@ Tail keeps growing
     },
   );
 
-  testWidgets(
-    'assistant message keeps its own footer empty while streaming, then actions '
-    'show on completion',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
+  testWidgets('assistant message keeps its own footer empty while streaming, then actions '
+      'show on completion', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(disableHapticsWhileStreaming: true),
+        ),
+        textToSpeechControllerProvider.overrideWith(
+          _TestTextToSpeechController.new,
+        ),
+      ],
+    );
+    final streaming = ChatMessage(
+      id: 'footer-slot-message',
+      role: 'assistant',
+      content: 'Partial answer',
+      timestamp: DateTime(2026),
+    );
+    try {
+      await tester.pumpWidget(
+        buildAssistantHarness(
+          container: container,
+          message: streaming,
+          isStreaming: true,
+          disableAnimations: true,
+        ),
       );
-      final streaming = ChatMessage(
-        id: 'footer-slot-message',
-        role: 'assistant',
-        content: 'Partial answer',
-        timestamp: DateTime(2026),
+
+      await tester.pump();
+      expect(find.byKey(const ValueKey('actions')), findsNothing);
+
+      // Completion swaps the indicator for the action row.
+      await tester.pumpWidget(
+        buildAssistantHarness(
+          container: container,
+          message: streaming.copyWith(content: 'Full answer'),
+          isStreaming: false,
+          disableAnimations: true,
+        ),
       );
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: streaming,
-            isStreaming: true,
-            disableAnimations: true,
-          ),
-        );
-
-        await tester.pump();
-        expect(find.byKey(const ValueKey('actions')), findsNothing);
-
-        // Completion swaps the indicator for the action row.
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: streaming.copyWith(content: 'Full answer'),
-            isStreaming: false,
-            disableAnimations: true,
-          ),
-        );
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
-        expect(find.byKey(const ValueKey('actions')), findsOneWidget);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+    } finally {
+      container.dispose();
+    }
+  });
 
   testWidgets(
     'action row shows immediately for a completed message that never streamed',
@@ -3627,7 +3607,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -3666,7 +3646,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -3725,7 +3705,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -3865,9 +3845,8 @@ Tail keeps growing
       await tester.pumpAndSettle();
 
       check(compiler.preparedInputs).deepEquals([supersededSettled, streaming]);
-      check(
-        tester.any(find.textContaining('Superseded settled body')),
-      ).isFalse();
+      check(tester.any(find.textContaining('Superseded settled body')))
+          .isFalse();
     },
   );
 
@@ -3896,7 +3875,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -3975,7 +3954,7 @@ Tail keeps growing
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -4044,7 +4023,7 @@ Tail keeps growing
         overrides: [markdownCompileServiceProvider.overrideWithValue(compiler)],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: SingleChildScrollView(
@@ -4415,7 +4394,7 @@ First step
         ProviderScope(
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: StatefulBuilder(
@@ -4495,7 +4474,7 @@ First step
         ProviderScope(
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: StatefulBuilder(
@@ -4561,7 +4540,7 @@ Shared reasoning
         ProviderScope(
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: StatefulBuilder(
@@ -4642,7 +4621,7 @@ Version reasoning
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: AssistantMessageWidget(

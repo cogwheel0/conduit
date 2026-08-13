@@ -4,7 +4,7 @@ import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,9 +17,8 @@ void main() {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(disableAnimations: disableAnimations),
+        data: MediaQuery.of(context)
+            .copyWith(disableAnimations: disableAnimations),
         child: child!,
       ),
       home: Scaffold(
@@ -83,9 +82,10 @@ void main() {
       greaterThan(0),
     );
 
-    final expectedRailColor = AppTheme.light(
-      TweakcnThemes.t3Chat,
-    ).extension<ConduitThemeExtension>()!.textSecondary.withValues(alpha: 0.6);
+    final expectedRailColor = AppTheme.light(TweakcnThemes.t3Chat)
+        .extension<ConduitThemeExtension>()!
+        .textSecondary
+        .withValues(alpha: 0.6);
     final rail = tester.widget<ColoredBox>(
       find.descendant(
         of: find.byKey(const ValueKey<String>('status-timeline-rail-0')),

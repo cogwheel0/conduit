@@ -1,18 +1,24 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  tearDown(PlatformUiCapabilities.resetDebugOverrides);
+  tearDown(() {
+    PlatformUiCapabilities.resetDebugOverrides();
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   group('PlatformUiCapabilities', () {
     test('selects Flutter Material on Android regardless of iOS override', () {
@@ -111,14 +117,17 @@ void main() {
     tester,
   ) async {
     Widget host() => CupertinoApp(
-      home: CupertinoPageScaffold(
-        child: Material(
-          type: MaterialType.transparency,
-          child: AdaptiveSwitch(value: true, onChanged: (_) {}),
+      home: LegacyDesignCompatibility(
+        child: CupertinoPageScaffold(
+          child: Material(
+            type: MaterialType.transparency,
+            child: AdaptiveSwitch(value: true, onChanged: (_) {}),
+          ),
         ),
       ),
     );
 
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
     await tester.pumpWidget(host());
@@ -129,27 +138,31 @@ void main() {
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     await tester.pumpWidget(host());
     expect(find.byType(CNSwitch), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('primary control adapters stay Flutter before iOS 26', (
     tester,
   ) async {
     Widget host() => MaterialApp(
-      home: Scaffold(
-        body: Column(
-          children: [
-            AdaptiveButton(onPressed: () {}, label: 'Continue'),
-            AdaptiveSlider(value: 0.5, onChanged: (_) {}),
-            AdaptiveSegmentedControl(
-              labels: const ['One', 'Two'],
-              selectedIndex: 0,
-              onValueChanged: (_) {},
-            ),
-          ],
+      home: LegacyDesignCompatibility(
+        child: Scaffold(
+          body: Column(
+            children: [
+              AdaptiveButton(onPressed: () {}, label: 'Continue'),
+              AdaptiveSlider(value: 0.5, onChanged: (_) {}),
+              AdaptiveSegmentedControl(
+                labels: const ['One', 'Two'],
+                selectedIndex: 0,
+                onValueChanged: (_) {},
+              ),
+            ],
+          ),
         ),
       ),
     );
 
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
@@ -166,6 +179,7 @@ void main() {
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(CNSlider), findsOneWidget);
     expect(find.byType(CNSegmentedControl), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('glass backdrop constructs a native surface only on iOS 26', (
@@ -272,24 +286,27 @@ void main() {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
 
     await tester.pumpWidget(
       CupertinoApp(
-        home: SidebarIos26Scaffold(
-          body: const SizedBox.expand(),
-          bottomNavigationBar: AdaptiveBottomNavigationBar(
-            items: const [
-              AdaptiveNavigationDestination(
-                icon: AdaptiveNavigationIcon.symbol('bubble.left'),
-                label: 'Chats',
-              ),
-              AdaptiveNavigationDestination(
-                icon: AdaptiveNavigationIcon.symbol('doc.text'),
-                label: 'Notes',
-              ),
-            ],
-            selectedIndex: 0,
-            onTap: (_) {},
+        home: LegacyDesignCompatibility(
+          child: SidebarIos26Scaffold(
+            body: const SizedBox.expand(),
+            bottomNavigationBar: AdaptiveBottomNavigationBar(
+              items: const [
+                AdaptiveNavigationDestination(
+                  icon: AdaptiveNavigationIcon.symbol('bubble.left'),
+                  label: 'Chats',
+                ),
+                AdaptiveNavigationDestination(
+                  icon: AdaptiveNavigationIcon.symbol('doc.text'),
+                  label: 'Notes',
+                ),
+              ],
+              selectedIndex: 0,
+              onTap: (_) {},
+            ),
           ),
         ),
       ),
@@ -298,6 +315,7 @@ void main() {
     final tabBar = tester.widget<CNTabBar>(find.byType(CNTabBar));
     expect(tabBar.iconSize, isNull);
     expect(tabBar.shrinkCentered, isTrue);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('iOS 26 tablet tab bar can fill its sidebar pane', (

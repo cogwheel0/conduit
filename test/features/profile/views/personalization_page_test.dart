@@ -3,7 +3,8 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/profile/views/personalization_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,7 +21,7 @@ void main() {
           modelsProvider.overrideWith(_DirectModels.new),
         ],
         child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: PersonalizationPage(),
         ),
@@ -56,7 +57,7 @@ void main() {
           modelsProvider.overrideWith(_OpenRouterModels.new),
         ],
         child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: PersonalizationPage(),
         ),

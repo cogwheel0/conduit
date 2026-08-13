@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,6 +17,7 @@ import '../../terminal/providers/terminal_providers.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// A reusable toggle tile widget used in the composer overflow sheet.

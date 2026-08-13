@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -19,6 +19,7 @@ import 'package:conduit/features/workspace/views/workspace_page.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
@@ -38,7 +39,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(platform: TargetPlatform.iOS),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: WorkspaceEditorScaffold(
           title: 'Tool',
@@ -72,7 +73,7 @@ void main() {
 
     Widget harness({required bool canSave, required bool isSaving}) {
       return MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: WorkspaceEditorScaffold(
           title: 'Tool',
@@ -121,7 +122,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: WorkspaceEditorScaffold(
             title: 'Tool',
@@ -283,7 +284,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -337,7 +338,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -448,7 +449,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -502,7 +503,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -541,7 +542,7 @@ Widget _workspaceHarness({
         ),
     ],
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: textScaler == null
           ? null

@@ -1,9 +1,10 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/models/channel.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -228,9 +229,8 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _showChannelActionError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

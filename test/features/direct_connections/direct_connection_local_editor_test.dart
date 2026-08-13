@@ -8,8 +8,9 @@ import 'package:conduit/features/direct_connections/views/direct_connection_edit
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,7 +41,7 @@ void main() {
           secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(profileId: 'lm-studio'),
@@ -86,7 +87,7 @@ void main() {
           secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(
@@ -168,7 +169,7 @@ void main() {
             ),
           ],
           child: MaterialApp.router(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             routerConfig: router,
           ),
@@ -176,7 +177,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Add connection'));
+      await tester.tap(find.text('No direct connections yet'));
       await tester.pumpAndSettle();
 
       expect(editorExtra, isA<NativeSheetNavigationOrigin>());
@@ -206,7 +207,7 @@ void main() {
           secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(profileId: 'shared-profile'),
@@ -286,7 +287,7 @@ void main() {
           secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(profileId: 'home'),
@@ -388,7 +389,7 @@ void main() {
           preferredBackendProvider.overrideWith(() => backendController),
         ],
         child: MaterialApp.router(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         ),
@@ -456,7 +457,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const DirectConnectionEditorPage(
             mode: DirectConnectionEditorMode.edit(profileId: 'home'),
@@ -515,7 +516,7 @@ void main() {
             preferredBackendProvider.overrideWith(() => backendController),
           ],
           child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: const DirectConnectionEditorPage(
               mode: DirectConnectionEditorMode.edit(profileId: 'home'),

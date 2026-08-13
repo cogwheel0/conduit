@@ -1,5 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -16,8 +16,10 @@ import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../notes/providers/notes_providers.dart';
 
-typedef SidebarCreateActionHandler =
-    Future<void> Function(BuildContext context, WidgetRef ref);
+typedef SidebarCreateActionHandler = Future<void> Function(
+  BuildContext context,
+  WidgetRef ref,
+);
 typedef SidebarCreateActionIconBuilder = IconData Function();
 
 final class SidebarCreateAction {

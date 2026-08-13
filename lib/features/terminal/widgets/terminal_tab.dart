@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -154,9 +154,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
   }
 
   @override
@@ -184,9 +183,10 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
             ? entries
             : entries
                   .where(
-                    (entry) => sanitizeUtf16(
-                      entry.displayName,
-                    ).toLowerCase().contains(query),
+                    (entry) =>
+                        sanitizeUtf16(entry.displayName)
+                            .toLowerCase()
+                            .contains(query),
                   )
                   .toList(growable: false);
         final sidebarPanel = ref.watch(terminalSidebarPanelProvider);

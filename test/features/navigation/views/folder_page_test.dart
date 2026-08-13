@@ -26,12 +26,13 @@ import 'package:conduit/features/navigation/views/folder_page.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -630,9 +631,8 @@ void main() {
       folders: const [Folder(id: 'work', name: 'Work')],
       conversations: [conversation],
       extraOverrides: [
-        folderConversationSummariesProvider(
-          'work',
-        ).overrideWith((ref) async => [conversation]),
+        folderConversationSummariesProvider('work')
+            .overrideWith((ref) async => [conversation]),
         loadConversationProvider(scopedId).overrideWith((ref) async {
           loadCalls += 1;
           return full;
@@ -706,12 +706,10 @@ void main() {
         folders: const [Folder(id: 'work', name: 'Work')],
         conversations: [conversation],
         extraOverrides: [
-          folderConversationSummariesProvider(
-            'work',
-          ).overrideWith((ref) async => [conversation]),
-          loadConversationProvider(
-            scopedId,
-          ).overrideWith((ref) => loadGate.future),
+          folderConversationSummariesProvider('work')
+              .overrideWith((ref) async => [conversation]),
+          loadConversationProvider(scopedId)
+              .overrideWith((ref) => loadGate.future),
         ],
       );
       addTearDown(container.dispose);
@@ -794,12 +792,10 @@ void main() {
       ],
       conversations: [conversation],
       extraOverrides: [
-        folderConversationSummariesProvider(
-          'work',
-        ).overrideWith((ref) async => [conversation]),
-        folderConversationSummariesProvider(
-          'other',
-        ).overrideWith((ref) async => const <Conversation>[]),
+        folderConversationSummariesProvider('work')
+            .overrideWith((ref) async => [conversation]),
+        folderConversationSummariesProvider('other')
+            .overrideWith((ref) async => const <Conversation>[]),
         loadConversationProvider(scopedId).overrideWith((ref) {
           loadCalls += 1;
           return loadGate.future;
@@ -937,7 +933,7 @@ Widget _buildHarnessFromContainer(
     container: container,
     child: MaterialApp.router(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
     ),

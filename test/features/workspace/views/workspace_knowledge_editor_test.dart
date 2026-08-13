@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +15,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_editor.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -346,9 +347,8 @@ Widget _harness({
       workspaceKnowledgeProvider.overrideWith(() => knowledge),
       userFilesProvider.overrideWith(() => _FakeUserFiles(userFiles)),
       if (resourceId != null && detail != null)
-        workspaceKnowledgeDetailProvider(
-          resourceId,
-        ).overrideWith((ref) async => detail),
+        workspaceKnowledgeDetailProvider(resourceId)
+            .overrideWith((ref) async => detail),
       if (resourceId != null && files != null)
         workspaceKnowledgeFilesProvider(resourceId).overrideWith(() => files),
     ],
@@ -378,7 +378,7 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
   return MaterialApp.router(
     routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );
 }
