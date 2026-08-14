@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../../../core/services/haptic_service.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/adaptive_dropdown_field.dart';
@@ -122,7 +123,10 @@ final class WorkspaceModelBasicsSection extends StatelessWidget {
                   label: Text(tag),
                   onDeleted: controller.readOnly
                       ? null
-                      : () => controller.removeTag(tag),
+                      : () {
+                          ConduitHaptics.selectionClick();
+                          controller.removeTag(tag);
+                        },
                 ),
               if (!controller.readOnly)
                 ActionChip(

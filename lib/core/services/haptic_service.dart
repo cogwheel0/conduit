@@ -3,6 +3,9 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
+
 /// App-wide helper for Flutter's system haptics on supported mobile platforms.
 class ConduitHaptics {
   ConduitHaptics._();
@@ -10,6 +13,7 @@ class ConduitHaptics {
   /// Whether the current target supports mobile haptics.
   static bool get supportsHaptics =>
       !kIsWeb &&
+      (PreferencesStore.get<bool>(PreferenceKeys.hapticFeedback) ?? true) &&
       switch (defaultTargetPlatform) {
         TargetPlatform.android || TargetPlatform.iOS => true,
         _ => false,

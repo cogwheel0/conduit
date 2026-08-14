@@ -1,6 +1,7 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
@@ -38,6 +39,11 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
         options.any((option) => option.value == value && option.enabled)
         ? value
         : null;
+    void commitSelection(T next) {
+      if (next == value) return;
+      ConduitHaptics.selectionClick();
+      onChanged(next);
+    }
 
     if (isCupertino) {
       return CupertinoSlidingSegmentedControl<T>(
@@ -52,7 +58,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
             (option) => option.value == next && option.enabled,
           );
           if (selected) {
-            onChanged(next);
+            commitSelection(next);
           }
         },
         children: {
@@ -93,7 +99,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
           (option) => option.value == next && option.enabled,
         );
         if (selected) {
-          onChanged(next);
+          commitSelection(next);
         }
       },
     );
@@ -118,13 +124,18 @@ class ThemeModeSegmentedControl extends StatelessWidget {
     final platform = Theme.of(context).platform;
     final isCupertino =
         platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    void commitSelection(ThemeMode next) {
+      if (next == value) return;
+      ConduitHaptics.selectionClick();
+      onChanged(next);
+    }
 
     if (isCupertino) {
       return CupertinoSlidingSegmentedControl<ThemeMode>(
         groupValue: value,
         onValueChanged: (next) {
           if (next != null) {
-            onChanged(next);
+            commitSelection(next);
           }
         },
         children: {
@@ -166,7 +177,7 @@ class ThemeModeSegmentedControl extends StatelessWidget {
       showSelectedIcon: false,
       onSelectionChanged: (selection) {
         if (selection.isNotEmpty) {
-          onChanged(selection.first);
+          commitSelection(selection.first);
         }
       },
     );

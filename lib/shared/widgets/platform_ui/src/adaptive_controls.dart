@@ -1,9 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../../core/services/haptic_service.dart';
 import 'platform_ui_capabilities.dart';
 
 /// Native SF Symbol extent for 44-point iOS toolbar and composer controls.
@@ -406,6 +408,107 @@ class AdaptiveButton extends StatelessWidget {
   }
 }
 
+/// An icon-only native glass button whose system halo may paint beyond its
+/// layout bounds.
+///
+/// The package's general-purpose native button clips its platform view to its
+/// exact frame. That is useful inside dense layouts, but it cuts through the
+/// soft Liquid Glass halo on isolated floating controls. This variant keeps
+/// the native view unclipped while retaining the same bounded hit target.
+class NativeGlassIconButton extends StatefulWidget {
+  const NativeGlassIconButton({
+    super.key,
+    required this.onPressed,
+    required this.symbol,
+    required this.dimension,
+  });
+
+  final VoidCallback onPressed;
+  final SFSymbol symbol;
+  final double dimension;
+
+  @override
+  State<NativeGlassIconButton> createState() => _NativeGlassIconButtonState();
+}
+
+class _NativeGlassIconButtonState extends State<NativeGlassIconButton> {
+  MethodChannel? _channel;
+  bool? _lastIsDark;
+
+  bool get _isDark => CupertinoTheme.brightnessOf(context) == Brightness.dark;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDark = _isDark;
+    if (_lastIsDark == isDark) return;
+    _lastIsDark = isDark;
+    _channel
+        ?.invokeMethod<void>('setBrightness', {'isDark': isDark})
+        .catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    _channel = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!PlatformUiCapabilities.usesNativeIOS26) {
+      return AdaptiveButton.sfSymbol(
+        onPressed: widget.onPressed,
+        sfSymbol: widget.symbol,
+        style: AdaptiveButtonStyle.glass,
+        minSize: Size.square(widget.dimension),
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(widget.dimension),
+        useSmoothRectangleBorder: false,
+        useNative: false,
+      );
+    }
+
+    final symbolColor = widget.symbol.color;
+    final creationParams = <String, Object?>{
+      'buttonIconName': widget.symbol.name,
+      'buttonIconSize': widget.symbol.size,
+      if (symbolColor != null) 'buttonIconColor': symbolColor.toARGB32(),
+      'round': true,
+      'buttonStyle': CNButtonStyle.glass.name,
+      'enabled': true,
+      'isDark': _isDark,
+      'imagePlacement': CNImagePlacement.leading.name,
+      'minHeight': widget.dimension,
+      'borderRadius': widget.dimension / 2,
+      'glassEffectInteractive': true,
+      'interaction': true,
+    };
+
+    return SizedBox.square(
+      dimension: widget.dimension,
+      child: UiKitView(
+        viewType: 'CupertinoNativeButton',
+        creationParams: creationParams,
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onPlatformViewCreated,
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+        },
+      ),
+    );
+  }
+
+  void _onPlatformViewCreated(int id) {
+    final channel = MethodChannel('CupertinoNativeButton_$id');
+    _channel = channel;
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'pressed' && mounted) widget.onPressed();
+    });
+  }
+}
+
 /// A non-interactive Liquid Glass backdrop for Flutter-owned content.
 ///
 /// On iOS 26 and later this stretches the package's native
@@ -464,6 +567,12 @@ class AdaptiveSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveOnChanged = onChanged == null
+        ? null
+        : (bool next) {
+            ConduitHaptics.selectionClick();
+            onChanged!(next);
+          };
     if (PlatformUiCapabilities.isIOS) {
       final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
       return SizedBox(
@@ -474,7 +583,7 @@ class AdaptiveSwitch extends StatelessWidget {
           fit: BoxFit.fill,
           child: CupertinoSwitch(
             value: value,
-            onChanged: onChanged,
+            onChanged: effectiveOnChanged,
             activeTrackColor: activeColor ?? CupertinoColors.activeGreen,
             inactiveTrackColor: isDark
                 ? const Color(0xFF39393D)
@@ -486,7 +595,7 @@ class AdaptiveSwitch extends StatelessWidget {
     }
     return Switch(
       value: value,
-      onChanged: onChanged,
+      onChanged: effectiveOnChanged,
       thumbColor: thumbColor == null
           ? null
           : WidgetStatePropertyAll<Color?>(thumbColor),
@@ -499,7 +608,7 @@ class AdaptiveSwitch extends StatelessWidget {
   }
 }
 
-class AdaptiveSlider extends StatelessWidget {
+class AdaptiveSlider extends StatefulWidget {
   const AdaptiveSlider({
     super.key,
     required this.value,
@@ -526,47 +635,85 @@ class AdaptiveSlider extends StatelessWidget {
   final Color? thumbColor;
 
   @override
+  State<AdaptiveSlider> createState() => _AdaptiveSliderState();
+}
+
+class _AdaptiveSliderState extends State<AdaptiveSlider> {
+  int? _lastHapticStep;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastHapticStep = _stepFor(widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant AdaptiveSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _lastHapticStep = _stepFor(widget.value);
+  }
+
+  int? _stepFor(double value) {
+    final divisions = widget.divisions;
+    if (divisions == null || divisions <= 0 || widget.max <= widget.min) {
+      return null;
+    }
+    return (((value - widget.min) / (widget.max - widget.min)) * divisions)
+        .round()
+        .clamp(0, divisions);
+  }
+
+  void _handleChanged(double value) {
+    final step = _stepFor(value);
+    if (step != null && step != _lastHapticStep) {
+      _lastHapticStep = step;
+      ConduitHaptics.selectionClick();
+    }
+    widget.onChanged?.call(value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (PlatformUiCapabilities.usesNativeIOS26 &&
-        onChangeStart == null &&
-        onChangeEnd == null) {
+        widget.onChangeStart == null &&
+        widget.onChangeEnd == null) {
       return CNSlider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        enabled: onChanged != null,
-        onChanged: onChanged ?? (_) {},
-        trackColor: activeColor,
-        thumbColor: thumbColor,
-        step: divisions == null || divisions == 0
+        value: widget.value.clamp(widget.min, widget.max),
+        min: widget.min,
+        max: widget.max,
+        enabled: widget.onChanged != null,
+        onChanged: widget.onChanged == null ? (_) {} : _handleChanged,
+        trackColor: widget.activeColor,
+        thumbColor: widget.thumbColor,
+        step: widget.divisions == null || widget.divisions == 0
             ? null
-            : (max - min) / divisions!,
+            : (widget.max - widget.min) / widget.divisions!,
       );
     }
     if (PlatformUiCapabilities.isIOS) {
       return CupertinoSlider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        onChanged: onChanged,
-        onChangeStart: onChangeStart,
-        onChangeEnd: onChangeEnd,
-        activeColor: activeColor,
-        thumbColor: thumbColor ?? CupertinoColors.white,
-        divisions: divisions,
+        value: widget.value.clamp(widget.min, widget.max),
+        min: widget.min,
+        max: widget.max,
+        onChanged: widget.onChanged == null ? null : _handleChanged,
+        onChangeStart: widget.onChangeStart,
+        onChangeEnd: widget.onChangeEnd,
+        activeColor: widget.activeColor,
+        thumbColor: widget.thumbColor ?? CupertinoColors.white,
+        divisions: widget.divisions,
       );
     }
     return Slider(
-      value: value.clamp(min, max),
-      min: min,
-      max: max,
-      divisions: divisions,
-      label: label,
-      onChanged: onChanged,
-      onChangeStart: onChangeStart,
-      onChangeEnd: onChangeEnd,
-      activeColor: activeColor,
-      thumbColor: thumbColor,
+      value: widget.value.clamp(widget.min, widget.max),
+      min: widget.min,
+      max: widget.max,
+      divisions: widget.divisions,
+      label: widget.label,
+      onChanged: widget.onChanged == null ? null : _handleChanged,
+      onChangeStart: widget.onChangeStart,
+      onChangeEnd: widget.onChangeEnd,
+      activeColor: widget.activeColor,
+      thumbColor: widget.thumbColor,
     );
   }
 }
@@ -603,6 +750,12 @@ class AdaptiveSegmentedControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    void handleSelection(int index) {
+      if (!enabled || index == selectedIndex) return;
+      ConduitHaptics.selectionClick();
+      onValueChanged(index);
+    }
+
     IconData? fallbackIcon(dynamic icon) => switch (icon) {
       final IconData value => value,
       final String symbol => cupertinoIconForSFSymbol(symbol),
@@ -625,7 +778,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
       return CNSegmentedControl(
         labels: labels,
         selectedIndex: selectedIndex,
-        onValueChanged: onValueChanged,
+        onValueChanged: handleSelection,
         enabled: enabled,
         color: color,
         height: height,
@@ -664,7 +817,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
           groupValue: selectedIndex,
           thumbColor: color ?? CupertinoColors.systemGrey5,
           onValueChanged: (value) {
-            if (enabled && value != null) onValueChanged(value);
+            if (value != null) handleSelection(value);
           },
           children: children,
         ),
@@ -692,7 +845,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
         ],
         selected: {selectedIndex},
         onSelectionChanged: enabled
-            ? (selection) => onValueChanged(selection.first)
+            ? (selection) => handleSelection(selection.first)
             : null,
       ),
     );
@@ -725,11 +878,16 @@ class AdaptiveCheckbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    void handleChanged(bool? next) {
+      ConduitHaptics.selectionClick();
+      onChanged?.call(next);
+    }
+
     if (!PlatformUiCapabilities.isIOS) {
       return Checkbox(
         value: value,
         tristate: tristate,
-        onChanged: onChanged,
+        onChanged: onChanged == null ? null : handleChanged,
         activeColor: activeColor,
         checkColor: checkColor,
         focusColor: focusColor,
@@ -745,8 +903,8 @@ class AdaptiveCheckbox extends StatelessWidget {
         onTap: onChanged == null
             ? null
             : () {
-                if (!tristate) return onChanged!(!(value ?? false));
-                onChanged!(
+                if (!tristate) return handleChanged(!(value ?? false));
+                handleChanged(
                   value == false ? true : (value == true ? null : false),
                 );
               },
@@ -992,6 +1150,11 @@ class AdaptivePopupMenuButton<T> {
     if (index < 0 || index >= items.length) return;
     final entry = items[index];
     if (entry is AdaptivePopupMenuItem<T> && entry.enabled) {
+      if (entry.isDestructive) {
+        ConduitHaptics.mediumImpact();
+      } else {
+        ConduitHaptics.selectionClick();
+      }
       onSelected(index, entry);
     }
   }

@@ -1758,6 +1758,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
+    ConduitHaptics.lightImpact();
     if (debugShouldReleasePinnedTurnForManualNavigationForTesting(
       pinActive: _wantsPinToTop,
       userDragStarted: false,
@@ -2329,7 +2330,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
     const buttonSize = 40.0;
-    const iconSize = IconSize.large;
+    const iconSize = IconSize.medium;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final style = usesOpaqueFallback
@@ -2337,15 +2338,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : AdaptiveButtonStyle.glass;
 
     if (conduitSupportsNativeGlass()) {
-      return AdaptiveButton.sfSymbol(
+      return NativeGlassIconButton(
         onPressed: _userScrollToBottom,
-        sfSymbol: SFSymbol('chevron.down', color: theme.textPrimary),
-        style: style,
-        size: AdaptiveButtonSize.medium,
-        minSize: const Size.square(buttonSize),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(buttonSize),
-        useSmoothRectangleBorder: false,
+        symbol: SFSymbol(
+          'chevron.down',
+          size: iconSize,
+          color: theme.textPrimary,
+        ),
+        dimension: buttonSize,
       );
     }
 
@@ -3404,6 +3404,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ),
               ),
               Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ConduitChromeGradientFade.bottom(
+                  contentHeight: math.max(
+                    0,
+                    math.max(
+                      _inputHeight - Spacing.xl,
+                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
                 bottom: (_inputHeight > 0)
                     ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
                     : (Spacing.xxl + Spacing.xxxl),
@@ -3454,21 +3468,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       },
                     ),
                   ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: ConduitChromeGradientFade.bottom(
-                  contentHeight: math.max(
-                    0,
-                    math.max(
-                      _inputHeight - Spacing.xl,
-                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
-                    ),
-                  ),
-                  fadeHeight: Spacing.md,
                 ),
               ),
               Positioned(

@@ -1848,6 +1848,12 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
         ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _selectIcon(String? alias) {
+    if (_selectedIconAlias == alias) return;
+    ConduitHaptics.selectionClick();
+    setState(() => _selectedIconAlias = alias);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -1929,9 +1935,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                   ],
                 ),
                 selected: _selectedIconAlias == null,
-                onSelected: _isSaving
-                    ? null
-                    : (_) => setState(() => _selectedIconAlias = null),
+                onSelected: _isSaving ? null : (_) => _selectIcon(null),
               ),
               for (final option in folderIconOptions)
                 ChoiceChip(
@@ -1950,8 +1954,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                   selected: _selectedIconAlias == option.alias,
                   onSelected: _isSaving
                       ? null
-                      : (_) =>
-                            setState(() => _selectedIconAlias = option.alias),
+                      : (_) => _selectIcon(option.alias),
                 ),
             ],
           ),

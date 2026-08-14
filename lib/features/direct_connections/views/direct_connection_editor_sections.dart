@@ -2,11 +2,12 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/services/ios_native_dropdown_bridge.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../controllers/direct_connection_editor_draft.dart';
@@ -25,7 +26,10 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedSection(
       child: InkWell(
-        onTap: () => form.setEnabled(!form.enabled),
+        onTap: () {
+          ConduitHaptics.selectionClick();
+          form.setEnabled(!form.enabled);
+        },
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         child: Row(
           children: [
@@ -118,57 +122,36 @@ final class DirectConnectionProviderSection extends StatelessWidget {
     );
 
     if (PlatformInfo.isIOS) {
-      final currentLabel = switch (form.providerPreset) {
-        kOpenRouterProviderPreset => l10n.openRouterProviderName,
-        kOllamaAdapterKey => l10n.ollama,
-        _ => l10n.openAICompatible,
-      };
-      return Builder(
-        builder: (anchorContext) => InsetGroupedList(
-          children: [
-            UtilityValueRow(
-              key: const ValueKey<String>('direct-provider-preset-selector'),
+      final providerOptions = [
+        AdaptiveDropdownOption(
+          value: kOpenAiCompatibleAdapterKey,
+          label: l10n.openAICompatible,
+        ),
+        AdaptiveDropdownOption(
+          value: kOpenRouterProviderPreset,
+          label: l10n.openRouterProviderName,
+        ),
+        AdaptiveDropdownOption(value: kOllamaAdapterKey, label: l10n.ollama),
+      ];
+      final currentLabel = providerOptions
+          .firstWhere((option) => option.value == form.providerPreset)
+          .label;
+      return InsetGroupedList(
+        children: [
+          AdaptiveSingleChoiceTrigger<String>(
+            key: const ValueKey<String>('direct-provider-preset-selector'),
+            value: form.providerPreset,
+            options: providerOptions,
+            onChanged: select,
+            nativeTitle: l10n.directProvider,
+            semanticLabel: '$currentLabel, ${l10n.directProvider}',
+            child: UtilityValueRow(
               label: l10n.directProvider,
               value: currentLabel,
               showChevron: true,
-              onTap: () async {
-                final selected = await IosNativeDropdownBridge.instance
-                    .showFromContext(
-                      context: anchorContext,
-                      title: l10n.directProvider,
-                      cancelLabel: MaterialLocalizations.of(context)
-                          .cancelButtonLabel,
-                      options: [
-                        IosNativeDropdownOption(
-                          id: kOpenAiCompatibleAdapterKey,
-                          label: l10n.openAICompatible,
-                          sfSymbol:
-                              form.providerPreset == kOpenAiCompatibleAdapterKey
-                              ? 'checkmark'
-                              : null,
-                        ),
-                        IosNativeDropdownOption(
-                          id: kOpenRouterProviderPreset,
-                          label: l10n.openRouterProviderName,
-                          sfSymbol:
-                              form.providerPreset == kOpenRouterProviderPreset
-                              ? 'checkmark'
-                              : null,
-                        ),
-                        IosNativeDropdownOption(
-                          id: kOllamaAdapterKey,
-                          label: l10n.ollama,
-                          sfSymbol: form.providerPreset == kOllamaAdapterKey
-                              ? 'checkmark'
-                              : null,
-                        ),
-                      ],
-                    );
-                if (selected != null) select(selected);
-              },
             ),
-          ],
-        ),
+          ),
+        ],
       );
     }
 
@@ -297,15 +280,13 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
             const SizedBox(height: Spacing.sm),
           ],
           if (PlatformInfo.isIOS)
-            Builder(
-              builder: (anchorContext) => _NativeAuthenticationSelector(
-                key: ValueKey<String>(
-                  'direct-authentication-selector-${form.providerPreset}',
-                ),
-                value: form.authentication,
-                options: _authenticationOptions(l10n, form),
-                onTap: () => _selectAuthentication(anchorContext, l10n, form),
+            _NativeAuthenticationSelector(
+              key: ValueKey<String>(
+                'direct-authentication-selector-${form.providerPreset}',
               ),
+              value: form.authentication,
+              options: _authenticationOptions(l10n, form),
+              onChanged: form.setAuthentication,
             )
           else
             Material(
@@ -342,7 +323,10 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
                     ),
                 ],
                 onChanged: (value) {
-                  if (value != null) form.setAuthentication(value);
+                  if (value != null) {
+                    ConduitHaptics.selectionClick();
+                    form.setAuthentication(value);
+                  }
                 },
               ),
             ),
@@ -429,47 +413,18 @@ _authenticationOptions(
     ),
 ];
 
-Future<void> _selectAuthentication(
-  BuildContext context,
-  AppLocalizations l10n,
-  DirectConnectionEditorForm form,
-) async {
-  final options = _authenticationOptions(l10n, form);
-  final selected = await IosNativeDropdownBridge.instance.showFromContext(
-    context: context,
-    title: l10n.directAuthentication,
-    cancelLabel: MaterialLocalizations.of(context).cancelButtonLabel,
-    options: [
-      for (final option in options)
-        IosNativeDropdownOption(
-          id: option.value.name,
-          label: option.label,
-          enabled: option.enabled,
-          sfSymbol: option.value == form.authentication ? 'checkmark' : null,
-        ),
-    ],
-  );
-  if (selected == null) return;
-  for (final option in options) {
-    if (option.value.name == selected && option.enabled) {
-      form.setAuthentication(option.value);
-      return;
-    }
-  }
-}
-
 class _NativeAuthenticationSelector extends StatelessWidget {
   const _NativeAuthenticationSelector({
     super.key,
     required this.value,
     required this.options,
-    required this.onTap,
+    required this.onChanged,
   });
 
   final DirectAuthenticationMode value;
   final List<({DirectAuthenticationMode value, String label, bool enabled})>
   options;
-  final VoidCallback onTap;
+  final ValueChanged<DirectAuthenticationMode> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -480,11 +435,24 @@ class _NativeAuthenticationSelector extends StatelessWidget {
           orElse: () => options.first,
         )
         .label;
-    return UtilityValueRow(
-      label: l10n.directAuthentication,
-      value: label,
-      showChevron: true,
-      onTap: onTap,
+    return AdaptiveSingleChoiceTrigger<DirectAuthenticationMode>(
+      value: value,
+      options: [
+        for (final option in options)
+          AdaptiveDropdownOption(
+            value: option.value,
+            label: option.label,
+            enabled: option.enabled,
+          ),
+      ],
+      onChanged: onChanged,
+      nativeTitle: l10n.directAuthentication,
+      semanticLabel: '${l10n.directAuthentication}, $label',
+      child: UtilityValueRow(
+        label: l10n.directAuthentication,
+        value: label,
+        showChevron: true,
+      ),
     );
   }
 }

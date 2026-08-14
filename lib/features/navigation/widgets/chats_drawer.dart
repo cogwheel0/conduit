@@ -1145,10 +1145,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     if (sectionType == _SectionType.pinned) {
       isExpanded = ref.watch(showPinnedProvider);
-      onToggle = () => ref.read(showPinnedProvider.notifier).toggle();
+      onToggle = () {
+        ConduitHaptics.selectionClick();
+        ref.read(showPinnedProvider.notifier).toggle();
+      };
     } else if (sectionType == _SectionType.recent) {
       isExpanded = ref.watch(showRecentProvider);
-      onToggle = () => ref.read(showRecentProvider.notifier).toggle();
+      onToggle = () {
+        ConduitHaptics.selectionClick();
+        ref.read(showRecentProvider.notifier).toggle();
+      };
     }
 
     final theme = context.conduitTheme;
@@ -1212,7 +1218,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => ref.read(showFoldersProvider.notifier).toggle(),
+          onTap: () {
+            ConduitHaptics.selectionClick();
+            ref.read(showFoldersProvider.notifier).toggle();
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
             child: Row(

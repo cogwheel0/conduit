@@ -187,7 +187,10 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(notesShowPinnedProvider.notifier).toggle(),
+        onTap: () {
+          ConduitHaptics.selectionClick();
+          ref.read(notesShowPinnedProvider.notifier).toggle();
+        },
         child: Row(
           children: [
             Icon(
@@ -217,7 +220,10 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(notesShowRecentProvider.notifier).toggle(),
+        onTap: () {
+          ConduitHaptics.selectionClick();
+          ref.read(notesShowRecentProvider.notifier).toggle();
+        },
         child: Row(
           children: [
             Icon(

@@ -1,9 +1,11 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../core/services/haptic_service.dart';
 import '../../core/services/ios_native_dropdown_bridge.dart';
 import '../theme/theme_extensions.dart';
 import 'platform_ui/platform_ui.dart';
+import 'themed_sheets.dart';
 
 @immutable
 class AdaptiveDropdownOption<T> {
@@ -69,8 +71,12 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
         onChanged: onChanged == null
             ? null
             : (next) {
-                if (next != null || options.any((item) => item.value == null)) {
-                  onChanged!(next as T);
+                for (final option in options) {
+                  if (option.value == next) {
+                    ConduitHaptics.selectionClick();
+                    onChanged!(option.value);
+                    return;
+                  }
                 }
               },
       );
@@ -143,29 +149,152 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
     BuildContext context,
     FormFieldState<T> state,
   ) async {
-    final selected = await IosNativeDropdownBridge.instance.showFromContext(
+    final selection = await showAdaptiveNativeSingleChoice<T>(
       context: context,
+      value: value,
+      options: options,
       title: nativeTitle ?? decoration.labelText,
       cancelLabel:
           cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
-      options: [
-        for (final (index, option) in options.indexed)
-          IosNativeDropdownOption(
-            id: '$index',
+    );
+    if (!context.mounted || !state.mounted) return;
+    if (selection == null) return;
+    state.didChange(selection.value);
+    onChanged?.call(selection.value);
+  }
+}
+
+/// Typed single-choice trigger with native iOS presentation and an anchored
+/// adaptive menu elsewhere. The caller owns the trigger's visual treatment.
+class AdaptiveSingleChoiceTrigger<T> extends StatelessWidget {
+  const AdaptiveSingleChoiceTrigger({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    required this.child,
+    this.nativeTitle,
+    this.cancelLabel,
+    this.semanticLabel,
+    this.fallbackReplacement,
+  });
+
+  final T value;
+  final List<AdaptiveDropdownOption<T>> options;
+  final ValueChanged<T> onChanged;
+  final Widget child;
+  final String? nativeTitle;
+  final String? cancelLabel;
+  final String? semanticLabel;
+  final Widget? fallbackReplacement;
+
+  @override
+  Widget build(BuildContext context) {
+    if (PlatformInfo.isIOS) {
+      return Builder(
+        builder: (anchorContext) => Semantics(
+          button: true,
+          label: semanticLabel,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _showNative(anchorContext),
+            child: child,
+          ),
+        ),
+      );
+    }
+
+    final menu = AdaptivePopupMenuButton.widget<T>(
+      child: child,
+      items: [
+        for (final option in options)
+          AdaptivePopupMenuItem<T>(
+            value: option.value,
             label: option.label,
-            subtitle: option.subtitle,
+            checked: option.value == value,
             enabled: option.enabled,
-            sfSymbol: option.value == state.value
-                ? 'checkmark'
-                : option.iosSymbol,
           ),
       ],
+      onSelected: (_, entry) {
+        for (final option in options) {
+          if (option.value == entry.value) {
+            onChanged(option.value);
+            return;
+          }
+        }
+      },
     );
-    final index = int.tryParse(selected ?? '');
-    if (index == null || index < 0 || index >= options.length) return;
-    final option = options[index];
-    if (!option.enabled) return;
-    state.didChange(option.value);
-    onChanged?.call(option.value);
+    final replacement = fallbackReplacement;
+    return replacement == null
+        ? menu
+        : ThemedSheets.hideNativeChromeWhileCovered(
+            replacement: replacement,
+            child: menu,
+          );
   }
+
+  Future<void> _showNative(BuildContext context) async {
+    final selection = await showAdaptiveNativeSingleChoice<T>(
+      context: context,
+      value: value,
+      options: options,
+      title: nativeTitle,
+      cancelLabel:
+          cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
+    );
+    if (!context.mounted) return;
+    if (selection != null) onChanged(selection.value);
+  }
+}
+
+/// A completed native selection. The wrapper distinguishes choosing a nullable
+/// value from dismissing the native picker, which returns no result.
+@immutable
+class AdaptiveSingleChoiceResult<T> {
+  const AdaptiveSingleChoiceResult(this.value);
+
+  final T value;
+}
+
+Future<AdaptiveSingleChoiceResult<T>?> showAdaptiveNativeSingleChoice<T>({
+  required BuildContext context,
+  required T value,
+  required List<AdaptiveDropdownOption<T>> options,
+  String? title,
+  String? cancelLabel,
+}) async {
+  final selected = await IosNativeDropdownBridge.instance.showFromContext(
+    context: context,
+    title: title,
+    cancelLabel:
+        cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
+    options: [
+      for (final (index, option) in options.indexed)
+        IosNativeDropdownOption(
+          id: '$index',
+          label: option.label,
+          subtitle: option.subtitle,
+          enabled: option.enabled,
+          sfSymbol: option.value == value ? 'checkmark' : option.iosSymbol,
+        ),
+    ],
+  );
+  final result = adaptiveSingleChoiceResultForId(
+    selectedId: selected,
+    options: options,
+  );
+  if (result != null) ConduitHaptics.selectionClick();
+  return result;
+}
+
+/// Resolves the index-based native response without conflating a selected
+/// nullable value with dismissal.
+AdaptiveSingleChoiceResult<T>? adaptiveSingleChoiceResultForId<T>({
+  required String? selectedId,
+  required List<AdaptiveDropdownOption<T>> options,
+}) {
+  final index = int.tryParse(selectedId ?? '');
+  if (index == null || index < 0 || index >= options.length) return null;
+  final option = options[index];
+  return option.enabled ? AdaptiveSingleChoiceResult(option.value) : null;
 }

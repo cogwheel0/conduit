@@ -477,6 +477,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Future<bool> applyDetailPatch({
     required String detailId,
     required List<NativeSheetItemConfig> items,
+    List<NativeSheetSectionConfig> sections = const [],
     String? title,
     String? subtitle,
     bool clearSubtitle = false,
@@ -488,6 +489,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         PlatformNativeSheetApplyDetailPatchRequest(
           detailId: detailId,
           items: items.map((item) => item.toPlatform()).toList(),
+          sections: sections.map((section) => section.toPlatform()).toList(),
           title: title,
           subtitle: subtitle,
           clearSubtitle: clearSubtitle,
@@ -802,7 +804,10 @@ class NativeSheetDetailConfig {
     /// maximum sheet height (matches capped Material bottom sheets). Ignored
     /// on non-iOS.
     this.maxHeightFraction,
-  });
+  }) : assert(
+         items.length == 0 || sections.length == 0,
+         'A native detail must use either items or sections, not both.',
+       );
 
   final String id;
   final String title;
@@ -849,6 +854,8 @@ class NativeSheetItemConfig {
     this.subtitle,
     this.sfSymbol = 'circle',
     this.iconAsset,
+    this.iconSize,
+    this.showsDisclosure,
     this.destructive = false,
     this.dismissOnSelect = false,
     this.actionId,
@@ -876,6 +883,8 @@ class NativeSheetItemConfig {
   final String? subtitle;
   final String sfSymbol;
   final String? iconAsset;
+  final double? iconSize;
+  final bool? showsDisclosure;
   final bool destructive;
   final bool dismissOnSelect;
   final String? actionId;
@@ -908,6 +917,8 @@ class NativeSheetItemConfig {
       'subtitle': subtitle,
       'sfSymbol': sfSymbol,
       if (iconAsset != null) 'iconAsset': iconAsset,
+      if (iconSize != null) 'iconSize': iconSize,
+      if (showsDisclosure != null) 'showsDisclosure': showsDisclosure,
       'destructive': destructive,
       'dismissOnSelect': dismissOnSelect,
       if (actionId != null) 'actionId': actionId,
@@ -1222,6 +1233,8 @@ extension on NativeSheetItemConfig {
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       iconAsset: iconAsset,
+      iconSize: iconSize,
+      showsDisclosure: showsDisclosure,
       destructive: destructive,
       dismissOnSelect: dismissOnSelect,
       actionId: actionId,

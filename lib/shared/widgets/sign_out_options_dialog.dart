@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import '../../core/services/haptic_service.dart';
 import '../theme/theme_extensions.dart';
 import 'conduit_components.dart';
 import 'themed_dialogs.dart';
@@ -49,6 +50,7 @@ class _SignOutOptionsDialogState extends State<_SignOutOptionsDialog> {
             key: const Key('sign-out-keep-server-details'),
             value: _keepServerDetails,
             onChanged: (value) {
+              ConduitHaptics.selectionClick();
               setState(() => _keepServerDetails = value ?? false);
             },
             contentPadding: EdgeInsets.zero,

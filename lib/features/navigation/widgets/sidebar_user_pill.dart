@@ -535,6 +535,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         subtitle: l10n.hermesAgentSettingsSubtitle,
         sfSymbol: 'sparkles',
         iconAsset: 'assets/icons/hermes_agent.png',
+        iconSize: 26,
         dismissOnSelect: true,
         actionId: NativeSheetRoutes.hermes,
         actionValue: true,
@@ -704,6 +705,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                     id: 'profile-photo',
                     title: l10n.editPhoto,
                     sfSymbol: 'person.crop.circle',
+                    showsDisclosure: true,
                   ),
                 ],
               ),
@@ -714,6 +716,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                     title: l10n.name,
                     subtitle: profileSummary,
                     sfSymbol: 'person.text.rectangle',
+                    showsDisclosure: true,
                   ),
                   NativeSheetItemConfig(
                     id: 'profile-about',
@@ -722,12 +725,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                         ? accountProfile!.bio!.trim()
                         : l10n.notSet,
                     sfSymbol: 'text.bubble',
+                    showsDisclosure: true,
                   ),
                   NativeSheetItemConfig(
                     id: 'profile-details',
                     title: l10n.profileDetails,
                     subtitle: l10n.profileDetailsSummary,
                     sfSymbol: 'person.crop.circle',
+                    showsDisclosure: true,
                   ),
                 ],
               ),
@@ -759,7 +764,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.voice,
           title: l10n.voice,
-          items: nativeAudio.mainItems,
+          sections: nativeAudio.mainSections,
         ),
         nativeAudio.voicePickerDetail,
         buildNativeLoadingDetail(

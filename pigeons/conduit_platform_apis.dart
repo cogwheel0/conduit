@@ -285,6 +285,8 @@ class PlatformNativeSheetItem {
     this.subtitle,
     required this.sfSymbol,
     this.iconAsset,
+    this.iconSize,
+    this.showsDisclosure,
     required this.destructive,
     required this.dismissOnSelect,
     this.actionId,
@@ -312,6 +314,8 @@ class PlatformNativeSheetItem {
   String? subtitle;
   String sfSymbol;
   String? iconAsset;
+  double? iconSize;
+  bool? showsDisclosure;
   bool destructive;
   bool dismissOnSelect;
   String? actionId;
@@ -612,6 +616,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   PlatformNativeSheetApplyDetailPatchRequest({
     required this.detailId,
     required this.items,
+    required this.sections,
     this.title,
     this.subtitle,
     required this.clearSubtitle,
@@ -620,6 +625,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   String detailId;
   List<PlatformNativeSheetItem> items;
+  List<PlatformNativeSheetSection> sections;
   String? title;
   String? subtitle;
   bool clearSubtitle;

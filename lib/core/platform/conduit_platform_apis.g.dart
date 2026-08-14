@@ -1311,6 +1311,8 @@ class PlatformNativeSheetItem {
     this.subtitle,
     required this.sfSymbol,
     this.iconAsset,
+    this.iconSize,
+    this.showsDisclosure,
     required this.destructive,
     required this.dismissOnSelect,
     this.actionId,
@@ -1342,6 +1344,10 @@ class PlatformNativeSheetItem {
   String sfSymbol;
 
   String? iconAsset;
+
+  double? iconSize;
+
+  bool? showsDisclosure;
 
   bool destructive;
 
@@ -1390,6 +1396,8 @@ class PlatformNativeSheetItem {
       subtitle,
       sfSymbol,
       iconAsset,
+      iconSize,
+      showsDisclosure,
       destructive,
       dismissOnSelect,
       actionId,
@@ -1424,26 +1432,28 @@ class PlatformNativeSheetItem {
       subtitle: result[2] as String?,
       sfSymbol: result[3]! as String,
       iconAsset: result[4] as String?,
-      destructive: result[5]! as bool,
-      dismissOnSelect: result[6]! as bool,
-      actionId: result[7] as String?,
-      actionValue: result[8],
-      url: result[9] as String?,
-      kind: result[10]! as PlatformNativeSheetItemKind,
-      value: result[11],
-      placeholder: result[12] as String?,
-      options: (result[13]! as List<Object?>).cast<PlatformNativeSheetOption>(),
-      sourceIndex: result[14] as int?,
-      sourceUrl: result[15] as String?,
-      sourceType: result[16] as String?,
-      snippet: result[17] as String?,
-      faviconUrl: result[18] as String?,
-      queries: (result[19]! as List<Object?>).cast<String>(),
-      links: (result[20]! as List<Object?>).cast<PlatformNativeSheetLink>(),
-      pending: result[21]! as bool,
-      min: result[22] as double?,
-      max: result[23] as double?,
-      divisions: result[24] as int?,
+      iconSize: result[5] as double?,
+      showsDisclosure: result[6] as bool?,
+      destructive: result[7]! as bool,
+      dismissOnSelect: result[8]! as bool,
+      actionId: result[9] as String?,
+      actionValue: result[10],
+      url: result[11] as String?,
+      kind: result[12]! as PlatformNativeSheetItemKind,
+      value: result[13],
+      placeholder: result[14] as String?,
+      options: (result[15]! as List<Object?>).cast<PlatformNativeSheetOption>(),
+      sourceIndex: result[16] as int?,
+      sourceUrl: result[17] as String?,
+      sourceType: result[18] as String?,
+      snippet: result[19] as String?,
+      faviconUrl: result[20] as String?,
+      queries: (result[21]! as List<Object?>).cast<String>(),
+      links: (result[22]! as List<Object?>).cast<PlatformNativeSheetLink>(),
+      pending: result[23]! as bool,
+      min: result[24] as double?,
+      max: result[25] as double?,
+      divisions: result[26] as int?,
     );
   }
 
@@ -1456,7 +1466,7 @@ class PlatformNativeSheetItem {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(id, other.id) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(sfSymbol, other.sfSymbol) && _deepEquals(iconAsset, other.iconAsset) && _deepEquals(destructive, other.destructive) && _deepEquals(dismissOnSelect, other.dismissOnSelect) && _deepEquals(actionId, other.actionId) && _deepEquals(actionValue, other.actionValue) && _deepEquals(url, other.url) && _deepEquals(kind, other.kind) && _deepEquals(value, other.value) && _deepEquals(placeholder, other.placeholder) && _deepEquals(options, other.options) && _deepEquals(sourceIndex, other.sourceIndex) && _deepEquals(sourceUrl, other.sourceUrl) && _deepEquals(sourceType, other.sourceType) && _deepEquals(snippet, other.snippet) && _deepEquals(faviconUrl, other.faviconUrl) && _deepEquals(queries, other.queries) && _deepEquals(links, other.links) && _deepEquals(pending, other.pending) && _deepEquals(min, other.min) && _deepEquals(max, other.max) && _deepEquals(divisions, other.divisions);
+    return _deepEquals(id, other.id) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(sfSymbol, other.sfSymbol) && _deepEquals(iconAsset, other.iconAsset) && _deepEquals(iconSize, other.iconSize) && _deepEquals(showsDisclosure, other.showsDisclosure) && _deepEquals(destructive, other.destructive) && _deepEquals(dismissOnSelect, other.dismissOnSelect) && _deepEquals(actionId, other.actionId) && _deepEquals(actionValue, other.actionValue) && _deepEquals(url, other.url) && _deepEquals(kind, other.kind) && _deepEquals(value, other.value) && _deepEquals(placeholder, other.placeholder) && _deepEquals(options, other.options) && _deepEquals(sourceIndex, other.sourceIndex) && _deepEquals(sourceUrl, other.sourceUrl) && _deepEquals(sourceType, other.sourceType) && _deepEquals(snippet, other.snippet) && _deepEquals(faviconUrl, other.faviconUrl) && _deepEquals(queries, other.queries) && _deepEquals(links, other.links) && _deepEquals(pending, other.pending) && _deepEquals(min, other.min) && _deepEquals(max, other.max) && _deepEquals(divisions, other.divisions);
   }
 
   @override
@@ -1465,7 +1475,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions)';
   }
 }
 
@@ -2478,6 +2488,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   PlatformNativeSheetApplyDetailPatchRequest({
     required this.detailId,
     required this.items,
+    required this.sections,
     this.title,
     this.subtitle,
     required this.clearSubtitle,
@@ -2487,6 +2498,8 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   String detailId;
 
   List<PlatformNativeSheetItem> items;
+
+  List<PlatformNativeSheetSection> sections;
 
   String? title;
 
@@ -2500,6 +2513,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     return <Object?>[
       detailId,
       items,
+      sections,
       title,
       subtitle,
       clearSubtitle,
@@ -2515,10 +2529,11 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     return PlatformNativeSheetApplyDetailPatchRequest(
       detailId: result[0]! as String,
       items: (result[1]! as List<Object?>).cast<PlatformNativeSheetItem>(),
-      title: result[2] as String?,
-      subtitle: result[3] as String?,
-      clearSubtitle: result[4]! as bool,
-      detailSheets: (result[5] as List<Object?>?)?.cast<PlatformNativeSheetDetail>(),
+      sections: (result[2]! as List<Object?>).cast<PlatformNativeSheetSection>(),
+      title: result[3] as String?,
+      subtitle: result[4] as String?,
+      clearSubtitle: result[5]! as bool,
+      detailSheets: (result[6] as List<Object?>?)?.cast<PlatformNativeSheetDetail>(),
     );
   }
 
@@ -2531,7 +2546,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(detailId, other.detailId) && _deepEquals(items, other.items) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(clearSubtitle, other.clearSubtitle) && _deepEquals(detailSheets, other.detailSheets);
+    return _deepEquals(detailId, other.detailId) && _deepEquals(items, other.items) && _deepEquals(sections, other.sections) && _deepEquals(title, other.title) && _deepEquals(subtitle, other.subtitle) && _deepEquals(clearSubtitle, other.clearSubtitle) && _deepEquals(detailSheets, other.detailSheets);
   }
 
   @override
@@ -2540,7 +2555,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, title: $title, subtitle: $subtitle, clearSubtitle: $clearSubtitle, detailSheets: $detailSheets)';
+    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, sections: $sections, title: $title, subtitle: $subtitle, clearSubtitle: $clearSubtitle, detailSheets: $detailSheets)';
   }
 }
 

@@ -44,9 +44,9 @@ void main() {
 
   test('native speech-rate slider shows its value only once', () {
     final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
-    final speechRate = parts.mainItems.singleWhere(
-      (item) => item.id == 'tts-speech-rate',
-    );
+    final speechRate = parts.mainSections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'tts-speech-rate');
 
     check(speechRate.subtitle).isNull();
   });

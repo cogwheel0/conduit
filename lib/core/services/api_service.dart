@@ -86,6 +86,47 @@ bool isCredentialSafeRedirectTarget(Uri from, Uri to) {
       _effectiveHttpPort(to) == 443;
 }
 
+RequestOptions? nextSameOriginRedirectRequest({
+  required RequestOptions options,
+  required Response<dynamic> response,
+}) {
+  final status = response.statusCode;
+  if (status == null || !_publicHealthRedirectStatusCodes.contains(status)) {
+    return null;
+  }
+  final method = options.method.toUpperCase();
+  final convertsToGet = status == HttpStatus.seeOther && method != 'HEAD';
+  if (method != 'GET' && method != 'HEAD' && !convertsToGet) return null;
+
+  final locationValue = response.headers.value(HttpHeaders.locationHeader);
+  final location = locationValue == null ? null : Uri.tryParse(locationValue);
+  if (location == null) return null;
+  final target = options.uri.resolveUri(location);
+  final hops = (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
+  if (hops >= _maximumSameOriginRedirectHops ||
+      !isCredentialSafeRedirectTarget(options.uri, target)) {
+    return null;
+  }
+
+  final redirected = options.copyWith(
+    path: target.toString(),
+    queryParameters: const <String, dynamic>{},
+    extra: Map<String, dynamic>.of(options.extra)
+      ..[_sameOriginRedirectHopExtraKey] = hops + 1,
+    headers: Map<String, dynamic>.of(options.headers),
+  );
+  if (convertsToGet) {
+    redirected.method = 'GET';
+    redirected.data = null;
+    redirected.headers.removeWhere((name, _) {
+      final normalized = name.toLowerCase();
+      return normalized == Headers.contentLengthHeader ||
+          normalized == Headers.contentTypeHeader;
+    });
+  }
+  return redirected;
+}
+
 final class _PublicHealthDeadline {
   _PublicHealthDeadline(this.budget) : _clock = Stopwatch()..start();
 
@@ -929,47 +970,11 @@ class ApiService {
               !_publicHealthRedirectStatusCodes.contains(status)) {
             return handler.next(error);
           }
-          final options = error.requestOptions;
-          final method = options.method.toUpperCase();
-          final convertsToGet =
-              status == HttpStatus.seeOther && method != 'HEAD';
-          if (method != 'GET' && method != 'HEAD' && !convertsToGet) {
-            return handler.next(error);
-          }
-          final locationValue = response.headers.value(
-            HttpHeaders.locationHeader,
+          final redirectedOptions = nextSameOriginRedirectRequest(
+            options: error.requestOptions,
+            response: response,
           );
-          final location = locationValue == null
-              ? null
-              : Uri.tryParse(locationValue);
-          if (location == null) return handler.next(error);
-          final target = options.uri.resolveUri(location);
-          final hops =
-              (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
-          if (hops >= _maximumSameOriginRedirectHops ||
-              !isCredentialSafeRedirectTarget(options.uri, target)) {
-            return handler.next(error);
-          }
-          final redirectedOptions = options.copyWith(
-            path: target.toString(),
-            queryParameters: const <String, dynamic>{},
-            extra: Map<String, dynamic>.of(options.extra)
-              ..[_sameOriginRedirectHopExtraKey] = hops + 1,
-            headers: Map<String, dynamic>.of(options.headers),
-          );
-          // Location carries the complete target including its query; the
-          // original queryParameters must not be re-merged on top of it.
-          if (convertsToGet) {
-            redirectedOptions.method = 'GET';
-            redirectedOptions.data = null;
-            // Stale body headers would make the bodyless GET claim content it
-            // never sends, which the server-side parser rejects.
-            redirectedOptions.headers.removeWhere((name, _) {
-              final normalized = name.toLowerCase();
-              return normalized == Headers.contentLengthHeader ||
-                  normalized == Headers.contentTypeHeader;
-            });
-          }
+          if (redirectedOptions == null) return handler.next(error);
           try {
             final redirected = await _replaySameOriginRedirect(
               redirectedOptions,
@@ -1088,20 +1093,11 @@ class ApiService {
         );
       }
 
-      final method = options.method.toUpperCase();
-      final convertsToGet = status == HttpStatus.seeOther && method != 'HEAD';
-      final locationValue = response.headers.value(HttpHeaders.locationHeader);
-      final location = locationValue == null
-          ? null
-          : Uri.tryParse(locationValue);
-      final nextTarget = location == null
-          ? null
-          : options.uri.resolveUri(location);
-      final hops = (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
-      if ((method != 'GET' && method != 'HEAD' && !convertsToGet) ||
-          nextTarget == null ||
-          hops >= _maximumSameOriginRedirectHops ||
-          !isCredentialSafeRedirectTarget(options.uri, nextTarget)) {
+      final redirectedOptions = nextSameOriginRedirectRequest(
+        options: options,
+        response: response,
+      );
+      if (redirectedOptions == null) {
         throw DioException.badResponse(
           statusCode: status,
           requestOptions: response.requestOptions,
@@ -1109,22 +1105,7 @@ class ApiService {
         );
       }
 
-      options = options.copyWith(
-        path: nextTarget.toString(),
-        queryParameters: const <String, dynamic>{},
-        extra: Map<String, dynamic>.of(options.extra)
-          ..[_sameOriginRedirectHopExtraKey] = hops + 1,
-        headers: Map<String, dynamic>.of(options.headers),
-      );
-      if (convertsToGet) {
-        options.method = 'GET';
-        options.data = null;
-        options.headers.removeWhere((name, _) {
-          final normalized = name.toLowerCase();
-          return normalized == Headers.contentLengthHeader ||
-              normalized == Headers.contentTypeHeader;
-        });
-      }
+      options = redirectedOptions;
     }
   }
 

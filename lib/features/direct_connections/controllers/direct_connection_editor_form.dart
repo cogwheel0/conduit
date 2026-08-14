@@ -71,12 +71,10 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get canAddCustomHeader => headerName.text.trim().isNotEmpty;
   int get draftRevision => _draftRevision;
 
-  bool get originChanged {
-    final saved = savedProfile;
-    if (saved == null) return false;
-    return DirectConnectionProfile.originOf(saved.baseUrl) !=
-        DirectConnectionProfile.originOf(baseUrl.text);
-  }
+  bool get originChanged => directConnectionOriginChanged(
+    savedProfile: savedProfile,
+    baseUrl: baseUrl.text,
+  );
 
   bool get savedHasOriginBoundSecrets {
     final saved = savedProfile;
@@ -92,27 +90,9 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     return apiKeyReviewed && headersReviewed;
   }
 
-  bool get apiKeyRequired => requiresDirectApiKey(
-    authentication: authentication,
-    mode: mode,
-    savedAuthentication: savedAuthentication,
-    apiKeyDirty: apiKeyDirty,
-    originChanged: originChanged,
-  );
+  bool get apiKeyRequired => _draftSnapshot.apiKeyRequired;
 
-  bool get isReadyToSubmit {
-    if (authentication == DirectAuthenticationMode.unsupported) return false;
-    if (policy.editsName && name.text.trim().isEmpty) return false;
-    final normalizedUrl = normalizeDirectBaseUrl(baseUrl.text);
-    if (DirectConnectionProfile.originOf(normalizedUrl) == null) return false;
-    if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedUrl)) return false;
-    if (!originBoundSecretsReviewed) return false;
-    if (!apiKeyRequired) return true;
-    final effectiveKey = apiKeyDirty || originChanged
-        ? apiKey.text.trim()
-        : savedProfile?.apiKey?.trim() ?? '';
-    return effectiveKey.isNotEmpty;
-  }
+  bool get isReadyToSubmit => _draftSnapshot.isReadyToSubmit;
 
   void hydrate(
     DirectConnectionProfile? profile, {
@@ -248,31 +228,33 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     if (validateFields && !commitPendingCustomHeader()) {
       return DirectDraftBuildResult(errors: errors);
     }
-    final draft = DirectConnectionDraft(
-      mode: mode,
-      savedProfile: savedProfile,
-      savedAuthentication: savedAuthentication,
-      adapterKey: adapterKey,
-      providerPreset: providerPreset,
-      openAiApiMode: openAiApiMode,
-      authentication: authentication,
-      enabled: enabled,
-      apiKeyDirty: apiKeyDirty,
-      originBoundSecretsReviewed: originBoundSecretsReviewed,
-      name: name.text,
-      baseUrl: baseUrl.text,
-      apiKey: apiKey.text,
-      apiVersion: apiVersion.text,
-      modelIdPrefix: modelIdPrefix.text,
-      tags: tags.text,
-      models: models.text,
-      customHeaders: customHeaders,
-    );
+    final draft = _draftSnapshot;
     final result = draft.build(openWebUiFallbackName: openWebUiFallbackName);
     _errors = result.errors;
     if (validateFields && errors.hasAny) notifyListeners();
     return result;
   }
+
+  DirectConnectionDraft get _draftSnapshot => DirectConnectionDraft(
+    mode: mode,
+    savedProfile: savedProfile,
+    savedAuthentication: savedAuthentication,
+    adapterKey: adapterKey,
+    providerPreset: providerPreset,
+    openAiApiMode: openAiApiMode,
+    authentication: authentication,
+    enabled: enabled,
+    apiKeyDirty: apiKeyDirty,
+    originBoundSecretsReviewed: originBoundSecretsReviewed,
+    name: name.text,
+    baseUrl: baseUrl.text,
+    apiKey: apiKey.text,
+    apiVersion: apiVersion.text,
+    modelIdPrefix: modelIdPrefix.text,
+    tags: tags.text,
+    models: models.text,
+    customHeaders: customHeaders,
+  );
 
   void confirmOriginSecrets() {
     if (originSecretsConfirmed) return;

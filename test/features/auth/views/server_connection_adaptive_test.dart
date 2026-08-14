@@ -153,7 +153,6 @@ void main() {
     final addHeaderButton = tester.widget<ConduitButton>(addHeaderFinder);
     check(addHeaderButton.text).equals('Add header');
     check(addHeaderButton.icon).isNull();
-    check(addHeaderButton.useNativeLabel).isTrue();
     check(addHeaderButton.onPressed).isNull();
 
     await tester.enterText(

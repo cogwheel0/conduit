@@ -14,6 +14,7 @@ import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
@@ -2047,7 +2048,10 @@ class _MessageBubble extends StatelessWidget {
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            onPressed: () => onReactionTap(reaction.name),
+            onPressed: () {
+              ConduitHaptics.selectionClick();
+              onReactionTap(reaction.name);
+            },
           );
         }).toList(),
       ),

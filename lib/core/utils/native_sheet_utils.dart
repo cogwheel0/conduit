@@ -85,11 +85,11 @@ NativeSheetDetailConfig buildNativeLoadingDetail({
 
 class NativeAudioSheetParts {
   const NativeAudioSheetParts({
-    required this.mainItems,
+    required this.mainSections,
     required this.voicePickerDetail,
   });
 
-  final List<NativeSheetItemConfig> mainItems;
+  final List<NativeSheetSectionConfig> mainSections;
   final NativeSheetDetailConfig voicePickerDetail;
 }
 
@@ -226,7 +226,10 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   );
 
   return NativeAudioSheetParts(
-    mainItems: [...sttItems, ...ttsItems],
+    mainSections: [
+      NativeSheetSectionConfig(items: sttItems),
+      NativeSheetSectionConfig(items: ttsItems),
+    ],
     voicePickerDetail: voicePickerDetail,
   );
 }

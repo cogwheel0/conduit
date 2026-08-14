@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -177,13 +178,16 @@ class _WorkspaceRelationshipSheetState
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            onChanged: (value) => setState(() {
-                              if (value == true) {
-                                _selected.add(option.id);
-                              } else {
-                                _selected.remove(option.id);
-                              }
-                            }),
+                            onChanged: (value) {
+                              ConduitHaptics.selectionClick();
+                              setState(() {
+                                if (value == true) {
+                                  _selected.add(option.id);
+                                } else {
+                                  _selected.remove(option.id);
+                                }
+                              });
+                            },
                           );
                         },
                       ),

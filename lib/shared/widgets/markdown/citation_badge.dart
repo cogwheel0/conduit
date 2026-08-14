@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../theme/theme_extensions.dart';
 import '../../utils/external_link_launcher.dart';
 import 'source_reference_helper.dart';
@@ -192,6 +193,7 @@ class CitationBadgeGroup extends StatelessWidget {
             ),
         ],
         onSelected: (index) {
+          ConduitHaptics.selectionClick();
           if (onSourceTap != null) {
             onSourceTap!(index);
             return;

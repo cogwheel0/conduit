@@ -58,6 +58,34 @@ private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
 
+/// Feedback emitted by UIKit-owned controls that never pass through Flutter's
+/// shared haptic widgets. SharedPreferences stores legacy keys with the
+/// `flutter.` prefix on iOS, so native sheets honor the same app preference.
+private enum NativeSheetHaptics {
+    private static var isEnabled: Bool {
+        let key = "flutter.haptic_feedback"
+        guard let storedValue = UserDefaults.standard.object(forKey: key) else {
+            return true
+        }
+        return (storedValue as? NSNumber)?.boolValue ?? true
+    }
+
+    static func selection() {
+        guard isEnabled else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    static func mediumImpact() {
+        guard isEnabled else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    static func success() {
+        guard isEnabled else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
 private struct NativeSheetProfile {
     let displayName: String
     let email: String
@@ -165,6 +193,8 @@ private struct NativeSheetItem {
     let subtitle: String?
     let sfSymbol: String
     let iconAsset: String?
+    let iconSize: Double?
+    let showsDisclosure: Bool?
     let destructive: Bool
     let dismissOnSelect: Bool
     let actionId: String?
@@ -201,6 +231,8 @@ private struct NativeSheetItem {
         subtitle = payload["subtitle"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
         iconAsset = payload["iconAsset"] as? String
+        iconSize = NativeSheetItem.optionalDouble(payload["iconSize"])
+        showsDisclosure = payload["showsDisclosure"] as? Bool
         destructive = payload["destructive"] as? Bool ?? false
         dismissOnSelect = payload["dismissOnSelect"] as? Bool ?? false
         actionId = payload["actionId"] as? String
@@ -906,6 +938,8 @@ private extension PlatformNativeSheetItem {
         ]
         payload["subtitle"] = subtitle
         payload["iconAsset"] = iconAsset
+        payload["iconSize"] = iconSize
+        payload["showsDisclosure"] = showsDisclosure
         payload["actionId"] = actionId
         payload["actionValue"] = actionValue
         payload["url"] = url
@@ -1344,6 +1378,9 @@ final class NativeSheetBridge: NativeSheetHostApi {
             let items = request.items
                 .map { $0.asPayload() }
                 .compactMap(NativeSheetItem.init)
+            let sections = request.sections
+                .map { $0.asPayload() }
+                .compactMap(NativeSheetSection.init)
             let relatedDetails = (request.detailSheets ?? [])
                 .map { $0.asPayload() }
                 .compactMap(NativeSheetDetail.init)
@@ -1360,7 +1397,7 @@ final class NativeSheetBridge: NativeSheetHostApi {
                     ? nil
                     : request.subtitle ?? existing.subtitle,
                 items: items,
-                sections: existing.sections,
+                sections: sections,
                 confirmActionId: existing.confirmActionId,
                 confirmActionLabel: existing.confirmActionLabel,
                 maxHeightFraction: existing.maxHeightFraction
@@ -2464,7 +2501,10 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.titleLabel?.numberOfLines = 2
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
-        button.addAction(UIAction { _ in handler() }, for: .touchUpInside)
+        button.addAction(UIAction { _ in
+            NativeSheetHaptics.selection()
+            handler()
+        }, for: .touchUpInside)
         return button
     }
 
@@ -2493,6 +2533,7 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         case .removed:
             imageUrl = "/user.png"
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, profileImageUrl: imageUrl))
         dismiss(animated: true)
     }
@@ -2626,6 +2667,7 @@ private final class NativeProfileNameEditorViewController: UIViewController {
             presentNativeValidationAlert(message: copy.nameRequiredMessage)
             return
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, name: name))
         dismiss(animated: true)
     }
@@ -2697,6 +2739,7 @@ private final class NativeProfileAboutEditorViewController: UIViewController {
     }
 
     @objc private func saveTapped() {
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, bio: textView.text ?? ""))
         dismiss(animated: true)
     }
@@ -2812,6 +2855,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
         ]
         genderButton.menu = UIMenu(children: options.map { id, label in
             UIAction(title: label, state: id == selectedGenderKey ? .on : .off) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 self?.selectedGenderKey = id
                 self?.refreshGenderTitle()
                 self?.refreshCustomGenderVisibility()
@@ -2859,6 +2903,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
     }
 
     private func clearBirthTapped() {
+        NativeSheetHaptics.selection()
         birthIso = ""
         birthPicker.date = Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) ?? Date()
     }
@@ -2884,6 +2929,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
             presentNativeValidationAlert(message: copy.customGenderRequiredMessage)
             return
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(
             profile: profile,
             gender: resolvedGenderPayload(),
@@ -3176,11 +3222,13 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
         _ tableView: UITableView,
         didSelectRowAt indexPath: IndexPath
     ) {
+        NativeSheetHaptics.selection()
         keepServerDetails.toggle()
         tableView.reloadRows(at: [indexPath], with: .none)
     }
 
     private func confirm() {
+        NativeSheetHaptics.mediumImpact()
         let selection = keepServerDetails
         dismiss(animated: true) { [onConfirm] in
             onConfirm(selection)
@@ -3407,6 +3455,7 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
             guard let self else { return }
             let idx = self.segmentedControl.selectedSegmentIndex
             guard idx >= 0, idx < self.boundOptions.count else { return }
+            NativeSheetHaptics.selection()
             self.valueChanged?(self.boundOptions[idx].id)
         }, for: .valueChanged)
     }
@@ -3548,6 +3597,7 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
                 title: option.label,
                 state: option.id == selectedId ? .on : .off
             ) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 self?.setSelectedTitle(option.label)
                 self?.valueChanged?(option.id)
             }
@@ -3799,6 +3849,7 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
     private let valueLabel = UILabel()
     private var boundItem: NativeSheetItem?
     private var onCommit: ((Double) -> Void)?
+    private var lastHapticStep: Int?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -3841,6 +3892,7 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
         super.prepareForReuse()
         boundItem = nil
         onCommit = nil
+        lastHapticStep = nil
     }
 
     func configure(item: NativeSheetItem, onValueCommitted: @escaping (Double) -> Void) {
@@ -3864,6 +3916,7 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
             current = min(mx, max(mn, current))
         }
         slider.value = Float(current)
+        lastHapticStep = hapticStep(for: item, value: current)
         refreshValueLabel(for: item, value: current)
         valueLabel.textAlignment = item.id == "tts-speech-rate" ? .natural : .right
     }
@@ -3881,7 +3934,22 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
 
     @objc private func sliderEditingChanged() {
         guard let item = boundItem else { return }
-        refreshValueLabel(for: item, value: Double(slider.value))
+        let value = Double(slider.value)
+        let step = hapticStep(for: item, value: value)
+        if let step, step != lastHapticStep {
+            NativeSheetHaptics.selection()
+            lastHapticStep = step
+        }
+        refreshValueLabel(for: item, value: value)
+    }
+
+    private func hapticStep(for item: NativeSheetItem, value: Double) -> Int? {
+        guard let min = item.sliderMin,
+              let max = item.sliderMax,
+              let divisions = item.sliderDivisions,
+              divisions > 0,
+              max > min else { return nil }
+        return Int(round((value - min) / (max - min) * Double(divisions)))
     }
 
     @objc private func sliderReleased() {
@@ -4335,44 +4403,6 @@ private final class NativeDetailTableViewController: UITableViewController {
             return detail.sections
         }
 
-        let groupedIds: [[String]]
-        switch detail.id {
-        case "appearance":
-            groupedIds = [["theme-light", "theme-palette"], ["language"]]
-        case "voice":
-            groupedIds = [
-                ["stt-engine", "stt-language-code", "stt-silence-duration"],
-                ["tts-engine", "tts-voice-picker", "tts-speech-rate", "tts-preview"],
-            ]
-        case "notification-settings":
-            groupedIds = [
-                ["notifications-enabled"],
-                ["notification-in-app-banner", "notification-system"],
-                ["notification-sound", "notification-sound-always"],
-                ["notification-chat", "notification-channel"],
-            ]
-        case "chats":
-            groupedIds = [
-                ["default-model", "default-image-generation-model", "quick-pills"],
-                ["send-on-enter", "temporary-chat-default"],
-                ["advanced-prompt-overrides"],
-            ]
-        case "ai-memory":
-            groupedIds = [["system-prompt", "personalization-memory"]]
-        default:
-            groupedIds = []
-        }
-        if !groupedIds.isEmpty {
-            let byId = Dictionary(uniqueKeysWithValues: detail.items.map { ($0.id, $0) })
-            let grouped = groupedIds.compactMap { ids -> NativeSheetSection? in
-                let items = ids.compactMap { byId[$0] }
-                return items.isEmpty
-                    ? nil
-                    : NativeSheetSection(title: nil, footer: nil, items: items)
-            }
-            if !grouped.isEmpty { return grouped }
-        }
-
         var sections = [
             NativeSheetSection(
                 title: nil,
@@ -4599,6 +4629,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         let item = item(at: indexPath)
         switch item.kind {
         case "toggle":
+            NativeSheetHaptics.selection()
             if let toggle = tableView.cellForRow(at: indexPath)?.accessoryView as? UISwitch {
                 toggle.setOn(!toggle.isOn, animated: true)
                 onControlChanged(item, toggle.isOn)
@@ -4614,6 +4645,11 @@ private final class NativeDetailTableViewController: UITableViewController {
             onSelect(item)
         default:
             commitPendingTextChanges()
+            if item.destructive {
+                NativeSheetHaptics.mediumImpact()
+            } else if item.url == nil && !canNavigate(item) {
+                NativeSheetHaptics.selection()
+            }
             onSelect(item)
         }
     }
@@ -4637,6 +4673,7 @@ private final class NativeDetailTableViewController: UITableViewController {
             let toggle = UISwitch()
             toggle.isOn = item.value as? Bool ?? false
             toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                NativeSheetHaptics.selection()
                 self?.onControlChanged(item, toggle?.isOn ?? false)
             }, for: .valueChanged)
             cell.accessoryView = toggle
@@ -4649,19 +4686,9 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(
                 cell,
                 item: item,
-                showsDisclosure: item.url != nil
-                    || canNavigate(item)
-                    || isInlineEditorItem(item)
+                showsDisclosure: item.showsDisclosure
+                    ?? (item.url != nil || canNavigate(item))
             )
-        }
-    }
-
-    private func isInlineEditorItem(_ item: NativeSheetItem) -> Bool {
-        switch item.id {
-        case "profile-photo", "profile-name", "profile-about", "profile-details":
-            return true
-        default:
-            return false
         }
     }
 
@@ -4757,6 +4784,7 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     private func confirmPendingTextChanges() {
         guard commitPendingTextChanges() else { return }
+        NativeSheetHaptics.success()
         if let actionItem = textChangeConfirmationActionItem() {
             onSelect(actionItem)
         } else if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
@@ -4770,6 +4798,7 @@ private final class NativeDetailTableViewController: UITableViewController {
             return
         }
 
+        NativeSheetHaptics.success()
         _ = commitPendingTextChanges()
         onConfirmAction(actionId)
     }
@@ -4894,6 +4923,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         tableView.deselectRow(at: indexPath, animated: true)
         switch indexPath.section {
         case 0:
+            NativeSheetHaptics.selection()
             onSelect(featuredModels[indexPath.row].id)
         case 1:
             guard effortSelectionEnabled else { return }
@@ -4938,6 +4968,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
                 title: title,
                 image: image
             ) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 self?.togglePinnedModel(model.id)
                 self?.onTogglePin(model.id)
             }
@@ -5076,6 +5107,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     private func commitEffort(_ value: String) {
         guard let normalized = normalizedEffort(value) else { return }
+        NativeSheetHaptics.selection()
         reasoningEffortValue = normalized
         tableView.reloadSections(IndexSet(integer: 1), with: .none)
         onEffortChanged(normalized)
@@ -5187,6 +5219,7 @@ private final class NativeMoreModelsTableViewController: UITableViewController, 
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        NativeSheetHaptics.selection()
         onSelect(filteredModels[indexPath.row].id)
     }
 
@@ -5203,6 +5236,7 @@ private final class NativeMoreModelsTableViewController: UITableViewController, 
                 title: pinned ? self?.unpinTitle ?? "Unpin" : self?.pinTitle ?? "Pin",
                 image: UIImage(systemName: pinned ? "pin.slash" : "pin")
             ) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 if pinned { self?.pinnedModelIds.remove(model.id) }
                 else { self?.pinnedModelIds.insert(model.id) }
                 self?.tableView.reloadRows(at: [indexPath], with: .none)
@@ -5352,6 +5386,7 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         tableView.deselectRow(at: indexPath, animated: true)
         let option = filteredOptions[indexPath.row]
         guard option.enabled else { return }
+        NativeSheetHaptics.selection()
         onSelect(option.id)
     }
 
@@ -6792,6 +6827,7 @@ private final class NativeDatePickerViewController: UIViewController {
     }
 
     @objc private func doneTapped() {
+        NativeSheetHaptics.success()
         onConfirm(datePicker.date)
     }
 }
@@ -6815,7 +6851,7 @@ private func configureNavigationCell(
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
     if item.iconAsset != nil {
-        let assetSize = item.id == "hermes" ? 26 : NativeSheetSettingsStyle.iconSize
+        let assetSize = item.iconSize ?? NativeSheetSettingsStyle.iconSize
         content.imageProperties.maximumSize = CGSize(
             width: assetSize,
             height: assetSize

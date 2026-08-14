@@ -150,7 +150,12 @@ void main() {
         const ValueKey<String>('direct-provider-preset-selector'),
       );
       expect(providerFinder, findsOneWidget);
-      final providerRow = tester.widget<UtilityValueRow>(providerFinder);
+      final providerRow = tester.widget<UtilityValueRow>(
+        find.descendant(
+          of: providerFinder,
+          matching: find.byType(UtilityValueRow),
+        ),
+      );
       expect(providerRow.leading, isNull);
       expect(providerRow.showChevron, isTrue);
       expect(find.byType(UtilityValueRow), findsAtLeastNWidgets(1));

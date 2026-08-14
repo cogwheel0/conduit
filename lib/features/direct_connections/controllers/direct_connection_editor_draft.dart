@@ -193,6 +193,14 @@ String normalizeDirectBaseUrl(String source) {
   return value;
 }
 
+bool directConnectionOriginChanged({
+  required DirectConnectionProfile? savedProfile,
+  required String baseUrl,
+}) =>
+    savedProfile != null &&
+    DirectConnectionProfile.originOf(savedProfile.baseUrl) !=
+        DirectConnectionProfile.originOf(baseUrl);
+
 bool requiresDirectApiKey({
   required DirectAuthenticationMode authentication,
   required DirectConnectionEditorMode mode,
@@ -326,25 +334,31 @@ final class DirectConnectionDraft {
 
   bool get isOpenRouter => providerPreset == kOpenRouterProviderPreset;
 
-  bool get originChanged {
-    final saved = savedProfile;
-    if (saved == null) return false;
-    return DirectConnectionProfile.originOf(saved.baseUrl) !=
-        DirectConnectionProfile.originOf(baseUrl);
-  }
+  bool get originChanged => directConnectionOriginChanged(
+    savedProfile: savedProfile,
+    baseUrl: baseUrl,
+  );
 
-  DirectDraftBuildResult build({required String openWebUiFallbackName}) {
-    final draftName = !mode.policy.editsName
-        ? (savedProfile?.name ?? openWebUiFallbackName)
-        : name.trim();
+  bool get apiKeyRequired => requiresDirectApiKey(
+    authentication: authentication,
+    mode: mode,
+    savedAuthentication: savedAuthentication,
+    apiKeyDirty: apiKeyDirty,
+    originChanged: originChanged,
+  );
+
+  String? get effectiveApiKey => switch (authentication) {
+    DirectAuthenticationMode.none => null,
+    DirectAuthenticationMode.bearer || DirectAuthenticationMode.apiKeyHeader =>
+      apiKeyDirty || originChanged
+          ? apiKey.trim()
+          : savedProfile?.apiKey?.trim() ?? '',
+    DirectAuthenticationMode.unsupported => null,
+  };
+
+  DirectDraftErrors get validationErrors {
     final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl);
-    DirectDraftValidationIssue? nameIssue;
     DirectDraftValidationIssue? urlIssue;
-    DirectDraftValidationIssue? apiKeyIssue;
-
-    if (mode.policy.editsName && draftName.isEmpty) {
-      nameIssue = DirectDraftValidationIssue.nameRequired;
-    }
     if (DirectConnectionProfile.originOf(normalizedBaseUrl) == null) {
       urlIssue = DirectDraftValidationIssue.invalidUrl;
     } else if (isOpenRouter && !isOpenRouterApiBaseUrl(normalizedBaseUrl)) {
@@ -352,36 +366,28 @@ final class DirectConnectionDraft {
     } else if (!originBoundSecretsReviewed) {
       urlIssue = DirectDraftValidationIssue.credentialsReentryRequired;
     }
-
-    final enteredApiKey = apiKey.trim();
-    final effectiveApiKey = switch (authentication) {
-      DirectAuthenticationMode.none => null,
-      DirectAuthenticationMode.bearer ||
-      DirectAuthenticationMode.apiKeyHeader =>
-        apiKeyDirty || originChanged
-            ? enteredApiKey
-            : savedProfile?.apiKey?.trim() ?? '',
-      DirectAuthenticationMode.unsupported => null,
-    };
-    final apiKeyRequired = requiresDirectApiKey(
-      authentication: authentication,
-      mode: mode,
-      savedAuthentication: savedAuthentication,
-      apiKeyDirty: apiKeyDirty,
-      originChanged: originChanged,
-    );
-    if (apiKeyRequired && (effectiveApiKey ?? '').isEmpty) {
-      apiKeyIssue = DirectDraftValidationIssue.apiKeyRequired;
-    }
-
-    var errors = DirectDraftErrors(
-      name: nameIssue,
+    return DirectDraftErrors(
+      name: mode.policy.editsName && name.trim().isEmpty
+          ? DirectDraftValidationIssue.nameRequired
+          : null,
       url: urlIssue,
-      apiKey: apiKeyIssue,
+      apiKey: apiKeyRequired && (effectiveApiKey ?? '').isEmpty
+          ? DirectDraftValidationIssue.apiKeyRequired
+          : null,
       form: authentication == DirectAuthenticationMode.unsupported
           ? DirectDraftValidationIssue.unsupportedAuthentication
           : null,
     );
+  }
+
+  bool get isReadyToSubmit => !validationErrors.hasAny;
+
+  DirectDraftBuildResult build({required String openWebUiFallbackName}) {
+    final draftName = !mode.policy.editsName
+        ? (savedProfile?.name ?? openWebUiFallbackName)
+        : name.trim();
+    final normalizedBaseUrl = normalizeDirectBaseUrl(baseUrl);
+    var errors = validationErrors;
     if (errors.hasAny) return DirectDraftBuildResult(errors: errors);
 
     final saved = savedProfile;

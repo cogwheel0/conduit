@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sync/sync_engine.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
@@ -489,6 +490,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     );
 
     void onTap(int index) {
+      ConduitHaptics.selectionClick();
       final selectedTab = tabs[index];
       if (index == activeIndex) {
         if (navigation.isLegacySelection) {

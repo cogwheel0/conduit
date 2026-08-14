@@ -448,7 +448,6 @@ class ConduitButton extends ConsumerWidget {
   final double? width;
   final bool isFullWidth;
   final bool isCompact;
-  final bool useNativeLabel;
   final bool useNative;
 
   const ConduitButton({
@@ -462,7 +461,6 @@ class ConduitButton extends ConsumerWidget {
     this.width,
     this.isFullWidth = false,
     this.isCompact = false,
-    this.useNativeLabel = true,
     this.useNative = true,
   });
 
@@ -522,55 +520,10 @@ class ConduitButton extends ConsumerWidget {
                 ? constraints.maxWidth
                 : minWidth;
 
-            if (!useNativeLabel && !isEnabled && !isLoading) {
-              return SizedBox(
-                width: isFullWidth ? double.infinity : width,
-                height: height,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: context.conduitTheme.buttonDisabled,
-                    borderRadius: BorderRadius.circular(height / 2),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                      vertical: Spacing.sm,
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (icon != null) ...[
-                            Icon(
-                              icon,
-                              size: IconSize.small,
-                              color: context.conduitTheme.buttonDisabledText,
-                            ),
-                            SizedBox(width: Spacing.iconSpacing),
-                          ],
-                          Flexible(
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textStyle.copyWith(
-                                color: context.conduitTheme.buttonDisabledText,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-
             final button = SizedBox(
               width: isFullWidth ? double.infinity : width,
               height: height,
-              child: useNativeLabel && icon == null
+              child: icon == null
                   ? AdaptiveButton(
                       onPressed: isEnabled ? onPressed : null,
                       label: isLoading ? '$text…' : text,

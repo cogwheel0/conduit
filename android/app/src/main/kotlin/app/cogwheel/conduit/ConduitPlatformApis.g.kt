@@ -1204,6 +1204,8 @@ data class PlatformNativeSheetItem (
   val subtitle: String? = null,
   val sfSymbol: String,
   val iconAsset: String? = null,
+  val iconSize: Double? = null,
+  val showsDisclosure: Boolean? = null,
   val destructive: Boolean,
   val dismissOnSelect: Boolean,
   val actionId: String? = null,
@@ -1233,27 +1235,29 @@ data class PlatformNativeSheetItem (
       val subtitle = pigeonVar_list[2] as String?
       val sfSymbol = pigeonVar_list[3] as String
       val iconAsset = pigeonVar_list[4] as String?
-      val destructive = pigeonVar_list[5] as Boolean
-      val dismissOnSelect = pigeonVar_list[6] as Boolean
-      val actionId = pigeonVar_list[7] as String?
-      val actionValue = pigeonVar_list[8]
-      val url = pigeonVar_list[9] as String?
-      val kind = pigeonVar_list[10] as PlatformNativeSheetItemKind
-      val value = pigeonVar_list[11]
-      val placeholder = pigeonVar_list[12] as String?
-      val options = pigeonVar_list[13] as List<PlatformNativeSheetOption>
-      val sourceIndex = pigeonVar_list[14] as Long?
-      val sourceUrl = pigeonVar_list[15] as String?
-      val sourceType = pigeonVar_list[16] as String?
-      val snippet = pigeonVar_list[17] as String?
-      val faviconUrl = pigeonVar_list[18] as String?
-      val queries = pigeonVar_list[19] as List<String>
-      val links = pigeonVar_list[20] as List<PlatformNativeSheetLink>
-      val pending = pigeonVar_list[21] as Boolean
-      val min = pigeonVar_list[22] as Double?
-      val max = pigeonVar_list[23] as Double?
-      val divisions = pigeonVar_list[24] as Long?
-      return PlatformNativeSheetItem(id, title, subtitle, sfSymbol, iconAsset, destructive, dismissOnSelect, actionId, actionValue, url, kind, value, placeholder, options, sourceIndex, sourceUrl, sourceType, snippet, faviconUrl, queries, links, pending, min, max, divisions)
+      val iconSize = pigeonVar_list[5] as Double?
+      val showsDisclosure = pigeonVar_list[6] as Boolean?
+      val destructive = pigeonVar_list[7] as Boolean
+      val dismissOnSelect = pigeonVar_list[8] as Boolean
+      val actionId = pigeonVar_list[9] as String?
+      val actionValue = pigeonVar_list[10]
+      val url = pigeonVar_list[11] as String?
+      val kind = pigeonVar_list[12] as PlatformNativeSheetItemKind
+      val value = pigeonVar_list[13]
+      val placeholder = pigeonVar_list[14] as String?
+      val options = pigeonVar_list[15] as List<PlatformNativeSheetOption>
+      val sourceIndex = pigeonVar_list[16] as Long?
+      val sourceUrl = pigeonVar_list[17] as String?
+      val sourceType = pigeonVar_list[18] as String?
+      val snippet = pigeonVar_list[19] as String?
+      val faviconUrl = pigeonVar_list[20] as String?
+      val queries = pigeonVar_list[21] as List<String>
+      val links = pigeonVar_list[22] as List<PlatformNativeSheetLink>
+      val pending = pigeonVar_list[23] as Boolean
+      val min = pigeonVar_list[24] as Double?
+      val max = pigeonVar_list[25] as Double?
+      val divisions = pigeonVar_list[26] as Long?
+      return PlatformNativeSheetItem(id, title, subtitle, sfSymbol, iconAsset, iconSize, showsDisclosure, destructive, dismissOnSelect, actionId, actionValue, url, kind, value, placeholder, options, sourceIndex, sourceUrl, sourceType, snippet, faviconUrl, queries, links, pending, min, max, divisions)
     }
   }
   fun toList(): List<Any?> {
@@ -1263,6 +1267,8 @@ data class PlatformNativeSheetItem (
       subtitle,
       sfSymbol,
       iconAsset,
+      iconSize,
+      showsDisclosure,
       destructive,
       dismissOnSelect,
       actionId,
@@ -1293,7 +1299,7 @@ data class PlatformNativeSheetItem (
       return true
     }
     val other = other as PlatformNativeSheetItem
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconAsset, other.iconAsset) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.dismissOnSelect, other.dismissOnSelect) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionId, other.actionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionValue, other.actionValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.url, other.url) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.options, other.options) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceIndex, other.sourceIndex) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceUrl, other.sourceUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceType, other.sourceType) && ConduitPlatformApisPigeonUtils.deepEquals(this.snippet, other.snippet) && ConduitPlatformApisPigeonUtils.deepEquals(this.faviconUrl, other.faviconUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.queries, other.queries) && ConduitPlatformApisPigeonUtils.deepEquals(this.links, other.links) && ConduitPlatformApisPigeonUtils.deepEquals(this.pending, other.pending) && ConduitPlatformApisPigeonUtils.deepEquals(this.min, other.min) && ConduitPlatformApisPigeonUtils.deepEquals(this.max, other.max) && ConduitPlatformApisPigeonUtils.deepEquals(this.divisions, other.divisions)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconAsset, other.iconAsset) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconSize, other.iconSize) && ConduitPlatformApisPigeonUtils.deepEquals(this.showsDisclosure, other.showsDisclosure) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.dismissOnSelect, other.dismissOnSelect) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionId, other.actionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionValue, other.actionValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.url, other.url) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.options, other.options) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceIndex, other.sourceIndex) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceUrl, other.sourceUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceType, other.sourceType) && ConduitPlatformApisPigeonUtils.deepEquals(this.snippet, other.snippet) && ConduitPlatformApisPigeonUtils.deepEquals(this.faviconUrl, other.faviconUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.queries, other.queries) && ConduitPlatformApisPigeonUtils.deepEquals(this.links, other.links) && ConduitPlatformApisPigeonUtils.deepEquals(this.pending, other.pending) && ConduitPlatformApisPigeonUtils.deepEquals(this.min, other.min) && ConduitPlatformApisPigeonUtils.deepEquals(this.max, other.max) && ConduitPlatformApisPigeonUtils.deepEquals(this.divisions, other.divisions)
   }
 
   override fun hashCode(): Int {
@@ -1303,6 +1309,8 @@ data class PlatformNativeSheetItem (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.subtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sfSymbol)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.iconAsset)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.iconSize)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.showsDisclosure)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.destructive)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.dismissOnSelect)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.actionId)
@@ -1326,7 +1334,7 @@ data class PlatformNativeSheetItem (
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetItem(id=$id, title=$title, subtitle=$subtitle, sfSymbol=$sfSymbol, iconAsset=$iconAsset, destructive=$destructive, dismissOnSelect=$dismissOnSelect, actionId=$actionId, actionValue=$actionValue, url=$url, kind=$kind, value=$value, placeholder=$placeholder, options=$options, sourceIndex=$sourceIndex, sourceUrl=$sourceUrl, sourceType=$sourceType, snippet=$snippet, faviconUrl=$faviconUrl, queries=$queries, links=$links, pending=$pending, min=$min, max=$max, divisions=$divisions)"
+    return "PlatformNativeSheetItem(id=$id, title=$title, subtitle=$subtitle, sfSymbol=$sfSymbol, iconAsset=$iconAsset, iconSize=$iconSize, showsDisclosure=$showsDisclosure, destructive=$destructive, dismissOnSelect=$dismissOnSelect, actionId=$actionId, actionValue=$actionValue, url=$url, kind=$kind, value=$value, placeholder=$placeholder, options=$options, sourceIndex=$sourceIndex, sourceUrl=$sourceUrl, sourceType=$sourceType, snippet=$snippet, faviconUrl=$faviconUrl, queries=$queries, links=$links, pending=$pending, min=$min, max=$max, divisions=$divisions)"
   }
 }
 
@@ -2150,6 +2158,7 @@ data class PlatformNativeSheetResultRequest (
 data class PlatformNativeSheetApplyDetailPatchRequest (
   val detailId: String,
   val items: List<PlatformNativeSheetItem>,
+  val sections: List<PlatformNativeSheetSection>,
   val title: String? = null,
   val subtitle: String? = null,
   val clearSubtitle: Boolean,
@@ -2160,17 +2169,19 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
     fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetApplyDetailPatchRequest {
       val detailId = pigeonVar_list[0] as String
       val items = pigeonVar_list[1] as List<PlatformNativeSheetItem>
-      val title = pigeonVar_list[2] as String?
-      val subtitle = pigeonVar_list[3] as String?
-      val clearSubtitle = pigeonVar_list[4] as Boolean
-      val detailSheets = pigeonVar_list[5] as List<PlatformNativeSheetDetail>?
-      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, title, subtitle, clearSubtitle, detailSheets)
+      val sections = pigeonVar_list[2] as List<PlatformNativeSheetSection>
+      val title = pigeonVar_list[3] as String?
+      val subtitle = pigeonVar_list[4] as String?
+      val clearSubtitle = pigeonVar_list[5] as Boolean
+      val detailSheets = pigeonVar_list[6] as List<PlatformNativeSheetDetail>?
+      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, sections, title, subtitle, clearSubtitle, detailSheets)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       detailId,
       items,
+      sections,
       title,
       subtitle,
       clearSubtitle,
@@ -2185,13 +2196,14 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       return true
     }
     val other = other as PlatformNativeSheetApplyDetailPatchRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.clearSubtitle, other.clearSubtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.clearSubtitle, other.clearSubtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.detailId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.items)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sections)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.subtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.clearSubtitle)
@@ -2199,7 +2211,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, title=$title, subtitle=$subtitle, clearSubtitle=$clearSubtitle, detailSheets=$detailSheets)"
+    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, sections=$sections, title=$title, subtitle=$subtitle, clearSubtitle=$clearSubtitle, detailSheets=$detailSheets)"
   }
 }
 

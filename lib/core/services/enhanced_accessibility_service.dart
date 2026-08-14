@@ -282,13 +282,18 @@ class EnhancedAccessibilityService {
     final l10n = _l10n;
     final onLabel = l10n?.switchOnLabel ?? 'On';
     final offLabel = l10n?.switchOffLabel ?? 'Off';
+    void handleChanged(bool next) {
+      ConduitHaptics.selectionClick();
+      onChanged?.call(next);
+    }
+
     return Builder(
       builder: (context) => Semantics(
         label: label,
         value: value ? onLabel : offLabel,
         hint: description,
         toggled: value,
-        onTap: onChanged != null ? () => onChanged(!value) : null,
+        onTap: onChanged != null ? () => handleChanged(!value) : null,
         child: SwitchListTile(
           title: Text(
             label,
@@ -305,7 +310,7 @@ class EnhancedAccessibilityService {
                 )
               : null,
           value: value,
-          onChanged: onChanged,
+          onChanged: onChanged == null ? null : handleChanged,
         ),
       ),
     );

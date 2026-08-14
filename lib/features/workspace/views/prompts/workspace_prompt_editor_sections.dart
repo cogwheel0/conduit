@@ -8,6 +8,7 @@ import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -107,7 +108,12 @@ final class WorkspacePromptCoreFields extends StatelessWidget {
               InputChip(
                 key: Key('workspace-prompt-tag-$tag'),
                 label: Text(tag),
-                onDeleted: readOnly ? null : () => onRemoveTag(tag),
+                onDeleted: readOnly
+                    ? null
+                    : () {
+                        ConduitHaptics.selectionClick();
+                        onRemoveTag(tag);
+                      },
               ),
             if (!readOnly)
               ActionChip(
