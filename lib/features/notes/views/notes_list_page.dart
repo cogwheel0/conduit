@@ -2,20 +2,22 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -110,30 +112,28 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: AdaptiveAppBar(title: l10n.notes),
-        body: Stack(
-          children: [
-            Positioned.fill(child: _buildBody(context)),
-            Positioned(
-              top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
-              left: 0,
-              right: 0,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Spacing.inputPadding,
-                  Spacing.xs,
-                  Spacing.inputPadding,
-                  Spacing.sm,
-                ),
-                child: _buildFloatingSearchField(context),
+    return AdaptiveRouteShell(
+      backgroundColor: context.conduitTheme.surfaceBackground,
+      extendBodyBehindAppBar: true,
+      appBar: AdaptiveAppBar(title: l10n.notes),
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildBody(context)),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
+            left: 0,
+            right: 0,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.inputPadding,
+                Spacing.xs,
+                Spacing.inputPadding,
+                Spacing.sm,
               ),
+              child: _buildFloatingSearchField(context),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -266,17 +266,31 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final paddedSlivers = <Widget>[
       SliverToBoxAdapter(child: SizedBox(height: topPadding + appBarHeight)),
       ...slivers,
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: MediaQuery.viewPaddingOf(context).bottom + Spacing.lg,
+        ),
+      ),
     ];
 
-    return ConduitRefreshIndicator(
+    final refreshable = ConduitRefreshIndicator(
       edgeOffset: topPadding + kTextTabBarHeight,
       onRefresh: _refreshNotes,
       child: CustomScrollView(
         controller: _scrollController,
+        primary: false,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: platformAlwaysScrollablePhysics(context),
         slivers: paddedSlivers,
       ),
     );
+    final primary = PrimaryScrollController(
+      controller: _scrollController,
+      child: refreshable,
+    );
+    return context.usesCupertinoChrome
+        ? CupertinoScrollbar(controller: _scrollController, child: primary)
+        : Scrollbar(controller: _scrollController, child: primary);
   }
 
   Widget _buildPinnedSectionHeader(BuildContext context, int count) {
@@ -313,7 +327,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               borderRadius: BorderRadius.circular(AppBorderRadius.pill),
             ),
             child: Text(
-              '$count',
+              LocaleDisplayFormatters.integer(context, count),
               style: AppTypography.labelMediumStyle.copyWith(
                 color: theme.buttonPrimary.withValues(alpha: 0.9),
                 fontWeight: FontWeight.w600,
@@ -360,7 +374,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           children: [
             AnimatedRotation(
               turns: isExpanded ? 0.25 : 0,
-              duration: AnimationDuration.fast,
+              duration: context.motionDuration(
+                AnimationDuration.microInteraction,
+              ),
               curve: Curves.easeOutCubic,
               child: Icon(
                 Platform.isIOS
@@ -387,7 +403,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                 borderRadius: BorderRadius.circular(AppBorderRadius.pill),
               ),
               child: Text(
-                '$count',
+                LocaleDisplayFormatters.integer(context, count),
                 style: AppTypography.labelMediumStyle.copyWith(
                   color: theme.buttonPrimary.withValues(alpha: 0.9),
                   fontWeight: FontWeight.w600,
@@ -413,7 +429,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         : dateFormat.format(note.updatedDateTime);
 
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.listPreviewMarkdown.replaceAll('\n', ' ').trim();
+    final preview = ConduitMarkdownPreprocessor.toPlainText(
+      note.listPreviewMarkdown,
+    );
     final hasContent = preview.isNotEmpty;
 
     // Compute opaque background for proper context menu snapshot rendering

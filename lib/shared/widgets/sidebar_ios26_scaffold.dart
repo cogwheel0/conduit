@@ -1,8 +1,9 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 
 import 'adaptive_toolbar_components.dart';
+import 'chrome_gradient_fade.dart';
 
 const double _nativeTabBarPlaceholderHeight = 50;
 
@@ -31,14 +32,25 @@ class SidebarIos26Scaffold extends StatelessWidget {
         route?.animation?.status == AnimationStatus.reverse;
     final composeNativeViews = showNativeView && routeAllowsNativeView;
     final navigation = bottomNavigationBar;
-    final destinations =
-        navigation?.items ?? const <AdaptiveNavigationDestination>[];
-    final hasBottomNavigation =
-        destinations.length >= 2 &&
-        destinations.length <= 5 &&
-        navigation?.selectedIndex != null &&
-        navigation?.onTap != null;
     final safePadding = MediaQuery.paddingOf(context);
+    final renderedBottomNavigation = switch (navigation) {
+      final navigation?
+          when navigation.items.length >= 2 && navigation.items.length <= 5 =>
+        navigation.renderer == AdaptiveBottomNavigationRenderer.fullWidth
+            ? buildAdaptiveCupertinoTabBar(navigation)
+            : composeNativeViews
+            ? buildAdaptiveNativeTabBar(
+                navigation,
+                tint:
+                    navigation.selectedItemColor ??
+                    CupertinoTheme.of(context).primaryColor,
+              )
+            : SizedBox(
+                height: safePadding.bottom + _nativeTabBarPlaceholderHeight,
+              ),
+      _ => null,
+    };
+    final hasBottomNavigation = renderedBottomNavigation != null;
     final textColor = CupertinoColors.label.resolveFrom(context);
     final hasNavigationBar = leading != null || actions?.isNotEmpty == true;
     final toolbarActions = actions ?? const <AdaptiveAppBarAction>[];
@@ -70,67 +82,26 @@ class SidebarIos26Scaffold extends StatelessWidget {
             style: TextStyle(color: textColor, fontSize: 17),
             child: body,
           ),
-          if (hasBottomNavigation)
+          if (hasNavigationBar)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight:
+                    safePadding.top + conduitAdaptiveToolbarHeightOf(context),
+              ),
+            ),
+          if (renderedBottomNavigation != null)
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: composeNativeViews
-                  ? CNTabBar(
-                      items: [
-                        for (final destination in destinations)
-                          _nativeTabItem(destination),
-                      ],
-                      currentIndex: navigation!.selectedIndex!,
-                      onTap: navigation.onTap!,
-                      tint:
-                          navigation.selectedItemColor ??
-                          CupertinoTheme.of(context).primaryColor,
-                      iconSize: kCupertinoNativeControlSymbolExtent,
-                    )
-                  : SizedBox(
-                      height:
-                          safePadding.bottom + _nativeTabBarPlaceholderHeight,
-                    ),
+              child: renderedBottomNavigation,
             ),
         ],
       ),
     );
-  }
-
-  static CNTabBarItem _nativeTabItem(
-    AdaptiveNavigationDestination destination,
-  ) {
-    return CNTabBarItem(
-      label: destination.label,
-      icon: destination.icon is String
-          ? CNSymbol(destination.icon as String)
-          : null,
-      activeIcon: destination.selectedIcon is String
-          ? CNSymbol(destination.selectedIcon as String)
-          : null,
-      customIcon: _iconData(destination.icon),
-      activeCustomIcon: _iconData(destination.selectedIcon),
-      imageAsset: _imageAsset(destination.icon),
-      activeImageAsset: _imageAsset(destination.selectedIcon),
-      badge: destination.badgeCount == null || destination.badgeCount == 0
-          ? null
-          : '${destination.badgeCount}',
-    );
-  }
-
-  static IconData? _iconData(dynamic icon) {
-    if (icon is IconData) return icon;
-    if (icon is Icon) return icon.icon;
-    return null;
-  }
-
-  static CNImageAsset? _imageAsset(dynamic icon) {
-    if (icon is ImageIcon && icon.image is AssetImage) {
-      return CNImageAsset((icon.image as AssetImage).assetName);
-    }
-    if (icon is AssetImage) return CNImageAsset(icon.assetName);
-    return null;
   }
 }
 

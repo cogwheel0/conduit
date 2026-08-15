@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -16,14 +16,147 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/workspace_page.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:mocktail/mocktail.dart';
 
 void main() {
+  testWidgets('compact iOS editor shares native workspace chrome', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: WorkspaceEditorScaffold(
+          title: 'Tool',
+          section: WorkspaceSection.tools,
+          mode: WorkspaceRouteMode.create,
+          onSave: () async {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final shell = tester.widget<AdaptiveRouteShell>(
+      find.byType(AdaptiveRouteShell),
+    );
+    expect(
+      shell.appBar!.cupertinoNavigationBar,
+      isA<ConduitAdaptiveCupertinoNavigationBar>(),
+    );
+    expect(find.byType(ConduitChromeGradientFade), findsOneWidget);
+    expect(find.text('Tool'), findsOneWidget);
+  });
+
+  testWidgets('compact editor disables save and overflow actions while busy', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Widget harness({required bool canSave, required bool isSaving}) {
+      return MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: WorkspaceEditorScaffold(
+          title: 'Tool',
+          section: WorkspaceSection.tools,
+          mode: WorkspaceRouteMode.create,
+          canSave: canSave,
+          isSaving: isSaving,
+          onSave: () async {},
+          actions: [WorkspaceEditorAction(label: 'Delete', onSelected: () {})],
+          child: const SizedBox.expand(),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(harness(canSave: false, isSaving: false));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.pumpWidget(harness(canSave: true, isSaving: true));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Saving…'))
+          .onPressed,
+      isNull,
+    );
+    final compactShell = tester.widget<AdaptiveRouteShell>(
+      find.byType(AdaptiveRouteShell),
+    );
+    check(compactShell.appBar!.actions!.last.onPressed).isNull();
+  });
+
+  testWidgets('desktop editor disables overflow actions while busy', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: WorkspaceEditorScaffold(
+            title: 'Tool',
+            section: WorkspaceSection.tools,
+            mode: WorkspaceRouteMode.edit,
+            isSaving: true,
+            onSave: () async {},
+            actions: [
+              WorkspaceEditorAction(label: 'Delete', onSelected: () {}),
+            ],
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('workspace-editor-overflow')), findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('workspace-editor-overflow')),
+                  matching: find.byType(IgnorePointer),
+                )
+                .first,
+          )
+          .ignoring,
+      isTrue,
+    );
+  });
+
   testWidgets('compact shell shows app bar section menu and collection', (
     tester,
   ) async {
@@ -41,6 +174,8 @@ void main() {
     // The permission-gated create affordance renders for a manageable section.
     expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
     expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.text('Read only'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-section-tabs')));
     await tester.pumpAndSettle();
@@ -62,7 +197,7 @@ void main() {
 
     final activeSectionLabel = find.descendant(
       of: find.byKey(const Key('workspace-section-tabs')),
-      matching: find.text('Workspace · Models'),
+      matching: find.text('Models'),
     );
     check(activeSectionLabel.evaluate()).length.equals(1);
 
@@ -86,6 +221,27 @@ void main() {
     await sheetFuture;
 
     check(activeSectionLabel.evaluate()).length.equals(1);
+  });
+
+  testWidgets('compact collection stays usable at 320px and 2x text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _workspaceHarness(textScaler: const TextScaler.linear(2)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('workspace-create-models'))).height,
+      greaterThanOrEqualTo(TouchTarget.minimum),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('compact Android exit surface stays at toolbar action size', (
@@ -136,7 +292,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -152,6 +308,41 @@ void main() {
 
     expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
     expect(find.byKey(const Key('workspace-list-models')), findsNothing);
+    expect(find.text('0 functions'), findsOneWidget);
+  });
+
+  testWidgets('iOS 26 section selector uses a stable native menu trigger', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    await tester.pumpWidget(_workspaceHarness());
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('workspace-section-tabs')),
+        matching: find.byType(CNPopupMenuButton),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('workspace-section-tabs')),
+        matching: find.byKey(const Key('workspace-section-chevron')),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 500));
   });
 
   testWidgets('section changes retain a back button that exits workspace', (
@@ -189,7 +380,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -213,6 +404,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('origin'), findsOneWidget);
+  });
+
+  testWidgets('native settings origin exits workspace to chat', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: Routes.profile,
+      routes: [
+        GoRoute(
+          path: Routes.chat,
+          builder: (_, _) => const Scaffold(body: Text('chat')),
+        ),
+        GoRoute(
+          path: Routes.profile,
+          builder: (_, _) => const Scaffold(body: Text('settings')),
+        ),
+        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+          GoRoute(
+            path: section.path,
+            builder: (_, state) => WorkspacePage(
+              section: section,
+              openedFromNativeSheet: state.extra is NativeSheetNavigationOrigin,
+            ),
+          ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => _capabilities,
+          ),
+          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    router.push(
+      WorkspaceSection.models.path,
+      extra: const NativeSheetNavigationOrigin(),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-section-tabs')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-exit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('chat'), findsOneWidget);
+    expect(find.text('settings'), findsNothing);
   });
 
   testWidgets('tablet shell keeps section rail, list, and detail placeholder', (
@@ -300,7 +554,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -354,7 +608,7 @@ void main() {
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -380,6 +634,7 @@ Widget _workspaceHarness({
   WorkspaceRouteMode mode = WorkspaceRouteMode.collection,
   String? resourceId,
   Object? detailError,
+  TextScaler? textScaler,
 }) {
   return ProviderScope(
     overrides: [
@@ -392,8 +647,14 @@ Widget _workspaceHarness({
         ),
     ],
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: textScaler == null
+          ? null
+          : (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+              child: child!,
+            ),
       home: WorkspacePage(
         section: WorkspaceSection.models,
         mode: mode,

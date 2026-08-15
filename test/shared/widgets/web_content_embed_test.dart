@@ -1,9 +1,10 @@
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html_unescape/html_unescape.dart';
 import 'package:mocktail/mocktail.dart';
@@ -21,7 +22,7 @@ Widget _buildHarness({
 }) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
       body: WebContentEmbed(
@@ -43,9 +44,8 @@ void main() {
       '<div>chart</div><script>renderChart()</script>',
     );
 
-    check(
-      document,
-    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document)
+        .contains('sandbox="allow-scripts allow-forms allow-popups"');
     check(document).contains('referrerpolicy="no-referrer"');
     check(document).contains('srcdoc="');
     check(document).contains('&lt;script&gt;renderChart()&lt;/script&gt;');
@@ -59,9 +59,8 @@ void main() {
     final decodedDocument = HtmlUnescape().convert(document);
 
     check(decodedDocument).contains('target="_blank"');
-    check(
-      document,
-    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document)
+        .contains('sandbox="allow-scripts allow-forms allow-popups"');
     check(document).not((it) => it.contains('allow-same-origin'));
   });
 
@@ -73,9 +72,8 @@ void main() {
     check(document).contains(
       'src="https://example.com/widget?city=New%20York&amp;units=metric"',
     );
-    check(
-      document,
-    ).contains('sandbox="allow-scripts allow-forms allow-popups"');
+    check(document)
+        .contains('sandbox="allow-scripts allow-forms allow-popups"');
     check(document).contains('referrerpolicy="no-referrer"');
     check(document).not((it) => it.contains('allow-same-origin'));
     check(document).not((it) => it.contains('srcdoc="https://example.com'));
@@ -194,12 +192,10 @@ void main() {
 
   test('all-frame bootstrap never exposes tool arguments', () {
     const secret = 'tool-argument-secret';
-    check(
-      WebContentEmbed.debugAllFrameBootstrapScript(),
-    ).not((it) => it.contains(secret));
-    check(
-      WebContentEmbed.debugAllFrameBootstrapScript(),
-    ).not((it) => it.contains('window.args ='));
+    check(WebContentEmbed.debugAllFrameBootstrapScript())
+        .not((it) => it.contains(secret));
+    check(WebContentEmbed.debugAllFrameBootstrapScript())
+        .not((it) => it.contains('window.args ='));
     check(WebContentEmbed.debugAllFrameBootstrapScript()).contains(
       "parent.postMessage({ type: 'conduit-embed-height', height }, '*')",
     );
@@ -253,12 +249,10 @@ void main() {
         'https://example.com/redirect',
       ),
     ).isTrue();
-    check(
-      WebContentEmbed.debugShouldAllowAutomaticNavigation('about:blank'),
-    ).isTrue();
-    check(
-      WebContentEmbed.debugShouldAllowAutomaticNavigation('about:srcdoc'),
-    ).isTrue();
+    check(WebContentEmbed.debugShouldAllowAutomaticNavigation('about:blank'))
+        .isTrue();
+    check(WebContentEmbed.debugShouldAllowAutomaticNavigation('about:srcdoc'))
+        .isTrue();
     check(
       WebContentEmbed.debugShouldAllowAutomaticNavigation(
         'mailto:reader@example.com',
@@ -343,9 +337,8 @@ void main() {
     check(document).contains(
       r'window.args = &quot;\u003C/script\u003E\u003Cscript\u003Esteal()\u003C/script\u003E&quot;;',
     );
-    check(
-      document,
-    ).not((it) => it.contains('</script><script>steal()</script>'));
+    check(document)
+        .not((it) => it.contains('</script><script>steal()</script>'));
   });
 
   test('full-height documents ignore sandbox resize messages', () {

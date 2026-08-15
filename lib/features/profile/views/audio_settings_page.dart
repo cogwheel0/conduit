@@ -1,9 +1,9 @@
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
@@ -12,12 +12,14 @@ import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../widgets/stt_language_picker.dart';
 
 bool shouldShowDeviceSttLanguageSetting(
@@ -36,7 +38,7 @@ class AudioSettingsPage extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final l10n = AppLocalizations.of(context)!;
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.audioSettingsTitle,
       children: [
         _buildSttSection(context, ref, settings),
@@ -448,10 +450,10 @@ class AudioSettingsPage extends ConsumerWidget {
       }
     }
 
-    await showSettingsSheet<void>(
+    await showAdaptiveSelectionSheet<void>(
       context: context,
       builder: (sheetContext) {
-        return SettingsSelectorSheet(
+        return AdaptiveSelectionSheet(
           title: l10n.ttsSelectVoice,
           itemCount: voiceOptions.length + 1,
           initialChildSize: 0.68,
@@ -459,7 +461,7 @@ class AudioSettingsPage extends ConsumerWidget {
           maxChildSize: 0.9,
           itemBuilder: (context, index) {
             if (index == 0) {
-              return SettingsSelectorTile(
+              return AdaptiveSelectionTile(
                 title: l10n.ttsSystemDefault,
                 selected: selectedOptionId == ttsSystemDefaultVoiceId,
                 onTap: () async {
@@ -475,7 +477,7 @@ class AudioSettingsPage extends ConsumerWidget {
             }
 
             final option = voiceOptions[index - 1];
-            return SettingsSelectorTile(
+            return AdaptiveSelectionTile(
               title: option.label,
               subtitle: option.subtitle,
               selected: option.id == selectedOptionId,

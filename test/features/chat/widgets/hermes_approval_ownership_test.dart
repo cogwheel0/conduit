@@ -24,11 +24,12 @@ import 'package:conduit/features/hermes/services/hermes_local_document_trust_sto
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -256,7 +257,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -297,9 +298,8 @@ void main() {
 
     check(service.decisions).isEmpty();
     final current = container.read(chatMessagesProvider).single;
-    check(
-      (current.metadata!['hermesApproval'] as Map)['state'],
-    ).equals('pending');
+    check((current.metadata!['hermesApproval'] as Map)['state'])
+        .equals('pending');
 
     await registry.cancel(key);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -365,7 +365,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(
@@ -387,9 +387,8 @@ void main() {
 
     check(service.decisions).deepEquals([('run-a', 'approval-a', true)]);
     final resolving = container.read(chatMessagesProvider).single;
-    check(
-      (resolving.metadata!['hermesApproval'] as Map)['state'],
-    ).equals('resolving');
+    check((resolving.metadata!['hermesApproval'] as Map)['state'])
+        .equals('resolving');
 
     final replacement = _approvalMessage(
       runId: 'run-b',
@@ -514,7 +513,7 @@ void main() {
             container: container,
             child: MaterialApp(
               theme: AppTheme.light(TweakcnThemes.t3Chat),
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              localizationsDelegates: conduitLocalizationsDelegates,
               supportedLocales: AppLocalizations.supportedLocales,
               home: Scaffold(
                 body: AssistantMessageWidget(
@@ -561,9 +560,8 @@ void main() {
         await tester.pump();
         final restored = container.read(chatMessagesProvider).single;
         final restoredApproval = restored.metadata![kHermesApprovalMeta] as Map;
-        check(
-          restoredApproval['state'],
-        ).equals(succeeds ? 'approved' : 'pending');
+        check(restoredApproval['state'])
+            .equals(succeeds ? 'approved' : 'pending');
 
         service.events.add(const HermesRunDone());
         await dispatch.timeout(const Duration(seconds: 1));
@@ -678,7 +676,7 @@ void main() {
           container: container,
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: conduitLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -866,7 +864,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: AssistantMessageWidget(

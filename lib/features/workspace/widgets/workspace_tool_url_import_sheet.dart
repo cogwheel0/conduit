@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
@@ -10,8 +10,9 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 /// Loads a tool definition from a URL. Returns the raw tool map, or null.
-typedef WorkspaceToolUrlLoader =
-    Future<Map<String, dynamic>> Function(String url);
+typedef WorkspaceToolUrlLoader = Future<Map<String, dynamic>> Function(
+  String url,
+);
 
 /// Admin-only bottom sheet that imports a tool from a raw or GitHub URL.
 ///
@@ -140,14 +141,11 @@ class _WorkspaceToolUrlImportSheetState
                 ),
                 const SizedBox(width: Spacing.sm),
                 Expanded(
-                  child: Text(
-                    switch (_errorKey) {
-                      'invalid' => l10n.workspaceToolImportUrlInvalid,
-                      'host' => l10n.workspaceToolImportUrlHost,
-                      _ => l10n.workspaceToolImportUrlFailed,
-                    },
-                    style: theme.bodySmall?.copyWith(color: theme.error),
-                  ),
+                  child: Text(switch (_errorKey) {
+                    'invalid' => l10n.workspaceToolImportUrlInvalid,
+                    'host' => l10n.workspaceToolImportUrlHost,
+                    _ => l10n.workspaceToolImportUrlFailed,
+                  }, style: theme.bodySmall?.copyWith(color: theme.error)),
                 ),
               ],
             ),

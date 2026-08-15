@@ -5,8 +5,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:conduit/core/services/haptic_service.dart';
@@ -26,12 +26,12 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/sensitive_value_utils.dart';
 import '../../../core/utils/unicode_prefix.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
-import '../widgets/adaptive_auth_scaffold.dart';
+import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -238,6 +238,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _showAdvancedSettings = false;
   bool _allowSelfSignedCertificates = false;
 
+  ConnectionAttemptState get _attemptState {
+    final l10n = AppLocalizations.of(context)!;
+    if (_isConnecting) {
+      return ConnectionAttemptState.connecting(l10n.connecting);
+    }
+    final error = _connectionError;
+    if (error != null) return ConnectionAttemptState.failed(error);
+    return const ConnectionAttemptState.idle();
+  }
+
   bool get _canAddCustomHeader =>
       _customHeaders.length < 10 &&
       _headerKeyController.text.trim().isNotEmpty &&
@@ -246,7 +256,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   @override
   void initState() {
     super.initState();
+    _urlController.addListener(_resetTransientAttempt);
     _prefillFromState();
+  }
+
+  void _resetTransientAttempt() {
+    if (!mounted || _isConnecting) return;
+    setState(() => _connectionError = null);
   }
 
   Future<void> _prefillFromState() async {
@@ -276,6 +292,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   @override
   void dispose() {
+    _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
@@ -286,6 +303,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Future<void> _connectToServer() async {
     if (_isConnecting) return;
+    final l10n = AppLocalizations.of(context)!;
 
     DebugLogger.log('Connect button pressed', scope: 'auth/connection');
 
@@ -373,15 +391,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
 
       if (healthResult == HealthCheckResult.unreachable) {
-        throw Exception(
-          'Could not reach the server. Please check the address.',
-        );
+        throw Exception(l10n.couldNotConnectGeneric);
       }
 
       if (healthResult == HealthCheckResult.unhealthy) {
-        throw Exception(
-          'Server responded but may not be healthy. Please try again.',
-        );
+        throw Exception(l10n.serverErrorUnavailable);
       }
 
       // Then verify it's actually an OpenWebUI server and get its config
@@ -395,7 +409,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         scope: 'auth/connection',
       );
       if (backendConfig == null) {
-        throw Exception('This does not appear to be an Open-WebUI server.');
+        throw Exception(l10n.serverNotOpenWebUI);
       }
 
       DebugLogger.log(
@@ -406,6 +420,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       // Don't save server config yet - wait until authentication succeeds
       // The config is passed to the authentication page along with backend config
       if (mounted) {
+        ConduitHaptics.success();
         final authFlowConfig = AuthFlowConfig(
           serverConfig: tempConfig,
           backendConfig: backendConfig,
@@ -422,6 +437,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         setState(() {
           _connectionError = _formatConnectionError(e);
         });
+        ConduitHaptics.error();
       }
     } finally {
       connectionApi?.dispose();
@@ -553,9 +569,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
       if (backendConfig == null) {
         if (mounted) {
-          final message = AppLocalizations.of(
-            context,
-          )!.proxyServerVerificationFailed;
+          final message = AppLocalizations.of(context)!
+              .proxyServerVerificationFailed;
           setState(() {
             _connectionError = message;
             _isConnecting = false;
@@ -576,9 +591,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         final token = result.jwtToken?.trim();
         if (token == null || token.isEmpty) {
           if (mounted) {
-            final message = AppLocalizations.of(
-              context,
-            )!.proxyManualSignInRequired;
+            final message = AppLocalizations.of(context)!
+                .proxyManualSignInRequired;
             setState(() {
               _connectionError = message;
               _isConnecting = false;
@@ -602,9 +616,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             data: {'errorType': error.runtimeType.toString()},
           );
           if (mounted) {
-            final message = AppLocalizations.of(
-              context,
-            )!.proxyManualSignInRequired;
+            final message = AppLocalizations.of(context)!
+                .proxyManualSignInRequired;
             setState(() {
               _connectionError = message;
               _isConnecting = false;
@@ -680,7 +693,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         // Navigation is handled automatically by the router when auth state
         // changes to authenticated. The router redirect will navigate to chat.
       } else {
-        throw Exception('Login failed');
+        throw Exception(AppLocalizations.of(context)!.genericSignInFailed);
       }
     } catch (e) {
       DebugLogger.error(
@@ -690,8 +703,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (mounted) {
         setState(() {
-          _connectionError =
-              'Authentication failed. Please try signing in manually.';
+          _connectionError = AppLocalizations.of(context)!.genericSignInFailed;
           _isConnecting = false;
         });
       }
@@ -895,6 +907,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Future<void> _pickMutualTlsFile({required bool isPrivateKey}) async {
     try {
+      FocusManager.instance.primaryFocus?.unfocus();
       final file = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: isPrivateKey
@@ -1073,14 +1086,23 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     required Iterable<String> sensitiveValues,
   }) {
     if (error is DioException) {
+      if (error.response == null) {
+        return error.type == DioExceptionType.badCertificate
+            ? AppLocalizations.of(context)!.securityCertificateError
+            : AppLocalizations.of(context)!.couldNotConnectGeneric;
+      }
       return _formatDioException(error, sensitiveValues: sensitiveValues);
     }
 
-    if (error is SocketException) return 'Could not reach the server.';
-    if (error is HttpException) {
-      return 'The server returned an invalid HTTP response.';
+    if (error is SocketException) {
+      return AppLocalizations.of(context)!.couldNotConnectGeneric;
     }
-    if (error is HandshakeException) return 'TLS handshake failed.';
+    if (error is HttpException) {
+      return AppLocalizations.of(context)!.serverErrorGeneric;
+    }
+    if (error is HandshakeException) {
+      return AppLocalizations.of(context)!.securityCertificateError;
+    }
 
     return null;
   }
@@ -1106,78 +1128,47 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveAuthScaffold(
-        title: l10n.backendChooserOpenWebUITitle,
-        backLabel: l10n.back,
-        backButtonKey: const ValueKey<String>('server-connection-back-button'),
-        onBack: () => context.go(Routes.backendChooser),
-        bottomAction: _buildConnectButton(),
-        body: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(reviewerMode),
-              if (reviewerMode) ...[
-                const SizedBox(height: Spacing.xl),
-                _buildReviewerModeSection(),
-              ],
+    return UtilityPageScaffold.auth(
+      title: l10n.backendChooserOpenWebUITitle,
+      onTitleLongPress: _toggleReviewerMode,
+      backNavigation: UtilityBackNavigation(
+        label: l10n.back,
+        buttonKey: const ValueKey<String>('server-connection-back-button'),
+        onPressed: () => context.go(Routes.backendChooser),
+      ),
+      bottomAction: _buildConnectButton(),
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (reviewerMode) ...[
+              _buildReviewerModeSection(),
               const SizedBox(height: Spacing.xl),
-              _buildServerForm(),
             ],
-          ),
+            _buildServerForm(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader(bool reviewerMode) {
-    final theme = context.conduitTheme;
+  Future<void> _toggleReviewerMode() async {
     final l10n = AppLocalizations.of(context)!;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onLongPress: () async {
-        ConduitHaptics.mediumImpact();
-        await ref.read(reviewerModeProvider.notifier).toggle();
-        if (!mounted) return;
-        final enabled = ref.read(reviewerModeProvider);
-        AdaptiveSnackBar.show(
-          context,
-          message: enabled
-              ? l10n.reviewerModeEnabled
-              : l10n.reviewerModeDisabled,
-          type: AdaptiveSnackBarType.info,
-        );
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.enterServerAddress,
-            style: theme.bodyMedium?.copyWith(
-              color: theme.textSecondary,
-              height: 1.4,
-            ),
-          ),
-          if (reviewerMode) ...[
-            const SizedBox(height: Spacing.sm),
-            ConduitBadge(
-              text: l10n.demoBadge,
-              backgroundColor: theme.warning.withValues(alpha: 0.15),
-              textColor: theme.warning,
-              isCompact: true,
-            ),
-          ],
-        ],
-      ),
+    ConduitHaptics.mediumImpact();
+    await ref.read(reviewerModeProvider.notifier).toggle();
+    if (!mounted) return;
+    final enabled = ref.read(reviewerModeProvider);
+    AdaptiveSnackBar.show(
+      context,
+      message: enabled ? l10n.reviewerModeEnabled : l10n.reviewerModeDisabled,
+      type: AdaptiveSnackBarType.info,
     );
   }
 
   Widget _buildReviewerModeSection() {
-    return ConduitCard(
-      isElevated: false,
+    return Padding(
       padding: const EdgeInsets.all(Spacing.lg),
       child: Column(
         children: [
@@ -1237,30 +1228,34 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AccessibleFormField(
-          key: const ValueKey<String>('server-url-field'),
-          label: l10n.serverUrl,
-          hint: l10n.serverUrlHint,
-          controller: _urlController,
-          validator: (value) {
-            final v = value ?? _urlController.text;
-            return InputValidationService.combine([
-              InputValidationService.validateRequired,
-              (val) => InputValidationService.validateUrl(val, required: true),
-            ])(v);
-          },
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.done,
-          autocorrect: false,
-          onSubmitted: (_) => _connectToServer(),
-          semanticLabel: l10n.enterServerUrlSemantic,
-          isRequired: true,
-          autofillHints: const [AutofillHints.url],
+        InsetGroupedSection(
+          flat: true,
+          child: AccessibleFormField(
+            key: const ValueKey<String>('server-url-field'),
+            label: l10n.serverUrl,
+            hint: l10n.serverUrlHint,
+            controller: _urlController,
+            validator: (value) {
+              final v = value ?? _urlController.text;
+              return InputValidationService.combine([
+                InputValidationService.validateRequired,
+                (val) =>
+                    InputValidationService.validateUrl(val, required: true),
+              ])(v);
+            },
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.done,
+            autocorrect: false,
+            onSubmitted: (_) => _connectToServer(),
+            semanticLabel: l10n.enterServerUrlSemantic,
+            isRequired: true,
+            autofillHints: const [AutofillHints.url],
+          ),
         ),
 
-        if (_connectionError != null) ...[
+        if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
-          _buildErrorMessage(_connectionError!),
+          ConnectionAttemptBanner(state: _attemptState),
         ],
 
         const SizedBox(height: Spacing.lg),
@@ -1272,105 +1267,21 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildAdvancedSettings() {
-    final theme = context.conduitTheme;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppBorderRadius.card),
-        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+    return UtilityDisclosureSection(
+      key: const ValueKey<String>('advanced-settings-toggle'),
+      title: AppLocalizations.of(context)!.advancedSettings,
+      leading: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.gear_alt
+            : Icons.tune_rounded,
+        color: context.conduitTheme.iconSecondary,
+        size: IconSize.medium,
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Semantics(
-            button: true,
-            expanded: _showAdvancedSettings,
-            child: SizedBox(
-              width: double.infinity,
-              child: AdaptiveButton.child(
-                key: const ValueKey<String>('advanced-settings-toggle'),
-                onPressed: () => setState(
-                  () => _showAdvancedSettings = !_showAdvancedSettings,
-                ),
-                style: AdaptiveButtonStyle.plain,
-                size: AdaptiveButtonSize.large,
-                minSize: const Size(
-                  TouchTarget.minimum,
-                  TouchTarget.comfortable,
-                ),
-                padding: EdgeInsets.zero,
-                borderRadius: BorderRadius.circular(AppBorderRadius.card),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-                  child: Row(
-                    children: [
-                      Icon(
-                        context.usesCupertinoChrome
-                            ? CupertinoIcons.gear_alt
-                            : Icons.tune_rounded,
-                        color: theme.iconSecondary,
-                        size: IconSize.medium,
-                      ),
-                      const SizedBox(width: Spacing.sm),
-                      Expanded(
-                        child: Text(
-                          AppLocalizations.of(context)!.advancedSettings,
-                          style: theme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            color: theme.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (_customHeaders.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(right: Spacing.sm),
-                          child: ConduitBadge(
-                            text: '${_customHeaders.length}',
-                            backgroundColor: theme.buttonPrimary.withValues(
-                              alpha: 0.1,
-                            ),
-                            textColor: theme.buttonPrimary,
-                            isCompact: true,
-                          ),
-                        ),
-                      AnimatedRotation(
-                        duration: context.motionDuration(
-                          AnimationDuration.microInteraction,
-                        ),
-                        turns: _showAdvancedSettings ? 0.5 : 0,
-                        child: Icon(
-                          context.usesCupertinoChrome
-                              ? CupertinoIcons.chevron_down
-                              : Icons.expand_more,
-                          color: theme.iconSecondary,
-                          size: IconSize.medium,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          if (context.reduceMotion)
-            if (_showAdvancedSettings)
-              _buildAdvancedSettingsContent()
-            else
-              const SizedBox.shrink()
-          else
-            AnimatedCrossFade(
-              duration: AnimationDuration.microInteraction,
-              sizeCurve: Curves.easeOutCubic,
-              crossFadeState: _showAdvancedSettings
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              firstChild: const SizedBox.shrink(),
-              secondChild: _buildAdvancedSettingsContent(),
-            ),
-        ],
-      ),
+      expanded: _showAdvancedSettings,
+      onChanged: (value) => setState(() => _showAdvancedSettings = value),
+      contentPadding: EdgeInsets.zero,
+      flat: true,
+      child: _buildAdvancedSettingsContent(),
     );
   }
 
@@ -1381,12 +1292,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Divider(
-          height: BorderWidth.thin,
-          thickness: BorderWidth.thin,
-          color: theme.cardBorder,
-        ),
-
         // Self-signed certificates toggle
         Padding(
           padding: const EdgeInsets.all(Spacing.md),
@@ -1420,6 +1325,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 onChanged: (value) {
                   setState(() {
                     _allowSelfSignedCertificates = value;
+                    _connectionError = null;
                   });
                 },
                 activeColor: theme.buttonPrimary,
@@ -1571,6 +1477,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                           color: _customHeaders.length >= 10
                               ? theme.error
                               : theme.textTertiary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
@@ -1588,7 +1495,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 keyboardType: TextInputType.text,
                 textInputAction: TextInputAction.next,
                 autocorrect: false,
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) => setState(() => _connectionError = null),
                 onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
               ),
               const SizedBox(height: Spacing.md),
@@ -1603,7 +1510,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 keyboardType: TextInputType.text,
                 textInputAction: TextInputAction.done,
                 autocorrect: false,
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) => setState(() => _connectionError = null),
                 onSubmitted: (_) {
                   if (_canAddCustomHeader) _addCustomHeader();
                 },
@@ -1615,7 +1522,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 onPressed: _canAddCustomHeader ? _addCustomHeader : null,
                 isSecondary: true,
                 isFullWidth: true,
-                useNativeLabel: true,
               ),
 
               // Header list
@@ -1708,48 +1614,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
           : AppLocalizations.of(context)!.connectToServerButton,
-      onPressed: _isConnecting ? null : _connectToServer,
+      onPressed: _isConnecting || _urlController.text.trim().isEmpty
+          ? null
+          : _connectToServer,
       isLoading: _isConnecting,
       isFullWidth: true,
-      useNativeLabel: true,
-    );
-  }
-
-  Widget _buildErrorMessage(String message) {
-    return Semantics(
-      liveRegion: true,
-      label: message,
-      child: Container(
-        padding: const EdgeInsets.all(Spacing.md),
-        decoration: BoxDecoration(
-          color: context.conduitTheme.error.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: context.conduitTheme.error.withValues(alpha: 0.2),
-            width: BorderWidth.standard,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              context.usesCupertinoChrome
-                  ? CupertinoIcons.exclamationmark_circle
-                  : Icons.error_outline,
-              color: context.conduitTheme.error,
-              size: IconSize.small,
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Text(
-                message,
-                style: context.conduitTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.error,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1789,6 +1658,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _customHeaders[key] = value;
       _headerKeyController.clear();
       _headerValueController.clear();
+      _connectionError = null;
     });
     ConduitHaptics.lightImpact();
   }
@@ -1865,6 +1735,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   void _removeCustomHeader(String key) {
     setState(() {
       _customHeaders.remove(key);
+      _connectionError = null;
     });
     ConduitHaptics.lightImpact();
   }

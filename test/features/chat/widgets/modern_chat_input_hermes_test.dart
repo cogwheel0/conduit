@@ -7,7 +7,8 @@ import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -152,7 +153,7 @@ Future<void> _pumpComposer(
         imageGenerationAvailableProvider.overrideWithValue(true),
       ],
       child: MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: ModernChatInput(

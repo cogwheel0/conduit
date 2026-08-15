@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'native avatar raster keeps a 28pt image inside a 44pt canvas',
+    'native avatar raster keeps a circular 28pt image inside a 44pt canvas',
     () async {
       final source = await _solidPng();
       final raster = await rasterizeSidebarNativeAvatar(
@@ -45,6 +45,10 @@ void main() {
       check(maxY - minY + 1).equals(84);
       check(minX).equals(24);
       check(minY).equals(24);
+
+      int alphaAt(int x, int y) => pixels[((y * image.width) + x) * 4 + 3];
+      check(alphaAt(24, 24)).equals(0);
+      check(alphaAt(66, 66)).equals(255);
 
       image.dispose();
       codec.dispose();

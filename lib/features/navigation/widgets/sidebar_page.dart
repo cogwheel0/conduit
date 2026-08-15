@@ -3,29 +3,22 @@ import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
 import '../../../core/sync/sync_engine.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
+import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
-import '../utils/sidebar_create_action.dart';
-import '../../channels/widgets/channel_list_tab.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/widgets/hermes_sessions_tab.dart';
-import '../../notes/widgets/notes_list_tab.dart';
-import '../../terminal/models/terminal_models.dart';
-import '../../terminal/providers/terminal_providers.dart';
-import '../../terminal/widgets/terminal_sidebar_controls_sheet.dart';
-import '../../terminal/widgets/terminal_tab.dart';
-import 'chats_drawer.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 import 'sidebar_user_pill.dart';
+import 'sidebar_tab_registry.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
 const double _kSidebarNavigationBarHeight = 56;
@@ -33,35 +26,17 @@ const double _kSidebarSearchCloseActionReserve = 64;
 const double _kSidebarSearchFieldReserve = 96;
 // Mirrors Conduit platform UI's iPadOS window-control reservation.
 const double _kSidebarWindowedLeadingInset = 62;
-const double _kSidebarNativeBottomBarContentHeight = 50;
-
-enum _SidebarTabId { chats, hermes, terminal, notes, channels }
-
-class _SidebarTabDefinition {
-  const _SidebarTabDefinition({
-    required this.id,
-    required this.label,
-    required this.body,
-  });
-
-  final _SidebarTabId id;
-  final String label;
-  final Widget body;
-
-  ValueKey<String> get layerKey =>
-      ValueKey<String>('sidebar-tab-layer-${id.name}');
-}
 
 class _SidebarNavigationItem {
   const _SidebarNavigationItem({
     required this.label,
     required this.destination,
-    required this.tabDefinition,
+    required this.descriptor,
   });
 
   final String label;
   final AdaptiveNavigationDestination destination;
-  final _SidebarTabDefinition tabDefinition;
+  final SidebarTabDescriptor descriptor;
 }
 
 /// Keeps all sidebar tab subtrees mounted and only toggles which one is active.
@@ -70,21 +45,23 @@ class _SidebarNavigationItem {
 /// every platform, including the iOS 26 native-tab workaround.
 class _SidebarTabStack extends StatelessWidget {
   const _SidebarTabStack({
-    required this.tabDefinitions,
+    required this.tabs,
     required this.activeIndex,
+    required this.showBottomNavigation,
   });
 
-  final List<_SidebarTabDefinition> tabDefinitions;
+  final List<SidebarTabDescriptor> tabs;
   final int activeIndex;
+  final bool showBottomNavigation;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       fit: StackFit.expand,
       children: [
-        for (var index = 0; index < tabDefinitions.length; index++)
+        for (var index = 0; index < tabs.length; index++)
           KeyedSubtree(
-            key: tabDefinitions[index].layerKey,
+            key: tabs[index].layerKey,
             child: IgnorePointer(
               ignoring: index != activeIndex,
               child: TickerMode(
@@ -95,7 +72,10 @@ class _SidebarTabStack extends StatelessWidget {
                     excluding: index != activeIndex,
                     child: Opacity(
                       opacity: index == activeIndex ? 1 : 0,
-                      child: tabDefinitions[index].body,
+                      child: tabs[index].bodyBuilder(
+                        showBottomNavigation: showBottomNavigation,
+                        active: index == activeIndex,
+                      ),
                     ),
                   ),
                 ),
@@ -144,50 +124,19 @@ class _SidebarSyncProgressBar extends StatelessWidget {
   }
 }
 
-IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
-  switch (id) {
-    case _SidebarTabId.chats:
-      return selected ? Icons.chat_bubble : Icons.chat_bubble_outline;
-    case _SidebarTabId.hermes:
-      return selected ? Icons.smart_toy : Icons.smart_toy_outlined;
-    case _SidebarTabId.notes:
-      return selected ? Icons.note : Icons.note_outlined;
-    case _SidebarTabId.terminal:
-      return selected ? Icons.terminal : Icons.terminal_rounded;
-    case _SidebarTabId.channels:
-      return Icons.tag;
-  }
-}
-
-/// The real Hermes Agent logo (bundled from the official 48×48 icon), used for
-/// the Hermes tab instead of a generic glyph.
-const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
-
 /// Tab-bar rendering of the Hermes logo as a theme-aware alpha mask.
 ///
 /// The bundled asset is black with transparency, so a raw [Image] would stay
 /// black in dark mode instead of inheriting the navigation icon color.
-class _HermesTabImage extends StatelessWidget {
-  const _HermesTabImage();
+class _SidebarAssetTabImage extends StatelessWidget {
+  const _SidebarAssetTabImage(this.assetName, {this.size = IconSize.tabBar});
+
+  final String assetName;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return const ImageIcon(kHermesTabIcon, size: IconSize.tabBar);
-  }
-}
-
-String _sfSymbolTabIcon(_SidebarTabId id, {bool selected = false}) {
-  switch (id) {
-    case _SidebarTabId.chats:
-      return selected ? 'bubble.left.fill' : 'bubble.left';
-    case _SidebarTabId.hermes:
-      return 'sparkles';
-    case _SidebarTabId.notes:
-      return selected ? 'doc.text.fill' : 'doc.text';
-    case _SidebarTabId.terminal:
-      return 'terminal';
-    case _SidebarTabId.channels:
-      return 'number';
+    return ImageIcon(AssetImage(assetName), size: size);
   }
 }
 
@@ -247,13 +196,17 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
           destinations: [
             for (final item in navigationItems)
               NavigationDestination(
-                icon: item.tabDefinition.id == _SidebarTabId.hermes
-                    ? const _HermesTabImage()
-                    : Icon(_materialTabIcon(item.tabDefinition.id)),
-                selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
-                    ? const _HermesTabImage()
-                    : Icon(
-                        _materialTabIcon(item.tabDefinition.id, selected: true),
+                icon: item.descriptor.assetName == null
+                    ? Icon(item.descriptor.materialIcon)
+                    : _SidebarAssetTabImage(
+                        item.descriptor.assetName!,
+                        size: item.descriptor.assetIconSize ?? IconSize.tabBar,
+                      ),
+                selectedIcon: item.descriptor.assetName == null
+                    ? Icon(item.descriptor.selectedMaterialIcon)
+                    : _SidebarAssetTabImage(
+                        item.descriptor.assetName!,
+                        size: item.descriptor.assetIconSize ?? IconSize.tabBar,
                       ),
                 label: item.label,
               ),
@@ -268,12 +221,12 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 /// Channels (optional) tabs.
 ///
 /// Replaces the single-purpose [ChatsDrawer] as the drawer content
-/// in [ResponsiveDrawerLayout]. Tab selection is persisted via
+/// in the responsive drawer layout. Tab selection is persisted via
 /// [sidebarActiveTabProvider].
 ///
 /// Notes, Terminal, and Channels tabs are each independently optional. When a
-/// feature or its backing terminal servers are unavailable, the corresponding
-/// tab is hidden and the persisted index is clamped to the visible tab range.
+/// persisted tab is unavailable, Chats is shown without overwriting the saved
+/// identity, so the selection can be restored if that feature returns.
 class SidebarPage extends ConsumerStatefulWidget {
   const SidebarPage({super.key});
 
@@ -282,30 +235,20 @@ class SidebarPage extends ConsumerStatefulWidget {
 }
 
 class _SidebarPageState extends ConsumerState<SidebarPage> {
-  int _clampIndex(int index, int tabCount) => index.clamp(0, tabCount - 1);
-
-  void _schedulePersistedIndexSync(int index) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      final persistedIndex = ref.read(sidebarActiveTabProvider);
-      if (persistedIndex != index) {
-        ref.read(sidebarActiveTabProvider.notifier).set(index);
-      }
-    });
-  }
-
   AdaptiveBottomNavigationBar _sidebarBottomNavigationBar(
     List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,
     int selectedIndex,
-    ValueChanged<int> onTap,
-  ) {
+    ValueChanged<int> onTap, {
+    required bool useFullWidthRenderer,
+  }) {
     return AdaptiveBottomNavigationBar(
       items: [for (final item in navigationItems) item.destination],
       selectedIndex: selectedIndex,
       onTap: onTap,
-      useNativeBottomBar: true,
+      renderer: useFullWidthRenderer
+          ? AdaptiveBottomNavigationRenderer.fullWidth
+          : AdaptiveBottomNavigationRenderer.nativeOverlay,
       selectedItemColor: conduitTheme.buttonPrimary,
       unselectedItemColor: conduitTheme.textSecondary,
       bottomNavigationBar: _SidebarMaterialBottomNavigationBar(
@@ -318,25 +261,42 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   }
 
   List<_SidebarNavigationItem> _sidebarNavigationItems(
-    List<_SidebarTabDefinition> tabDefinitions,
-  ) {
+    List<SidebarTabDescriptor> tabs,
+    AppLocalizations localizations, {
+    required bool useNativeOverlay,
+  }) {
     return <_SidebarNavigationItem>[
-      for (final def in tabDefinitions)
+      for (final descriptor in tabs)
         _SidebarNavigationItem(
-          label: def.label,
+          label: descriptor.label(localizations),
           destination: AdaptiveNavigationDestination(
-            // ImageIcon keeps the alpha-mask asset tintable on Cupertino and
-            // is also recognized by the native iOS tab-bar asset extractor.
-            // Let Cupertino supply size so selected/unselected icons match.
-            icon: def.id == _SidebarTabId.hermes
-                ? const ImageIcon(kHermesTabIcon)
-                : _sfSymbolTabIcon(def.id),
-            selectedIcon: def.id == _SidebarTabId.hermes
-                ? const ImageIcon(kHermesTabIcon)
-                : _sfSymbolTabIcon(def.id, selected: true),
-            label: def.label,
+            icon: switch (useNativeOverlay
+                ? descriptor.nativeAssetName
+                : descriptor.assetName) {
+              final assetName? => AdaptiveNavigationIcon.asset(
+                assetName,
+                size: useNativeOverlay
+                    ? descriptor.nativeAssetIconSize ?? 24.0
+                    : 24.0,
+              ),
+              null => AdaptiveNavigationIcon.symbol(descriptor.sfSymbol),
+            },
+            selectedIcon: switch (useNativeOverlay
+                ? descriptor.nativeAssetName
+                : descriptor.assetName) {
+              final assetName? => AdaptiveNavigationIcon.asset(
+                assetName,
+                size: useNativeOverlay
+                    ? descriptor.nativeAssetIconSize ?? 24.0
+                    : 24.0,
+              ),
+              null => AdaptiveNavigationIcon.symbol(
+                descriptor.selectedSfSymbol,
+              ),
+            },
+            label: descriptor.label(localizations),
           ),
-          tabDefinition: def,
+          descriptor: descriptor,
         ),
     ];
   }
@@ -389,7 +349,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     required BuildContext context,
     required AppLocalizations localizations,
     required bool isSearchExpanded,
-    required bool showTerminalPanelPicker,
+    required SidebarTabDescriptor activeTab,
   }) {
     final defaultTint = context.conduitTheme.textPrimary;
     if (isSearchExpanded) {
@@ -403,20 +363,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       ];
     }
 
-    final panelPicker = showTerminalPanelPicker
-        ? <AdaptiveAppBarAction>[
-            AdaptiveAppBarAction(
-              iosSymbol: 'chevron.down.circle',
-              icon: Icons.arrow_drop_down_circle_outlined,
-              tintColor: defaultTint,
-              onPressed: () {
-                unawaited(showTerminalSidebarControlsSheet(context));
-              },
-            ),
-          ]
-        : const <AdaptiveAppBarAction>[];
+    final contextualActions = activeTab.behavior.contextualActions(
+      context,
+      defaultTint,
+    );
 
-    final createAction = sidebarCreateActionForActiveTab(ref);
+    final createAction = activeTab.createAction;
     return [
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
@@ -424,13 +376,13 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         tintColor: defaultTint,
         onPressed: _openSidebarSearch,
       ),
-      ...panelPicker,
+      ...contextualActions,
       if (createAction != null)
         AdaptiveAppBarAction(
           iosSymbol: createAction.sfSymbol,
           icon: createAction.icon,
           tintColor: defaultTint,
-          onPressed: () => runSidebarCreateAction(context, ref),
+          onPressed: () => createAction.run(context, ref),
         ),
     ];
   }
@@ -496,7 +448,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           child: ConduitChromeGradientFade.bottom(
             contentHeight:
                 MediaQuery.viewPaddingOf(context).bottom +
-                _kSidebarNativeBottomBarContentHeight,
+                sidebarNativeBottomBarContentHeight,
           ),
         ),
       ],
@@ -506,70 +458,22 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
-    // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
-    final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-    final hermesEnabled = ref.watch(hermesEnabledProvider);
-    final notesEnabled =
-        hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider);
-    final channelsEnabled =
-        hasOpenWebUi &&
-        !hermesOnly &&
-        ref.watch(channelsFeatureEnabledProvider);
-    // Live when the server list resolves; cached last-known value when offline
-    // (so a terminal-disabled server doesn't surface the tab offline).
-    final showTerminalTab =
-        hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider);
-    final visibleTabIds = <_SidebarTabId>[
-      if (!hermesOnly) _SidebarTabId.chats,
-      if (hermesOnly || hermesEnabled) _SidebarTabId.hermes,
-      if (notesEnabled) _SidebarTabId.notes,
-      if (showTerminalTab) _SidebarTabId.terminal,
-      if (channelsEnabled) _SidebarTabId.channels,
+    final navigation = ref.watch(sidebarNavigationSnapshotProvider);
+    final tabs = [
+      for (final tabId in navigation.tabs) sidebarTabDescriptor(tabId),
     ];
-    final hasBottomNavigationBar = visibleTabIds.length > 1;
-    final persistedIndex = ref.watch(sidebarActiveTabProvider);
-    final activeIndex = _clampIndex(persistedIndex, visibleTabIds.length);
-    if (activeIndex != persistedIndex) {
-      _schedulePersistedIndexSync(activeIndex);
-    }
-    final isTerminalTabSelected =
-        visibleTabIds[activeIndex] == _SidebarTabId.terminal;
-    final tabDefinitions = <_SidebarTabDefinition>[
-      if (!hermesOnly)
-        _SidebarTabDefinition(
-          id: _SidebarTabId.chats,
-          label: localizations.sidebarChatsTab,
-          body: const ChatsDrawer(),
-        ),
-      if (hermesOnly || hermesEnabled)
-        _SidebarTabDefinition(
-          id: _SidebarTabId.hermes,
-          label: 'Hermes',
-          body: HermesSessionsTab(
-            showBottomNavigationBar: hasBottomNavigationBar,
-          ),
-        ),
-      if (notesEnabled)
-        _SidebarTabDefinition(
-          id: _SidebarTabId.notes,
-          label: localizations.sidebarNotesTab,
-          body: const NotesListTab(),
-        ),
-      if (showTerminalTab)
-        _SidebarTabDefinition(
-          id: _SidebarTabId.terminal,
-          label: localizations.sidebarTerminalTab,
-          body: TerminalTab(isActive: isTerminalTabSelected),
-        ),
-      if (channelsEnabled)
-        _SidebarTabDefinition(
-          id: _SidebarTabId.channels,
-          label: localizations.sidebarChannelsTab,
-          body: const ChannelListTab(),
-        ),
-    ];
-    final navigationItems = _sidebarNavigationItems(tabDefinitions);
+    final hasMultipleTabs = tabs.length > 1;
+    final persistentTabletSidebar = PersistentTabletSidebarScope.isActive(
+      context,
+    );
+    final hasBottomNavigationBar = hasMultipleTabs;
+    final activeTabNotifier = ref.read(sidebarActiveTabProvider.notifier);
+    final activeIndex = navigation.selectedIndex;
+    final navigationItems = _sidebarNavigationItems(
+      tabs,
+      localizations,
+      useNativeOverlay: !persistentTabletSidebar,
+    );
 
     final conduitTheme = context.conduitTheme;
     final isSearchExpanded = ref.watch(sidebarHeaderSearchExpandedProvider);
@@ -577,47 +481,47 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final composeNativeIos26Chrome = DrawerChromeCompositionScope.shouldCompose(
       context,
     );
-    final isTerminalTabActive =
-        tabDefinitions[activeIndex].id == _SidebarTabId.terminal;
-    final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
+    final activeTab = sidebarTabDescriptor(navigation.selectedTab);
     final appBarActions = _sidebarAppBarActions(
       context: context,
       localizations: localizations,
       isSearchExpanded: isSearchExpanded,
-      showTerminalPanelPicker: showTerminalPanelInAppBar,
+      activeTab: activeTab,
     );
 
     void onTap(int index) {
-      ref.read(sidebarActiveTabProvider.notifier).set(index);
-      if (tabDefinitions[index].id != _SidebarTabId.terminal) {
-        ref
-            .read(terminalSidebarPanelProvider.notifier)
-            .setPanel(TerminalSidebarPanel.console);
-      } else {
-        final servers = ref
-            .read(terminalAvailableServersProvider)
-            .asData
-            ?.value;
-        if (servers != null && servers.length == 1) {
-          ref
-              .read(terminalSidebarPanelProvider.notifier)
-              .setPanel(TerminalSidebarPanel.files);
+      ConduitHaptics.selectionClick();
+      final selectedTab = tabs[index];
+      if (index == activeIndex) {
+        if (navigation.isLegacySelection) {
+          activeTabNotifier.set(selectedTab.id);
         }
+        unawaited(
+          ref
+              .read(sidebarTabScrollRegistryProvider)
+              .scrollToTop(
+                selectedTab.id,
+                duration: context.motionDuration(AnimationDuration.fast),
+              ),
+        );
+        return;
       }
+      final previousTab = tabs[activeIndex];
+      previousTab.behavior.onDeselected(ref);
+      ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
+      selectedTab.behavior.onSelected(ref);
     }
 
-    final sidebarBody = _SidebarTabStack(
-      tabDefinitions: tabDefinitions,
+    final sidebarTabStack = _SidebarTabStack(
+      tabs: tabs,
       activeIndex: activeIndex,
+      showBottomNavigation: hasBottomNavigationBar,
     );
-    final sidebarBodyWithBottomFade = _buildSidebarBodyWithBottomFade(
-      sidebarBody,
-      hasBottomNavigationBar: hasBottomNavigationBar,
-    );
-    final sidebarBodyWithSyncProgress = Stack(
+
+    Widget withSyncProgress(Widget child) => Stack(
       fit: StackFit.expand,
       children: [
-        Positioned.fill(child: sidebarBodyWithBottomFade),
+        Positioned.fill(child: child),
         Positioned(
           top: Spacing.xs,
           left: Spacing.md,
@@ -660,8 +564,20 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
                   conduitTheme,
                   activeIndex,
                   onTap,
+                  useFullWidthRenderer: persistentTabletSidebar,
                 )
               : null;
+          final tabContent = withSyncProgress(
+            _buildSidebarBodyWithBottomFade(
+              sidebarTabStack,
+              hasBottomNavigationBar: hasBottomNavigationBar,
+            ),
+          );
+          final sidebarBody = SidebarTabLayoutScope(
+            parentOwnsHeaderInset: false,
+            bottomNavigationVisible: hasBottomNavigationBar,
+            child: tabContent,
+          );
 
           if (useNativeIos26Chrome) {
             return SidebarIos26Scaffold(
@@ -669,7 +585,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               leading: adaptiveAppBarLeading,
               actions: appBarActions,
               showNativeView: composeNativeIos26Chrome,
-              body: sidebarBodyWithSyncProgress,
+              body: sidebarBody,
             );
           }
 
@@ -687,7 +603,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               ),
             ),
             bottomNavigationBar: bottomNavigationBar,
-            body: sidebarBodyWithSyncProgress,
+            body: sidebarBody,
           );
         },
       ),

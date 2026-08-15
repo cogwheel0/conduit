@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter_driver/driver_extension.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'core/widgets/error_boundary.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
@@ -38,16 +41,22 @@ import 'features/release_notes/release_notes_bootstrap.dart';
 import 'features/release_notes/release_notes_coordinator.dart';
 import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
+import 'l10n/conduit_localizations.dart';
+import 'shared/widgets/legacy_design_compatibility.dart';
 import 'features/tools/providers/tools_providers.dart';
+import 'features/workspace/providers/workspace_capabilities_provider.dart';
+import 'features/workspace/workspace_navigation.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
 import 'core/models/tool.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
+import 'shared/theme/theme_extensions.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -249,6 +258,8 @@ void main() {
       // CarPlay can cold-launch Conduit without a visible Flutter scene, so
       // install its method-channel handler before frame-scheduled startup work.
       providerContainer.read(carPlayCoordinatorProvider);
+
+      installConduitErrorWidgetBuilder();
 
       runApp(
         UncontrolledProviderScope(
@@ -528,9 +539,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             ),
           );
         case NativeSheetRoutes.workspace:
+          final capabilities = ref.read(workspaceCapabilitiesProvider).value;
+          final permitted = capabilities == null
+              ? const <WorkspaceSection>[]
+              : permittedWorkspaceSections(capabilities);
+          final destination = permitted.isEmpty
+              ? Routes.workspace
+              : permitted.first.path;
           unawaited(
-            NavigationService.router.pushNamed<void>(
-              RouteNames.workspace,
+            NavigationService.router.push<void>(
+              destination,
               extra: const NativeSheetNavigationOrigin(),
             ),
           );
@@ -915,70 +933,94 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     final cupertinoLight = ref.watch(appCupertinoLightThemeProvider);
     final cupertinoDark = ref.watch(appCupertinoDarkThemeProvider);
 
-    return ErrorBoundary(
-      child: AdaptiveApp.router(
-        routerConfig: router,
-        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        materialLightTheme: lightTheme,
-        materialDarkTheme: darkTheme,
-        cupertinoLightTheme: cupertinoLight,
-        cupertinoDarkTheme: cupertinoDark,
-        themeMode: themeMode,
-        locale: locale,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        localeListResolutionCallback: (deviceLocales, supported) {
-          if (locale != null) return locale;
-          if (deviceLocales == null || deviceLocales.isEmpty) {
-            return supported.first;
-          }
-          final resolved = _resolveSupportedLocale(deviceLocales, supported);
-          return resolved ?? supported.first;
-        },
-        material: (_, _) =>
-            const MaterialAppData(debugShowCheckedModeBanner: false),
-        cupertino: (_, _) =>
-            const CupertinoAppData(debugShowCheckedModeBanner: false),
-        builder: (context, child) {
-          // Resolve brightness from themeMode rather than
-          // Theme.of(context) — on iOS, CupertinoApp's
-          // auto-generated Theme may not reflect themeMode.
-          final Brightness brightness;
-          switch (themeMode) {
-            case ThemeMode.dark:
-              brightness = Brightness.dark;
-            case ThemeMode.light:
-              brightness = Brightness.light;
-            case ThemeMode.system:
-              brightness = MediaQuery.platformBrightnessOf(context);
-          }
-          if (_lastAppliedOverlayBrightness != brightness) {
-            _lastAppliedOverlayBrightness = brightness;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              applySystemUiOverlayStyleOnce(brightness: brightness);
-            });
-          }
-          final safeChild = child ?? const SizedBox.shrink();
+    return AdaptiveApp.router(
+      routerConfig: router,
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+      materialLightTheme: lightTheme,
+      materialDarkTheme: darkTheme,
+      cupertinoLightTheme: cupertinoLight,
+      cupertinoDarkTheme: cupertinoDark,
+      themeMode: themeMode,
+      locale: locale,
+      localizationsDelegates: conduitLocalizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localeListResolutionCallback: (deviceLocales, supported) {
+        if (locale != null) return locale;
+        if (deviceLocales == null || deviceLocales.isEmpty) {
+          return supported.first;
+        }
+        final resolved = _resolveSupportedLocale(deviceLocales, supported);
+        return resolved ?? supported.first;
+      },
+      material: (_, _) =>
+          const MaterialAppData(debugShowCheckedModeBanner: false),
+      cupertino: (_, _) =>
+          const CupertinoAppData(debugShowCheckedModeBanner: false),
+      builder: (context, child) {
+        // Resolve brightness from themeMode rather than
+        // Theme.of(context) — on iOS, CupertinoApp's
+        // auto-generated Theme may not reflect themeMode.
+        final Brightness brightness;
+        switch (themeMode) {
+          case ThemeMode.dark:
+            brightness = Brightness.dark;
+          case ThemeMode.light:
+            brightness = Brightness.light;
+          case ThemeMode.system:
+            brightness = MediaQuery.platformBrightnessOf(context);
+        }
+        if (_lastAppliedOverlayBrightness != brightness) {
+          _lastAppliedOverlayBrightness = brightness;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            applySystemUiOverlayStyleOnce(brightness: brightness);
+          });
+        }
+        final safeChild = child ?? const SizedBox.shrink();
 
-          // On iOS, AdaptiveApp creates CupertinoApp which
-          // doesn't propagate Material ThemeExtensions.
-          // Wrap with Theme to ensure all custom extensions
-          // (ConduitThemeExtension, AppColorTokens, etc.)
-          // are available via Theme.of(context) on every
-          // platform.
-          final materialTheme = brightness == Brightness.dark
-              ? darkTheme
-              : lightTheme;
-
-          return Theme(
-            data: materialTheme,
-            child: ReleaseNotesCoordinator(
-              child: _KeyboardDismissOnScroll(child: safeChild),
+        // On iOS, AdaptiveApp creates CupertinoApp which
+        // doesn't propagate Material ThemeExtensions.
+        // Wrap with Theme to ensure all custom extensions
+        // (ConduitThemeExtension, AppColorTokens, etc.)
+        // are available via Theme.of(context) on every
+        // platform.
+        final materialTheme = brightness == Brightness.dark
+            ? darkTheme
+            : lightTheme;
+        final nativeTheme = materialTheme.extension<ConduitThemeExtension>();
+        if (nativeTheme != null) {
+          unawaited(
+            NativeSheetBridge.instance.syncTheme(
+              NativeSheetThemeConfig(
+                isDark: brightness == Brightness.dark,
+                backgroundArgb: nativeTheme.surfaceBackground.toARGB32(),
+                surfaceArgb: nativeTheme.cardBackground.toARGB32(),
+                elevatedSurfaceArgb: nativeTheme.surfaceContainerHighest
+                    .toARGB32(),
+                inputArgb: nativeTheme.inputBackground.toARGB32(),
+                foregroundArgb: nativeTheme.textPrimary.toARGB32(),
+                secondaryForegroundArgb: nativeTheme.textSecondary.toARGB32(),
+                iconArgb: nativeTheme.iconSecondary.toARGB32(),
+                borderArgb: nativeTheme.cardBorder.toARGB32(),
+                accentArgb: nativeTheme.buttonPrimary.toARGB32(),
+                onAccentArgb: nativeTheme.buttonPrimaryText.toARGB32(),
+                destructiveArgb: nativeTheme.error.toARGB32(),
+              ),
             ),
           );
-        },
-      ),
+        }
+
+        return Theme(
+          data: materialTheme,
+          child: Builder(
+            builder: (context) => LegacyDesignCompatibility(
+              child: ReleaseNotesCoordinator(
+                child: _KeyboardDismissOnScroll(child: safeChild),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

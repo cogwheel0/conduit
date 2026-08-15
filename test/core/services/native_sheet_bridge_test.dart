@@ -6,6 +6,11 @@ import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+final _setThemeChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.setTheme',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 final _presentProfileMenuChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentProfileMenu',
   NativeSheetHostApi.pigeonChannelCodec,
@@ -31,13 +36,20 @@ final _requestAppStoreReviewChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(() {
     NativeSheetBridge.instance.debugIsIOSOverride = null;
+    NativeSheetBridge.instance.debugResetThemeCache();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockDecodedMessageHandler<Object?>(_setThemeChannel, null);
     messenger.setMockDecodedMessageHandler<Object?>(
       _presentProfileMenuChannel,
       null,
@@ -57,6 +69,145 @@ void main() {
     messenger.setMockDecodedMessageHandler<Object?>(
       _requestAppStoreReviewChannel,
       null,
+    );
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _applyDetailPatchChannel,
+      null,
+    );
+  });
+
+  test('native sheet theme sends every color role and deduplicates', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final received = <PlatformNativeSheetTheme>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_setThemeChannel, (
+          message,
+        ) async {
+          received.add(
+            (message! as List<Object?>).single! as PlatformNativeSheetTheme,
+          );
+          return <Object?>[null];
+        });
+
+    const theme = NativeSheetThemeConfig(
+      isDark: true,
+      backgroundArgb: 0xff100f12,
+      surfaceArgb: 0xff18161b,
+      elevatedSurfaceArgb: 0xff211e24,
+      inputArgb: 0xff28242c,
+      foregroundArgb: 0xfffaf8fc,
+      secondaryForegroundArgb: 0xffc8c1ce,
+      iconArgb: 0xffb7afbf,
+      borderArgb: 0xff39333e,
+      accentArgb: 0xffb998d0,
+      onAccentArgb: 0xff1c1023,
+      destructiveArgb: 0xffff6b6b,
+    );
+
+    await NativeSheetBridge.instance.syncTheme(theme);
+    await NativeSheetBridge.instance.syncTheme(theme);
+
+    check(received).length.equals(1);
+    final platformTheme = received.single;
+    check(platformTheme.isDark).isTrue();
+    check(platformTheme.backgroundArgb).equals(theme.backgroundArgb);
+    check(platformTheme.surfaceArgb).equals(theme.surfaceArgb);
+    check(platformTheme.elevatedSurfaceArgb).equals(theme.elevatedSurfaceArgb);
+    check(platformTheme.inputArgb).equals(theme.inputArgb);
+    check(platformTheme.foregroundArgb).equals(theme.foregroundArgb);
+    check(platformTheme.secondaryForegroundArgb)
+        .equals(theme.secondaryForegroundArgb);
+    check(platformTheme.iconArgb).equals(theme.iconArgb);
+    check(platformTheme.borderArgb).equals(theme.borderArgb);
+    check(platformTheme.accentArgb).equals(theme.accentArgb);
+    check(platformTheme.onAccentArgb).equals(theme.onAccentArgb);
+    check(platformTheme.destructiveArgb).equals(theme.destructiveArgb);
+  });
+
+  test('native sheet theme resends after a palette change', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_setThemeChannel, (
+          message,
+        ) async {
+          calls += 1;
+          return <Object?>[null];
+        });
+
+    const first = NativeSheetThemeConfig(
+      isDark: false,
+      backgroundArgb: 1,
+      surfaceArgb: 2,
+      elevatedSurfaceArgb: 3,
+      inputArgb: 4,
+      foregroundArgb: 5,
+      secondaryForegroundArgb: 6,
+      iconArgb: 7,
+      borderArgb: 8,
+      accentArgb: 9,
+      onAccentArgb: 10,
+      destructiveArgb: 11,
+    );
+    const second = NativeSheetThemeConfig(
+      isDark: false,
+      backgroundArgb: 12,
+      surfaceArgb: 2,
+      elevatedSurfaceArgb: 3,
+      inputArgb: 4,
+      foregroundArgb: 5,
+      secondaryForegroundArgb: 6,
+      iconArgb: 7,
+      borderArgb: 8,
+      accentArgb: 9,
+      onAccentArgb: 10,
+      destructiveArgb: 11,
+    );
+
+    await NativeSheetBridge.instance.syncTheme(first);
+    await NativeSheetBridge.instance.syncTheme(second);
+
+    check(calls).equals(2);
+  });
+
+  test('detail patch sends an explicit subtitle clear instruction', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+
+    final applied = await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: 'jobs',
+      items: const [],
+      clearSubtitle: true,
+    );
+
+    check(applied).isTrue();
+    check(received).isNotNull();
+    check(received!.clearSubtitle).isTrue();
+    check(received!.subtitle).isNull();
+  });
+
+  test('detail patch rejects mixed flat and sectioned content', () async {
+    await expectLater(
+      NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'mixed',
+        items: const [NativeSheetItemConfig(id: 'item', title: 'Item')],
+        sections: const [
+          NativeSheetSectionConfig(
+            title: 'Section',
+            items: [NativeSheetItemConfig(id: 'nested', title: 'Nested')],
+          ),
+        ],
+      ),
+      throwsArgumentError,
     );
   });
 
@@ -291,9 +442,8 @@ void main() {
             if (presentCalls == 1) {
               check(request.presentationId).equals('presentation-a');
               check(request.models.single.tags).deepEquals(['tag-a']);
-              check(
-                request.models.single.avatarBytes!.toList(),
-              ).deepEquals([1, 2, 3]);
+              check(request.models.single.avatarBytes!.toList())
+                  .deepEquals([1, 2, 3]);
               await firstPresentation.future;
               return wrapResponse(result: null);
             }
@@ -447,9 +597,8 @@ void main() {
           final args = message! as List<Object?>;
           check(args[0]).equals('presentation-current');
           check(args[1]).equals('vendor_ultra');
-          check(
-            args[2]! as List<Object?>,
-          ).deepEquals(['automatic', 'vendor_ultra']);
+          check(args[2]! as List<Object?>)
+              .deepEquals(['automatic', 'vendor_ultra']);
           check(args[3]).equals(true);
           return wrapResponse(empty: true);
         },

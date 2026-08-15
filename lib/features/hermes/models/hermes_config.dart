@@ -1,3 +1,5 @@
+import '../../../core/network/credential_transport_policy.dart';
+
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
 /// explicit `null` (which clears a secret).
 const Object _unset = Object();
@@ -27,10 +29,44 @@ class HermesConfig {
   /// Long-term memory scope key (`X-Hermes-Session-Key`), per user.
   final String? sessionKey;
 
+  /// Canonical origin used to bind secrets to their intended server.
+  static String? connectionOrigin(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !isAllowedCredentialTransport(uri)) {
+      return null;
+    }
+    final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+    return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
+  }
+
+  /// Canonical request root used to detect endpoint changes.
+  static String? connectionEndpoint(String value) {
+    var normalized = value.trim();
+    while (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    if (normalized.endsWith('/v1')) {
+      normalized = normalized.substring(0, normalized.length - '/v1'.length);
+    }
+
+    final uri = Uri.tryParse(normalized);
+    final origin = connectionOrigin(normalized);
+    if (uri == null || origin == null) return null;
+    return '$origin${uri.path}'
+        '${uri.hasQuery ? '?${uri.query}' : ''}'
+        '${uri.hasFragment ? '#${uri.fragment}' : ''}';
+  }
+
   /// Whether there is enough config to actually talk to a Hermes server.
   bool get isUsable =>
       enabled &&
-      baseUrl.trim().isNotEmpty &&
+      connectionOrigin(baseUrl) != null &&
       (apiKey?.trim().isNotEmpty ?? false);
 
   HermesConfig copyWith({

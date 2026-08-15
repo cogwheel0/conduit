@@ -8,8 +8,8 @@ import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
@@ -32,9 +32,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.iOS),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.iOS),
         home: Scaffold(
           body: ConduitAdaptiveAppBarModelSelector(
             label: 'A model with a long standard title',
@@ -66,9 +65,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.iOS),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.iOS),
         home: Scaffold(
           body: ConduitAdaptiveAppBarModelSelector(
             label: 'Inkling',
@@ -89,27 +87,20 @@ void main() {
   });
 
   test('toolbar icons preserve their SF Symbol lookup values', () {
-    check(
-      conduitToolbarSfSymbolForIcon(CupertinoIcons.line_horizontal_3),
-    ).equals('line.3.horizontal');
-    check(
-      conduitToolbarSfSymbolForIcon(Icons.menu),
-    ).equals('line.3.horizontal');
-    check(
-      conduitToolbarSfSymbolForIcon(CupertinoIcons.chevron_back),
-    ).equals('chevron.left');
-    check(
-      conduitToolbarSfSymbolForIcon(CupertinoIcons.create),
-    ).equals('square.and.pencil');
-    check(
-      conduitToolbarSfSymbolForIcon(CupertinoIcons.eye_slash),
-    ).equals('eye.slash');
-    check(
-      conduitToolbarSfSymbolForIcon(Icons.people_outline),
-    ).equals('person.2');
-    check(
-      conduitToolbarSfSymbolForIcon(Icons.circle, iosSymbol: 'ellipsis'),
-    ).equals('ellipsis');
+    check(conduitToolbarSfSymbolForIcon(CupertinoIcons.line_horizontal_3))
+        .equals('line.3.horizontal');
+    check(conduitToolbarSfSymbolForIcon(Icons.menu))
+        .equals('line.3.horizontal');
+    check(conduitToolbarSfSymbolForIcon(CupertinoIcons.chevron_back))
+        .equals('chevron.left');
+    check(conduitToolbarSfSymbolForIcon(CupertinoIcons.create))
+        .equals('square.and.pencil');
+    check(conduitToolbarSfSymbolForIcon(CupertinoIcons.eye_slash))
+        .equals('eye.slash');
+    check(conduitToolbarSfSymbolForIcon(Icons.people_outline))
+        .equals('person.2');
+    check(conduitToolbarSfSymbolForIcon(Icons.circle, iosSymbol: 'ellipsis'))
+        .equals('ellipsis');
     check(conduitToolbarSfSymbolForIcon(Icons.delete)).isNull();
   });
 
@@ -144,9 +135,8 @@ void main() {
     check(longLabel).contains('…');
     check(longLabel.contains('\n')).isFalse();
     check(longLabel.length).isLessThan('google/gemma-4-31b-it'.length);
-    check(
-      conduitNativeModelSelectorSymbol(showChevron: true),
-    ).equals('chevron.down');
+    check(conduitNativeModelSelectorSymbol(showChevron: true))
+        .equals('chevron.down');
     check(conduitNativeModelSelectorSymbol(showChevron: false)).isNull();
   });
 
@@ -180,12 +170,10 @@ void main() {
   });
 
   test('native model-selector title follows Dynamic Type', () {
-    check(
-      resolveConduitNativeModelTitleFontSize(TextScaler.noScaling),
-    ).equals(17);
-    check(
-      resolveConduitNativeModelTitleFontSize(const TextScaler.linear(2)),
-    ).equals(34);
+    check(resolveConduitNativeModelTitleFontSize(TextScaler.noScaling))
+        .equals(17);
+    check(resolveConduitNativeModelTitleFontSize(const TextScaler.linear(2)))
+        .equals(34);
   });
 
   test('native model-selector semantics expose only valid activation', () {
@@ -283,9 +271,8 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.iOS),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.iOS),
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
@@ -319,9 +306,8 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.android),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.android),
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
@@ -361,9 +347,8 @@ void main() {
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
-            theme: AppTheme.light(
-              TweakcnThemes.t3Chat,
-            ).copyWith(platform: entry.key),
+            theme: AppTheme.light(TweakcnThemes.t3Chat)
+                .copyWith(platform: entry.key),
             home: Builder(
               builder: (context) => MediaQuery(
                 data: MediaQuery.of(context).copyWith(disableAnimations: true),
@@ -543,9 +528,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(
-          TweakcnThemes.t3Chat,
-        ).copyWith(platform: TargetPlatform.iOS),
+        theme: AppTheme.light(TweakcnThemes.t3Chat)
+            .copyWith(platform: TargetPlatform.iOS),
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
@@ -752,9 +736,8 @@ void main() {
       );
 
       check(resolveConduitSystemControlScale(TextScaler.noScaling)).equals(1);
-      check(
-        resolveConduitSystemControlScale(systemTextScaler),
-      ).equals(kConduitMaximumSystemControlScale);
+      check(resolveConduitSystemControlScale(systemTextScaler))
+          .equals(kConduitMaximumSystemControlScale);
       check(navigationBar.preferredSize.height).equals(72);
       check(observedTextSize).equals(51);
       check(observedBoldText).isTrue();

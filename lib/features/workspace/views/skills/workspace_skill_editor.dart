@@ -4,9 +4,8 @@ import 'dart:io';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
@@ -18,6 +17,9 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -25,7 +27,6 @@ import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
@@ -77,52 +78,25 @@ class WorkspaceSkillEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return _WorkspaceSkillForm(
+    return WorkspaceResourceEditorRoute<WorkspaceSkillSummary>(
+      title: l10n.workspaceSkills,
+      section: WorkspaceSection.skills,
+      mode: mode,
+      resourceId: skillId,
+      errorMessage: l10n.workspaceLoadFailed,
+      createBuilder: () => _WorkspaceSkillForm(
         mode: WorkspaceRouteMode.create,
         summary: null,
         markdownPicker: markdownPicker,
-      );
-    }
-
-    final id = skillId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceSkillDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        isLoading: true,
-        child: const SizedBox.shrink(),
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceSkills,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
-        child: const SizedBox.shrink(),
+      detailLoader: (ref, id) => ref.watch(workspaceSkillDetailProvider(id)),
+      onRetry: (ref, id) => ref.invalidate(workspaceSkillDetailProvider(id)),
+      builder: (value) => _WorkspaceSkillForm(
+        key: ValueKey('workspace-skill-form-${value.id}-${mode.name}'),
+        mode: mode,
+        summary: value,
+        markdownPicker: markdownPicker,
       ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceSkills,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceSkillDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceSkillForm(
-          key: ValueKey('workspace-skill-form-${value.id}-${mode.name}'),
-          mode: mode,
-          summary: value,
-          markdownPicker: markdownPicker,
-        );
-      },
     );
   }
 }
@@ -155,27 +129,25 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   bool _previewMode = false;
   bool _idManuallyEdited = false;
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
+  late final WorkspaceEditorSession _session;
   // The specific inline id error to show under the field (null = no error), so
   // the message matches the reason (required / invalid characters / taken)
   // rather than always reading "invalid characters".
   String? _idErrorText;
 
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
-
-  bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
+  bool get _writeAccess =>
+      _session.isCreate || (widget.summary?.writeAccess ?? false);
 
   /// Fields are editable only in create/edit modes with write access. Detail is
   /// a read-only view. The id is additionally immutable once a skill exists.
-  bool get _fieldsReadOnly => !_writeAccess || _isDetail;
-  bool get _idReadOnly => _fieldsReadOnly || !_isCreate;
+  bool get _fieldsReadOnly => !_writeAccess || _session.isDetail;
+  bool get _idReadOnly => _fieldsReadOnly || !_session.isCreate;
 
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _idController = TextEditingController(text: summary?.id ?? '');
@@ -197,6 +169,8 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _idController.dispose();
     _descriptionController.dispose();
@@ -204,12 +178,16 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+    _session.markDirty();
   }
 
   void _onNameChanged(String value) {
-    if (_isCreate && !_idManuallyEdited) {
+    if (_session.isCreate && !_idManuallyEdited) {
       _idController.text = WorkspaceSkillContent.slugify(value);
     }
     _markDirty();
@@ -222,7 +200,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   void _onContentChanged(String value) {
-    if (_isCreate) _applyFrontmatterPrefill(value);
+    if (_session.isCreate) _applyFrontmatterPrefill(value);
     _markDirty();
   }
 
@@ -268,26 +246,22 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   /// after surfacing the appropriate inline error.
   String? _validateForm(AppLocalizations l10n) {
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceSkillNameRequired);
+      _session.setError(l10n.workspaceSkillNameRequired);
       return null;
     }
     final id = _idController.text.trim();
     if (id.isEmpty) {
-      setState(() {
-        _idErrorText = l10n.workspaceSkillIdRequired;
-        _errorMessage = l10n.workspaceSkillIdRequired;
-      });
+      setState(() => _idErrorText = l10n.workspaceSkillIdRequired);
+      _session.setError(l10n.workspaceSkillIdRequired);
       return null;
     }
     if (!WorkspaceSkillContent.isValidId(id)) {
-      setState(() {
-        _idErrorText = l10n.workspaceSkillIdInvalid;
-        _errorMessage = l10n.workspaceSkillIdInvalid;
-      });
+      setState(() => _idErrorText = l10n.workspaceSkillIdInvalid);
+      _session.setError(l10n.workspaceSkillIdInvalid);
       return null;
     }
     if (_contentController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceSkillContentRequired);
+      _session.setError(l10n.workspaceSkillContentRequired);
       return null;
     }
     return id;
@@ -310,67 +284,43 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final l10n = AppLocalizations.of(context)!;
     final id = _validateForm(l10n);
     if (id == null) return;
-    setState(() {
-      _saving = true;
-      _errorMessage = null;
-      _idErrorText = null;
-    });
+    setState(() => _idErrorText = null);
     final notifier = ref.read(workspaceSkillsProvider.notifier);
-    // The update endpoint keys off the existing id; the id field is immutable
-    // after create, so submit the summary's id when editing.
-    final form = _buildForm(id: _isCreate ? id : widget.summary!.id);
-    try {
-      final WorkspaceSkillDetail result = _isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
-      _dirty = false;
-      DebugLogger.log(
-        'skill saved',
-        scope: 'workspace/skills',
-        data: {'id': result.id, 'create': _isCreate},
-      );
-      _showSnack(l10n.workspaceSkillSaved);
-      final router = GoRouter.of(context);
-      if (_isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.skills.routes.detailLocation(result.id),
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceSkillDetail>(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.skills,
+      scope: 'workspace/skills',
+      resourceLabel: 'skill',
+      successMessage: l10n.workspaceSkillSaved,
+      failureMessage: l10n.workspaceSkillSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) {
+        // The update endpoint keys off the immutable existing id.
+        final form = _buildForm(id: isCreate ? id : widget.summary!.id);
+        return isCreate
+            ? notifier.create(form)
+            : notifier.updateItem(widget.summary!.id, form);
+      },
+      resourceId: (result) => result.id,
+      errorMessage: (error) {
+        final conflict = _isConflict(error);
+        setState(
+          () => _idErrorText = conflict ? l10n.workspaceSkillIdTaken : null,
         );
-      } else if (router.canPop()) {
-        router.pop();
-      } else {
-        // Edit saved but there is nothing to pop (e.g. deep-linked into /edit):
-        // clear the saving lock so the form stays usable and reflects the
-        // freshly invalidated detail.
-        setState(() => _saving = false);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill save failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      final conflict = _isConflict(error);
-      setState(() {
-        _saving = false;
-        _idErrorText = conflict ? l10n.workspaceSkillIdTaken : null;
-        _errorMessage = conflict
+        return conflict
             ? l10n.workspaceSkillIdTaken
             : l10n.workspaceSkillSaveFailed;
-      });
-    }
+      },
+    );
   }
 
   // --- Overflow actions -----------------------------------------------------
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     final baseId = _idController.text.trim();
     final cloneId = baseId.isEmpty ? 'skill_clone' : '${baseId}_clone';
-    setState(() => _saving = true);
     // Clones never inherit the source skill's sharing grants.
     final form = WorkspaceSkillForm(
       id: cloneId,
@@ -381,49 +331,37 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       content: _contentController.text,
       meta: _meta,
     );
-    try {
-      final created = await ref
-          .read(workspaceSkillsProvider.notifier)
-          .create(form);
-      if (!mounted) return;
-      _showSnack(l10n.workspaceSkillSaved);
-      router.pushReplacement(
-        WorkspaceSection.skills.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill clone failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspaceSkillDetail
+    >(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.skills,
+      scope: 'workspace/skills',
+      resourceLabel: 'skill',
+      successMessage: l10n.workspaceSkillSaved,
+      failureMessage: l10n.workspaceSkillSaveFailed,
+      editorMounted: () => mounted,
+      clone: () => ref.read(workspaceSkillsProvider.notifier).create(form),
+      resourceId: (created) => created.id,
+    );
   }
 
   Future<void> _toggleActive() async {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceSkillsProvider.notifier).toggle(summary.id);
-      if (!mounted) return;
-      _showSnack(l10n.workspaceSkillSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill toggle failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill toggle',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspaceSkillsProvider.notifier).toggle(summary.id),
+      onSuccess: (_) => _showSnack(l10n.workspaceSkillSaved),
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   Future<void> _delete() async {
@@ -441,30 +379,18 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceSkillsProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _dirty = false;
-      _showSnack(l10n.workspaceSkillDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.skills.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill delete failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.skills,
+      scope: 'workspace/skills',
+      resourceLabel: 'skill',
+      successMessage: l10n.workspaceSkillDeleted,
+      failureMessage: l10n.workspaceSkillSaveFailed,
+      editorMounted: () => mounted,
+      delete: () =>
+          ref.read(workspaceSkillsProvider.notifier).delete(summary.id),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -482,31 +408,25 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     // In create mode (or without write access) the grants are held locally and
     // persisted with the first save.
     if (summary == null || !_writeAccess) {
-      setState(() {
-        _grants = grants;
-        if (summary == null) _dirty = true;
-      });
+      setState(() => _grants = grants);
+      if (summary == null) _session.markDirty();
       return;
     }
-    setState(() => _saving = true);
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/skills',
+      operationLabel: 'skill access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceSkillsProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      _showSnack(l10n.workspaceSkillSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skill access update failed',
-        scope: 'workspace/skills',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceSkillSaveFailed, isError: true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        _showSnack(l10n.workspaceSkillSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
+    );
   }
 
   /// Markdown import: reads a `.md` file, parses front-matter, and prefills the
@@ -548,10 +468,10 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       final fmDescription = fm['description']?.trim() ?? '';
       if (fmDescription.isNotEmpty) _descriptionController.text = fmDescription;
       _previewMode = false;
-      _dirty = true;
-      _errorMessage = null;
       _idErrorText = null;
     });
+    _session.markDirty();
+    _session.clearError();
     _showSnack(l10n.workspaceSkillImportMarkdownLoaded);
   }
 
@@ -603,7 +523,9 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _buildContent(context);
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     final capabilities = ref
@@ -612,55 +534,50 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
-    final title = _isCreate
+    final title = _session.isCreate
         ? l10n.workspaceSkillCreateTitle
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceSkills
               : _nameController.text.trim());
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
-      isDirty: _dirty && !_saving,
+      section: WorkspaceSection.skills,
+      mode: widget.mode,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _fieldsReadOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
-      errorMessage: _errorMessage,
+      onEdit: _session.isDetail && _writeAccess
+          ? () => context.pushWorkspace(
+              WorkspaceSection.skills.routes.editLocation(summary!.id),
+            )
+          : null,
+      errorMessage: _session.errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
+        absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-skill-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
-            if (_isDetail && _writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-skill-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.skills.routes.editLocation(summary!.id),
-                  ),
-                ),
-              ),
-            _nameField(l10n),
-            const SizedBox(height: Spacing.md),
-            _idField(l10n),
-            const SizedBox(height: Spacing.md),
-            _descriptionField(l10n),
-            const SizedBox(height: Spacing.xl),
+            WorkspaceEditorFieldGroup(
+              footer: usesCupertinoChrome ? l10n.workspaceSkillIdHint : null,
+              children: [
+                _nameField(l10n),
+                _idField(l10n),
+                _descriptionField(l10n),
+              ],
+            ),
+            SizedBox(height: sectionGap),
             _contentEditor(l10n),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             _accessTile(l10n),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),
@@ -668,10 +585,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
-    return ConduitInput(
-      key: const Key('workspace-skill-name'),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-name',
       controller: _nameController,
       label: l10n.workspaceSkillName,
+      isDetail: _session.isDetail,
       hint: l10n.workspaceSkillNameHint,
       enabled: !_fieldsReadOnly,
       onChanged: _onNameChanged,
@@ -680,24 +598,27 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _idField(AppLocalizations l10n) {
-    return WorkspaceLabeledField(
-      helperText: l10n.workspaceSkillIdHint,
-      child: ConduitInput(
-        key: const Key('workspace-skill-id'),
-        controller: _idController,
-        label: l10n.workspaceSkillId,
-        enabled: !_idReadOnly,
-        onChanged: _onIdChanged,
-        errorText: _idErrorText,
-      ),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-id',
+      controller: _idController,
+      label: l10n.workspaceSkillId,
+      isDetail: _session.isDetail,
+      enabled: !_idReadOnly,
+      onChanged: _onIdChanged,
+      hint: context.usesCupertinoChrome ? l10n.workspaceSkillIdHint : null,
+      helperText: context.usesCupertinoChrome
+          ? null
+          : l10n.workspaceSkillIdHint,
+      errorText: _idErrorText,
     );
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
-    return ConduitInput(
-      key: const Key('workspace-skill-description'),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-description',
       controller: _descriptionController,
       label: l10n.workspaceSkillDescription,
+      isDetail: _session.isDetail,
       hint: l10n.workspaceSkillDescriptionHint,
       enabled: !_fieldsReadOnly,
       onChanged: (_) => _markDirty(),
@@ -707,6 +628,16 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   Widget _contentEditor(AppLocalizations l10n) {
     final theme = context.conduitTheme;
+    if (_session.isDetail) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.workspaceSkillContent, style: theme.headingSmall),
+          const SizedBox(height: Spacing.sm),
+          _previewPane(l10n),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -795,7 +726,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     AppLocalizations l10n,
     WorkspaceCapabilities capabilities,
   ) {
-    if (_isCreate) {
+    if (_session.isCreate) {
       return [
         if (capabilities.skills.importItems) ...[
           WorkspaceEditorAction(

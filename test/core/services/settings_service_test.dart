@@ -20,10 +20,6 @@ void main() {
         check(settings.animationSpeed).equals(1.0);
       });
 
-      test('hapticFeedback defaults to true', () {
-        check(settings.hapticFeedback).equals(true);
-      });
-
       test('disableHapticsWhileStreaming defaults to false', () {
         check(settings.disableHapticsWhileStreaming).equals(false);
       });
@@ -113,9 +109,8 @@ void main() {
       });
 
       test('androidAssistantTrigger defaults to overlay', () {
-        check(
-          settings.androidAssistantTrigger,
-        ).equals(AndroidAssistantTrigger.overlay);
+        check(settings.androidAssistantTrigger)
+            .equals(AndroidAssistantTrigger.overlay);
       });
 
       test('voiceSilenceDuration defaults to 2000', () {
@@ -139,7 +134,6 @@ void main() {
         final modified = original.copyWith(
           reduceMotion: true,
           animationSpeed: 1.5,
-          hapticFeedback: false,
           disableHapticsWhileStreaming: true,
           highContrast: true,
           darkMode: false,
@@ -161,7 +155,6 @@ void main() {
 
         check(modified.reduceMotion).equals(true);
         check(modified.animationSpeed).equals(1.5);
-        check(modified.hapticFeedback).equals(false);
         check(modified.disableHapticsWhileStreaming).equals(true);
         check(modified.highContrast).equals(true);
         check(modified.darkMode).equals(false);
@@ -176,9 +169,8 @@ void main() {
         check(modified.ttsPitch).equals(1.2);
         check(modified.ttsVolume).equals(0.9);
         check(modified.ttsEngine).equals(TtsEngine.server);
-        check(
-          modified.androidAssistantTrigger,
-        ).equals(AndroidAssistantTrigger.newChat);
+        check(modified.androidAssistantTrigger)
+            .equals(AndroidAssistantTrigger.newChat);
         check(modified.voiceSilenceDuration).equals(1500);
         check(modified.temporaryChatByDefault).equals(true);
       });
@@ -197,9 +189,8 @@ void main() {
         );
 
         check(modified.defaultModel).equals('gpt-4');
-        check(
-          modified.openRouterImageGenerationModel,
-        ).equals('openai/gpt-5-image-mini');
+        check(modified.openRouterImageGenerationModel)
+            .equals('openai/gpt-5-image-mini');
         check(modified.voiceLocaleId).equals('en_US');
         check(modified.sttLanguageCode).equals('pl');
         check(modified.ttsVoice).equals('voice1');
@@ -381,12 +372,10 @@ void main() {
     });
 
     test('uses a distinct sentinel for the Android system language', () {
-      check(
-        SettingsService.normalizeVoiceLocaleId('system'),
-      ).equals(SettingsService.voiceLocaleSystemDefault);
-      check(
-        SettingsService.normalizeVoiceLocaleId('default'),
-      ).equals(SettingsService.voiceLocaleSystemDefault);
+      check(SettingsService.normalizeVoiceLocaleId('system'))
+          .equals(SettingsService.voiceLocaleSystemDefault);
+      check(SettingsService.normalizeVoiceLocaleId('default'))
+          .equals(SettingsService.voiceLocaleSystemDefault);
       check(
         SettingsService.normalizeVoiceLocaleId(
           SettingsService.voiceLocaleSystemDefault,
@@ -396,9 +385,8 @@ void main() {
 
     test('preserves and canonicalizes full locale tags', () {
       check(SettingsService.normalizeVoiceLocaleId('PL_pl')).equals('pl-PL');
-      check(
-        SettingsService.normalizeVoiceLocaleId('zh_hant_tw'),
-      ).equals('zh-Hant-TW');
+      check(SettingsService.normalizeVoiceLocaleId('zh_hant_tw'))
+          .equals('zh-Hant-TW');
       check(SettingsService.normalizeVoiceLocaleId('es-419')).equals('es-419');
     });
 
@@ -427,20 +415,17 @@ void main() {
       () async {
         await SettingsService.setVoiceLocaleId('pl_PL');
         check(await SettingsService.getVoiceLocaleId()).equals('pl-PL');
-        check(
-          PreferencesStore.getString(PreferenceKeys.voiceLocaleId),
-        ).equals('pl-PL');
+        check(PreferencesStore.getString(PreferenceKeys.voiceLocaleId))
+            .equals('pl-PL');
 
         await SettingsService.setVoiceLocaleId('system');
-        check(
-          await SettingsService.getVoiceLocaleId(),
-        ).equals(SettingsService.voiceLocaleSystemDefault);
+        check(await SettingsService.getVoiceLocaleId())
+            .equals(SettingsService.voiceLocaleSystemDefault);
 
         await SettingsService.setVoiceLocaleId(null);
         check(await SettingsService.getVoiceLocaleId()).isNull();
-        check(
-          PreferencesStore.containsKey(PreferenceKeys.voiceLocaleId),
-        ).isFalse();
+        check(PreferencesStore.containsKey(PreferenceKeys.voiceLocaleId))
+            .isFalse();
       },
     );
   });
@@ -484,17 +469,15 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      check(
-        container.read(appSettingsProvider).openRouterImageGenerationModel,
-      ).isNull();
+      check(container.read(appSettingsProvider).openRouterImageGenerationModel)
+          .isNull();
 
       await container
           .read(appSettingsProvider.notifier)
           .setOpenRouterImageGenerationModel('openai/gpt-5-image-mini');
 
-      check(
-        container.read(appSettingsProvider).openRouterImageGenerationModel,
-      ).equals('openai/gpt-5-image-mini');
+      check(container.read(appSettingsProvider).openRouterImageGenerationModel)
+          .equals('openai/gpt-5-image-mini');
       check(
         PreferencesStore.getString(
           PreferenceKeys.openRouterImageGenerationModel,
@@ -547,15 +530,12 @@ void main() {
 
     test('AndroidAssistantTrigger has expected values', () {
       check(AndroidAssistantTrigger.values).length.equals(3);
-      check(
-        AndroidAssistantTrigger.values,
-      ).contains(AndroidAssistantTrigger.overlay);
-      check(
-        AndroidAssistantTrigger.values,
-      ).contains(AndroidAssistantTrigger.newChat);
-      check(
-        AndroidAssistantTrigger.values,
-      ).contains(AndroidAssistantTrigger.voiceCall);
+      check(AndroidAssistantTrigger.values)
+          .contains(AndroidAssistantTrigger.overlay);
+      check(AndroidAssistantTrigger.values)
+          .contains(AndroidAssistantTrigger.newChat);
+      check(AndroidAssistantTrigger.values)
+          .contains(AndroidAssistantTrigger.voiceCall);
     });
   });
 
@@ -587,9 +567,8 @@ void main() {
     });
 
     test('voiceCall storageValue is "voice_call"', () {
-      check(
-        AndroidAssistantTrigger.voiceCall.storageValue,
-      ).equals('voice_call');
+      check(AndroidAssistantTrigger.voiceCall.storageValue)
+          .equals('voice_call');
     });
   });
 }

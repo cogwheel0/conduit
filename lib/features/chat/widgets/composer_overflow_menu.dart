@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +7,10 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -15,6 +18,7 @@ import '../../terminal/providers/terminal_providers.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// A reusable toggle tile widget used in the composer overflow sheet.
@@ -83,17 +87,7 @@ class ToggleTile extends StatelessWidget {
             ),
             const SizedBox(width: Spacing.sm),
             IgnorePointer(
-              child: Platform.isIOS
-                  ? CupertinoSwitch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeTrackColor: theme.buttonPrimary,
-                    )
-                  : Switch(
-                      value: selected,
-                      onChanged: (_) {},
-                      activeThumbColor: theme.buttonPrimary,
-                    ),
+              child: AdaptiveSwitch(value: selected, onChanged: (_) {}),
             ),
           ],
         ),
@@ -408,15 +402,19 @@ class _ComposerAttachmentKeyboardState
     final listItems = <Widget>[
       SizedBox(
         height: 94,
-        child: ListView.separated(
-          key: const ValueKey('composer-attachment-action-strip'),
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-          itemCount: attachments.length,
-          separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-          itemBuilder: (_, index) =>
-              SizedBox(width: 76, child: attachments[index]),
+        child: HorizontalOverflowFade(
+          child: HorizontalScrollGestureBoundary(
+            child: ListView.separated(
+              key: const ValueKey('composer-attachment-action-strip'),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+              itemCount: attachments.length,
+              separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
+              itemBuilder: (_, index) =>
+                  SizedBox(width: 76, child: attachments[index]),
+            ),
+          ),
         ),
       ),
       if (featureTiles.isNotEmpty) ...[

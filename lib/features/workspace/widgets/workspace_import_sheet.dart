@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
@@ -64,11 +64,7 @@ Future<WorkspaceImportReport> runWorkspaceImport(
     try {
       await importItem(item);
       results.add(
-        WorkspaceImportItemResult(
-          index: index,
-          label: label,
-          succeeded: true,
-        ),
+        WorkspaceImportItemResult(index: index, label: label, succeeded: true),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -126,8 +122,9 @@ List<Map<String, dynamic>> workspaceImportItemsFromJson(dynamic decoded) {
   return const [];
 }
 
-typedef WorkspaceImporter =
-    Future<WorkspaceImportReport> Function(List<Map<String, dynamic>> items);
+typedef WorkspaceImporter = Future<WorkspaceImportReport> Function(
+  List<Map<String, dynamic>> items,
+);
 
 /// Reads the contents of a user-picked JSON file, or null if cancelled.
 typedef WorkspaceImportFilePicker = Future<String?> Function();
@@ -284,9 +281,7 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(widget.title, style: theme.headingSmall),
-              ),
+              Expanded(child: Text(widget.title, style: theme.headingSmall)),
               SheetCloseButton(
                 tooltip: l10n.close,
                 onPressed: () => Navigator.of(context).pop(_report),

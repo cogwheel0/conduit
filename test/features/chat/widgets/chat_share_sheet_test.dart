@@ -9,9 +9,10 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -127,17 +128,17 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ChatShareSheet(conversation: conversation)),
         ),
       ),
     );
 
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -166,7 +167,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ChatShareSheet(
@@ -220,7 +221,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ChatShareSheet(conversation: selected)),
         ),
@@ -231,13 +232,12 @@ void main() {
     );
     container.read(activeConversationProvider.notifier).set(native);
 
-    await tester.tap(find.text('Update and Copy Link'));
+    await tester.tap(find.text('Update and copy link'));
     await tester.pump(const Duration(milliseconds: 100));
 
     check(api.sharedConversationIds).deepEquals(<String>[rawId]);
-    check(
-      identical(container.read(activeConversationProvider), native),
-    ).isTrue();
+    check(identical(container.read(activeConversationProvider), native))
+        .isTrue();
     check(
       isNativeHermesConversation(container.read(activeConversationProvider)),
     ).isTrue();
@@ -277,7 +277,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: ChatShareSheet(conversation: selected)),
         ),
@@ -297,12 +297,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     check(api.deletedConversationIds).deepEquals(<String>[rawId]);
-    check(
-      identical(container.read(activeConversationProvider), native),
-    ).isTrue();
-    check(
-      container.read(activeConversationProvider)?.shareId,
-    ).equals('native-share');
+    check(identical(container.read(activeConversationProvider), native))
+        .isTrue();
+    check(container.read(activeConversationProvider)?.shareId)
+        .equals('native-share');
     check(
       isNativeHermesConversation(container.read(activeConversationProvider)),
     ).isTrue();

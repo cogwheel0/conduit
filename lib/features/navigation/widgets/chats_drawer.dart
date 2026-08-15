@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,9 +16,11 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
@@ -28,7 +30,9 @@ import 'folder_tree_guides.dart';
 import 'drawer_section_notifiers.dart';
 import 'folder_icon.dart';
 import '../providers/conversation_selection_provider.dart';
-import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_search_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
+import '../models/sidebar_navigation_model.dart';
 
 /// Chevron / expand icon for section headers — matches folder row disclosure.
 IconData _chatsDrawerDisclosureIcon(bool isExpanded) {
@@ -51,11 +55,19 @@ class ChatsDrawer extends ConsumerStatefulWidget {
 }
 
 class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
-    with AutomaticKeepAliveClientMixin {
+    with
+        AutomaticKeepAliveClientMixin,
+        SidebarTabScrollRegistration<ChatsDrawer> {
   @override
   bool get wantKeepAlive => true;
   late final TextEditingController _sidebarSearchController;
   final ScrollController _listController = ScrollController();
+
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.chats;
+
+  @override
+  ScrollController get sidebarScrollController => _listController;
   Timer? _debounce;
   String _query = '';
   bool _isLoadingMoreConversations = false;
@@ -223,9 +235,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         width: IconSize.sm,
         height: IconSize.sm,
         child: Semantics(
-          label: MaterialLocalizations.of(
-            context,
-          ).refreshIndicatorSemanticLabel,
+          label: MaterialLocalizations.of(context)
+              .refreshIndicatorSemanticLabel,
           child: usesCupertinoChrome
               ? CupertinoActivityIndicator(
                   radius: IconSize.sm / 2,
@@ -293,10 +304,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       slivers: paddedSlivers,
     );
 
-    final refreshableScroll = RefreshIndicator.noSpinner(
-      onRefresh: _refreshChats,
-      onStatusChange: _handleRefreshStatusChange,
-      child: scroll,
+    final refreshableScroll = PrimaryScrollController(
+      controller: _listController,
+      child: RefreshIndicator.noSpinner(
+        onRefresh: _refreshChats,
+        onStatusChange: _handleRefreshStatusChange,
+        child: scroll,
+      ),
     );
 
     if (Platform.isIOS) {
@@ -391,9 +405,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildEmptyState(String message) {
     final theme = context.conduitTheme;
-    final refreshLabel = MaterialLocalizations.of(
-      context,
-    ).refreshIndicatorSemanticLabel;
+    final refreshLabel = MaterialLocalizations.of(context)
+        .refreshIndicatorSemanticLabel;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.lg),
@@ -466,12 +479,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
 
     if (mounted) {
-      final mediaQuery = MediaQuery.maybeOf(context);
-      final isTablet =
-          mediaQuery != null && mediaQuery.size.shortestSide >= 600;
-      if (!isTablet) {
-        ResponsiveDrawerLayout.of(context)?.close();
-      }
+      closeSidebarDrawerIfOverlay(context);
     }
   }
 
@@ -1137,10 +1145,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     if (sectionType == _SectionType.pinned) {
       isExpanded = ref.watch(showPinnedProvider);
-      onToggle = () => ref.read(showPinnedProvider.notifier).toggle();
+      onToggle = () {
+        ConduitHaptics.selectionClick();
+        ref.read(showPinnedProvider.notifier).toggle();
+      };
     } else if (sectionType == _SectionType.recent) {
       isExpanded = ref.watch(showRecentProvider);
-      onToggle = () => ref.read(showRecentProvider.notifier).toggle();
+      onToggle = () {
+        ConduitHaptics.selectionClick();
+        ref.read(showRecentProvider.notifier).toggle();
+      };
     }
 
     final theme = context.conduitTheme;
@@ -1204,7 +1218,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => ref.read(showFoldersProvider.notifier).toggle(),
+          onTap: () {
+            ConduitHaptics.selectionClick();
+            ref.read(showFoldersProvider.notifier).toggle();
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
             child: Row(
@@ -1230,22 +1247,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ),
         ),
         const Spacer(),
-        IconButton(
+        ConduitIconButton(
           tooltip: AppLocalizations.of(context)!.newFolder,
-          constraints: const BoxConstraints.tightFor(
-            width: TouchTarget.minimum,
-            height: TouchTarget.minimum,
-          ),
-          padding: const EdgeInsets.all(
-            (TouchTarget.minimum - IconSize.md) / 2,
-          ),
-          icon: Icon(
-            Platform.isIOS
-                ? CupertinoIcons.folder_badge_plus
-                : Icons.create_new_folder_outlined,
-            color: theme.iconPrimary,
-            size: IconSize.md,
-          ),
+          icon: Platform.isIOS
+              ? CupertinoIcons.folder_badge_plus
+              : Icons.create_new_folder_outlined,
+          iconColor: theme.iconPrimary,
+          isCompact: true,
           onPressed: () =>
               CreateFolderDialog.show(context, ref, onError: _showDrawerError),
         ),
@@ -1272,105 +1280,81 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final isExpanded = expandedMap[folderId] ?? folder.isExpanded;
         final isCurrentFolder = NavigationService.currentFolderId == folderId;
 
-        final rowContent = GestureDetector(
-          behavior: HitTestBehavior.opaque,
+        final rowContent = ChatStyleSidebarTile(
           key: ValueKey<String>('folder-open-$folderId'),
+          surfaceKey: ValueKey<String>('folder-surface-$folderId'),
+          selected: isCurrentFolder,
+          tintKey: ValueKey<String>('folder-active-tint-$folderId'),
+          pressedKey: ValueKey<String>('folder-pressed-tint-$folderId'),
           onTap: () => _openFolderPage(folderId),
-          onLongPress: null, // Handled by ConduitContextMenu
-          child: Container(
-            key: ValueKey<String>('folder-surface-$folderId'),
-            margin: kConversationTileMargin,
-            child: ConversationTileSurface(
-              theme: theme,
-              selected: isCurrentFolder,
-              tintKey: ValueKey<String>('folder-active-tint-$folderId'),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.listItem,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md,
-                    vertical: Spacing.xxs,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.md,
+                vertical: Spacing.xxs,
+              ),
+              child: Row(
+                children: [
+                  FolderIconGlyph(
+                    key: ValueKey<String>('folder-icon-$folderId'),
+                    iconAlias: folder.meta?['icon']?.toString(),
+                    isOpen: isExpanded,
+                    size: IconSize.listItem,
+                    color: isCurrentFolder
+                        ? theme.iconPrimary
+                        : theme.iconSecondary,
                   ),
-                  child: Row(
-                    children: [
-                      FolderIconGlyph(
-                        key: ValueKey<String>('folder-icon-$folderId'),
-                        iconAlias: folder.meta?['icon']?.toString(),
-                        isOpen: isExpanded,
-                        size: IconSize.listItem,
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sidebarTitleStyle.copyWith(
                         color: isCurrentFolder
-                            ? theme.iconPrimary
-                            : theme.iconSecondary,
+                            ? theme.textPrimary
+                            : theme.textSecondary,
+                        fontWeight: isCurrentFolder
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        height: 1.4,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      Expanded(
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.sidebarTitleStyle.copyWith(
-                            color: isCurrentFolder
-                                ? theme.textPrimary
-                                : theme.textSecondary,
-                            fontWeight: isCurrentFolder
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: Spacing.sm),
-                      SizedBox(
-                        width: TouchTarget.minimum,
-                        height: TouchTarget.minimum,
-                        child: IconButton(
-                          key: ValueKey<String>('folder-expand-$folderId'),
-                          iconSize: IconSize.sm,
-                          padding: const EdgeInsets.all(
-                            (TouchTarget.minimum - IconSize.sm) / 2,
-                          ),
-                          constraints: const BoxConstraints.tightFor(
-                            width: TouchTarget.minimum,
-                            height: TouchTarget.minimum,
-                          ),
-                          style: IconButton.styleFrom(
-                            shape: const CircleBorder(),
-                          ),
-                          icon: Icon(
-                            _chatsDrawerDisclosureIcon(isExpanded),
-                            color: theme.iconSecondary,
-                            size: IconSize.sm,
-                          ),
-                          onPressed: () {
-                            ConduitHaptics.selectionClick();
-                            _setFolderExpanded(folderId, !isExpanded);
-                          },
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: Spacing.sm),
+                  ConduitIconButton(
+                    key: ValueKey<String>('folder-expand-$folderId'),
+                    icon: _chatsDrawerDisclosureIcon(isExpanded),
+                    iconColor: theme.iconSecondary,
+                    tooltip: name,
+                    isCompact: true,
+                    onPressed: () {
+                      ConduitHaptics.selectionClick();
+                      _setFolderExpanded(folderId, !isExpanded);
+                    },
+                  ),
+                ],
               ),
             ),
           ),
         );
 
-        final hierarchyWrapped = depth == 0
-            ? rowContent
+        final contextTile = ConduitContextMenu(
+          actions: _buildFolderActions(folder, allFolders),
+          previewBuilder: buildConversationTileContextPreview,
+          child: rowContent,
+        );
+
+        return depth == 0
+            ? contextTile
             : FolderTreeHierarchyNode(
                 key: ValueKey<String>('tree-guides-folder-$folderId'),
                 ancestorHasMoreSiblings: ancestorHasMoreSiblings,
                 showBranch: true,
                 hasMoreSiblings: hasMoreSiblings,
-                child: rowContent,
+                child: contextTile,
               );
-
-        return ConduitContextMenu(
-          actions: _buildFolderActions(folder, allFolders),
-          child: hierarchyWrapped,
-        );
       },
     );
   }
@@ -1649,9 +1633,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                           ? CupertinoIcons.folder_badge_minus
                           : Icons.folder_off_outlined,
                       label: l10n.topLevel,
-                      onTap: () => Navigator.of(
-                        sheetContext,
-                      ).pop(const _FolderMoveTarget(parentId: null)),
+                      onTap: () =>
+                          Navigator.of(sheetContext)
+                              .pop(const _FolderMoveTarget(parentId: null)),
                     ),
                   for (final entry in moveTargets)
                     FolderTreeHierarchyNode(
@@ -1666,9 +1650,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                             ? CupertinoIcons.folder
                             : Icons.folder_outlined,
                         label: entry.folder.name,
-                        onTap: () => Navigator.of(
-                          sheetContext,
-                        ).pop(_FolderMoveTarget(parentId: entry.folder.id)),
+                        onTap: () => Navigator.of(sheetContext)
+                            .pop(_FolderMoveTarget(parentId: entry.folder.id)),
                       ),
                     ),
                 ],
@@ -1803,17 +1786,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       onTap: () => _selectConversation(conversation),
     );
 
-    final wrappedTile = showHierarchyBranch
-        ? FolderTreeHierarchyNode(
-            key: ValueKey<String>('tree-guides-chat-$scopedId'),
-            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
-            showBranch: true,
-            hasMoreSiblings: hasMoreSiblings,
-            child: tileWidget,
-          )
-        : tileWidget;
-
-    final tile = ConduitContextMenu(
+    final contextTile = ConduitContextMenu(
       actions: buildConversationActionsWithFolders(
         context: context,
         ref: ref,
@@ -1821,8 +1794,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         foldersEnabled: foldersEnabled,
         folders: folders,
       ),
-      child: wrappedTile,
+      previewBuilder: buildConversationTileContextPreview,
+      child: tileWidget,
     );
+
+    final tile = showHierarchyBranch
+        ? FolderTreeHierarchyNode(
+            key: ValueKey<String>('tree-guides-chat-$scopedId'),
+            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
+            showBranch: true,
+            hasMoreSiblings: hasMoreSiblings,
+            child: contextTile,
+          )
+        : contextTile;
 
     return tile;
   }
@@ -1926,12 +1910,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           return;
         }
         NavigationService.router.go(Routes.chat);
-        final mediaQuery = MediaQuery.maybeOf(context);
-        final isTablet =
-            mediaQuery != null && mediaQuery.size.shortestSide >= 600;
-        if (!isTablet) {
-          ResponsiveDrawerLayout.of(context)?.close();
-        }
+        closeSidebarDrawerIfOverlay(context);
         return;
       case ConversationSelectionDisposition.canceled:
         return;

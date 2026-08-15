@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart' show CancelToken;
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
@@ -20,9 +21,13 @@ import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_run_transport.dart';
 import '../../hermes/widgets/hermes_approval_card.dart';
 import 'enhanced_image_attachment.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import 'enhanced_attachment.dart';
+
 import 'package:conduit/shared/widgets/chat_action_button.dart';
+
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -38,7 +43,7 @@ import '../providers/chat_providers.dart'
         streamingContentProvider;
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/services/platform_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/embed_utils.dart';
 import 'sources/openwebui_sources.dart';
@@ -705,9 +710,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final we = ttsState.wordEndInSentence;
 
     final baseStyle =
-        Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: theme.textPrimary) ??
+        Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: theme.textPrimary) ??
         AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary);
     final highlightStyle = baseStyle.copyWith(
       backgroundColor: theme.buttonPrimary.withValues(alpha: 0.25),
@@ -917,11 +921,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// Fires a single haptic impulse if streaming haptics are enabled.
   void _streamingHaptic(HapticType type) {
-    final enabled = _streamingHapticsAllowed;
-    PlatformService.hapticFeedbackWithSettings(
-      type: type,
-      hapticEnabled: enabled,
-    );
+    if (_streamingHapticsAllowed) ConduitHaptics.trigger(type);
   }
 
   bool get _streamingHapticsAllowed =>
@@ -1498,9 +1498,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     const SizedBox(height: 2),
                     Text(
                       message,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: conduitTheme.textSecondary,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: conduitTheme.textSecondary),
                     ),
                   ],
                 ),
@@ -1512,39 +1511,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             spacing: Spacing.xs,
             runSpacing: Spacing.xs,
             children: [
-              TextButton.icon(
+              ConduitButton(
                 onPressed: () => _retryQueuedCompletion(info),
-                icon: Icon(
-                  Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-                  size: 16,
-                ),
-                label: Text(l10n.retry),
-                style: TextButton.styleFrom(
-                  foregroundColor: accentColor,
-                  minimumSize: const Size(0, 34),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: 6,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                text: l10n.retry,
+                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                isCompact: true,
               ),
-              TextButton.icon(
+              ConduitButton(
                 onPressed: () => _cancelQueuedCompletion(info),
-                icon: Icon(
-                  Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                  size: 16,
-                ),
-                label: Text(l10n.cancel),
-                style: TextButton.styleFrom(
-                  foregroundColor: conduitTheme.textSecondary,
-                  minimumSize: const Size(0, 34),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: 6,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                text: l10n.cancel,
+                icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                isCompact: true,
+                isSecondary: true,
               ),
             ],
           ),
@@ -2254,48 +2232,46 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
 
-    return AdaptivePopupMenuButton.widget<String>(
-      items: overflowActions
-          .map(
-            (action) => AdaptivePopupMenuItem<String>(
-              value: action.id,
-              label: action.label,
-              icon: Platform.isIOS ? action.sfSymbol : action.icon,
-              enabled: action.onTap != null,
-            ),
-          )
-          .toList(growable: false),
-      onSelected: (_, entry) {
-        final selectedId = entry.value;
-        if (selectedId == null) {
-          return;
-        }
-        for (final action in overflowActions) {
-          if (action.id == selectedId) {
-            action.onTap?.call();
-            return;
-          }
-        }
-      },
-      child: AdaptiveTooltip(
-        message: l10n.more,
-        waitDuration: const Duration(milliseconds: 600),
-        child: Semantics(
-          button: true,
-          label: l10n.more,
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Center(
-              child: Icon(
-                Platform.isIOS
-                    ? CupertinoIcons.ellipsis
-                    : Icons.more_horiz_rounded,
-                size: IconSize.sm,
-                color: theme.textPrimary.withValues(alpha: 0.8),
-              ),
-            ),
-          ),
+    return AdaptiveTooltip(
+      message: l10n.more,
+      waitDuration: const Duration(milliseconds: 600),
+      child: Semantics(
+        button: true,
+        label: l10n.more,
+        child: AdaptivePopupMenuButton.icon<String>(
+          key: const ValueKey<String>('assistant-response-overflow-button'),
+          icon: PlatformUiCapabilities.isIOS
+              ? 'ellipsis'
+              : Icons.more_horiz_rounded,
+          items: overflowActions
+              .map(
+                (action) => AdaptivePopupMenuItem<String>(
+                  value: action.id,
+                  label: action.label,
+                  icon: PlatformUiCapabilities.isIOS
+                      ? action.sfSymbol
+                      : action.icon,
+                  enabled: action.onTap != null,
+                  isDestructive: action.id == 'delete',
+                ),
+              )
+              .toList(growable: false),
+          onSelected: (_, entry) {
+            final selectedId = entry.value;
+            if (selectedId == null) {
+              return;
+            }
+            for (final action in overflowActions) {
+              if (action.id == selectedId) {
+                action.onTap?.call();
+                return;
+              }
+            }
+          },
+          tint: theme.textPrimary.withValues(alpha: 0.8),
+          size: 32,
+          iconSize: IconSize.sm,
+          buttonStyle: PopupButtonStyle.plain,
         ),
       ),
     );

@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -31,14 +31,15 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
-import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+import 'sidebar_tab_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
-typedef SidebarNativeProfilePresenter =
-    Future<bool> Function(NativeProfileSheetConfig config);
+typedef SidebarNativeProfilePresenter = Future<bool> Function(
+  NativeProfileSheetConfig config,
+);
 
 const double _sidebarProfileAvatarSize = 36;
 const double _sidebarNativeProfileAvatarSize = 28;
@@ -116,12 +117,15 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
       avatarPixels.toDouble(),
       avatarPixels.toDouble(),
     );
+    canvas.save();
+    canvas.clipPath(ui.Path()..addOval(destinationRect));
     canvas.drawImageRect(
       source,
       sourceRect,
       destinationRect,
       ui.Paint()..filterQuality = ui.FilterQuality.high,
     );
+    canvas.restore();
     final picture = recorder.endRecording();
     try {
       output = await picture.toImage(canvasPixels, canvasPixels);
@@ -254,42 +258,8 @@ String sidebarProfileFallbackRouteName({
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
-  // Hermes-only: the Hermes tab is the only tab.
-  if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
-  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
-  final tabIndex = ref.watch(sidebarActiveTabProvider);
-  final hermesOn = ref.watch(hermesEnabledProvider);
-  final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
-  final terminalOn =
-      hasOpenWebUi &&
-      ref
-          .watch(terminalAvailableServersProvider)
-          .maybeWhen(
-            data: (servers) => servers.isNotEmpty,
-            error: (_, _) => true,
-            orElse: () => true,
-          );
-  final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
-
-  var i = 0;
-  if (tabIndex == i) return l10n.searchConversations;
-  i++;
-  if (hermesOn) {
-    if (tabIndex == i) return l10n.searchConversations;
-    i++;
-  }
-  if (notesOn) {
-    if (tabIndex == i) return l10n.searchNotes;
-    i++;
-  }
-  if (terminalOn) {
-    if (tabIndex == i) return l10n.searchFiles;
-    i++;
-  }
-  if (channelsOn) {
-    if (tabIndex == i) return l10n.searchChannels;
-  }
-  return l10n.searchConversations;
+  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
+  return sidebarTabDescriptor(selectedTab).searchHint(l10n);
 }
 
 /// Builds one stable native glass avatar button on iOS 26 and Flutter
@@ -516,6 +486,135 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       if (accountProfile?.bio?.trim().isNotEmpty == true)
         accountProfile!.bio!.trim(),
     ].join(' · ');
+    final profileMenuItem = user == null
+        ? null
+        : NativeSheetItemConfig(
+            id: NativeSheetRoutes.profile,
+            title: displayName,
+            subtitle: email,
+            sfSymbol: 'person.crop.circle',
+          );
+    final appItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.appearance,
+        title: appearanceTitle,
+        subtitle: l10n.settingsAppearanceSubtitle,
+        sfSymbol: 'paintpalette',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.chats,
+        title: chatsTitle,
+        subtitle: l10n.settingsChatSubtitle,
+        sfSymbol: 'bubble.left.and.bubble.right',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.voice,
+        title: l10n.voice,
+        subtitle: l10n.audioSettingsSubtitle,
+        sfSymbol: 'waveform',
+      ),
+      if (user != null)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.notificationSettings,
+          title: l10n.notificationsTitle,
+          subtitle: l10n.notificationsSubtitle,
+          sfSymbol: 'bell',
+        ),
+      if (user != null)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.aiMemory,
+          title: aiMemoryTitle,
+          subtitle: l10n.personalizationSubtitle,
+          sfSymbol: 'wand.and.stars',
+        ),
+    ];
+    final connectionItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.hermes,
+        title: l10n.hermesAgentSettingsTitle,
+        subtitle: l10n.hermesAgentSettingsSubtitle,
+        sfSymbol: 'sparkles',
+        iconAsset: 'assets/icons/hermes_agent.png',
+        iconSize: 26,
+        dismissOnSelect: true,
+        actionId: NativeSheetRoutes.hermes,
+        actionValue: true,
+      ),
+      buildDirectConnectionsNativeSheetItem(
+        title: l10n.directConnectionsTitle,
+        subtitle: l10n.directConnectionsSubtitle,
+      ),
+      if (canManageWorkspace)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.workspace,
+          title: l10n.workspaceTitle,
+          subtitle: l10n.workspaceSubtitle,
+          sfSymbol: 'square.grid.2x2',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.workspace,
+          actionValue: true,
+        ),
+      if (user != null)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.dataConnection,
+          title: dataConnectionTitle,
+          subtitle: l10n.connectionHealth,
+          sfSymbol: 'network',
+        ),
+      if (user == null)
+        NativeSheetItemConfig(
+          id: 'add-owui-server',
+          title: l10n.connectOpenWebUITitle,
+          subtitle: l10n.connectOpenWebUISubtitle,
+          sfSymbol: 'plus.circle',
+          dismissOnSelect: true,
+          actionId: 'add-owui-server',
+          actionValue: true,
+        ),
+    ];
+    final aboutItem = NativeSheetItemConfig(
+      id: NativeSheetRoutes.helpAbout,
+      title: l10n.aboutApp,
+      subtitle: l10n.aboutAppSubtitle,
+      sfSymbol: 'info.circle',
+    );
+    final signOutItem = user == null
+        ? null
+        : NativeSheetItemConfig(
+            id: 'sign-out',
+            title: l10n.signOut,
+            placeholder: l10n.signOutOptionsDescription,
+            options: [
+              NativeSheetOptionConfig(
+                id: 'keep-server-details',
+                label: l10n.keepServerDetails,
+                subtitle: l10n.keepServerDetailsDescription,
+              ),
+            ],
+            sfSymbol: 'rectangle.portrait.and.arrow.right',
+            destructive: true,
+          );
+    final supportItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: 'buy-me-a-coffee',
+        title: l10n.buyMeACoffeeTitle,
+        sfSymbol: 'gift',
+        url: 'https://www.buymeacoffee.com/cogwheel0',
+      ),
+      NativeSheetItemConfig(
+        id: 'github-sponsors',
+        title: l10n.githubSponsorsTitle,
+        sfSymbol: 'heart',
+        url: 'https://github.com/sponsors/cogwheel0',
+      ),
+    ];
+    final menuItems = <NativeSheetItemConfig>[
+      ?profileMenuItem,
+      ...appItems,
+      ...connectionItems,
+      aboutItem,
+      ?signOutItem,
+    ];
 
     return NativeProfileSheetConfig(
       profileMenuTitle: settingsTitle,
@@ -579,127 +678,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         removeAvatarLabel: l10n.removeAvatar,
         currentAvatarLabel: l10n.currentAvatar,
       ),
-      menuItems: [
-        if (user != null)
-          NativeSheetItemConfig(
-            id: NativeSheetRoutes.profile,
-            title: displayName,
-            subtitle: email,
-            sfSymbol: 'person.crop.circle',
-          ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.appearance,
-          title: appearanceTitle,
-          subtitle: l10n.settingsAppearanceSubtitle,
-          sfSymbol: 'paintpalette',
-        ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.chats,
-          title: chatsTitle,
-          subtitle: l10n.settingsChatSubtitle,
-          sfSymbol: 'bubble.left.and.bubble.right',
-        ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.voice,
-          title: l10n.voice,
-          subtitle: l10n.audioSettingsSubtitle,
-          sfSymbol: 'waveform',
-        ),
-        // Notifications are OWUI-socket-derived, so require an OWUI account.
-        if (user != null)
-          NativeSheetItemConfig(
-            id: NativeSheetRoutes.notificationSettings,
-            title: l10n.notificationsTitle,
-            subtitle: l10n.notificationsSubtitle,
-            sfSymbol: 'bell',
-          ),
-        if (user != null)
-          NativeSheetItemConfig(
-            id: NativeSheetRoutes.aiMemory,
-            title: aiMemoryTitle,
-            subtitle: l10n.personalizationSubtitle,
-            sfSymbol: 'wand.and.stars',
-          ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.hermes,
-          title: l10n.hermesAgentSettingsTitle,
-          subtitle: l10n.hermesAgentSettingsSubtitle,
-          sfSymbol: 'sparkles',
-          iconAsset: 'assets/icons/hermes_agent.png',
-          dismissOnSelect: true,
-          actionId: NativeSheetRoutes.hermes,
-          actionValue: true,
-        ),
-        buildDirectConnectionsNativeSheetItem(
-          title: l10n.directConnectionsTitle,
-          subtitle: l10n.directConnectionsSubtitle,
-        ),
-        if (canManageWorkspace)
-          NativeSheetItemConfig(
-            id: NativeSheetRoutes.workspace,
-            title: l10n.workspaceTitle,
-            subtitle: l10n.workspaceSubtitle,
-            sfSymbol: 'square.grid.2x2',
-            dismissOnSelect: true,
-            actionId: NativeSheetRoutes.workspace,
-            actionValue: true,
-          ),
-        if (user != null)
-          NativeSheetItemConfig(
-            id: NativeSheetRoutes.dataConnection,
-            title: dataConnectionTitle,
-            subtitle: l10n.connectionHealth,
-            sfSymbol: 'network',
-          ),
-        if (user == null)
-          NativeSheetItemConfig(
-            id: 'add-owui-server',
-            title: l10n.connectOpenWebUITitle,
-            subtitle: l10n.connectOpenWebUISubtitle,
-            sfSymbol: 'plus.circle',
-            dismissOnSelect: true,
-            actionId: 'add-owui-server',
-            actionValue: true,
-          ),
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.helpAbout,
-          title: l10n.aboutApp,
-          subtitle: l10n.aboutAppSubtitle,
-          sfSymbol: 'info.circle',
-        ),
-        if (user != null)
-          NativeSheetItemConfig(
-            id: 'sign-out',
-            title: l10n.signOut,
-            subtitle: l10n.endYourSession,
-            placeholder: l10n.signOutOptionsDescription,
-            options: [
-              NativeSheetOptionConfig(
-                id: 'keep-server-details',
-                label: l10n.keepServerDetails,
-                subtitle: l10n.keepServerDetailsDescription,
-              ),
-            ],
-            sfSymbol: 'rectangle.portrait.and.arrow.right',
-            destructive: true,
-          ),
-      ],
+      menuItems: menuItems,
       supportTitle: l10n.supportConduit,
-      supportSubtitle: l10n.supportConduitSubtitle,
-      supportItems: [
-        NativeSheetItemConfig(
-          id: 'buy-me-a-coffee',
-          title: l10n.buyMeACoffeeTitle,
-          subtitle: 'buymeacoffee.com/cogwheel0',
-          sfSymbol: 'gift',
-          url: 'https://www.buymeacoffee.com/cogwheel0',
-        ),
-        NativeSheetItemConfig(
-          id: 'github-sponsors',
-          title: l10n.githubSponsorsTitle,
-          subtitle: 'github.com/sponsors/cogwheel0',
-          sfSymbol: 'heart',
-          url: 'https://github.com/sponsors/cogwheel0',
+      supportItems: supportItems,
+      sections: [
+        if (profileMenuItem != null)
+          NativeSheetSectionConfig(items: [profileMenuItem]),
+        NativeSheetSectionConfig(items: appItems),
+        NativeSheetSectionConfig(items: connectionItems),
+        NativeSheetSectionConfig(items: [aboutItem]),
+        if (signOutItem != null) NativeSheetSectionConfig(items: [signOutItem]),
+        NativeSheetSectionConfig(
+          title: l10n.supportConduit,
+          items: supportItems,
         ),
       ],
       detailSheets: [
@@ -709,12 +700,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             title: profileTitle,
             sections: [
               NativeSheetSectionConfig(
-                footer: l10n.accountSettingsSubtitle,
                 items: [
                   NativeSheetItemConfig(
                     id: 'profile-photo',
                     title: l10n.editPhoto,
                     sfSymbol: 'person.crop.circle',
+                    showsDisclosure: true,
                   ),
                 ],
               ),
@@ -725,6 +716,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                     title: l10n.name,
                     subtitle: profileSummary,
                     sfSymbol: 'person.text.rectangle',
+                    showsDisclosure: true,
                   ),
                   NativeSheetItemConfig(
                     id: 'profile-about',
@@ -733,12 +725,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                         ? accountProfile!.bio!.trim()
                         : l10n.notSet,
                     sfSymbol: 'text.bubble',
+                    showsDisclosure: true,
                   ),
                   NativeSheetItemConfig(
                     id: 'profile-details',
                     title: l10n.profileDetails,
-                    subtitle: l10n.genderLabel,
+                    subtitle: l10n.profileDetailsSummary,
                     sfSymbol: 'person.crop.circle',
+                    showsDisclosure: true,
                   ),
                 ],
               ),
@@ -748,7 +742,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                   NativeSheetItemConfig(
                     id: 'password',
                     title: l10n.changePasswordTitle,
-                    subtitle: l10n.passwordChangesLabel,
+                    subtitle: l10n.passwordChangeDescription,
                     sfSymbol: 'lock',
                   ),
                 ],
@@ -770,8 +764,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.voice,
           title: l10n.voice,
-          subtitle: l10n.audioSettingsSubtitle,
-          items: nativeAudio.mainItems,
+          sections: nativeAudio.mainSections,
         ),
         nativeAudio.voicePickerDetail,
         buildNativeLoadingDetail(

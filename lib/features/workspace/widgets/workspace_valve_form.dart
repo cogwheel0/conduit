@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -129,11 +129,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
     );
   }
 
-  Widget _field(
-    BuildContext context,
-    AppLocalizations l10n,
-    String property,
-  ) {
+  Widget _field(BuildContext context, AppLocalizations l10n, String property) {
     final theme = context.conduitTheme;
     final spec = _propertySpec(property);
     final title = spec['title']?.toString() ?? property;
@@ -210,9 +206,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
 
     if (enumValues is List && enumValues.isNotEmpty) {
       final current = _values[property]?.toString();
-      final hasCurrent = enumValues
-          .map((e) => e.toString())
-          .contains(current);
+      final hasCurrent = enumValues.map((e) => e.toString()).contains(current);
       // KeyedSubtree preserves [controlKey] because AdaptivePopupMenuButton.text
       // does not forward its own `key`. Tapping the subtree hits the trigger.
       return Align(
@@ -231,8 +225,10 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
                 ),
             ],
             onSelected: widget.enabled
-                ? (index, entry) =>
-                      _setValue(property, _enumValueFor(enumValues, entry.value))
+                ? (index, entry) => _setValue(
+                    property,
+                    _enumValueFor(enumValues, entry.value),
+                  )
                 : (_, _) {},
           ),
         ),

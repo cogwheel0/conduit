@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
@@ -14,6 +14,7 @@ import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
@@ -62,42 +63,27 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     final allowsCustom = policy.allowsCustom;
     final options = policy.options;
     final customMarker = '__custom__';
-    final selected = await showModalBottomSheet<String>(
+    final selectedValue = options.contains(current) ? current : customMarker;
+    final selectionItems = <({String value, String label})>[
+      for (final option in options)
+        (value: option, label: _effortLabel(l10n, option)),
+      if (allowsCustom)
+        (value: customMarker, label: l10n.customReasoningEffort),
+    ];
+    final selected = await showAdaptiveSelectionSheet<String>(
       context: context,
-      useRootNavigator: true,
-      backgroundColor: context.conduitTheme.surfaceBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
-      ),
-      builder: (sheetContext) => ModalSheetSafeArea(
-        padding: const EdgeInsets.all(Spacing.modalPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHandle(),
-            Text(
-              l10n.reasoningEffort,
-              textAlign: TextAlign.center,
-              style: context.conduitTheme.headingSmall,
-            ),
-            const SizedBox(height: Spacing.md),
-            for (final option in options)
-              _EffortOption(
-                label: _effortLabel(l10n, option),
-                selected: current == option,
-                onTap: () => Navigator.of(sheetContext).pop(option),
-              ),
-            if (allowsCustom)
-              _EffortOption(
-                label: l10n.customReasoningEffort,
-                selected: !options.contains(current),
-                onTap: () => Navigator.of(sheetContext).pop(customMarker),
-              ),
-          ],
-        ),
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: l10n.reasoningEffort,
+        initialChildSize: 0.68,
+        itemCount: selectionItems.length,
+        itemBuilder: (_, index) {
+          final item = selectionItems[index];
+          return AdaptiveSelectionTile(
+            title: item.label,
+            selected: item.value == selectedValue,
+            onTap: () => Navigator.of(sheetContext).pop(item.value),
+          );
+        },
       ),
     );
     if (!mounted || selected == null) return;
@@ -120,14 +106,12 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       await setReasoningEffort(ref.read, normalizeReasoningEffort(effort));
     } on FormatException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
     }
   }
 
@@ -314,14 +298,12 @@ class _SelectorHeader extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: isBack
-              ? IconButton(
+              ? ConduitIconButton(
                   onPressed: onPressed,
                   tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  icon: Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.back
-                        : Icons.arrow_back_rounded,
-                  ),
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.back
+                      : Icons.arrow_back_rounded,
                 )
               : SheetCloseButton(
                   onPressed: onPressed,
@@ -546,26 +528,5 @@ class _ActionCard extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-class _EffortOption extends StatelessWidget {
-  const _EffortOption({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-    onTap: onTap,
-    title: Text(label),
-    trailing: selected
-        ? Icon(Icons.check, color: context.conduitTheme.buttonPrimary)
-        : null,
   );
 }

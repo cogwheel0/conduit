@@ -3,15 +3,12 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// App-wide haptics helper that prefers system haptics on Android.
-///
-/// iOS can still use `gaimon` when it is available so notification-style
-/// feedback stays mapped to the native UIKit generators. Other platforms and
-/// tests fall back to Flutter's built-in `HapticFeedback` APIs.
+/// Semantic haptic feedback used throughout the app.
+enum HapticType { light, medium, heavy, selection, success, warning, error }
+
+/// App-wide helper for Flutter's system haptics on supported mobile platforms.
 class ConduitHaptics {
   ConduitHaptics._();
-
-  static const MethodChannel _pluginChannel = MethodChannel('gaimon');
 
   /// Whether the current target supports mobile haptics.
   static bool get supportsHaptics =>
@@ -21,36 +18,40 @@ class ConduitHaptics {
         _ => false,
       };
 
-  static bool get _preferPlugin =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  /// Triggers the feedback associated with [type].
+  static Future<void> trigger(HapticType type) => switch (type) {
+    HapticType.light => lightImpact(),
+    HapticType.medium => mediumImpact(),
+    HapticType.heavy => heavyImpact(),
+    HapticType.selection => selectionClick(),
+    HapticType.success => success(),
+    HapticType.warning => warning(),
+    HapticType.error => error(),
+  };
 
   /// Triggers a light impact haptic.
-  static Future<void> lightImpact() =>
-      _feedback('light', HapticFeedback.lightImpact);
+  static Future<void> lightImpact() => _feedback(HapticFeedback.lightImpact);
 
   /// Triggers a medium impact haptic.
-  static Future<void> mediumImpact() =>
-      _feedback('medium', HapticFeedback.mediumImpact);
+  static Future<void> mediumImpact() => _feedback(HapticFeedback.mediumImpact);
 
   /// Triggers a heavy impact haptic.
-  static Future<void> heavyImpact() =>
-      _feedback('heavy', HapticFeedback.heavyImpact);
+  static Future<void> heavyImpact() => _feedback(HapticFeedback.heavyImpact);
 
   /// Triggers a selection haptic.
   static Future<void> selectionClick() =>
-      _feedback('selection', HapticFeedback.selectionClick);
+      _feedback(HapticFeedback.selectionClick);
 
   /// Triggers a success haptic.
   static Future<void> success() =>
-      _feedback('success', HapticFeedback.successNotification);
+      _feedback(HapticFeedback.successNotification);
 
   /// Triggers a warning haptic.
   static Future<void> warning() =>
-      _feedback('warning', HapticFeedback.warningNotification);
+      _feedback(HapticFeedback.warningNotification);
 
   /// Triggers an error haptic.
-  static Future<void> error() =>
-      _feedback('error', HapticFeedback.errorNotification);
+  static Future<void> error() => _feedback(HapticFeedback.errorNotification);
 
   /// Triggers a general-purpose vibration.
   static Future<void> vibrate() async {
@@ -61,29 +62,11 @@ class ConduitHaptics {
     await _fallback('vibration', HapticFeedback.vibrate);
   }
 
-  static Future<void> _feedback(
-    String pluginMethod,
-    Future<void> Function() fallback,
-  ) async {
+  static Future<void> _feedback(Future<void> Function() callback) async {
     if (!supportsHaptics) {
       return;
     }
-
-    if (!_preferPlugin) {
-      await _fallback('system haptic', fallback);
-      return;
-    }
-
-    try {
-      await _pluginChannel.invokeMethod<void>(pluginMethod);
-      return;
-    } on MissingPluginException {
-      // Fall through to Flutter's built-in haptics for tests.
-    } on PlatformException catch (error, stackTrace) {
-      _logFailure('Failed to trigger plugin haptic', error, stackTrace);
-    }
-
-    await _fallback('haptic fallback', fallback);
+    await _fallback('system haptic', callback);
   }
 
   static Future<void> _fallback(

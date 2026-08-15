@@ -48,7 +48,7 @@ func applyNativeAvatarImage(
     initialsLabel: UILabel
 ) {
     imageView.image = nativeAvatarImage(image, isTemplate: isTemplate)
-    imageView.tintColor = isTemplate ? .label : nil
+    imageView.tintColor = isTemplate ? NativeSheetTheme.shared.foreground : nil
     imageView.contentMode = isTemplate ? .scaleAspectFit : .scaleAspectFill
     imageView.isHidden = false
     initialsLabel.isHidden = true
@@ -165,6 +165,8 @@ private struct NativeSheetItem {
     let subtitle: String?
     let sfSymbol: String
     let iconAsset: String?
+    let iconSize: Double?
+    let showsDisclosure: Bool?
     let destructive: Bool
     let dismissOnSelect: Bool
     let actionId: String?
@@ -201,6 +203,8 @@ private struct NativeSheetItem {
         subtitle = payload["subtitle"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
         iconAsset = payload["iconAsset"] as? String
+        iconSize = NativeSheetItem.optionalDouble(payload["iconSize"])
+        showsDisclosure = payload["showsDisclosure"] as? Bool
         destructive = payload["destructive"] as? Bool ?? false
         dismissOnSelect = payload["dismissOnSelect"] as? Bool ?? false
         actionId = payload["actionId"] as? String
@@ -906,6 +910,8 @@ private extension PlatformNativeSheetItem {
         ]
         payload["subtitle"] = subtitle
         payload["iconAsset"] = iconAsset
+        payload["iconSize"] = iconSize
+        payload["showsDisclosure"] = showsDisclosure
         payload["actionId"] = actionId
         payload["actionValue"] = actionValue
         payload["url"] = url
@@ -1145,6 +1151,20 @@ final class NativeSheetBridge: NativeSheetHostApi {
         )
     }
 
+    func setTheme(theme: PlatformNativeSheetTheme) throws {
+        let applyTheme = { [weak self] in
+            NativeSheetTheme.shared.update(theme)
+            if let activeController = self?.activeController {
+                NativeSheetTheme.shared.apply(to: activeController)
+            }
+        }
+        if Thread.isMainThread {
+            applyTheme()
+        } else {
+            DispatchQueue.main.sync(execute: applyTheme)
+        }
+    }
+
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
@@ -1344,6 +1364,9 @@ final class NativeSheetBridge: NativeSheetHostApi {
             let items = request.items
                 .map { $0.asPayload() }
                 .compactMap(NativeSheetItem.init)
+            let sections = request.sections
+                .map { $0.asPayload() }
+                .compactMap(NativeSheetSection.init)
             let relatedDetails = (request.detailSheets ?? [])
                 .map { $0.asPayload() }
                 .compactMap(NativeSheetDetail.init)
@@ -1356,9 +1379,11 @@ final class NativeSheetBridge: NativeSheetHostApi {
             let patched = NativeSheetDetail(
                 id: existing.id,
                 title: request.title ?? existing.title,
-                subtitle: request.subtitle ?? existing.subtitle,
+                subtitle: request.clearSubtitle
+                    ? nil
+                    : request.subtitle ?? existing.subtitle,
                 items: items,
-                sections: existing.sections,
+                sections: sections,
                 confirmActionId: existing.confirmActionId,
                 confirmActionLabel: existing.confirmActionLabel,
                 maxHeightFraction: existing.maxHeightFraction
@@ -2386,7 +2411,7 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.title = nativeLocalized("native.editPhoto", "Edit Photo")
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
@@ -2407,8 +2432,8 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         var clearConfiguration = UIButton.Configuration.filled()
         clearConfiguration.image = UIImage(systemName: "xmark")
         clearConfiguration.cornerStyle = .capsule
-        clearConfiguration.baseBackgroundColor = .secondarySystemGroupedBackground
-        clearConfiguration.baseForegroundColor = .secondaryLabel
+        clearConfiguration.baseBackgroundColor = NativeSheetTheme.shared.surface
+        clearConfiguration.baseForegroundColor = NativeSheetTheme.shared.secondaryForeground
         clearButton.configuration = clearConfiguration
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         clearButton.addAction(UIAction { [weak self] _ in self?.removeAvatarTapped() }, for: .touchUpInside)
@@ -2462,7 +2487,10 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.titleLabel?.numberOfLines = 2
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
-        button.addAction(UIAction { _ in handler() }, for: .touchUpInside)
+        button.addAction(UIAction { _ in
+            NativeSheetHaptics.selection()
+            handler()
+        }, for: .touchUpInside)
         return button
     }
 
@@ -2491,6 +2519,7 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         case .removed:
             imageUrl = "/user.png"
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, profileImageUrl: imageUrl))
         dismiss(animated: true)
     }
@@ -2588,7 +2617,7 @@ private final class NativeProfileNameEditorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.title = copy.nameLabel
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
@@ -2624,6 +2653,7 @@ private final class NativeProfileNameEditorViewController: UIViewController {
             presentNativeValidationAlert(message: copy.nameRequiredMessage)
             return
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, name: name))
         dismiss(animated: true)
     }
@@ -2652,7 +2682,7 @@ private final class NativeProfileAboutEditorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.title = copy.bioLabel
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
@@ -2667,13 +2697,13 @@ private final class NativeProfileAboutEditorViewController: UIViewController {
         let caption = UILabel()
         caption.text = copy.bioLabel
         caption.font = .preferredFont(forTextStyle: .caption1)
-        caption.textColor = .secondaryLabel
+        caption.textColor = NativeSheetTheme.shared.secondaryForeground
         caption.adjustsFontForContentSizeCategory = true
 
         textView.text = profile.bio
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
-        textView.backgroundColor = .secondarySystemGroupedBackground
+        textView.backgroundColor = NativeSheetTheme.shared.surface
         textView.layer.cornerRadius = 12
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
@@ -2695,6 +2725,7 @@ private final class NativeProfileAboutEditorViewController: UIViewController {
     }
 
     @objc private func saveTapped() {
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(profile: profile, bio: textView.text ?? ""))
         dismiss(animated: true)
     }
@@ -2731,7 +2762,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.title = copy.title
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
@@ -2752,7 +2783,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
         rebuildGenderMenu()
 
         customGenderField.borderStyle = .none
-        customGenderField.backgroundColor = .secondarySystemFill
+        customGenderField.backgroundColor = NativeSheetTheme.shared.input
         customGenderField.layer.cornerRadius = 22
         customGenderField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 44))
         customGenderField.leftViewMode = .always
@@ -2857,6 +2888,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
     }
 
     private func clearBirthTapped() {
+        NativeSheetHaptics.selection()
         birthIso = ""
         birthPicker.date = Calendar.current.date(from: DateComponents(year: 1990, month: 1, day: 1)) ?? Date()
     }
@@ -2882,6 +2914,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
             presentNativeValidationAlert(message: copy.customGenderRequiredMessage)
             return
         }
+        NativeSheetHaptics.success()
         onCommit(nativeProfileCommitPayload(
             profile: profile,
             gender: resolvedGenderPayload(),
@@ -2895,7 +2928,7 @@ private func captionLabel(_ text: String) -> UILabel {
     let label = UILabel()
     label.text = text
     label.font = .preferredFont(forTextStyle: .caption1)
-    label.textColor = .secondaryLabel
+    label.textColor = NativeSheetTheme.shared.secondaryForeground
     label.adjustsFontForContentSizeCategory = true
     return label
 }
@@ -2910,7 +2943,7 @@ private func labeledStack(caption: String, arrangedSubviews: [UIView]) -> UIStac
 private func inputContainer(caption: String, field: UITextField) -> UIStackView {
     field.font = .preferredFont(forTextStyle: .body)
     field.adjustsFontForContentSizeCategory = true
-    field.backgroundColor = .secondarySystemGroupedBackground
+    field.backgroundColor = NativeSheetTheme.shared.surface
     field.borderStyle = .none
     field.layer.cornerRadius = 12
     field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
@@ -2960,14 +2993,6 @@ private extension UIImage {
     }
 }
 
-private final class NativeSheetNavigationController: UINavigationController {
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        modalPresentationStyle = .pageSheet
-        navigationBar.prefersLargeTitles = false
-    }
-}
-
 private final class NativeSignOutOptionsViewController: UITableViewController {
     private let message: String?
     private let optionTitle: String
@@ -3002,7 +3027,7 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 72
         navigationItem.leftBarButtonItem = UIBarButtonItem(
@@ -3017,7 +3042,7 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
                 self?.confirm()
             }
         )
-        confirmButton.tintColor = .systemRed
+        confirmButton.tintColor = NativeSheetTheme.shared.destructive
         confirmButton.accessibilityIdentifier = "sign-out-confirm"
         navigationItem.rightBarButtonItem = confirmButton
         configureHeader()
@@ -3028,7 +3053,7 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .body)
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .secondaryLabel
+        label.textColor = NativeSheetTheme.shared.secondaryForeground
         label.numberOfLines = 0
         label.text = message
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -3093,7 +3118,7 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
         )
         content.imageProperties.tintColor = keepServerDetails
             ? view.tintColor
-            : .secondaryLabel
+            : NativeSheetTheme.shared.secondaryForeground
         cell.contentConfiguration = content
         cell.selectionStyle = .default
         cell.accessibilityIdentifier = "sign-out-keep-server-details"
@@ -3107,11 +3132,13 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
         _ tableView: UITableView,
         didSelectRowAt indexPath: IndexPath
     ) {
+        NativeSheetHaptics.selection()
         keepServerDetails.toggle()
         tableView.reloadRows(at: [indexPath], with: .none)
     }
 
     private func confirm() {
+        NativeSheetHaptics.mediumImpact()
         let selection = keepServerDetails
         dismiss(animated: true) { [onConfirm] in
             onConfirm(selection)
@@ -3259,14 +3286,14 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         let titleLabel = UILabel()
         titleLabel.text = configuration.profile.displayName
         titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 1
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = configuration.profile.email
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 1
 
@@ -3320,10 +3347,10 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
-        segmentedControl.selectedSegmentTintColor = .tintColor
+        applyNativeSheetSegmentedControlTheme(segmentedControl)
         contentView.addSubview(stack)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
@@ -3353,6 +3380,7 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     }
 
     func configure(item: NativeSheetItem, onValueChanged: @escaping (String) -> Void) {
+        applyNativeSheetSegmentedControlTheme(segmentedControl)
         titleLabel.text = item.title
         if let subtitle = item.subtitle, !subtitle.isEmpty {
             subtitleLabel.text = subtitle
@@ -3407,24 +3435,24 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         textStack.spacing = 2
         textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        iconView.tintColor = .secondaryLabel
+        iconView.tintColor = NativeSheetTheme.shared.icon
         iconView.contentMode = .scaleAspectFit
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
 
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
 
         button.titleLabel?.font = .preferredFont(forTextStyle: .body)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.titleLabel?.numberOfLines = 2
-        button.tintColor = .secondaryLabel
+        button.tintColor = NativeSheetTheme.shared.icon
         button.contentHorizontalAlignment = .leading
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true
@@ -3490,7 +3518,7 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         configuration.title = title
         configuration.titleLineBreakMode = .byTruncatingTail
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
-        configuration.baseForegroundColor = .label
+        configuration.baseForegroundColor = NativeSheetTheme.shared.foreground
         configuration.cornerStyle = .medium
         button.configuration = configuration
     }
@@ -3522,14 +3550,14 @@ private final class NativeSheetMultilineTextTableViewCell: UITableViewCell, UITe
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         captionLabel.font = .preferredFont(forTextStyle: .caption1)
-        captionLabel.textColor = .secondaryLabel
+        captionLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.numberOfLines = 0
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
         textView.layer.cornerCurve = .continuous
         textView.layer.cornerRadius = 12
-        textView.backgroundColor = .tertiarySystemFill
+        textView.backgroundColor = NativeSheetTheme.shared.input
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         textView.delegate = self
         textView.isScrollEnabled = false
@@ -3591,23 +3619,23 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
 
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
 
         textField.font = .preferredFont(forTextStyle: .body)
         textField.adjustsFontForContentSizeCategory = true
-        textField.backgroundColor = .tertiarySystemFill
+        textField.backgroundColor = NativeSheetTheme.shared.input
         textField.layer.cornerRadius = 12
         textField.layer.cornerCurve = .continuous
         textField.clipsToBounds = true
-        textField.textColor = .label
-        textField.tintColor = .tintColor
+        textField.textColor = NativeSheetTheme.shared.foreground
+        textField.tintColor = NativeSheetTheme.shared.accent
         textField.returnKeyType = .done
         textField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 44))
         textField.leftViewMode = .always
@@ -3688,7 +3716,7 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         captionLabel.font = .preferredFont(forTextStyle: .caption1)
-        captionLabel.textColor = .secondaryLabel
+        captionLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.numberOfLines = 0
         textView.font = .preferredFont(forTextStyle: .body)
@@ -3742,13 +3770,13 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
         valueLabel.font = .preferredFont(forTextStyle: .body)
         valueLabel.adjustsFontForContentSizeCategory = true
         valueLabel.textAlignment = .natural
-        valueLabel.textColor = .secondaryLabel
+        valueLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         slider.addTarget(self, action: #selector(sliderEditingChanged), for: .valueChanged)
         slider.addTarget(self, action: #selector(sliderReleased), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         contentView.addSubview(stack)
@@ -3812,7 +3840,8 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
 
     @objc private func sliderEditingChanged() {
         guard let item = boundItem else { return }
-        refreshValueLabel(for: item, value: Double(slider.value))
+        let value = Double(slider.value)
+        refreshValueLabel(for: item, value: value)
     }
 
     @objc private func sliderReleased() {
@@ -3882,7 +3911,7 @@ private final class NativeSheetQueryChipButton: UIButton {
         configuration = nativeChipConfiguration(
             title: title,
             image: UIImage(systemName: "magnifyingglass"),
-            foregroundColor: .secondaryLabel
+            foregroundColor: NativeSheetTheme.shared.secondaryForeground
         )
     }
 }
@@ -3902,9 +3931,9 @@ private final class NativeSheetFaviconView: UIView {
         layer.cornerRadius = side / 2
         layer.cornerCurve = .continuous
         layer.borderWidth = 1
-        layer.borderColor = UIColor.systemBackground.cgColor
+        layer.borderColor = NativeSheetTheme.shared.border.cgColor
         clipsToBounds = true
-        backgroundColor = .systemBackground
+        backgroundColor = NativeSheetTheme.shared.surface
 
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.contentMode = .scaleAspectFill
@@ -3912,12 +3941,12 @@ private final class NativeSheetFaviconView: UIView {
         addSubview(imageView)
 
         fallbackView.translatesAutoresizingMaskIntoConstraints = false
-        fallbackView.backgroundColor = .tertiarySystemFill
+        fallbackView.backgroundColor = NativeSheetTheme.shared.input
         addSubview(fallbackView)
 
         fallbackIconView.translatesAutoresizingMaskIntoConstraints = false
         fallbackIconView.contentMode = .scaleAspectFit
-        fallbackIconView.tintColor = .secondaryLabel
+        fallbackIconView.tintColor = NativeSheetTheme.shared.icon
         fallbackView.addSubview(fallbackIconView)
 
         NSLayoutConstraint.activate([
@@ -4007,7 +4036,7 @@ private final class NativeSheetLinkChipButton: UIButton {
         let buttonConfiguration = nativeChipConfiguration(
             title: link.title ?? NativeSheetURLFormatting.displayLabel(for: link.rawUrl),
             image: UIImage(systemName: "globe"),
-            foregroundColor: .label
+            foregroundColor: NativeSheetTheme.shared.foreground
         )
         configuration = buttonConfiguration
         isEnabled = link.url != nil
@@ -4051,7 +4080,7 @@ private final class NativeSheetSourceTableViewCell: UITableViewCell {
         indexLabel.font = UIFontMetrics(forTextStyle: .caption1)
             .scaledFont(for: .systemFont(ofSize: 12, weight: .semibold))
         indexLabel.adjustsFontForContentSizeCategory = true
-        indexLabel.textColor = .tertiaryLabel
+        indexLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         indexLabel.textAlignment = .natural
         indexLabel.setContentHuggingPriority(.required, for: .horizontal)
         indexLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -4063,18 +4092,18 @@ private final class NativeSheetSourceTableViewCell: UITableViewCell {
         titleLabel.font = UIFontMetrics(forTextStyle: .body)
             .scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.numberOfLines = 2
 
         detailLabel.font = .preferredFont(forTextStyle: .caption1)
         detailLabel.adjustsFontForContentSizeCategory = true
-        detailLabel.textColor = .secondaryLabel
+        detailLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         detailLabel.numberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingMiddle
 
         snippetLabel.font = .preferredFont(forTextStyle: .footnote)
         snippetLabel.adjustsFontForContentSizeCategory = true
-        snippetLabel.textColor = .secondaryLabel
+        snippetLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         snippetLabel.numberOfLines = 4
 
         contentView.addSubview(rootStack)
@@ -4153,7 +4182,7 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
         headerStack.alignment = .top
         headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
 
-        iconView.tintColor = .secondaryLabel
+        iconView.tintColor = NativeSheetTheme.shared.icon
         iconView.contentMode = .scaleAspectFit
         iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
             pointSize: NativeSheetSettingsStyle.iconSize,
@@ -4168,13 +4197,13 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
         titleLabel.font = UIFontMetrics(forTextStyle: .body)
             .scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.numberOfLines = 0
 
         querySectionLabel.text = nativeLocalized("native.sheet.searches", "Searches")
         querySectionLabel.font = .preferredFont(forTextStyle: .caption1)
         querySectionLabel.adjustsFontForContentSizeCategory = true
-        querySectionLabel.textColor = .secondaryLabel
+        querySectionLabel.textColor = NativeSheetTheme.shared.secondaryForeground
 
         queryStack.axis = .vertical
         queryStack.spacing = 6
@@ -4183,7 +4212,7 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
         linkSectionLabel.text = nativeLocalized("native.sheet.sources", "Sources")
         linkSectionLabel.font = .preferredFont(forTextStyle: .caption1)
         linkSectionLabel.adjustsFontForContentSizeCategory = true
-        linkSectionLabel.textColor = .secondaryLabel
+        linkSectionLabel.textColor = NativeSheetTheme.shared.secondaryForeground
 
         linkStack.axis = .vertical
         linkStack.spacing = 6
@@ -4226,7 +4255,9 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
         titleLabel.text = item.title
         let symbolName = item.pending ? "circle.dotted" : "circle.fill"
         iconView.image = UIImage(systemName: symbolName)
-        iconView.tintColor = item.pending ? .tintColor : .secondaryLabel
+        iconView.tintColor = item.pending
+            ? NativeSheetTheme.shared.accent
+            : NativeSheetTheme.shared.icon
 
         clearArrangedSubviews(from: queryStack)
         clearArrangedSubviews(from: linkStack)
@@ -4492,6 +4523,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         let item = item(at: indexPath)
         switch item.kind {
         case "toggle":
+            NativeSheetHaptics.selection()
             if let toggle = tableView.cellForRow(at: indexPath)?.accessoryView as? UISwitch {
                 toggle.setOn(!toggle.isOn, animated: true)
                 onControlChanged(item, toggle.isOn)
@@ -4507,6 +4539,11 @@ private final class NativeDetailTableViewController: UITableViewController {
             onSelect(item)
         default:
             commitPendingTextChanges()
+            if item.destructive {
+                NativeSheetHaptics.mediumImpact()
+            } else if item.url == nil && !canNavigate(item) {
+                NativeSheetHaptics.selection()
+            }
             onSelect(item)
         }
     }
@@ -4542,7 +4579,8 @@ private final class NativeDetailTableViewController: UITableViewController {
             configureNavigationCell(
                 cell,
                 item: item,
-                showsDisclosure: item.url != nil || canNavigate(item)
+                showsDisclosure: item.showsDisclosure
+                    ?? (item.url != nil || canNavigate(item))
             )
         }
     }
@@ -4578,7 +4616,13 @@ private final class NativeDetailTableViewController: UITableViewController {
         }
 
         if pendingTextValues.isEmpty {
-            navigationItem.rightBarButtonItem = closeButton()
+            // A pushed detail already has a Back button. Showing Close as
+            // well creates two competing exit actions, so reserve Close for
+            // the root controller of a presented sheet.
+            navigationItem.rightBarButtonItem =
+                navigationController?.viewControllers.first === self
+                ? closeButton()
+                : nil
             return
         }
 
@@ -4633,6 +4677,7 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     private func confirmPendingTextChanges() {
         guard commitPendingTextChanges() else { return }
+        NativeSheetHaptics.success()
         if let actionItem = textChangeConfirmationActionItem() {
             onSelect(actionItem)
         } else if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
@@ -4646,6 +4691,7 @@ private final class NativeDetailTableViewController: UITableViewController {
             return
         }
 
+        NativeSheetHaptics.success()
         _ = commitPendingTextChanges()
         onConfirmAction(actionId)
     }
@@ -4753,15 +4799,15 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             cell.isUserInteractionEnabled = effortSelectionEnabled
             cell.accessoryType = effortSelectionEnabled ? .disclosureIndicator : .none
             if !effortSelectionEnabled {
-                content.textProperties.color = .secondaryLabel
-                content.secondaryTextProperties.color = .tertiaryLabel
+                content.textProperties.color = NativeSheetTheme.shared.secondaryForeground
+                content.secondaryTextProperties.color = NativeSheetTheme.shared.secondaryForeground
             }
         } else {
             content.image = UIImage(systemName: "ellipsis")
             content.text = configuration.moreModelsTitle
             cell.accessoryType = .disclosureIndicator
         }
-        content.imageProperties.tintColor = .label
+        content.imageProperties.tintColor = NativeSheetTheme.shared.icon
         cell.contentConfiguration = content
         return cell
     }
@@ -4770,6 +4816,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         tableView.deselectRow(at: indexPath, animated: true)
         switch indexPath.section {
         case 0:
+            NativeSheetHaptics.selection()
             onSelect(featuredModels[indexPath.row].id)
         case 1:
             guard effortSelectionEnabled else { return }
@@ -4814,6 +4861,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
                 title: title,
                 image: image
             ) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 self?.togglePinnedModel(model.id)
                 self?.onTogglePin(model.id)
             }
@@ -4952,6 +5000,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     private func commitEffort(_ value: String) {
         guard let normalized = normalizedEffort(value) else { return }
+        NativeSheetHaptics.selection()
         reasoningEffortValue = normalized
         tableView.reloadSections(IndexSet(integer: 1), with: .none)
         onEffortChanged(normalized)
@@ -5063,6 +5112,7 @@ private final class NativeMoreModelsTableViewController: UITableViewController, 
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        NativeSheetHaptics.selection()
         onSelect(filteredModels[indexPath.row].id)
     }
 
@@ -5079,6 +5129,7 @@ private final class NativeMoreModelsTableViewController: UITableViewController, 
                 title: pinned ? self?.unpinTitle ?? "Unpin" : self?.pinTitle ?? "Pin",
                 image: UIImage(systemName: pinned ? "pin.slash" : "pin")
             ) { [weak self] _ in
+                NativeSheetHaptics.selection()
                 if pinned { self?.pinnedModelIds.remove(model.id) }
                 else { self?.pinnedModelIds.insert(model.id) }
                 self?.tableView.reloadRows(at: [indexPath], with: .none)
@@ -5124,8 +5175,8 @@ private final class NativeModelTagButton: UIButton {
             bottom: 2,
             trailing: 6
         )
-        configuration.baseForegroundColor = .secondaryLabel
-        configuration.baseBackgroundColor = .quaternarySystemFill
+        configuration.baseForegroundColor = NativeSheetTheme.shared.secondaryForeground
+        configuration.baseBackgroundColor = NativeSheetTheme.shared.elevatedSurface
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
             incoming in
             var outgoing = incoming
@@ -5228,6 +5279,7 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         tableView.deselectRow(at: indexPath, animated: true)
         let option = filteredOptions[indexPath.row]
         guard option.enabled else { return }
+        NativeSheetHaptics.selection()
         onSelect(option.id)
     }
 
@@ -5287,14 +5339,14 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
     ) {
         titleLabel.text = model.name
         titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.textColor = .label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 2
 
         let subtitle = model.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         subtitleLabel.text = subtitle
         subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = subtitle.isEmpty
@@ -5351,7 +5403,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
     }
 
     private func configureViews() {
-        backgroundColor = .secondarySystemGroupedBackground
+        backgroundColor = NativeSheetTheme.shared.surface
         contentView.addSubview(avatarView)
         contentView.addSubview(textStack)
         contentView.addSubview(pinImageView)
@@ -5373,7 +5425,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
         tagsStack.isHidden = true
         pinImageView.translatesAutoresizingMaskIntoConstraints = false
         pinImageView.contentMode = .scaleAspectFit
-        pinImageView.tintColor = .secondaryLabel
+        pinImageView.tintColor = NativeSheetTheme.shared.icon
         pinImageView.isHidden = true
         pinImageView.setContentHuggingPriority(.required, for: .horizontal)
         pinWidthConstraint = pinImageView.widthAnchor.constraint(equalToConstant: 0)
@@ -5421,15 +5473,15 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
 
     func configure(option: NativeSheetOption, isSelected: Bool) {
         let isDestructive = option.destructive
-        let tintColor: UIColor = isDestructive ? .systemRed : .secondaryLabel
-        let textColor: UIColor = isDestructive ? .systemRed : .label
+        let tintColor: UIColor = isDestructive ? NativeSheetTheme.shared.destructive : NativeSheetTheme.shared.secondaryForeground
+        let textColor: UIColor = isDestructive ? NativeSheetTheme.shared.destructive : NativeSheetTheme.shared.foreground
 
         titleLabel.text = option.label
         titleLabel.textColor = textColor
         titleLabel.numberOfLines = 2
 
         subtitleLabel.text = option.subtitle
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = option.subtitle == nil || option.subtitle?.isEmpty == true
 
@@ -5462,7 +5514,7 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
     }
 
     private func configureViews() {
-        backgroundColor = .secondarySystemGroupedBackground
+        backgroundColor = NativeSheetTheme.shared.surface
 
         hierarchyGuideView.translatesAutoresizingMaskIntoConstraints = false
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -5552,7 +5604,9 @@ private final class NativeFolderHierarchyGuideView: UIView {
         guard showBranch || ancestorHasMoreSiblings.contains(true) else { return }
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
-        context.setStrokeColor(UIColor.secondaryLabel.withAlphaComponent(0.28).cgColor)
+        context.setStrokeColor(
+            NativeSheetTheme.shared.secondaryForeground.withAlphaComponent(0.28).cgColor
+        )
         context.setLineWidth(1.25)
         context.setLineCap(.square)
         context.setLineJoin(.miter)
@@ -6516,7 +6570,7 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
     override func viewDidLoad() {
         super.viewDidLoad()
         title = configuration.title
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
             action: UIAction { [weak self] _ in self?.closeTapped() }
@@ -6532,8 +6586,8 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
         textView.backgroundColor = .clear
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
-        textView.textColor = .label
-        textView.tintColor = .tintColor
+        textView.textColor = NativeSheetTheme.shared.foreground
+        textView.tintColor = NativeSheetTheme.shared.accent
         textView.text = configuration.initialValue
         textView.delegate = self
         textView.keyboardDismissMode = .interactive
@@ -6623,7 +6677,7 @@ private final class NativeDatePickerViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = configuration.title
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
             action: UIAction { [weak self] _ in self?.cancelTapped() }
@@ -6636,7 +6690,7 @@ private final class NativeDatePickerViewController: UIViewController {
 
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.backgroundColor = .secondarySystemGroupedBackground
+        container.backgroundColor = NativeSheetTheme.shared.surface
         container.layer.cornerRadius = 16
         container.layer.cornerCurve = .continuous
 
@@ -6668,6 +6722,7 @@ private final class NativeDatePickerViewController: UIViewController {
     }
 
     @objc private func doneTapped() {
+        NativeSheetHaptics.success()
         onConfirm(datePicker.date)
     }
 }
@@ -6691,14 +6746,15 @@ private func configureNavigationCell(
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
     if item.iconAsset != nil {
+        let assetSize = item.iconSize ?? NativeSheetSettingsStyle.iconSize
         content.imageProperties.maximumSize = CGSize(
-            width: NativeSheetSettingsStyle.iconSize,
-            height: NativeSheetSettingsStyle.iconSize
+            width: assetSize,
+            height: assetSize
         )
     }
     if item.destructive {
-        content.textProperties.color = .systemRed
-        content.imageProperties.tintColor = .systemRed
+        content.textProperties.color = NativeSheetTheme.shared.destructive
+        content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
     if item.kind == "info" && !showsDisclosure {
@@ -6711,76 +6767,6 @@ private func configureNavigationCell(
     cell.accessoryType = showsDisclosure ? .disclosureIndicator : .none
     NativeSheetSettingsStyle.applyCellStyle(cell)
 }
-
-private enum NativeSheetSettingsStyle {
-    static let defaultCellHeight: CGFloat = 50
-    static let iconSize: CGFloat = 24
-    static let iconSpacing: CGFloat = 16
-
-    static var horizontalMargin: CGFloat {
-        let isWidePhone = UIDevice.current.userInterfaceIdiom == .phone &&
-            UIScreen.main.bounds.width >= 414
-        return isWidePhone ? 20 : 16
-    }
-
-    static func apply(to tableView: UITableView) {
-        tableView.keyboardDismissMode = .interactive
-        tableView.backgroundColor = .systemGroupedBackground
-        tableView.separatorStyle = .none
-        tableView.estimatedRowHeight = defaultCellHeight
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedSectionHeaderHeight = 20
-        tableView.estimatedSectionFooterHeight = 44
-        tableView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 0,
-            leading: horizontalMargin,
-            bottom: 0,
-            trailing: horizontalMargin
-        )
-        if #available(iOS 15.0, *) {
-            tableView.sectionHeaderTopPadding = 12
-        }
-    }
-
-    static func applyContentStyle(_ content: inout UIListContentConfiguration) {
-        content.textProperties.font = .preferredFont(forTextStyle: .body)
-        content.textProperties.color = .label
-        content.textProperties.numberOfLines = 2
-        content.secondaryTextProperties.font = .preferredFont(forTextStyle: .footnote)
-        content.secondaryTextProperties.color = .secondaryLabel
-        content.secondaryTextProperties.numberOfLines = 2
-        content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: iconSize,
-            weight: .regular
-        )
-        content.imageProperties.tintColor = .secondaryLabel
-        content.imageToTextPadding = iconSpacing
-    }
-
-    static func applyCellStyle(_ cell: UITableViewCell) {
-        cell.backgroundColor = .secondarySystemGroupedBackground
-        cell.preservesSuperviewLayoutMargins = true
-        cell.contentView.preservesSuperviewLayoutMargins = true
-        cell.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 11,
-            leading: horizontalMargin,
-            bottom: 11,
-            trailing: horizontalMargin
-        )
-        let selectedBackground = UIView()
-        selectedBackground.backgroundColor = .tertiarySystemFill
-        cell.selectedBackgroundView = selectedBackground
-    }
-
-    static func applyHeaderFooterStyle(_ view: UIView) {
-        guard let headerFooter = view as? UITableViewHeaderFooterView else { return }
-        headerFooter.textLabel?.font = .preferredFont(forTextStyle: .footnote)
-        headerFooter.textLabel?.textColor = .secondaryLabel
-        headerFooter.textLabel?.numberOfLines = 0
-    }
-}
-
-
 
 private final class NativeAvatarView: UIView {
     private let imageView = UIImageView()
@@ -6795,13 +6781,13 @@ private final class NativeAvatarView: UIView {
         heightAnchor.constraint(equalToConstant: diameter).isActive = true
         layer.cornerRadius = diameter / 2
         clipsToBounds = true
-        backgroundColor = .secondarySystemGroupedBackground
+        backgroundColor = NativeSheetTheme.shared.surface
 
         initialsLabel.text = profile.initials
         let fontStyle: UIFont.TextStyle = diameter >= 96 ? .largeTitle : .title2
         initialsLabel.font = .preferredFont(forTextStyle: fontStyle)
         initialsLabel.adjustsFontForContentSizeCategory = true
-        initialsLabel.textColor = .secondaryLabel
+        initialsLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         initialsLabel.textAlignment = .center
         initialsLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(initialsLabel)
@@ -6854,7 +6840,7 @@ private final class NativeAvatarView: UIView {
         let img = UIImage(systemName: "person.crop.circle.fill")?
             .withRenderingMode(.alwaysTemplate)
         imageView.image = img
-        imageView.tintColor = .tertiaryLabel
+        imageView.tintColor = NativeSheetTheme.shared.icon
         imageView.contentMode = .scaleAspectFit
         imageView.isHidden = false
         initialsLabel.isHidden = true

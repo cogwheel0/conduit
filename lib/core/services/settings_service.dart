@@ -1,8 +1,9 @@
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import 'animation_service.dart';
@@ -43,7 +44,6 @@ class SettingsService {
   static const int maxVoiceSilenceDurationMs = 5000;
   static const String _reduceMotionKey = PreferenceKeys.reduceMotion;
   static const String _animationSpeedKey = PreferenceKeys.animationSpeed;
-  static const String _hapticFeedbackKey = PreferenceKeys.hapticFeedback;
   static const String _disableHapticsWhileStreamingKey =
       PreferenceKeys.disableHapticsWhileStreaming;
   static const String _highContrastKey = PreferenceKeys.highContrast;
@@ -116,17 +116,6 @@ class SettingsService {
   static Future<void> setAnimationSpeed(double value) {
     final sanitized = value.clamp(0.5, 2.0).toDouble();
     return _putPreference(_animationSpeedKey, sanitized);
-  }
-
-  /// Get haptic feedback preference
-  static Future<bool> getHapticFeedback() {
-    final value = _getPreference<bool>(_hapticFeedbackKey);
-    return Future.value(value ?? true);
-  }
-
-  /// Set haptic feedback preference
-  static Future<void> setHapticFeedback(bool value) {
-    return _putPreference(_hapticFeedbackKey, value);
   }
 
   /// Get streaming haptics suppression preference.
@@ -271,7 +260,6 @@ class SettingsService {
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
-      _hapticFeedbackKey: settings.hapticFeedback,
       _disableHapticsWhileStreamingKey: settings.disableHapticsWhileStreaming,
       _highContrastKey: settings.highContrast,
       _darkModeKey: settings.darkMode,
@@ -437,9 +425,8 @@ class SettingsService {
     }
 
     final normalized = trimmed.replaceAll('_', '-');
-    if (!RegExp(
-      r'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$',
-    ).hasMatch(normalized)) {
+    if (!RegExp(r'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$')
+        .hasMatch(normalized)) {
       return null;
     }
 
@@ -651,7 +638,6 @@ class SettingsService {
       reduceMotion: PreferencesStore.get<bool>(_reduceMotionKey) ?? false,
       animationSpeed:
           PreferencesStore.get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
-      hapticFeedback: PreferencesStore.get<bool>(_hapticFeedbackKey) ?? true,
       disableHapticsWhileStreaming:
           PreferencesStore.get<bool>(_disableHapticsWhileStreamingKey) ?? false,
       highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
@@ -741,7 +727,6 @@ class _DefaultValue {
 class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
-  final bool hapticFeedback;
   final bool disableHapticsWhileStreaming;
   final bool highContrast;
   final bool darkMode;
@@ -780,7 +765,6 @@ class AppSettings {
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
-    this.hapticFeedback = true,
     this.disableHapticsWhileStreaming = false,
     this.highContrast = false,
     this.darkMode = true,
@@ -820,7 +804,6 @@ class AppSettings {
   AppSettings copyWith({
     bool? reduceMotion,
     double? animationSpeed,
-    bool? hapticFeedback,
     bool? disableHapticsWhileStreaming,
     bool? highContrast,
     bool? darkMode,
@@ -859,7 +842,6 @@ class AppSettings {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
       animationSpeed: animationSpeed ?? this.animationSpeed,
-      hapticFeedback: hapticFeedback ?? this.hapticFeedback,
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       highContrast: highContrast ?? this.highContrast,
@@ -926,7 +908,6 @@ class AppSettings {
     return other is AppSettings &&
         other.reduceMotion == reduceMotion &&
         other.animationSpeed == animationSpeed &&
-        other.hapticFeedback == hapticFeedback &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.highContrast == highContrast &&
         other.darkMode == darkMode &&
@@ -969,7 +950,6 @@ class AppSettings {
     return Object.hashAll([
       reduceMotion,
       animationSpeed,
-      hapticFeedback,
       disableHapticsWhileStreaming,
       highContrast,
       darkMode,
@@ -1057,11 +1037,6 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setAnimationSpeed(double value) async {
     state = state.copyWith(animationSpeed: value);
     await SettingsService.setAnimationSpeed(value);
-  }
-
-  Future<void> setHapticFeedback(bool value) async {
-    state = state.copyWith(hapticFeedback: value);
-    await SettingsService.setHapticFeedback(value);
   }
 
   Future<void> setDisableHapticsWhileStreaming(bool value) async {
@@ -1328,16 +1303,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 }
 
-/// Provider for checking if haptic feedback should be enabled
-final hapticEnabledProvider = Provider<bool>((ref) {
-  final settings = ref.watch(appSettingsProvider);
-  return settings.hapticFeedback;
-});
-
 /// Provider for checking if assistant response streaming haptics are enabled.
 final streamingHapticsEnabledProvider = Provider<bool>((ref) {
   final settings = ref.watch(appSettingsProvider);
-  return settings.hapticFeedback && !settings.disableHapticsWhileStreaming;
+  return !settings.disableHapticsWhileStreaming;
 });
 
 /// Provider for effective animation settings

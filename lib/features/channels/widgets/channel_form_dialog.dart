@@ -1,10 +1,11 @@
 import 'package:conduit/core/models/channel.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Submitted values from the channel create/edit form.
 class ChannelFormResult {
@@ -86,6 +87,8 @@ Future<ChannelFormResult?> showChannelFormDialog(
               TextField(
                 controller: nameController,
                 autofocus: true,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
                 style: AppTypography.bodyMediumStyle.copyWith(
                   color: theme.textPrimary,
                 ),
@@ -112,6 +115,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
                   title: Text(l10n.channelPrivate),
                   value: isPrivate,
                   onChanged: (value) {
+                    ConduitHaptics.selectionClick();
                     setDialogState(() => isPrivate = value);
                   },
                 ),

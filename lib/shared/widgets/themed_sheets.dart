@@ -2,8 +2,8 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 import '../theme/theme_extensions.dart';
@@ -104,12 +104,12 @@ class ThemedSheets {
     required BuildContext context,
     required WidgetBuilder builder,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     final theme = context.conduitTheme;
     final backgroundColor = theme.surfaceBackground;
     final platform = Theme.of(context).platform;
-    final barrierLabel = MaterialLocalizations.of(
-      context,
-    ).modalBarrierDismissLabel;
+    final barrierLabel = MaterialLocalizations.of(context)
+        .modalBarrierDismissLabel;
     final outline = BorderSide(
       color: theme.dividerColor,
       width: BorderWidth.regular,
@@ -201,6 +201,7 @@ class ThemedSheets {
     double? elevation,
     Clip? clipBehavior,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     final resolvedShape = shape ?? roundedShapeFor(context);
     return _showTracked<T>(
       context: context,
@@ -257,6 +258,7 @@ class ThemedSheets {
     Color? barrierColor,
     RouteSettings? routeSettings,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     return _showTracked<T>(
       context: context,
       present: (coverage) {

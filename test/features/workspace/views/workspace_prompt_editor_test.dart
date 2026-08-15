@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,14 +11,12 @@ import 'package:conduit/features/workspace/views/prompts/workspace_prompt_editor
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 TextField _textFieldByKey(WidgetTester tester, String key) {
   return tester.widget<TextField>(
-    find.descendant(
-      of: find.byKey(Key(key)),
-      matching: find.byType(TextField),
-    ),
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField)),
   );
 }
 
@@ -127,6 +125,10 @@ void main() {
       find.byKey(const Key('workspace-prompt-content')),
       'Updated body',
     );
+    await tester.tap(
+      find.byKey(const Key('workspace-prompt-version-disclosure')),
+    );
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('workspace-prompt-commit-message')),
       'Tighten wording',
@@ -282,7 +284,10 @@ void main() {
     await tester.tap(find.byKey(const Key('prompt-history-diff-h2')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-prompt-diff-empty')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-prompt-diff-empty')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('restore loads snapshot content without changing command', (
@@ -391,13 +396,12 @@ void main() {
             (ref) async => WorkspaceCapabilities.all,
           ),
           workspacePromptsProvider.overrideWith(() => prompts),
-          workspacePromptDetailProvider(
-            'p-1',
-          ).overrideWith((ref) async => detail),
+          workspacePromptDetailProvider('p-1')
+              .overrideWith((ref) async => detail),
         ],
         child: MaterialApp.router(
           routerConfig: router,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
         ),
       ),
@@ -482,9 +486,8 @@ Widget _harness(
       workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
       workspacePromptsProvider.overrideWith(() => prompts),
       if (resourceId != null && detail != null)
-        workspacePromptDetailProvider(
-          resourceId,
-        ).overrideWith((ref) async => detail),
+        workspacePromptDetailProvider(resourceId)
+            .overrideWith((ref) async => detail),
     ],
     child: _app(mode, resourceId),
   );
@@ -509,7 +512,7 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
   return MaterialApp.router(
     routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );
 }
@@ -645,10 +648,7 @@ class _FakePrompts extends WorkspacePrompts {
     required String fromId,
     required String toId,
   }) async {
-    return <String, dynamic>{
-      'content_diff': <String>[],
-      'name_changed': false,
-    };
+    return <String, dynamic>{'content_diff': <String>[], 'name_changed': false};
   }
 
   @override

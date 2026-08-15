@@ -244,6 +244,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
+  "jwt": "JWT",
   "usernameOrEmail": "Používateľské meno alebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -259,10 +260,6 @@
   "connectToServer": "Pripojiť k serveru",
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
-  },
-  "enterServerAddress": "Začnite zadaním adresy servera Open-WebUI",
-  "@enterServerAddress": {
-    "description": "Instruction telling user to provide server URL to begin."
   },
   "serverUrl": "URL servera",
   "@serverUrl": {
@@ -1090,7 +1087,7 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Token JWT získate v nastaveniach OpenWebUI. Kľúče API (sk-...) nie sú pre streamovanie podporované.",
+  "tokenHint": "Token JWT získate v nastaveniach Open WebUI. Kľúče API (sk-...) nie sú pre streamovanie podporované.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
@@ -1098,7 +1095,7 @@
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
-  "apiKeyNoLongerSupported": "Boli ste odhlásení, pretože kľúče API už nie sú podporované. Prihláste sa tokenom JWT z nastavení OpenWebUI.",
+  "apiKeyNoLongerSupported": "Boli ste odhlásení, pretože kľúče API už nie sú podporované. Prihláste sa tokenom JWT z nastavení Open WebUI.",
   "@apiKeyNoLongerSupported": {
     "description": "Error message shown when user is forced logged out due to using an API key."
   },
@@ -1433,7 +1430,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Vždy odosielať nahrávky na váš server OpenWebUI na prepis.",
+  "sttEngineServerDescription": "Vždy odosielať nahrávky na váš server Open WebUI na prepis.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1499,7 +1496,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Vždy vyžadovať zvuk z vášho servera OpenWebUI.",
+  "ttsEngineServerDescription": "Vždy vyžadovať zvuk z vášho servera Open WebUI.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -2200,6 +2197,15 @@
     "description": "Label for the Notes tab in the sidebar"
   },
   "sidebarChannelsTab": "Kanály",
+  "sidebarResizeHandle": "Zmeniť šírku bočného panela",
+  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "sidebarResizeResetHint": "Dvojitým ťuknutím obnovíte šírku bočného panela",
+  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "sidebarWidthValue": "{width} bodov",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {"width": {"type": "int"}}
+  },
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },
@@ -2396,6 +2402,7 @@
   "@searchChannels": {
     "description": "Hint text for the channel search field"
   },
+  "channelUnreadCount": "{count, plural, =1{1 neprečítaná správa} few{{count} neprečítané správy} other{{count} neprečítaných správ}}",
   "channelCreateError": "Kanál sa nepodarilo vytvoriť",
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
@@ -2468,21 +2475,21 @@
   },
   "globalSystemPrompt": "Globálny systémový prompt",
   "@globalSystemPrompt": {
-    "description": "Title for the OpenWebUI user-level system prompt setting."
+    "description": "Title for the Open WebUI user-level system prompt setting."
   },
   "modelSystemPrompts": "Systémové prompty modelov",
   "@modelSystemPrompts": {
-    "description": "Title for the OpenWebUI model-level system prompts list."
+    "description": "Title for the Open WebUI model-level system prompts list."
   },
   "folderSystemPrompts": "Systémové prompty priečinkov",
   "@folderSystemPrompts": {
-    "description": "Title for the OpenWebUI folder-level system prompts list."
+    "description": "Title for the Open WebUI folder-level system prompts list."
   },
-  "openWebuiModelSettings": "Nastavenia modelov OpenWebUI",
+  "openWebuiModelSettings": "Nastavenia modelov Open WebUI",
   "@openWebuiModelSettings": {
     "description": "Subtitle for model prompt settings before models load."
   },
-  "openWebuiFolderSettings": "Nastavenia priečinkov OpenWebUI",
+  "openWebuiFolderSettings": "Nastavenia priečinkov Open WebUI",
   "@openWebuiFolderSettings": {
     "description": "Subtitle for folder prompt settings before folders load."
   },
@@ -2506,9 +2513,9 @@
       }
     }
   },
-  "unableToLoadOpenWebuiSettings": "Nastavenia OpenWebUI sa nedajú načítať.",
+  "unableToLoadOpenWebuiSettings": "Nastavenia Open WebUI sa nedajú načítať.",
   "@unableToLoadOpenWebuiSettings": {
-    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+    "description": "Error shown when user settings cannot be loaded from Open WebUI."
   },
   "unableToLoadModels": "Modely sa nedajú načítať.",
   "@unableToLoadModels": {
@@ -2530,11 +2537,11 @@
   "@tapToLoadServerPromptSettings": {
     "description": "Subtitle for model rows whose prompt details are loaded on demand."
   },
-  "loadingFromOpenWebui": "Načítava sa z OpenWebUI...",
+  "loadingFromOpenWebui": "Načítava sa z Open WebUI...",
   "@loadingFromOpenWebui": {
     "description": "Loading subtitle for server-backed settings."
   },
-  "globalSystemPromptEditorDescription": "Uložené do používateľských nastavení OpenWebUI a použité ako predvolený systémový prompt chatu.",
+  "globalSystemPromptEditorDescription": "Uložené do používateľských nastavení Open WebUI a použité ako predvolený systémový prompt chatu.",
   "@globalSystemPromptEditorDescription": {
     "description": "Description in the global system prompt editor."
   },
@@ -2552,7 +2559,7 @@
       }
     }
   },
-  "modelSystemPromptEditorDescription": "Uložené do OpenWebUI model params.system.",
+  "modelSystemPromptEditorDescription": "Uložené do Open WebUI model params.system.",
   "@modelSystemPromptEditorDescription": {
     "description": "Description for editable model system prompts."
   },
@@ -2574,7 +2581,7 @@
       }
     }
   },
-  "folderSystemPromptEditorDescription": "Uložené do OpenWebUI folder data.system_prompt.",
+  "folderSystemPromptEditorDescription": "Uložené do Open WebUI folder data.system_prompt.",
   "@folderSystemPromptEditorDescription": {
     "description": "Description for folder system prompt editors."
   },
@@ -2609,7 +2616,7 @@
   "@yourSystemPrompt": {
     "description": "Label for the user's server-backed system prompt."
   },
-  "yourSystemPromptDescription": "Nastavte osobný systémový prompt, ktorý OpenWebUI použije pre vaše chaty.",
+  "yourSystemPromptDescription": "Nastavte osobný systémový prompt, ktorý Open WebUI použije pre vaše chaty.",
   "@yourSystemPromptDescription": {
     "description": "Helper text for editing the user's system prompt."
   },
@@ -4496,6 +4503,9 @@
   "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
   "workspaceToolManifestFunding": "Funding: {url}",
   "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolDetails": "Podrobnosti nástroja",
+  "workspaceToolFunctionCount": "Počet funkcií: {count}",
+  "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
   "workspaceToolValves": "Valves",
@@ -4556,7 +4566,7 @@
   "hermesServerUrlTitle": "Server URL",
   "hermesApiKeyTitle": "API key",
   "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API_SERVER_KEY",
+  "hermesApiKeyPlaceholder": "Enter API key",
   "hermesMemoryKeyTitle": "Memory key (optional)",
   "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
   "hermesCapabilitiesTitle": "Capabilities",
@@ -4651,6 +4661,8 @@
   "directApiKey": "API key",
   "directCustomHeaders": "Custom headers",
   "directManualModelIds": "Manual model IDs",
+  "directManualModelIdsDescription": "Voliteľné. Ak server nedokáže vypísať modely, zadajte jedno ID na riadok.",
+  "@directManualModelIdsDescription": {"placeholders":{}},
   "directModelIdPrefix": "Model ID prefix",
   "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
   "directModelTags": "Model tags",
@@ -4666,7 +4678,6 @@
   "directProfilesEmptyTitle": "No direct connections yet",
   "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
   "directConnectionsSectionTitle": "Connections",
-  "directSetupRequiresConnection": "Add and enable at least one valid connection to continue.",
   "directSavedDataUnreadable": "The saved connection data could not be read.",
   "directSecureStorageUnavailable": "Check secure storage access and try again.",
   "onDevice": "On device",
@@ -4729,5 +4740,80 @@
   "ollamaThinkingHigh": "Vysoká",
   "ollamaThinkingMaximum": "Maximálna",
   "releaseNotesSupportPromptHeading": "Páči sa vám Conduit?",
-  "releaseNotesSupportPromptMessage": "Krátka recenzia pomôže viacerým ľuďom objaviť Conduit. Malé prepitné mi pomáha pokračovať vo vývoji. Oboje pre mňa veľa znamená."
+  "releaseNotesSupportPromptMessage": "Krátka recenzia pomôže viacerým ľuďom objaviť Conduit. Malé prepitné mi pomáha pokračovať vo vývoji. Oboje pre mňa veľa znamená.",
+  "directConnectProvider": "Pripojiť poskytovateľa",
+  "directConnectProviderTitle": "Pripojiť poskytovateľa",
+  "directConnectionEnabledSubtitle": "Zobrazovať modely tohto pripojenia vo výbere modelov.",
+  "directConnectionDetailsTitle": "Podrobnosti pripojenia",
+  "directBaseUrlDescription": "Zahrňte predponu API očakávanú poskytovateľom, zvyčajne /v1.",
+  "directConfiguredReplacePlaceholder": "Nakonfigurované, nahraďte zadaním novej hodnoty",
+  "directApiKeyPlaceholder": "Zadajte kľúč API",
+  "hermesOnboardingFailed": "Nastavenie Hermes sa nepodarilo dokončiť. Skontrolujte zabezpečené úložisko a skúste to znova.",
+  "hermesConnectionDetailsTitle": "Podrobnosti pripojenia",
+  "hermesMemoryKeyShortDescription": "Priradí dlhodobú pamäť agenta k vám. Nechajte prázdne a Conduit vytvorí kľúč.",
+  "hermesConnectAction": "Pripojiť Hermes",
+  "hermesToolCount": "{count, plural, one{1 nástroj} few{{count} nástroje} other{{count} nástrojov}}",
+  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
+  "hermesNoToolsets": "Server neohlásil žiadne sady nástrojov.",
+  "hermesServerStatusTitle": "Stav servera",
+  "hermesNoServerStatus": "Server neohlásil žiadny stav.",
+  "sidebarHermesTab": "Hermes",
+  "markdownShowMoreLines": "{count, plural, one{Zobraziť 1 ďalší riadok} few{Zobraziť ďalšie {count} riadky} other{Zobraziť ďalších {count} riadkov}}",
+  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "markdownShowLess": "Zobraziť menej",
+  "colorScheme": "Farebná schéma",
+  "channelEmptyHint": "Vytvorte kanál a začnite skupinovú konverzáciu.",
+  "passwordChangeDescription": "Aktualizovať heslo účtu",
+  "profileDetailsSummary": "Profil, pohlavie a dátum narodenia",
+  "notificationRequiresMaster": "Ak chcete zmeniť toto nastavenie, zapnite oznámenia.",
+  "notificationRequiresSound": "Ak chcete zmeniť toto nastavenie, zapnite zvuk.",
+  "enabled": "Zapnuté",
+  "disabled": "Vypnuté",
+  "hermesJobNew": "Nová naplánovaná úloha",
+  "hermesJobAdminDisabled": "Správa úloh je na tomto serveri vypnutá. Plány sú iba na čítanie.",
+  "hermesJobEmptyMessage": "Vytvorte naplánovanú úlohu, ktorá automaticky spustí pokyn.",
+  "hermesJobLoadFailed": "Naplánované úlohy sa nepodarilo načítať. Skontrolujte pripojenie Hermes a skúste to znova.",
+  "hermesJobCreateFailed": "Naplánovanú úlohu sa nepodarilo vytvoriť.",
+  "hermesJobCreated": "Naplánovaná úloha bola vytvorená.",
+  "hermesJobPaused": "Pozastavené",
+  "hermesJobRunNow": "Spustiť teraz",
+  "hermesJobEdit": "Upraviť naplánovanú úlohu",
+  "hermesJobDelete": "Odstrániť naplánovanú úlohu",
+  "hermesJobResumeFailed": "Naplánovanú úlohu sa nepodarilo obnoviť.",
+  "hermesJobPauseFailed": "Naplánovanú úlohu sa nepodarilo pozastaviť.",
+  "hermesJobResumed": "Naplánovaná úloha bola obnovená.",
+  "hermesJobPausedSuccess": "Naplánovaná úloha bola pozastavená.",
+  "hermesJobRunFailed": "Naplánovanú úlohu sa nepodarilo spustiť.",
+  "hermesJobStarted": "Naplánovaná úloha bola spustená.",
+  "hermesJobUpdateFailed": "Naplánovanú úlohu sa nepodarilo aktualizovať.",
+  "hermesJobUpdated": "Naplánovaná úloha bola aktualizovaná.",
+  "hermesJobDeleteTitle": "Odstrániť úlohu",
+  "hermesJobDeleteMessage": "Odstrániť túto naplánovanú úlohu? Túto akciu nemožno vrátiť späť.",
+  "hermesJobDeleteFailed": "Naplánovanú úlohu sa nepodarilo odstrániť.",
+  "hermesJobDeleted": "Naplánovaná úloha bola odstránená.",
+  "hermesJobEditorEditTitle": "Upraviť úlohu",
+  "hermesJobNameHint": "Denný súhrn",
+  "hermesJobPromptLabel": "Pokyn",
+  "hermesJobPromptHint": "Čo má agent urobiť pri každom spustení?",
+  "hermesJobScheduleLabel": "Plán",
+  "hermesJobScheduleHint": "0 9 * * * alebo every 2h",
+  "hermesJobTooLong": "Použite najviac {count} znakov",
+  "hermesJobScheduleInvalid": "Zadajte trvanie, interval, dátum, čas alebo platný plán cron.",
+  "hermesJobScheduleHelp": "Použite cron (0 9 * * *), interval (every 2h), oneskorenie (30m) alebo dátum a čas ISO.",
+  "hermesJobsSheetSubtitle": "Pozastavte plány alebo skontrolujte, čo sa spustí ďalej.",
+  "hermesJobsSheetReview": "Skontrolujte časy spustenia a pozastavte plány.",
+  "hermesJobsManageDescription": "Vytvárajte, upravujte, spúšťajte alebo odstraňujte plány.",
+  "hermesJobsEmptyManageHint": "Pomocou možnosti Spravovať vytvorte naplánovaný pokyn.",
+  "hermesLastStatus": "Posledný stav: {status}",
+  "hermesSessionUntitled": "Konverzácia bez názvu",
+  "hermesSessionFork": "Rozvetviť",
+  "hermesSessionRenameTitle": "Premenovať konverzáciu",
+  "hermesSessionNameHint": "Názov konverzácie",
+  "hermesSessionDeleteTitle": "Odstrániť konverzáciu",
+  "hermesSessionDeleteMessage": "Odstrániť túto konverzáciu Hermes? Túto akciu nemožno vrátiť späť.",
+  "hermesSessionForkFailed": "Konverzáciu sa nepodarilo rozvetviť.",
+  "hermesSessionRenameFailed": "Konverzáciu sa nepodarilo premenovať.",
+  "hermesSessionDeleteFailed": "Konverzáciu sa nepodarilo odstrániť.",
+  "hermesSessionLoadFailed": "Túto konverzáciu sa nepodarilo načítať. Skontrolujte pripojenie a skúste to znova.",
+  "hermesMemoryKeyFieldLabel": "Kľúč pamäte"
 }

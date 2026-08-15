@@ -1,16 +1,16 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/ollama_keep_alive.dart';
 import '../models/ollama_thinking.dart';
 import '../providers/direct_connection_providers.dart';
@@ -59,21 +59,16 @@ class OllamaModelActionsButton extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     if (isBusy) {
       return const SizedBox.square(
-        dimension: 32,
+        dimension: TouchTarget.minimum,
         child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       );
     }
-    return IconButton(
+    return ConduitIconButton(
       key: ValueKey('ollama-model-actions:$profileId:$remoteModelId'),
       tooltip: l10n.ollamaModelActions,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      padding: EdgeInsets.zero,
-      iconSize: IconSize.small,
-      icon: Icon(
-        Platform.isIOS ? CupertinoIcons.ellipsis : Icons.more_horiz_rounded,
-        color: context.conduitTheme.textSecondary,
-      ),
+      isCompact: true,
+      icon: Platform.isIOS ? CupertinoIcons.ellipsis : Icons.more_horiz_rounded,
+      iconColor: context.conduitTheme.textSecondary,
       onPressed: () => _showActions(context, ref),
     );
   }
@@ -88,9 +83,9 @@ class OllamaModelActionsButton extends ConsumerWidget {
       if (supportsLifecycle) _OllamaModelAction.keepAlive,
       if (isCloud) _OllamaModelAction.thinking,
     ];
-    final selected = await showSettingsSheet<_OllamaModelAction>(
+    final selected = await showAdaptiveSelectionSheet<_OllamaModelAction>(
       context: context,
-      builder: (sheetContext) => SettingsSelectorSheet(
+      builder: (sheetContext) => AdaptiveSelectionSheet(
         title: modelName,
         description: isCloud && !supportsLifecycle
             ? l10n.ollamaCloudModelActionsDescription
@@ -102,7 +97,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
         itemBuilder: (context, index) {
           final action = actions[index];
           return switch (action) {
-            _OllamaModelAction.load => SettingsSelectorTile(
+            _OllamaModelAction.load => AdaptiveSelectionTile(
               title: l10n.ollamaLoadModel,
               subtitle: l10n.ollamaLoadModelDescription,
               selected: false,
@@ -114,7 +109,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
               ),
               onTap: () => Navigator.of(sheetContext).pop(action),
             ),
-            _OllamaModelAction.unload => SettingsSelectorTile(
+            _OllamaModelAction.unload => AdaptiveSelectionTile(
               title: l10n.ollamaUnloadModel,
               subtitle: l10n.ollamaUnloadModelDescription,
               selected: false,
@@ -124,7 +119,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
               ),
               onTap: () => Navigator.of(sheetContext).pop(action),
             ),
-            _OllamaModelAction.keepAlive => SettingsSelectorTile(
+            _OllamaModelAction.keepAlive => AdaptiveSelectionTile(
               title: l10n.ollamaKeepAlive,
               subtitle: _keepAliveLabel(l10n, currentKeepAlive),
               selected: false,
@@ -134,7 +129,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
               ),
               onTap: () => Navigator.of(sheetContext).pop(action),
             ),
-            _OllamaModelAction.thinking => SettingsSelectorTile(
+            _OllamaModelAction.thinking => AdaptiveSelectionTile(
               title: l10n.ollamaThinking,
               subtitle: _thinkingLabel(l10n, currentThinking),
               selected: false,
@@ -236,9 +231,9 @@ class OllamaModelActionsButton extends ConsumerWidget {
       _KeepAliveOption('0', l10n.ollamaKeepAliveImmediate),
       _KeepAliveOption(_customValue, l10n.ollamaKeepAliveCustom),
     ];
-    final selected = await showSettingsSheet<String>(
+    final selected = await showAdaptiveSelectionSheet<String>(
       context: context,
-      builder: (sheetContext) => SettingsSelectorSheet(
+      builder: (sheetContext) => AdaptiveSelectionSheet(
         title: l10n.ollamaKeepAlive,
         description: l10n.ollamaKeepAliveDescription,
         itemCount: options.length,
@@ -251,7 +246,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
           final isPreset = options
               .where((item) => item.value != _customValue)
               .any((item) => item.value == selectedValue);
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             title: option.label,
             subtitle: option.value == _customValue && !isPreset
                 ? currentKeepAlive
@@ -349,9 +344,9 @@ class OllamaModelActionsButton extends ConsumerWidget {
         label: l10n.ollamaThinkingHigh,
       ),
     ];
-    final selected = await showSettingsSheet<String>(
+    final selected = await showAdaptiveSelectionSheet<String>(
       context: context,
-      builder: (sheetContext) => SettingsSelectorSheet(
+      builder: (sheetContext) => AdaptiveSelectionSheet(
         title: l10n.ollamaThinking,
         description: l10n.ollamaThinkingDescription,
         itemCount: options.length,
@@ -360,7 +355,7 @@ class OllamaModelActionsButton extends ConsumerWidget {
         maxChildSize: 0.8,
         itemBuilder: (context, index) {
           final option = options[index];
-          return SettingsSelectorTile(
+          return AdaptiveSelectionTile(
             title: option.label,
             selected:
                 option.value ==

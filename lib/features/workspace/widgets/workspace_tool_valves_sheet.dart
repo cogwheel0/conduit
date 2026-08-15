@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
@@ -10,6 +10,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+
 import 'workspace_valve_form.dart';
 
 /// Bottom sheet that edits a tool's server valves and per-user valves using
@@ -180,7 +181,10 @@ class _WorkspaceToolValvesSheetState
           Row(
             children: [
               Expanded(
-                child: Text(l10n.workspaceToolValvesTitle, style: theme.headingSmall),
+                child: Text(
+                  l10n.workspaceToolValvesTitle,
+                  style: theme.headingSmall,
+                ),
               ),
               SheetCloseButton(
                 tooltip: l10n.close,
@@ -189,23 +193,15 @@ class _WorkspaceToolValvesSheetState
             ],
           ),
           const SizedBox(height: Spacing.sm),
-          SegmentedButton<bool>(
+          AdaptiveSegmentedControl(
             key: const Key('workspace-tool-valves-scope'),
-            showSelectedIcon: false,
-            segments: [
-              ButtonSegment(
-                value: false,
-                label: Text(l10n.workspaceToolValvesServer),
-              ),
-              ButtonSegment(
-                value: true,
-                label: Text(l10n.workspaceToolValvesUser),
-              ),
+            labels: [
+              l10n.workspaceToolValvesServer,
+              l10n.workspaceToolValvesUser,
             ],
-            selected: {_userScope},
-            onSelectionChanged: _saving
-                ? null
-                : (value) => setState(() => _userScope = value.first),
+            selectedIndex: _userScope ? 1 : 0,
+            enabled: !_saving,
+            onValueChanged: (value) => setState(() => _userScope = value == 1),
           ),
           const SizedBox(height: Spacing.sm),
           if (_loading)

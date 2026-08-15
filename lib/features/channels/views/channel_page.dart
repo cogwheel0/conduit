@@ -4,8 +4,8 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -14,6 +14,7 @@ import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/model_icon_utils.dart';
@@ -24,9 +25,10 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';
@@ -344,9 +346,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
       }
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {
@@ -1226,7 +1227,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   void _toggleDrawer() {
-    ResponsiveDrawerLayout.of(context)?.toggle();
+    SidebarDrawerControllerScope.maybeOf(context)?.toggle();
   }
 
   AdaptiveAppBar _buildAdaptiveChannelAppBar(
@@ -1531,15 +1532,13 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          size: 16,
-                          color: theme.textSecondary,
-                        ),
+                      ConduitIconButton(
+                        icon: Icons.close,
+                        iconColor: theme.textSecondary,
+                        tooltip: MaterialLocalizations.of(context)
+                            .closeButtonTooltip,
                         onPressed: _clearReplyTo,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        isCompact: true,
                       ),
                     ],
                   ),
@@ -1911,13 +1910,17 @@ class _MessageBubble extends StatelessWidget {
                             onSubmitted: (_) => onSubmitEdit?.call(),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.check, size: 18),
+                        ConduitIconButton(
+                          icon: Icons.check,
+                          tooltip: AppLocalizations.of(context)!.save,
                           onPressed: onSubmitEdit,
+                          isCompact: true,
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 18),
+                        ConduitIconButton(
+                          icon: Icons.close,
+                          tooltip: AppLocalizations.of(context)!.cancel,
                           onPressed: onCancelEdit,
+                          isCompact: true,
                         ),
                       ],
                     )
@@ -2045,7 +2048,10 @@ class _MessageBubble extends StatelessWidget {
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            onPressed: () => onReactionTap(reaction.name),
+            onPressed: () {
+              ConduitHaptics.selectionClick();
+              onReactionTap(reaction.name);
+            },
           );
         }).toList(),
       ),

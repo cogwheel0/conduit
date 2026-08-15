@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
+import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
@@ -344,38 +345,25 @@ class _ServerDropdownBlock extends StatelessWidget {
       color: theme.textPrimary,
     );
 
-    final items = servers
-        .map(
-          (s) => DropdownMenuItem<String>(
-            value: s.selectionId,
-            child: Text(
-              sanitizeUtf16(s.displayName),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        )
-        .toList(growable: false);
-
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: selectedServer?.selectionId,
-        hint: Text(
-          l10n.terminalSelectServer,
-          style: textStyle,
-          overflow: TextOverflow.ellipsis,
-        ),
-        style: textStyle,
-        icon: Icon(Icons.expand_more_rounded, color: theme.textPrimary),
-        dropdownColor: theme.surfaceBackground,
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(AppBorderRadius.standard),
-        items: items,
-        onChanged: (next) {
-          if (next != null) {
-            onChanged(next);
-          }
-        },
+    return AdaptiveDropdownField<String?>(
+      value: selectedServer?.selectionId,
+      decoration: InputDecoration(
+        hintText: l10n.terminalSelectServer,
+        border: InputBorder.none,
       ),
+      textStyle: textStyle,
+      options: [
+        for (final server in servers)
+          AdaptiveDropdownOption<String?>(
+            value: server.selectionId,
+            label: sanitizeUtf16(server.displayName),
+          ),
+      ],
+      onChanged: (next) {
+        if (next != null) {
+          onChanged(next);
+        }
+      },
     );
   }
 }

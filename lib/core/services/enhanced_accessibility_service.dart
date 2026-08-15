@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 import 'dart:ui' show FlutterView;
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/semantics.dart';
+
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/themed_dialogs.dart';
@@ -280,13 +282,18 @@ class EnhancedAccessibilityService {
     final l10n = _l10n;
     final onLabel = l10n?.switchOnLabel ?? 'On';
     final offLabel = l10n?.switchOffLabel ?? 'Off';
+    void handleChanged(bool next) {
+      ConduitHaptics.selectionClick();
+      onChanged?.call(next);
+    }
+
     return Builder(
       builder: (context) => Semantics(
         label: label,
         value: value ? onLabel : offLabel,
         hint: description,
         toggled: value,
-        onTap: onChanged != null ? () => onChanged(!value) : null,
+        onTap: onChanged != null ? () => handleChanged(!value) : null,
         child: SwitchListTile(
           title: Text(
             label,
@@ -303,7 +310,7 @@ class EnhancedAccessibilityService {
                 )
               : null,
           value: value,
-          onChanged: onChanged,
+          onChanged: onChanged == null ? null : handleChanged,
         ),
       ),
     );
@@ -365,7 +372,7 @@ class EnhancedAccessibilityService {
           explicitChildNodes: true,
           label: dialogL10n?.dialogSemanticLabel(title) ?? 'Dialog: $title',
           child: AlertDialog(
-            title: Semantics(header: true, child: Text(title)),
+            title: Semantics(headingLevel: 1, child: Text(title)),
             content: child,
           ),
         );
@@ -446,7 +453,7 @@ class EnhancedAccessibilityService {
         );
 
         if (isHeader) {
-          textWidget = Semantics(header: true, child: textWidget);
+          textWidget = Semantics(headingLevel: 1, child: textWidget);
         }
 
         return textWidget;

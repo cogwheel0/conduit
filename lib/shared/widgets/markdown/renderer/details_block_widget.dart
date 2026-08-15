@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -13,11 +13,10 @@ import 'details_group_widget.dart';
 import 'markdown_style.dart';
 
 /// Builds markdown body content from the current [CompiledMarkdownDetailsData].
-typedef DetailsMarkdownBodyBuilder =
-    Widget Function(
-      BuildContext context,
-      CompiledMarkdownDetailsData detailsData,
-    );
+typedef DetailsMarkdownBodyBuilder = Widget Function(
+  BuildContext context,
+  CompiledMarkdownDetailsData detailsData,
+);
 
 /// Upstream-style collapsible renderer for markdown `<details>` blocks.
 class MarkdownDetailsBlock extends StatefulWidget {
@@ -191,9 +190,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return;
     }
 
-    final restored = PageStorage.maybeOf(
-      context,
-    )?.readState(context, identifier: stateId);
+    final restored = PageStorage.maybeOf(context)
+        ?.readState(context, identifier: stateId);
     if (_usesInlineExpansion && restored is bool) {
       _isInlineExpanded = restored;
     } else if (!_usesInlineExpansion) {
@@ -208,9 +206,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return;
     }
 
-    PageStorage.maybeOf(
-      context,
-    )?.writeState(context, _isInlineExpanded, identifier: stateId);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, _isInlineExpanded, identifier: stateId);
   }
 
   Widget _buildInlineBody(BuildContext context, Widget body) {

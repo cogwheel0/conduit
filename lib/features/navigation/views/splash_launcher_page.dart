@@ -1,9 +1,26 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
-class SplashLauncherPage extends StatelessWidget {
+class SplashLauncherPage extends StatefulWidget {
   const SplashLauncherPage({super.key});
+
+  @override
+  State<SplashLauncherPage> createState() => _SplashLauncherPageState();
+}
+
+class _SplashLauncherPageState extends State<SplashLauncherPage> {
+  bool _didPrecacheMarks = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didPrecacheMarks) return;
+    _didPrecacheMarks = true;
+    precacheImage(const AssetImage('assets/icons/open_webui.png'), context);
+    precacheImage(const AssetImage('assets/icons/hermes_agent.png'), context);
+  }
 
   @override
   Widget build(BuildContext context) {

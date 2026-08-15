@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
+
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
@@ -149,9 +150,8 @@ class AndroidAssistantHandler {
           ? error.message.toString()
           : AppLocalizations.of(context)?.errorMessage ??
                 'Unable to start a voice call.';
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

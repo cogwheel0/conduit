@@ -1,7 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -23,7 +24,7 @@ import '../../features/auth/views/server_connection_page.dart';
 import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
 import '../../features/navigation/views/folder_page.dart';
-import '../../shared/widgets/drawer_shell_page.dart';
+import '../../features/navigation/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
@@ -43,6 +44,7 @@ import '../../features/workspace/providers/workspace_capabilities_provider.dart'
 import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
 import '../../features/direct_connections/models/direct_connection_profile.dart';
+import '../../features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import '../../features/direct_connections/providers/direct_connection_providers.dart';
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
@@ -644,11 +646,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         child: DirectConnectionEditorPage(
-          profileId: state.pathParameters['id']!,
+          mode: DirectConnectionEditorMode.fromRoute(
+            profileId: state.pathParameters['id']!,
+            source:
+                state.uri.queryParameters['source'] ==
+                    openWebUiDirectConnectionSourceQueryValue
+                ? DirectConnectionEditorSource.openWebUi
+                : DirectConnectionEditorSource.local,
+          ),
           isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
-          isOpenWebUi:
-              state.uri.queryParameters['source'] ==
-              openWebUiDirectConnectionSourceQueryValue,
+          entry: state.uri.queryParameters['entry'] == 'chooser'
+              ? DirectEditorEntry.chooser
+              : DirectEditorEntry.overview,
         ),
       ),
     ),
@@ -722,6 +731,7 @@ List<GoRoute> _workspaceRoutes() {
           section: section,
           mode: mode,
           resourceId: state.pathParameters['id'],
+          openedFromNativeSheet: state.extra is NativeSheetNavigationOrigin,
         ),
       ),
     );

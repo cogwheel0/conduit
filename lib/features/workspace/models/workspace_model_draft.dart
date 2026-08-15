@@ -80,6 +80,21 @@ Map<String, bool> _capabilityMap(dynamic value) {
   };
 }
 
+Map<String, dynamic> _deepCopyJsonMap(Map<String, dynamic> source) => {
+  for (final entry in source.entries)
+    entry.key: _deepCopyJsonValue(entry.value),
+};
+
+Object? _deepCopyJsonValue(Object? value) => switch (value) {
+  Map<String, dynamic>() => _deepCopyJsonMap(value),
+  Map() => {
+    for (final entry in value.entries)
+      entry.key.toString(): _deepCopyJsonValue(entry.value),
+  },
+  List() => [for (final item in value) _deepCopyJsonValue(item)],
+  _ => value,
+};
+
 /// A knowledge/relationship reference stored on `meta.knowledge`. Open WebUI
 /// persists whole objects there, so we keep the raw map to avoid data loss and
 /// expose the [id]/[name] for the picker UI.
@@ -185,8 +200,50 @@ class WorkspaceModelDraft {
   List<WorkspaceAccessGrantInput> accessGrants;
 
   /// Builds a draft for a brand new model.
-  factory WorkspaceModelDraft.empty() =>
-      WorkspaceModelDraft(id: '', name: '');
+  factory WorkspaceModelDraft.empty() => WorkspaceModelDraft(id: '', name: '');
+
+  /// Creates an independent working copy without passing through the server
+  /// summary representation or applying save-time normalization.
+  WorkspaceModelDraft deepCopy({
+    String? id,
+    String? name,
+    List<WorkspaceAccessGrantInput>? accessGrants,
+  }) => WorkspaceModelDraft(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    baseModelId: baseModelId,
+    description: description,
+    profileImageUrl: profileImageUrl,
+    tags: List<String>.from(tags),
+    system: system,
+    stop: List<String>.from(stop),
+    suggestionPrompts: List<String>.from(suggestionPrompts),
+    capabilities: Map<String, bool>.from(capabilities),
+    knowledge: [
+      for (final reference in knowledge)
+        WorkspaceModelKnowledgeRef(
+          id: reference.id,
+          name: reference.name,
+          raw: _deepCopyJsonMap(reference.raw),
+        ),
+    ],
+    toolIds: List<String>.from(toolIds),
+    skillIds: List<String>.from(skillIds),
+    filterIds: List<String>.from(filterIds),
+    defaultFilterIds: List<String>.from(defaultFilterIds),
+    actionIds: List<String>.from(actionIds),
+    defaultFeatureIds: List<String>.from(defaultFeatureIds),
+    builtinTools: _deepCopyJsonMap(builtinTools),
+    terminalId: terminalId,
+    ttsVoice: ttsVoice,
+    isActive: isActive,
+    hidden: hidden,
+    advancedParams: _deepCopyJsonMap(advancedParams),
+    extraMeta: _deepCopyJsonMap(extraMeta),
+    accessGrants: List<WorkspaceAccessGrantInput>.from(
+      accessGrants ?? this.accessGrants,
+    ),
+  );
 
   /// Hydrates a draft from an existing summary/detail record.
   factory WorkspaceModelDraft.fromSummary(WorkspaceModelSummary summary) {
@@ -205,9 +262,9 @@ class WorkspaceModelDraft {
       stop: _stringList(params['stop']),
       suggestionPrompts: _stringList(meta['suggestion_prompts']),
       capabilities: _capabilityMap(meta['capabilities']),
-      knowledge: workspaceJsonList(meta['knowledge'])
-          .map(WorkspaceModelKnowledgeRef.fromJson)
-          .toList(),
+      knowledge: workspaceJsonList(
+        meta['knowledge'],
+      ).map(WorkspaceModelKnowledgeRef.fromJson).toList(),
       toolIds: _stringList(meta['toolIds']),
       skillIds: _stringList(meta['skillIds']),
       filterIds: _stringList(meta['filterIds']),

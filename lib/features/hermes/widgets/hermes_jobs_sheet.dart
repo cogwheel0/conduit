@@ -2,16 +2,19 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../models/hermes_job.dart';
 import '../providers/hermes_providers.dart';
@@ -57,6 +60,7 @@ Future<void> showHermesJobsSheet(BuildContext context) async {
 }
 
 Future<bool> _showNativeHermesJobsSheet(BuildContext context) async {
+  final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
   final container = ProviderScope.containerOf(context, listen: false);
   final writable =
       container.read(hermesCapabilitiesProvider).asData?.value.jobsAdmin ??
@@ -73,10 +77,8 @@ Future<bool> _showNativeHermesJobsSheet(BuildContext context) async {
   if (!context.mounted) return true;
 
   final subscription = NativeSheetBridge.instance.events.listen((event) {
-    if (event case NativeSheetControlChanged(
-      :final id,
-      :final value,
-    ) when id.startsWith(_nativeJobTogglePrefix) && value is bool) {
+    if (event case NativeSheetControlChanged(:final id, :final value)
+        when id.startsWith(_nativeJobTogglePrefix) && value is bool) {
       final encodedId = id.substring(_nativeJobTogglePrefix.length);
       unawaited(
         _toggleNativeJob(
@@ -84,6 +86,7 @@ Future<bool> _showNativeHermesJobsSheet(BuildContext context) async {
           Uri.decodeComponent(encodedId),
           value,
           writable: writable,
+          l10n: l10n,
         ),
       );
     }
@@ -93,12 +96,17 @@ Future<bool> _showNativeHermesJobsSheet(BuildContext context) async {
     final result = await NativeSheetBridge.instance.presentSheet(
       root: NativeSheetDetailConfig(
         id: _nativeJobsSheetId,
-        title: 'Scheduled agents',
+        title: l10n.hermesScheduledAgentsTitle,
         subtitle: loadError == null
-            ? 'Review when each agent runs and pause schedules without leaving the sidebar.'
-            : 'Scheduled agents could not be loaded.',
+            ? l10n.hermesJobsSheetReview
+            : l10n.hermesJobLoadFailed,
         maxHeightFraction: 0.78,
-        items: _nativeJobItems(jobs, writable: writable, loadError: loadError),
+        items: _nativeJobItems(
+          jobs,
+          writable: writable,
+          loadError: loadError,
+          l10n: l10n,
+        ),
       ),
       rethrowErrors: true,
     );
@@ -116,6 +124,7 @@ Future<void> _toggleNativeJob(
   String jobId,
   bool enabled, {
   required bool writable,
+  required AppLocalizations l10n,
 }) async {
   if (!writable) return;
   try {
@@ -129,8 +138,8 @@ Future<void> _toggleNativeJob(
       try {
         await NativeSheetBridge.instance.applyDetailPatch(
           detailId: _nativeJobsSheetId,
-          title: 'Scheduled agents',
-          items: _nativeJobItems(jobs, writable: writable),
+          title: l10n.hermesScheduledAgentsTitle,
+          items: _nativeJobItems(jobs, writable: writable, l10n: l10n),
         );
       } catch (_) {
         DebugLogger.error('toggle-rollback-failed', scope: 'hermes/jobs-sheet');
@@ -142,22 +151,23 @@ Future<void> _toggleNativeJob(
 List<NativeSheetItemConfig> _nativeJobItems(
   List<HermesJob> jobs, {
   required bool writable,
+  required AppLocalizations l10n,
   Object? loadError,
 }) {
   return [
     if (loadError != null)
-      const NativeSheetItemConfig(
+      NativeSheetItemConfig(
         id: 'hermes-jobs-error',
-        title: 'Could not load scheduled agents',
-        subtitle: 'Check the Hermes connection and try again.',
+        title: l10n.hermesSchedulesUnavailable,
+        subtitle: l10n.hermesJobLoadFailed,
         sfSymbol: 'exclamationmark.triangle',
         kind: NativeSheetItemKind.info,
       )
     else if (jobs.isEmpty)
-      const NativeSheetItemConfig(
+      NativeSheetItemConfig(
         id: 'hermes-jobs-empty',
-        title: 'No scheduled agents yet',
-        subtitle: 'Create one from Manage scheduled agents.',
+        title: l10n.hermesNoSchedulesYet,
+        subtitle: l10n.hermesJobsEmptyManageHint,
         sfSymbol: 'calendar.badge.plus',
         kind: NativeSheetItemKind.info,
       )
@@ -166,36 +176,36 @@ List<NativeSheetItemConfig> _nativeJobItems(
         NativeSheetItemConfig(
           id: '$_nativeJobTogglePrefix${Uri.encodeComponent(job.id)}',
           title: sanitizeUtf16(job.displayName),
-          subtitle: sanitizeUtf16(_nativeJobSubtitle(job)),
+          subtitle: sanitizeUtf16(_nativeJobSubtitle(job, l10n)),
           sfSymbol: job.enabled ? 'clock.badge.checkmark' : 'pause.circle',
           kind: writable
               ? NativeSheetItemKind.toggle
               : NativeSheetItemKind.info,
           value: writable ? job.enabled : null,
         ),
-    const NativeSheetItemConfig(
+    NativeSheetItemConfig(
       id: _manageJobsActionId,
-      title: 'Manage scheduled agents',
-      subtitle: 'Create, edit, run now, or delete schedules.',
+      title: l10n.hermesScheduledAgentsTitle,
+      subtitle: l10n.hermesJobsManageDescription,
       sfSymbol: 'slider.horizontal.3',
     ),
   ];
 }
 
-String _nativeJobSubtitle(HermesJob job) {
+String _nativeJobSubtitle(HermesJob job, AppLocalizations l10n) {
   final prompt = job.prompt.trim().replaceAll(RegExp(r'\s+'), ' ');
   final preview = prompt.length <= 110
       ? prompt
       : '${prompt.substring(0, 110)}…';
   final cadence = describeHermesCronSchedule(job.schedule);
   final timing = hermesJobTimingDetail(job);
-  final status = job.enabled ? cadence : '$cadence · Paused';
+  final status = job.enabled ? cadence : '$cadence · ${l10n.hermesJobPaused}';
   final rawSchedule = job.schedule.trim();
   return [
     status,
     timing,
     if (job.lastStatus?.trim().isNotEmpty ?? false)
-      'Last status: ${job.lastStatus!.trim()}',
+      l10n.hermesLastStatus(job.lastStatus!.trim()),
     if (preview.isNotEmpty) preview,
     if (hermesScheduleNeedsRawDisplay(job.schedule)) 'Cron $rawSchedule',
   ].join('\n');
@@ -220,6 +230,7 @@ class HermesJobsSheet extends ConsumerWidget {
     final writable =
         ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -238,7 +249,7 @@ class HermesJobsSheet extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Scheduled agents',
+                      l10n.hermesScheduledAgentsTitle,
                       style: AppTypography.titleMediumStyle.copyWith(
                         color: theme.textPrimary,
                         fontWeight: FontWeight.w700,
@@ -246,7 +257,7 @@ class HermesJobsSheet extends ConsumerWidget {
                     ),
                     const SizedBox(height: Spacing.xxs),
                     Text(
-                      'Pause schedules or review what runs next.',
+                      l10n.hermesJobsSheetSubtitle,
                       style: AppTypography.captionStyle.copyWith(
                         color: theme.textSecondary,
                       ),
@@ -254,10 +265,11 @@ class HermesJobsSheet extends ConsumerWidget {
                   ],
                 ),
               ),
-              TextButton(
+              ConduitTextButton(
                 onPressed: () =>
                     Navigator.of(context).pop(_HermesJobsSheetAction.manage),
-                child: const Text('Manage'),
+                text: l10n.manage,
+                isPrimary: true,
               ),
             ],
           ),
@@ -287,7 +299,7 @@ class HermesJobsSheet extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.all(Spacing.xl),
                 child: Text(
-                  'Could not load scheduled agents.\nCheck the Hermes connection and try again.',
+                  l10n.hermesJobLoadFailed,
                   textAlign: TextAlign.center,
                   style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.error,
@@ -322,6 +334,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
     final job = widget.job;
     final locale = Localizations.localeOf(context).toString();
     final cadence = describeHermesCronSchedule(job.schedule);
@@ -367,7 +380,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                 ),
                 const SizedBox(height: Spacing.xxs),
                 Text(
-                  job.enabled ? cadence : '$cadence · Paused',
+                  job.enabled ? cadence : '$cadence · ${l10n.hermesJobPaused}',
                   style: AppTypography.bodySmallStyle.copyWith(
                     color: job.enabled
                         ? theme.textPrimary
@@ -385,7 +398,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                 if (job.lastStatus?.trim().isNotEmpty ?? false) ...[
                   const SizedBox(height: Spacing.xxs),
                   Text(
-                    'Last status: ${job.lastStatus!.trim()}',
+                    l10n.hermesLastStatus(job.lastStatus!.trim()),
                     style: AppTypography.captionStyle.copyWith(
                       color: theme.textSecondary,
                     ),
@@ -437,6 +450,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
 
   Future<void> _setEnabled(bool enabled) async {
     if (_toggling) return;
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
     setState(() => _toggling = true);
     try {
       await ref
@@ -447,9 +461,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
       if (mounted) {
         UiUtils.showMessage(
           context,
-          enabled
-              ? 'Could not resume scheduled job.'
-              : 'Could not pause scheduled job.',
+          enabled ? l10n.hermesJobResumeFailed : l10n.hermesJobPauseFailed,
           isError: true,
         );
       }
@@ -465,6 +477,7 @@ class _JobsEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.xl),
@@ -478,7 +491,7 @@ class _JobsEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: Spacing.md),
             Text(
-              'No scheduled agents yet',
+              l10n.hermesNoSchedulesYet,
               style: AppTypography.standard.copyWith(
                 color: theme.textPrimary,
                 fontWeight: FontWeight.w600,
@@ -486,7 +499,7 @@ class _JobsEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: Spacing.xs),
             Text(
-              'Use Manage to create a prompt that runs on a schedule.',
+              l10n.hermesJobsEmptyManageHint,
               textAlign: TextAlign.center,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,

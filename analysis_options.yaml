@@ -11,11 +11,18 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
     - pigeons/**
     - third_party/**
 
 plugins:
-  riverpod_lint: 3.1.3
+  riverpod_lint: 3.1.8
 
 linter:
   # The lint rules applied to this project can be customized in the
@@ -34,6 +41,9 @@ linter:
     
     # Production-ready rules
     avoid_print: true  # Avoid print statements in production
+    # Newly enabled by Dart 3.13's lint set; keep this migration focused on
+    # compatibility rather than rewriting established constructor APIs.
+    prefer_initializing_formals: false
     # avoid_web_libraries_in_flutter: true  # Avoid web-only libraries
 
 # Additional information about this file can be found at

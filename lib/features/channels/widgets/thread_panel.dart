@@ -1,6 +1,6 @@
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -13,6 +13,7 @@ import '../../../core/utils/user_avatar_utils.dart'
     show resolveUserProfileImageUrl;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
@@ -215,9 +216,12 @@ class _ThreadHeader extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          IconButton(
-            icon: Icon(Icons.close, color: theme.textSecondary, size: 20),
+          ConduitIconButton(
+            icon: Icons.close,
+            iconColor: theme.textSecondary,
+            tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
             onPressed: onClose,
+            isCompact: true,
           ),
         ],
       ),

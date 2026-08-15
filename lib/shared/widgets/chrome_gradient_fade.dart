@@ -17,27 +17,31 @@ class ConduitChromeGradientFade extends StatelessWidget {
     required this.edge,
     required this.contentHeight,
     this.fadeHeight = kConduitChromeFadeHeight,
+    this.backgroundColor,
   });
 
   const ConduitChromeGradientFade.top({
     super.key,
     required this.contentHeight,
     this.fadeHeight = kConduitChromeFadeHeight,
+    this.backgroundColor,
   }) : edge = ConduitChromeFadeEdge.top;
 
   const ConduitChromeGradientFade.bottom({
     super.key,
     required this.contentHeight,
     this.fadeHeight = kConduitChromeFadeHeight,
+    this.backgroundColor,
   }) : edge = ConduitChromeFadeEdge.bottom;
 
   final ConduitChromeFadeEdge edge;
   final double contentHeight;
   final double fadeHeight;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = context.conduitTheme.surfaceBackground;
+    final baseColor = backgroundColor ?? context.conduitTheme.surfaceBackground;
     final height = contentHeight + fadeHeight;
     final colors = edge == ConduitChromeFadeEdge.top
         ? [

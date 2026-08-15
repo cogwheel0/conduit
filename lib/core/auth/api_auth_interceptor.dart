@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+
 import '../network/conduit_user_agent.dart';
+import '../network/same_origin_redirect_interceptor.dart';
 import '../utils/debug_logger.dart';
 
 /// Immutable authorization value captured for work that must remain bound to
@@ -142,31 +144,31 @@ class ApiAuthInterceptor extends Interceptor {
     }
     if (!requestUri.hasScheme && !requestUri.hasAuthority) return true;
 
-    final requestScheme = requestUri.scheme.toLowerCase();
-    final serverScheme = _serverUri.scheme.toLowerCase();
-    return requestScheme == serverScheme &&
-        requestUri.host.toLowerCase() == _serverUri.host.toLowerCase() &&
-        _effectivePort(requestUri, requestScheme) ==
-            _effectivePort(_serverUri, serverScheme);
-  }
-
-  int? _effectivePort(Uri uri, String scheme) {
-    if (uri.hasPort) return uri.port;
-    return switch (scheme) {
-      'http' => 80,
-      'https' => 443,
-      _ => null,
-    };
+    return isCredentialSafeRedirectTarget(_serverUri, requestUri);
   }
 
   void _removeServerCredentials(RequestOptions options) {
-    final serverCredentialHeaders = <String>{
-      'authorization',
-      ...customHeaders.keys.map((header) => header.toLowerCase()),
-    };
     options.headers.removeWhere(
-      (header, _) => serverCredentialHeaders.contains(header.toLowerCase()),
+      (header, _) => _isServerCredentialHeader(header),
     );
+  }
+
+  bool _isServerCredentialHeader(String header) {
+    final normalized = header.toLowerCase();
+    return normalized == 'authorization' ||
+        customHeaders.keys.any((name) => name.toLowerCase() == normalized);
+  }
+
+  /// Refreshes adapter-mutated headers before a redirect re-enters Dio.
+  /// Server credentials and product identity are reapplied by [onRequest].
+  void prepareRedirectReplay(RequestOptions options) {
+    final headers = Map<String, dynamic>.of(options.headers)
+      ..removeWhere(
+        (name, _) =>
+            _isServerCredentialHeader(name) ||
+            ConduitUserAgent.isHeaderName(name),
+      );
+    options.headers = headers;
   }
 
   @override
@@ -190,6 +192,7 @@ class ApiAuthInterceptor extends Interceptor {
 
     final path = _endpointPath(options.path);
     final authMode = _authModeFor(path);
+    _removeServerCredentials(options);
     final snapshot = options.extra[authSnapshotExtraKey];
     if (snapshot is ApiAuthSnapshot &&
         (snapshot._revision != _authRevision ||

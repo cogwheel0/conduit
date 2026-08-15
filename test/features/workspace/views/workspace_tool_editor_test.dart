@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -14,14 +14,12 @@ import 'package:conduit/features/workspace/views/tools/workspace_tool_editor.dar
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 
 TextField _textFieldByKey(WidgetTester tester, String key) {
   return tester.widget<TextField>(
-    find.descendant(
-      of: find.byKey(Key(key)),
-      matching: find.byType(TextField),
-    ),
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField)),
   );
 }
 
@@ -75,10 +73,7 @@ void main() {
       find.byKey(const Key('workspace-tool-name')),
       'Named',
     );
-    await tester.enterText(
-      find.byKey(const Key('workspace-tool-content')),
-      '',
-    );
+    await tester.enterText(find.byKey(const Key('workspace-tool-content')), '');
     await tester.tap(find.byKey(const Key('workspace-editor-save')));
     await tester.pump();
 
@@ -89,11 +84,7 @@ void main() {
   testWidgets('incompatible required version blocks save', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(
-      _harness(
-        tools,
-        mode: WorkspaceRouteMode.create,
-        serverVersion: '0.10.0',
-      ),
+      _harness(tools, mode: WorkspaceRouteMode.create, serverVersion: '0.10.0'),
     );
     await tester.pumpAndSettle();
 
@@ -104,12 +95,15 @@ void main() {
     await tester.enterText(
       find.byKey(const Key('workspace-tool-content')),
       '"""\ntitle: Future Tool\nrequired_open_webui_version: 0.11.0\n"""\n'
-          'class Tools:\n    pass\n',
+      'class Tools:\n    pass\n',
     );
     await tester.pump();
 
     // The incompatibility banner is shown and the save affordance is disabled.
-    expect(find.byKey(const Key('workspace-tool-incompatible')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-tool-incompatible')),
+      findsOneWidget,
+    );
     final saveButton = tester.widget<ConduitButton>(
       find.byKey(const Key('workspace-editor-save')),
     );
@@ -351,9 +345,8 @@ Widget _harness(
       ),
       workspaceToolsProvider.overrideWith(() => tools),
       if (resourceId != null && detail != null)
-        workspaceToolDetailProvider(
-          resourceId,
-        ).overrideWith((ref) async => detail),
+        workspaceToolDetailProvider(resourceId)
+            .overrideWith((ref) async => detail),
     ],
     child: _app(mode, resourceId),
   );
@@ -378,7 +371,7 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
   return MaterialApp.router(
     routerConfig: router,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );
 }

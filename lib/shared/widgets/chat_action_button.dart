@@ -1,10 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/core/services/platform_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 
-class ChatActionButton extends ConsumerWidget {
+class ChatActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
@@ -17,16 +15,12 @@ class ChatActionButton extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final hapticEnabled = ref.read(hapticEnabledProvider);
     final handleTap = onTap == null
         ? null
         : () {
-            PlatformService.hapticFeedbackWithSettings(
-              type: HapticType.selection,
-              hapticEnabled: hapticEnabled,
-            );
+            ConduitHaptics.selectionClick();
             onTap!();
           };
 

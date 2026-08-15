@@ -1,8 +1,8 @@
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
@@ -1318,9 +1318,8 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
     final nativeMenuAction = conduitSupportsNativeGlass()
         ? buildConduitNativeToolbarMenuAction<T>(
             iosSymbol: iosIcon,
-            accessibilityLabel: MaterialLocalizations.of(
-              context,
-            ).moreButtonTooltip,
+            accessibilityLabel: MaterialLocalizations.of(context)
+                .moreButtonTooltip,
             tintColor: tintColor,
             items: items,
             onSelected: onSelected,

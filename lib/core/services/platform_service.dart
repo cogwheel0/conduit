@@ -1,15 +1,13 @@
-import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/themed_dialogs.dart';
 import '../../shared/widgets/themed_sheets.dart';
-import 'haptic_service.dart';
 
 /// Service for platform-specific features and polish
 class PlatformService {
@@ -18,31 +16,6 @@ class PlatformService {
 
   /// Check if running on Android
   static bool get isAndroid => Platform.isAndroid;
-
-  /// Provide haptic feedback appropriate for the action
-  static void hapticFeedback({HapticType type = HapticType.light}) {
-    unawaited(_feedbackFor(type));
-  }
-
-  /// Provide haptic feedback respecting user preferences
-  static void hapticFeedbackWithSettings({
-    HapticType type = HapticType.light,
-    required bool hapticEnabled,
-  }) {
-    if (hapticEnabled) {
-      hapticFeedback(type: type);
-    }
-  }
-
-  static Future<void> _feedbackFor(HapticType type) => switch (type) {
-    HapticType.light => ConduitHaptics.lightImpact(),
-    HapticType.medium => ConduitHaptics.mediumImpact(),
-    HapticType.heavy => ConduitHaptics.heavyImpact(),
-    HapticType.selection => ConduitHaptics.selectionClick(),
-    HapticType.success => ConduitHaptics.success(),
-    HapticType.warning => ConduitHaptics.warning(),
-    HapticType.error => ConduitHaptics.error(),
-  };
 
   /// Get platform-appropriate card elevation
   static double getPlatformCardElevation({bool isRaised = false}) {
@@ -275,9 +248,6 @@ class PlatformService {
     }
   }
 }
-
-/// Types of haptic feedback
-enum HapticType { light, medium, heavy, selection, success, warning, error }
 
 /// Action sheet action configuration
 class PlatformActionSheetAction {

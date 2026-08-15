@@ -1,5 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Represents a single tweakcn theme variant (light or dark) and exposes the
 /// standard set of color tokens defined by the registry.

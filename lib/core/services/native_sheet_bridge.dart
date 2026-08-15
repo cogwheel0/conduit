@@ -22,6 +22,85 @@ void _logNativeSheetBridgeError(
   );
 }
 
+@immutable
+class NativeSheetThemeConfig {
+  const NativeSheetThemeConfig({
+    required this.isDark,
+    required this.backgroundArgb,
+    required this.surfaceArgb,
+    required this.elevatedSurfaceArgb,
+    required this.inputArgb,
+    required this.foregroundArgb,
+    required this.secondaryForegroundArgb,
+    required this.iconArgb,
+    required this.borderArgb,
+    required this.accentArgb,
+    required this.onAccentArgb,
+    required this.destructiveArgb,
+  });
+
+  final bool isDark;
+  final int backgroundArgb;
+  final int surfaceArgb;
+  final int elevatedSurfaceArgb;
+  final int inputArgb;
+  final int foregroundArgb;
+  final int secondaryForegroundArgb;
+  final int iconArgb;
+  final int borderArgb;
+  final int accentArgb;
+  final int onAccentArgb;
+  final int destructiveArgb;
+
+  PlatformNativeSheetTheme toPlatform() => PlatformNativeSheetTheme(
+    isDark: isDark,
+    backgroundArgb: backgroundArgb,
+    surfaceArgb: surfaceArgb,
+    elevatedSurfaceArgb: elevatedSurfaceArgb,
+    inputArgb: inputArgb,
+    foregroundArgb: foregroundArgb,
+    secondaryForegroundArgb: secondaryForegroundArgb,
+    iconArgb: iconArgb,
+    borderArgb: borderArgb,
+    accentArgb: accentArgb,
+    onAccentArgb: onAccentArgb,
+    destructiveArgb: destructiveArgb,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NativeSheetThemeConfig &&
+          isDark == other.isDark &&
+          backgroundArgb == other.backgroundArgb &&
+          surfaceArgb == other.surfaceArgb &&
+          elevatedSurfaceArgb == other.elevatedSurfaceArgb &&
+          inputArgb == other.inputArgb &&
+          foregroundArgb == other.foregroundArgb &&
+          secondaryForegroundArgb == other.secondaryForegroundArgb &&
+          iconArgb == other.iconArgb &&
+          borderArgb == other.borderArgb &&
+          accentArgb == other.accentArgb &&
+          onAccentArgb == other.onAccentArgb &&
+          destructiveArgb == other.destructiveArgb;
+
+  @override
+  int get hashCode => Object.hash(
+    isDark,
+    backgroundArgb,
+    surfaceArgb,
+    elevatedSurfaceArgb,
+    inputArgb,
+    foregroundArgb,
+    secondaryForegroundArgb,
+    iconArgb,
+    borderArgb,
+    accentArgb,
+    onAccentArgb,
+    destructiveArgb,
+  );
+}
+
 class NativeSheetRoutes {
   const NativeSheetRoutes._();
 
@@ -61,6 +140,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Object? _reasoningEffortChangedHandlerOwner;
   Object? _reasoningEffortUpdateOwner;
   Future<void> _reasoningEffortUpdateQueue = Future<void>.value();
+  NativeSheetThemeConfig? _lastTheme;
 
   @visibleForTesting
   bool? debugIsIOSOverride;
@@ -68,6 +148,25 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Stream<NativeSheetEvent> get events => _events.stream;
 
   bool get _isIOS => debugIsIOSOverride ?? Platform.isIOS;
+
+  Future<void> syncTheme(NativeSheetThemeConfig theme) async {
+    if (!_isIOS || theme == _lastTheme) return;
+    _lastTheme = theme;
+    try {
+      await _api.setTheme(theme.toPlatform());
+    } on PlatformException catch (error, stackTrace) {
+      _lastTheme = null;
+      _logNativeSheetBridgeError('setTheme', error, stackTrace);
+    } catch (error, stackTrace) {
+      _lastTheme = null;
+      _logNativeSheetBridgeError('setTheme', error, stackTrace);
+    }
+  }
+
+  @visibleForTesting
+  void debugResetThemeCache() {
+    _lastTheme = null;
+  }
 
   Future<bool> presentProfileMenu(NativeProfileSheetConfig config) async {
     if (!_isIOS) return false;
@@ -477,18 +576,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Future<bool> applyDetailPatch({
     required String detailId,
     required List<NativeSheetItemConfig> items,
+    List<NativeSheetSectionConfig> sections = const [],
     String? title,
     String? subtitle,
+    bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) async {
+    if (items.isNotEmpty && sections.isNotEmpty) {
+      throw ArgumentError(
+        'A native detail patch must use either items or sections, not both.',
+      );
+    }
     if (!_isIOS) return false;
     try {
       return await _api.applyDetailPatch(
         PlatformNativeSheetApplyDetailPatchRequest(
           detailId: detailId,
           items: items.map((item) => item.toPlatform()).toList(),
+          sections: sections.map((section) => section.toPlatform()).toList(),
           title: title,
           subtitle: subtitle,
+          clearSubtitle: clearSubtitle,
           detailSheets: detailSheets.isEmpty
               ? null
               : detailSheets.map((detail) => detail.toPlatform()).toList(),
@@ -800,7 +908,10 @@ class NativeSheetDetailConfig {
     /// maximum sheet height (matches capped Material bottom sheets). Ignored
     /// on non-iOS.
     this.maxHeightFraction,
-  });
+  }) : assert(
+         items.length == 0 || sections.length == 0,
+         'A native detail must use either items or sections, not both.',
+       );
 
   final String id;
   final String title;
@@ -847,6 +958,8 @@ class NativeSheetItemConfig {
     this.subtitle,
     this.sfSymbol = 'circle',
     this.iconAsset,
+    this.iconSize,
+    this.showsDisclosure,
     this.destructive = false,
     this.dismissOnSelect = false,
     this.actionId,
@@ -874,6 +987,8 @@ class NativeSheetItemConfig {
   final String? subtitle;
   final String sfSymbol;
   final String? iconAsset;
+  final double? iconSize;
+  final bool? showsDisclosure;
   final bool destructive;
   final bool dismissOnSelect;
   final String? actionId;
@@ -906,6 +1021,8 @@ class NativeSheetItemConfig {
       'subtitle': subtitle,
       'sfSymbol': sfSymbol,
       if (iconAsset != null) 'iconAsset': iconAsset,
+      if (iconSize != null) 'iconSize': iconSize,
+      if (showsDisclosure != null) 'showsDisclosure': showsDisclosure,
       'destructive': destructive,
       'dismissOnSelect': dismissOnSelect,
       if (actionId != null) 'actionId': actionId,
@@ -1220,6 +1337,8 @@ extension on NativeSheetItemConfig {
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       iconAsset: iconAsset,
+      iconSize: iconSize,
+      showsDisclosure: showsDisclosure,
       destructive: destructive,
       dismissOnSelect: dismissOnSelect,
       actionId: actionId,

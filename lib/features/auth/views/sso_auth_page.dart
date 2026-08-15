@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:go_router/go_router.dart';
@@ -14,12 +13,13 @@ import '../../../core/auth/webview_origin.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../providers/unified_auth_providers.dart';
+import '../../../shared/widgets/connection_components.dart';
 
 /// Whether an SSO page is allowed to expose cookies or localStorage tokens.
 @visibleForTesting
@@ -155,12 +155,9 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     // Check platform support first - auth WebViews are mobile-only here.
     if (!isWebViewSupported) {
       if (!mounted) return;
-      final l10n = AppLocalizations.of(context);
+      final l10n = AppLocalizations.of(context)!;
       setState(() {
-        _error =
-            l10n?.ssoPlatformNotSupported ??
-            'SSO authentication is not supported on this platform. '
-                'Please use credentials or LDAP authentication instead.';
+        _error = l10n.ssoPlatformNotSupported;
         _isLoading = false;
       });
       return;
@@ -181,7 +178,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (_serverUrl == null) {
       if (!mounted) return;
       setState(() {
-        _error = 'No server configured';
+        _error = AppLocalizations.of(context)!.serverAddressUnavailable;
         _isLoading = false;
       });
       return;
@@ -197,9 +194,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (!mounted) return;
     if (!webViewDataReady) {
       setState(() {
-        _error =
-            'The previous web sign-in session could not be cleared. '
-            'Please retry.';
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
         _shouldRenderWebView = false;
       });
@@ -214,7 +209,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (!mounted) return;
     if (!cookiesCleared) {
       setState(() {
-        _error = 'The previous SSO session could not be cleared. Please retry.';
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
         _shouldRenderWebView = false;
       });
@@ -249,7 +244,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = 'The SSO sign-in page could not be loaded. Please retry.';
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
       });
     }
@@ -598,9 +593,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     });
 
     // Capture localized error message before async gap
-    final ssoFailedMessage =
-        AppLocalizations.of(context)?.ssoAuthFailed ??
-        'SSO authentication failed';
+    final ssoFailedMessage = AppLocalizations.of(context)!.ssoAuthFailed;
 
     try {
       final authActions = ref.read(authActionsProvider);
@@ -722,8 +715,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
           }
           if (!cookiesCleared) {
             setState(() {
-              _error =
-                  'The previous SSO session could not be cleared. Please retry.';
+              _error = AppLocalizations.of(context)!.ssoAuthFailed;
               _isLoading = false;
             });
             releaseSessionReset();
@@ -756,7 +748,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
       if (!mounted) return;
       setState(() {
-        _error = 'The SSO sign-in page could not be reloaded. Please retry.';
+        _error = AppLocalizations.of(context)!.ssoAuthFailed;
         _isLoading = false;
       });
     }
@@ -771,30 +763,18 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: AdaptiveAppBar(
-          title: l10n?.sso ?? 'SSO',
-          actions: [
-            if (_controller != null)
-              AdaptiveAppBarAction(
-                iosSymbol: 'arrow.clockwise',
-                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-                onPressed: _refresh,
-              ),
-          ],
-        ),
-        bodySafeArea: true,
-        body: _buildBody(l10n),
-      ),
+    return ConnectionWebAuthScaffold(
+      title: l10n.sso,
+      backLabel: l10n.back,
+      onBack: () => context.pop(),
+      onRefresh: _controller == null ? null : _refresh,
+      body: _buildBody(l10n),
     );
   }
 
-  Widget _buildBody(AppLocalizations? l10n) {
+  Widget _buildBody(AppLocalizations l10n) {
     if (_error != null) {
       return _buildErrorState(l10n);
     }
@@ -846,7 +826,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     );
   }
 
-  Widget _buildLoadingState(AppLocalizations? l10n) {
+  Widget _buildLoadingState(AppLocalizations l10n) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -854,7 +834,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
           const CircularProgressIndicator.adaptive(),
           const SizedBox(height: Spacing.lg),
           Text(
-            l10n?.ssoLoadingLogin ?? 'Loading login page...',
+            l10n.ssoLoadingLogin,
             style: context.conduitTheme.bodyMedium?.copyWith(
               color: context.conduitTheme.textSecondary,
             ),
@@ -864,7 +844,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     );
   }
 
-  Widget _buildLoadingOverlay(AppLocalizations? l10n) {
+  Widget _buildLoadingOverlay(AppLocalizations l10n) {
     return Positioned.fill(
       child: Container(
         color: context.conduitTheme.surfaceBackground.withValues(alpha: 0.8),
@@ -875,9 +855,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
               const CircularProgressIndicator.adaptive(),
               const SizedBox(height: Spacing.lg),
               Text(
-                _tokenCaptured
-                    ? (l10n?.ssoAuthenticating ?? 'Authenticating...')
-                    : (l10n?.ssoLoadingLogin ?? 'Loading...'),
+                _tokenCaptured ? l10n.ssoAuthenticating : l10n.ssoLoadingLogin,
                 style: context.conduitTheme.bodyMedium?.copyWith(
                   color: context.conduitTheme.textSecondary,
                 ),
@@ -889,7 +867,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     );
   }
 
-  Widget _buildErrorState(AppLocalizations? l10n) {
+  Widget _buildErrorState(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.all(Spacing.pagePadding),
       child: Center(
@@ -905,7 +883,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
             ),
             const SizedBox(height: Spacing.lg),
             Text(
-              l10n?.ssoAuthFailed ?? 'SSO authentication failed',
+              l10n.ssoAuthFailed,
               style: context.conduitTheme.headingMedium,
               textAlign: TextAlign.center,
             ),
@@ -919,13 +897,13 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
             ),
             const SizedBox(height: Spacing.xl),
             ConduitButton(
-              text: l10n?.retry ?? 'Retry',
+              text: l10n.retry,
               icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
               onPressed: _refresh,
             ),
             const SizedBox(height: Spacing.md),
             ConduitButton(
-              text: l10n?.back ?? 'Back',
+              text: l10n.back,
               icon: Platform.isIOS ? CupertinoIcons.back : Icons.arrow_back,
               onPressed: () => context.pop(),
               isSecondary: true,

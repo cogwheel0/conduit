@@ -1,5 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -9,141 +9,64 @@ import '../../../core/services/haptic_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../channels/providers/channel_providers.dart';
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
-import '../../hermes/providers/hermes_providers.dart';
 import '../../notes/providers/notes_providers.dart';
-import '../../terminal/providers/terminal_providers.dart';
-import '../providers/sidebar_providers.dart';
 
-enum _SidebarCreateActionKind { chat, hermesChat, note, channel }
+typedef SidebarCreateActionHandler = Future<void> Function(
+  BuildContext context,
+  WidgetRef ref,
+);
+typedef SidebarCreateActionIconBuilder = IconData Function();
 
-class SidebarCreateActionSpec {
-  const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
+final class SidebarCreateAction {
+  const SidebarCreateAction({
+    required SidebarCreateActionIconBuilder iconBuilder,
+    required this.sfSymbol,
+    required SidebarCreateActionHandler handler,
+  }) : _iconBuilder = iconBuilder,
+       _handler = handler;
 
-  final IconData icon;
   final String sfSymbol;
+  final SidebarCreateActionIconBuilder _iconBuilder;
+  final SidebarCreateActionHandler _handler;
+
+  IconData get icon => _iconBuilder();
+
+  Future<void> run(BuildContext context, WidgetRef ref) =>
+      _handler(context, ref);
 }
 
-SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
-  final kind = _resolveSidebarCreateActionKind(
-    tabIndex: ref.watch(sidebarActiveTabProvider),
-    hermesOnly: ref.watch(hermesOnlyModeProvider),
-    hermesOn: ref.watch(hermesEnabledProvider),
-    notesOn: ref.watch(notesFeatureEnabledProvider),
-    terminalOn: _watchTerminalTabVisible(ref),
-    channelsOn: ref.watch(channelsFeatureEnabledProvider),
-  );
-  if (kind == null) {
-    return null;
-  }
-  return switch (kind) {
-    _SidebarCreateActionKind.chat ||
-    _SidebarCreateActionKind.hermesChat => SidebarCreateActionSpec(
-      icon: UiUtils.newChatIcon,
-      sfSymbol: 'square.and.pencil',
-    ),
-    _SidebarCreateActionKind.note => SidebarCreateActionSpec(
-      icon: UiUtils.newNoteIcon,
-      sfSymbol: 'doc.badge.plus',
-    ),
-    _SidebarCreateActionKind.channel => SidebarCreateActionSpec(
-      icon: UiUtils.newChannelIcon,
-      sfSymbol: 'number',
-    ),
-  };
-}
+IconData _newChatIcon() => UiUtils.newChatIcon;
+IconData _newNoteIcon() => UiUtils.newNoteIcon;
+IconData _newChannelIcon() => UiUtils.newChannelIcon;
 
-Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
-  final kind = _resolveSidebarCreateActionKind(
-    tabIndex: ref.read(sidebarActiveTabProvider),
-    hermesOnly: ref.read(hermesOnlyModeProvider),
-    hermesOn: ref.read(hermesEnabledProvider),
-    notesOn: ref.read(notesFeatureEnabledProvider),
-    terminalOn: _readTerminalTabVisible(ref),
-    channelsOn: ref.read(channelsFeatureEnabledProvider),
-  );
-  switch (kind) {
-    case null:
-      return;
-    case _SidebarCreateActionKind.chat:
-      await _startNewChat(context, ref);
-      break;
-    case _SidebarCreateActionKind.hermesChat:
-      await _startNewHermesChat(context, ref);
-      break;
-    case _SidebarCreateActionKind.note:
-      await _createNote(context, ref);
-      break;
-    case _SidebarCreateActionKind.channel:
-      await _createChannel(context, ref);
-      break;
-  }
-}
+const chatSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChatIcon,
+  sfSymbol: 'square.and.pencil',
+  handler: _startNewChat,
+);
 
-_SidebarCreateActionKind? _resolveSidebarCreateActionKind({
-  required int tabIndex,
-  required bool hermesOnly,
-  required bool hermesOn,
-  required bool notesOn,
-  required bool terminalOn,
-  required bool channelsOn,
-}) {
-  // Hermes-only: the Hermes tab is the only tab, so "+" always starts a new
-  // Hermes chat.
-  if (hermesOnly) {
-    return _SidebarCreateActionKind.hermesChat;
-  }
+const hermesChatSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChatIcon,
+  sfSymbol: 'square.and.pencil',
+  handler: _startNewHermesChat,
+);
 
-  var currentIndex = 0;
-  if (tabIndex == currentIndex) {
-    return _SidebarCreateActionKind.chat;
-  }
-  currentIndex++;
+const noteSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newNoteIcon,
+  sfSymbol: 'doc.badge.plus',
+  handler: _createNote,
+);
 
-  if (hermesOn) {
-    if (tabIndex == currentIndex) {
-      return _SidebarCreateActionKind.hermesChat;
-    }
-    currentIndex++;
-  }
-
-  if (notesOn) {
-    if (tabIndex == currentIndex) {
-      return _SidebarCreateActionKind.note;
-    }
-    currentIndex++;
-  }
-
-  if (terminalOn) {
-    if (tabIndex == currentIndex) {
-      return null;
-    }
-    currentIndex++;
-  }
-
-  if (channelsOn && tabIndex == currentIndex) {
-    return _SidebarCreateActionKind.channel;
-  }
-
-  return _SidebarCreateActionKind.chat;
-}
-
-// Single source of truth for terminal-tab visibility (shared with the sidebar).
-// Must match `sidebar_page.dart`'s `showTerminalTab` exactly, or the create
-// action's tab-index mapping drifts from the rendered tabs and the wrong (or no)
-// create action is shown — e.g. hiding the Channels create action while terminal
-// availability is still loading.
-bool _watchTerminalTabVisible(WidgetRef ref) {
-  return ref.watch(terminalTabVisibleProvider);
-}
-
-bool _readTerminalTabVisible(WidgetRef ref) {
-  return ref.read(terminalTabVisibleProvider);
-}
+const channelSidebarCreateAction = SidebarCreateAction(
+  iconBuilder: _newChannelIcon,
+  sfSymbol: 'number',
+  handler: _createChannel,
+);
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
@@ -232,8 +155,5 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
 }
 
 void _closeSidebarIfNeeded(BuildContext context) {
-  final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
-  if (!isTablet) {
-    ResponsiveDrawerLayout.of(context)?.close();
-  }
+  closeSidebarDrawerIfOverlay(context);
 }

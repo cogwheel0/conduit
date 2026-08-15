@@ -7,6 +7,50 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testNativeDropdownCompletionIsExactlyOnce() {
+    var selections: [String?] = []
+    let completion = NativeDropdownCompletion { result in
+      selections.append(try? result.get())
+    }
+
+    completion.finish(.success("selected"))
+    completion.finish(.success(nil))
+
+    XCTAssertEqual(selections.count, 1)
+    XCTAssertEqual(selections[0], "selected")
+  }
+
+  func testNativeSheetSegmentedControlUsesReadableThemeColors() throws {
+    NativeSheetTheme.shared.update(PlatformNativeSheetTheme(
+      isDark: true,
+      backgroundArgb: 0xFF000000,
+      surfaceArgb: 0xFF141414,
+      elevatedSurfaceArgb: 0xFF2C2C2E,
+      inputArgb: 0xFF2C2C2E,
+      foregroundArgb: 0xFFF5F5F7,
+      secondaryForegroundArgb: 0xFFB3B3B8,
+      iconArgb: 0xFFB3B3B8,
+      borderArgb: 0xFF3A3A3C,
+      accentArgb: 0xFFF2F2F2,
+      onAccentArgb: 0xFF111111,
+      destructiveArgb: 0xFFFF453A
+    ))
+    let control = UISegmentedControl(items: ["System", "Dark"])
+
+    applyNativeSheetSegmentedControlTheme(control)
+
+    let normalColor = try XCTUnwrap(
+      control.titleTextAttributes(for: .normal)?[.foregroundColor] as? UIColor
+    )
+    let selectedColor = try XCTUnwrap(
+      control.titleTextAttributes(for: .selected)?[.foregroundColor] as? UIColor
+    )
+    XCTAssertEqual(control.backgroundColor, NativeSheetTheme.shared.elevatedSurface)
+    XCTAssertEqual(control.selectedSegmentTintColor, NativeSheetTheme.shared.accent)
+    XCTAssertEqual(normalColor, NativeSheetTheme.shared.foreground)
+    XCTAssertEqual(selectedColor, NativeSheetTheme.shared.onAccent)
+  }
+
   func testNativeModelSelectorKeepsCurrentSelectionWithPinnedModels() {
     XCTAssertEqual(
       nativeModelSelectorFeaturedIds(

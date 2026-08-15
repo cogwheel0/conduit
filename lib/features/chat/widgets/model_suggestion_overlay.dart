@@ -1,14 +1,15 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/model_avatar.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Autocomplete overlay that appears when the user types `@` to
@@ -269,9 +270,8 @@ class _OverlayPlaceholder extends StatelessWidget {
             Flexible(
               child: Text(
                 message!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.textSecondary,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: context.conduitTheme.textSecondary),
               ),
             ),
           ],

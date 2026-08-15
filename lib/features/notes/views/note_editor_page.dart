@@ -5,8 +5,8 @@ import 'dart:io' show File, Platform;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:fleather/fleather.dart';
@@ -16,6 +16,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';
@@ -27,14 +28,15 @@ import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/sync/chat_locks.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -47,6 +49,7 @@ import '../utils/note_document_codec.dart';
 import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
 import '../widgets/note_file_attachment.dart';
+import '../widgets/note_floating_actions.dart';
 
 /// Builds the rich-note editor theme from Conduit's semantic color tokens.
 ///
@@ -1576,58 +1579,65 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // pop programmatically.
       canPop: !_hasChanges,
       onPopInvokedWithResult: _onEditorPopInvoked,
-      child: ErrorBoundary(
-        child: AdaptiveRouteShell(
-          backgroundColor: context.conduitTheme.surfaceBackground,
-          extendBodyBehindAppBar: true,
-          appBar: _buildAdaptiveNoteEditorAppBar(context),
-          body: Stack(
-            children: [
-              Positioned.fill(child: _buildMainContent(context)),
+      child: AdaptiveRouteShell(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAdaptiveNoteEditorAppBar(context),
+        body: Stack(
+          children: [
+            Positioned.fill(child: _buildMainContent(context)),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight:
+                    MediaQuery.viewPaddingOf(context).top +
+                    conduitAdaptiveToolbarHeightOf(context),
+              ),
+            ),
+            if (!_isLoading && _note != null)
+              Positioned(
+                top:
+                    MediaQuery.of(context).padding.top +
+                    conduitAdaptiveToolbarHeightOf(context),
+                left: 0,
+                right: 0,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: Spacing.xs),
+                  child: Center(child: _buildFloatingMetadataBar(context)),
+                ),
+              ),
+            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
+              Positioned(
+                left: Spacing.md,
+                right: Spacing.md,
+                bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
+                child: NoteFloatingActions(
+                  isRecording: _isRecording,
+                  isUploadingAudio: _isUploadingAudio,
+                  isEnhancing: _isEnhancing,
+                  onVoicePressed: _isRecording
+                      ? _toggleDictation
+                      : _showRecordingOptions,
+                  onEnhance: _enhanceContent,
+                  onGenerateTitle: _generateTitle,
+                ),
+              ),
+            // Formatting toolbar — shown above the keyboard while the content
+            // editor is focused (in place of the floating actions row). The
+            // scaffold uses resizeToAvoidBottomInset, so the body is already
+            // laid out above the keyboard; anchoring at bottom: 0 sits the
+            // toolbar directly on top of it (anchoring at viewInsets.bottom
+            // would double-count the inset and push it up to the stats row).
+            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
               Positioned(
                 left: 0,
                 right: 0,
-                top: 0,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                ),
+                bottom: 0,
+                child: _buildFormattingToolbar(context),
               ),
-              if (!_isLoading && _note != null)
-                Positioned(
-                  top:
-                      MediaQuery.of(context).padding.top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: Spacing.xs),
-                    child: Center(child: _buildFloatingMetadataBar(context)),
-                  ),
-                ),
-              if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
-                Positioned(
-                  left: Spacing.md,
-                  right: Spacing.md,
-                  bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                  child: _buildFloatingActionsRow(context),
-                ),
-              // Formatting toolbar — shown above the keyboard while the content
-              // editor is focused (in place of the floating actions row). The
-              // scaffold uses resizeToAvoidBottomInset, so the body is already
-              // laid out above the keyboard; anchoring at bottom: 0 sits the
-              // toolbar directly on top of it (anchoring at viewInsets.bottom
-              // would double-count the inset and push it up to the stats row).
-              if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _buildFormattingToolbar(context),
-                ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -1699,7 +1709,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       leading: ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
-        onPressed: () => ResponsiveDrawerLayout.of(context)?.toggle(),
+        onPressed: () =>
+            SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
         iconColor: tintColor,
       ),
       title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
@@ -1980,7 +1991,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
 
     final theme = context.conduitTheme;
+    if (conduitSupportsNativeGlass()) {
+      return Stack(
+        key: const ValueKey<String>('note-metadata-native-glass'),
+        children: [
+          Positioned.fill(
+            child: AdaptiveGlassBackdrop(borderRadius: borderRadius),
+          ),
+          content,
+        ],
+      );
+    }
+
     return Container(
+      key: const ValueKey<String>('note-metadata-fallback-surface'),
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
         borderRadius: borderRadius,
@@ -2223,26 +2247,19 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    Platform.isIOS ? CupertinoIcons.share : Icons.ios_share,
-                    size: IconSize.sm,
-                    color: theme.textSecondary,
-                  ),
+                ConduitIconButton(
+                  icon: Platform.isIOS ? CupertinoIcons.share : Icons.ios_share,
+                  iconColor: theme.textSecondary,
                   tooltip: l10n.shareSystemSheet,
                   onPressed: inFlight ? null : () => _sharePendingAudio(item),
+                  isCompact: true,
                 ),
                 if (retryable)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.arrow_clockwise
-                          : Icons.refresh_rounded,
-                      size: IconSize.sm,
-                      color: theme.buttonPrimary,
-                    ),
+                  ConduitIconButton(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.arrow_clockwise
+                        : Icons.refresh_rounded,
+                    iconColor: theme.buttonPrimary,
                     tooltip: l10n.retry,
                     onPressed: () => unawaited(
                       _retryPendingAudioUploads(
@@ -2250,6 +2267,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                         showFeedback: true,
                       ),
                     ),
+                    isCompact: true,
                   ),
               ],
             ),
@@ -2665,7 +2683,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const SizedBox.shrink();
     }
 
-    final editor = DrawerOpenGestureExclusion(
+    final editor = HorizontalGestureExclusion(
       child: FleatherEditor(
         controller: controller,
         focusNode: _contentFocusNode,
@@ -2871,155 +2889,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _showError(e.toString());
       }
     }
-  }
-
-  Widget _buildFloatingActionsRow(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // Voice/Recording button - shows menu if not recording, stops if recording
-        _buildFloatingButton(
-          context,
-          icon: _isRecording
-              ? (Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop_rounded)
-              : (Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded),
-          color: _isRecording ? theme.error : null,
-          isLoading: _isUploadingAudio,
-          tooltip: _isRecording ? l10n.stopRecording : l10n.voiceOptions,
-          onPressed: _isUploadingAudio
-              ? null
-              : (_isRecording ? _toggleDictation : _showRecordingOptions),
-        ),
-
-        // AI button
-        _buildFloatingButton(
-          context,
-          icon: Platform.isIOS
-              ? CupertinoIcons.sparkles
-              : Icons.auto_awesome_rounded,
-          isLoading: _isEnhancing,
-          tooltip: l10n.enhanceWithAI,
-          onPressed: _isEnhancing ? null : _enhanceContent,
-          showMenu: true,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFloatingButton(
-    BuildContext context, {
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback? onPressed,
-    bool isLoading = false,
-    Color? color,
-    bool showMenu = false,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    final button = _buildAdaptiveFloatingButton(
-      context,
-      icon: icon,
-      onPressed: onPressed,
-      isLoading: isLoading,
-      color: color,
-    );
-
-    if (showMenu) {
-      return AdaptiveTooltip(
-        message: tooltip,
-        child: Semantics(
-          button: true,
-          label: tooltip,
-          child: AdaptivePopupMenuButton.widget<String>(
-            items: [
-              AdaptivePopupMenuItem<String>(
-                label: l10n.enhanceNote,
-                value: 'enhance',
-                icon: Platform.isIOS
-                    ? 'wand.and.stars'
-                    : Icons.auto_fix_high_rounded,
-              ),
-              AdaptivePopupMenuItem<String>(
-                label: l10n.generateTitle,
-                value: 'title',
-                icon: Platform.isIOS ? 'textformat' : Icons.title_rounded,
-              ),
-            ],
-            onSelected: (_, entry) {
-              switch (entry.value) {
-                case 'enhance':
-                  _enhanceContent();
-                case 'title':
-                  _generateTitle();
-              }
-            },
-            child: IgnorePointer(child: button),
-          ),
-        ),
-      );
-    }
-
-    return Semantics(
-      button: true,
-      label: tooltip,
-      enabled: onPressed != null,
-      child: AdaptiveTooltip(message: tooltip, child: button),
-    );
-  }
-
-  Widget _buildAdaptiveFloatingButton(
-    BuildContext context, {
-    required IconData icon,
-    required VoidCallback? onPressed,
-    required bool isLoading,
-    Color? color,
-  }) {
-    final theme = context.conduitTheme;
-    final labelColor = theme.textPrimary;
-    final borderRadius = BorderRadius.circular(AppBorderRadius.floatingButton);
-    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
-    final effectiveColor = usesOpaqueFallback && color == null
-        ? theme.surfaceContainerHighest
-        : color;
-
-    return AdaptiveButton.child(
-      onPressed: onPressed,
-      enabled: onPressed != null,
-      color: effectiveColor,
-      style: usesOpaqueFallback
-          ? AdaptiveButtonStyle.filled
-          : color == null
-          ? AdaptiveButtonStyle.glass
-          : AdaptiveButtonStyle.prominentGlass,
-      size: AdaptiveButtonSize.large,
-      minSize: const Size(TouchTarget.button, TouchTarget.button),
-      padding: EdgeInsets.zero,
-      borderRadius: borderRadius,
-      useSmoothRectangleBorder: false,
-      child: SizedBox(
-        width: TouchTarget.button,
-        height: TouchTarget.button,
-        child: Center(
-          child: isLoading
-              ? SizedBox(
-                  width: IconSize.md,
-                  height: IconSize.md,
-                  child: CircularProgressIndicator(
-                    strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(labelColor),
-                  ),
-                )
-              : Icon(
-                  icon,
-                  color: color == null ? labelColor : Colors.white,
-                  size: IconSize.lg,
-                ),
-        ),
-      ),
-    );
   }
 
   Widget _buildNotFoundState(BuildContext context) {

@@ -1,16 +1,20 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import 'enhanced_image_attachment.dart';
+
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+
 import 'dart:io';
 import 'dart:convert';
+
 import '../../../core/services/worker_manager.dart';
 
 class EnhancedAttachment extends ConsumerStatefulWidget {

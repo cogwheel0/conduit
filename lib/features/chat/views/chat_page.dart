@@ -1,21 +1,25 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../core/widgets/error_boundary.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'dart:io' show Platform;
 import 'dart:collection';
 import 'dart:math' as math;
 
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
+
 import 'dart:async';
+
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
@@ -1663,9 +1667,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final message = error is StateError
           ? error.message.toString()
           : AppLocalizations.of(context)!.errorMessage;
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -1755,6 +1758,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
+    ConduitHaptics.lightImpact();
     if (debugShouldReleasePinnedTurnForManualNavigationForTesting(
       pinActive: _wantsPinToTop,
       userDragStarted: false,
@@ -2326,7 +2330,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
     const buttonSize = 40.0;
-    const iconSize = IconSize.large;
+    const iconSize = IconSize.medium;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final style = usesOpaqueFallback
@@ -2334,15 +2338,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : AdaptiveButtonStyle.glass;
 
     if (conduitSupportsNativeGlass()) {
-      return AdaptiveButton.sfSymbol(
+      return NativeGlassIconButton(
         onPressed: _userScrollToBottom,
-        sfSymbol: SFSymbol('chevron.down', color: theme.textPrimary),
-        style: style,
-        size: AdaptiveButtonSize.medium,
-        minSize: const Size.square(buttonSize),
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(buttonSize),
-        useSmoothRectangleBorder: false,
+        symbol: SFSymbol(
+          'chevron.down',
+          size: iconSize,
+          color: theme.textPrimary,
+        ),
+        dimension: buttonSize,
       );
     }
 
@@ -3401,6 +3404,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ),
               ),
               Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ConduitChromeGradientFade.bottom(
+                  contentHeight: math.max(
+                    0,
+                    math.max(
+                      _inputHeight - Spacing.xl,
+                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
+                    ),
+                  ),
+                  fadeHeight: Spacing.md,
+                ),
+              ),
+              Positioned(
                 bottom: (_inputHeight > 0)
                     ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
                     : (Spacing.xxl + Spacing.xxxl),
@@ -3457,21 +3475,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: ConduitChromeGradientFade.bottom(
-                  contentHeight: math.max(
-                    0,
-                    math.max(
-                      _inputHeight - Spacing.xl,
-                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
-                    ),
-                  ),
-                  fadeHeight: Spacing.md,
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
                 child: _buildComposerSection(context),
               ),
               ChatVoiceModeOverlay(bottomOffset: _inputHeight),
@@ -3487,11 +3490,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    return ErrorBoundary(child: page);
+    return page;
   }
 
   void _toggleResponsiveDrawer(BuildContext context) {
-    final layout = ResponsiveDrawerLayout.of(context);
+    final layout = SidebarDrawerControllerScope.maybeOf(context);
     if (layout == null) return;
 
     final isDrawerOpen = layout.isOpen;

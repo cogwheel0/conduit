@@ -1,13 +1,14 @@
 import 'package:checks/checks.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/profile/views/audio_settings_page.dart';
-import 'package:conduit/features/profile/widgets/settings_page_scaffold.dart';
 import 'package:conduit/features/profile/widgets/stt_language_picker.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/adaptive_selection_sheet.dart';
 
 void main() {
   test('device recognition language tile is Android and device-STT only', () {
@@ -57,7 +58,7 @@ Future<void> _pumpPicker(WidgetTester tester, AppSettings settings) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(platform: TargetPlatform.android),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: DeviceSttLanguagePicker(
@@ -84,7 +85,7 @@ void _expectSelected(WidgetTester tester, String selectedKey) {
     'device-stt-custom-option',
   ];
   for (final key in optionKeys) {
-    final tile = tester.widget<SettingsSelectorTile>(find.byKey(Key(key)));
+    final tile = tester.widget<AdaptiveSelectionTile>(find.byKey(Key(key)));
     check(tile.selected, because: key).equals(key == selectedKey);
   }
 }

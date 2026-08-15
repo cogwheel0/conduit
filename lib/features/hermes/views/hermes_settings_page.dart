@@ -1,73 +1,20 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../auth/widgets/adaptive_auth_scaffold.dart';
-import '../../profile/widgets/customization_tile.dart';
-import '../../profile/widgets/settings_page_scaffold.dart';
+import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/utility_components.dart';
+import '../controllers/hermes_connection_controller.dart';
 import '../models/hermes_capabilities.dart';
-import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
-import '../services/hermes_api_service.dart';
-
-@visibleForTesting
-HermesConfig buildHermesConnectionDraft({
-  required HermesConfig saved,
-  required String baseUrl,
-  required bool apiKeyChanged,
-  required String apiKey,
-  required bool sessionKeyChanged,
-  required String sessionKey,
-}) {
-  final trimmedUrl = baseUrl.trim();
-  final originChanged =
-      HermesConfigController.connectionOrigin(saved.baseUrl) !=
-      HermesConfigController.connectionOrigin(trimmedUrl);
-  final trimmedApiKey = apiKey.trim();
-  final trimmedSessionKey = sessionKey.trim();
-  return HermesConfig(
-    enabled: true,
-    baseUrl: trimmedUrl,
-    apiKey: originChanged || apiKeyChanged
-        ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
-        : saved.apiKey,
-    sessionKey: originChanged
-        ? (sessionKeyChanged && trimmedSessionKey.isNotEmpty
-              ? trimmedSessionKey
-              : null)
-        : sessionKeyChanged
-        ? (trimmedSessionKey.isEmpty ? null : trimmedSessionKey)
-        : saved.sessionKey,
-  );
-}
-
-@visibleForTesting
-Future<({bool success, Object? error})> completeHermesOnboarding({
-  required Future<void> Function() enable,
-  required Future<void> Function() ensureSessionKey,
-  required Future<void> Function() selectHermes,
-}) async {
-  try {
-    await enable();
-    await ensureSessionKey();
-    await selectHermes();
-    return (success: true, error: null);
-  } catch (error) {
-    DebugLogger.error(
-      'onboarding-failed',
-      scope: 'hermes/onboarding',
-      data: {'errorType': error.runtimeType.toString()},
-    );
-    return (success: false, error: error);
-  }
-}
+import '../services/hermes_connection_service.dart';
 
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
 /// URL, API key, long-term memory key, and a connection test.
@@ -83,140 +30,62 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
 }
 
 class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
-  late final TextEditingController _urlController;
-  late final TextEditingController _apiKeyController;
-  late final TextEditingController _sessionKeyController;
-
-  bool _testing = false;
-  bool _saving = false;
-  bool _finishing = false;
-  bool _apiKeyDirty = false;
-  bool _sessionKeyDirty = false;
-  bool? _testResult;
-  bool _saved = false;
-  String? _urlError;
-  String? _onboardingError;
+  late final HermesConnectionController _connectionController;
 
   @override
   void initState() {
     super.initState();
-    final config = ref.read(hermesConfigProvider);
-    _urlController = TextEditingController(text: config.baseUrl);
-    _apiKeyController = TextEditingController();
-    _sessionKeyController = TextEditingController();
+    _connectionController = HermesConnectionController(
+      initialConfig: ref.read(hermesConfigProvider),
+      gateway: ref.read(hermesConnectionGatewayProvider),
+    )..addListener(_handleConnectionChanged);
   }
 
+  void _handleConnectionChanged() {
+    if (mounted) setState(() {});
+  }
+
+  HermesConnectionMessages _messages(AppLocalizations l10n) =>
+      HermesConnectionMessages(
+        connecting: l10n.connecting,
+        connected: l10n.connectedToServer,
+        saved: l10n.saved,
+        unreachable: l10n.couldNotConnectGeneric,
+        persistenceFailed: l10n.directConnectionSaveFailed,
+        activationFailed: l10n.hermesOnboardingFailed,
+      );
+
   Future<void> _finishOnboarding() async {
-    if (_finishing || _testing) return;
-    setState(() {
-      _finishing = true;
-      _onboardingError = null;
-    });
-
-    if (!await _commitConnection()) {
-      if (mounted) setState(() => _finishing = false);
-      return;
-    }
-    if (!mounted) return;
-
-    final notifier = ref.read(hermesConfigProvider.notifier);
-    final result = await completeHermesOnboarding(
-      enable: () => notifier.setEnabled(true),
-      ensureSessionKey: () async {
-        await notifier.ensureSessionKey();
-      },
-      selectHermes: () => ref
-          .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.hermes),
+    FocusManager.instance.primaryFocus?.unfocus();
+    final l10n = AppLocalizations.of(context)!;
+    final result = await _connectionController.finishOnboarding(
+      saved: ref.read(hermesConfigProvider),
+      messages: _messages(l10n),
     );
     if (!mounted) return;
-    if (!result.success) {
-      setState(() {
-        _finishing = false;
-        _onboardingError =
-            'Could not finish Hermes setup. Check secure storage and try again.';
-      });
-      return;
+    if (result.outcome == HermesConnectionOutcome.success) {
+      context.go(Routes.chat);
     }
-    context.go(Routes.chat);
+  }
+
+  void _leaveOnboarding() {
+    _connectionController.cancelPendingOnboarding();
+    context.go(Routes.backendChooser);
   }
 
   @override
   void dispose() {
-    _urlController.dispose();
-    _apiKeyController.dispose();
-    _sessionKeyController.dispose();
+    _connectionController.removeListener(_handleConnectionChanged);
+    _connectionController.dispose();
     super.dispose();
   }
 
-  bool _originChanged(HermesConfig config) =>
-      HermesConfigController.connectionOrigin(config.baseUrl) !=
-      HermesConfigController.connectionOrigin(_urlController.text);
-
-  bool _draftIsUsable(HermesConfig config) {
-    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
-      return false;
-    }
-    final apiKey = _apiKeyDirty || _originChanged(config)
-        ? _apiKeyController.text.trim()
-        : config.apiKey?.trim() ?? '';
-    return apiKey.isNotEmpty;
-  }
-
-  Future<bool> _commitConnection() async {
-    if (_saving) return false;
-    final config = ref.read(hermesConfigProvider);
-    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
-      setState(() => _urlError = 'Use a valid http:// or https:// server URL');
-      return false;
-    }
-    final originChanged = _originChanged(config);
-    if ((originChanged || _apiKeyDirty) &&
-        _apiKeyController.text.trim().isEmpty) {
-      setState(() {
-        _urlError = originChanged
-            ? 'Enter the API key for the new server'
-            : null;
-      });
-      return false;
-    }
-
-    setState(() {
-      _saving = true;
-      _saved = false;
-      _urlError = null;
-    });
-    try {
-      await ref
-          .read(hermesConfigProvider.notifier)
-          .saveConnection(
-            baseUrl: _urlController.text,
-            apiKeyChanged: originChanged || _apiKeyDirty,
-            apiKey: _apiKeyController.text,
-            sessionKeyChanged: _sessionKeyDirty,
-            sessionKey: _sessionKeyController.text,
-          );
-      if (!mounted) return true;
-      _apiKeyController.clear();
-      _sessionKeyController.clear();
-      setState(() {
-        _apiKeyDirty = false;
-        _sessionKeyDirty = false;
-        _saved = true;
-      });
-      return true;
-    } catch (_) {
-      if (mounted) {
-        setState(() => _urlError = 'Could not save Hermes settings');
-      }
-      return false;
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
   Future<void> _saveSettings() async {
-    await _commitConnection();
+    final l10n = AppLocalizations.of(context)!;
+    await _connectionController.save(
+      ref.read(hermesConfigProvider),
+      messages: _messages(l10n),
+    );
   }
 
   Future<void> _retrySecrets() =>
@@ -236,32 +105,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
-    if (_finishing) return;
-    final saved = ref.read(hermesConfigProvider);
-    final draft = buildHermesConnectionDraft(
-      saved: saved,
-      baseUrl: _urlController.text,
-      apiKeyChanged: _apiKeyDirty,
-      apiKey: _apiKeyController.text,
-      sessionKeyChanged: _sessionKeyDirty,
-      sessionKey: _sessionKeyController.text,
+    await _connectionController.testConnection(
+      saved: ref.read(hermesConfigProvider),
+      messages: _messages(AppLocalizations.of(context)!),
     );
-    setState(() {
-      _testing = true;
-      _testResult = null;
-    });
-    bool ok;
-    try {
-      ok = await testHermesDraftConnection(draft);
-    } catch (_) {
-      // A thrown health check (network/Dio error) must still clear the spinner.
-      ok = false;
-    }
-    if (!mounted) return;
-    setState(() {
-      _testing = false;
-      _testResult = ok;
-    });
   }
 
   @override
@@ -271,6 +118,41 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final urlError = switch (_connectionController.validationIssue) {
+      HermesConnectionValidationIssue.invalidUrl =>
+        l10n.directConnectionUrlInvalid,
+      HermesConnectionValidationIssue.credentialsReentryRequired =>
+        l10n.directConnectionCredentialsReentryRequired,
+      null => null,
+    };
+    final serverUrlField = AccessibleFormField(
+      enabled: !_connectionController.operation.isBusy,
+      label: l10n.hermesServerUrlTitle,
+      hint: 'http://192.168.1.10:8642',
+      controller: _connectionController.url,
+      keyboardType: TextInputType.url,
+      textInputAction: TextInputAction.next,
+      autocorrect: false,
+      errorText: urlError,
+      onChanged: (_) => _connectionController.markUrlChanged(),
+      isRequired: true,
+      iosSettingsRow: PlatformInfo.isIOS,
+    );
+    final apiKeyField = AccessibleFormField(
+      enabled: !_connectionController.operation.isBusy,
+      label: l10n.hermesApiKeyTitle,
+      hint: config.apiKey == null || config.apiKey!.isEmpty
+          ? l10n.hermesApiKeyPlaceholder
+          : l10n.hermesConfiguredReplacePlaceholder,
+      obscureText: true,
+      controller: _connectionController.apiKey,
+      keyboardType: TextInputType.visiblePassword,
+      textInputAction: TextInputAction.next,
+      autocorrect: false,
+      onChanged: (_) => _connectionController.markApiKeyChanged(),
+      isRequired: true,
+      iosSettingsRow: PlatformInfo.isIOS,
+    );
 
     final content = <Widget>[
       if (secretsError != null)
@@ -304,136 +186,183 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
         ),
-      if (widget.isOnboarding)
-        Padding(
-          padding: const EdgeInsets.only(bottom: Spacing.lg),
-          child: Text(
-            l10n.backendChooserHermesSubtitle,
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          ),
-        )
-      else ...[
-        CustomizationTile(
-          title: l10n.hermesEnableTitle,
-          subtitle: l10n.hermesEnableSubtitle,
-          trailing: AdaptiveSwitch(
-            value: config.enabled,
-            onChanged: (value) => _setHermesEnabled(value),
-          ),
-          showChevron: false,
-          onTap: () => _setHermesEnabled(!config.enabled),
-        ),
-        if (config.enabled && _capabilities.jobs) ...[
-          const SizedBox(height: Spacing.sm),
-          CustomizationTile(
-            leading: _badge(context, Icons.schedule),
-            title: l10n.hermesScheduledAgentsTitle,
-            subtitle: l10n.hermesReviewSchedules,
-            onTap: () => context.pushNamed(RouteNames.hermesJobs),
-          ),
-        ],
-        const SizedBox(height: Spacing.lg),
-      ],
-      AccessibleFormField(
-        label: l10n.hermesServerUrlTitle,
-        hint: 'http://192.168.1.10:8642',
-        controller: _urlController,
-        keyboardType: TextInputType.url,
-        textInputAction: TextInputAction.next,
-        autocorrect: false,
-        errorText: _urlError,
-        onChanged: (value) {
-          setState(() {
-            _urlError = null;
-            _saved = false;
-            _testResult = null;
-          });
-        },
-      ),
-      const SizedBox(height: Spacing.md),
-      AccessibleFormField(
-        label: l10n.hermesApiKeyTitle,
-        hint: config.apiKey == null || config.apiKey!.isEmpty
-            ? l10n.hermesApiKeyPlaceholder
-            : l10n.hermesConfiguredReplacePlaceholder,
-        obscureText: true,
-        controller: _apiKeyController,
-        keyboardType: TextInputType.visiblePassword,
-        textInputAction: TextInputAction.next,
-        autocorrect: false,
-        onChanged: (value) {
-          setState(() {
-            _apiKeyDirty = true;
-            _saved = false;
-            _testResult = null;
-          });
-        },
-      ),
-      const SizedBox(height: Spacing.md),
-      AccessibleFormField(
-        label: l10n.hermesMemoryKeyTitle,
-        hint: config.sessionKey == null || config.sessionKey!.isEmpty
-            ? l10n.hermesMemoryKeyPlaceholder
-            : l10n.hermesConfiguredReplacePlaceholder,
-        obscureText: true,
-        controller: _sessionKeyController,
-        keyboardType: TextInputType.visiblePassword,
-        textInputAction: TextInputAction.done,
-        autocorrect: false,
-        onChanged: (value) => setState(() {
-          _sessionKeyDirty = true;
-          _saved = false;
-        }),
-      ),
-      const SizedBox(height: Spacing.sm),
-      Text(
-        l10n.hermesMemoryKeyDescription,
-        style: AppTypography.captionStyle.copyWith(color: theme.textSecondary),
-      ),
-      const SizedBox(height: Spacing.lg),
-      Wrap(
-        spacing: Spacing.md,
-        runSpacing: Spacing.sm,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          if (!widget.isOnboarding) ...[
-            ConduitButton(
-              text: l10n.save,
-              isLoading: _saving,
-              onPressed: _draftIsUsable(config) ? _saveSettings : null,
+      if (!widget.isOnboarding) ...[
+        InsetGroupedList(
+          footer: PlatformInfo.isIOS ? l10n.hermesEnableSubtitle : null,
+          children: [
+            UtilityRow(
+              title: l10n.hermesEnableTitle,
+              subtitle: PlatformInfo.isIOS ? null : l10n.hermesEnableSubtitle,
+              titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+              trailing: AdaptiveSwitch(
+                value: config.enabled,
+                onChanged: _setHermesEnabled,
+              ),
+              onTap: () => _setHermesEnabled(!config.enabled),
             ),
           ],
-          ConduitButton(
-            text: l10n.testDirectConnection,
-            isSecondary: true,
-            isLoading: _testing,
-            useNativeLabel: true,
-            onPressed: _draftIsUsable(config) && !_saving && !_finishing
-                ? _testConnection
-                : null,
+        ),
+        if (config.enabled && _capabilities.jobs) ...[
+          SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+          InsetGroupedList(
+            title: l10n.hermesScheduledAgentsTitle,
+            children: [
+              UtilityRow(
+                leading: _badge(context, Icons.schedule),
+                title: l10n.hermesReviewSchedules,
+                showChevron: true,
+                onTap: () => context.pushNamed(RouteNames.hermesJobs),
+              ),
+            ],
           ),
-          if (_testResult != null || _saved)
-            Text(
-              _testResult == null
-                  ? '${l10n.saved} ✓'
-                  : _testResult == true
-                  ? '${l10n.connectedToServer} ✓'
-                  : l10n.couldNotConnectGeneric,
-              style: AppTypography.standard.copyWith(
-                color: _testResult == false ? theme.error : theme.success,
+        ],
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      ],
+      if (PlatformInfo.isIOS)
+        InsetGroupedList(
+          useNativeSurface: true,
+          children: [serverUrlField, apiKeyField],
+        )
+      else
+        InsetGroupedSection(
+          title: l10n.hermesConnectionDetailsTitle,
+          flat: true,
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              serverUrlField,
+              const SizedBox(height: Spacing.md),
+              apiKeyField,
+            ],
+          ),
+        ),
+      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      UtilityDisclosureSection(
+        key: const ValueKey<String>('hermes-memory-key-disclosure'),
+        title: l10n.hermesMemoryKeyTitle,
+        subtitle: l10n.hermesMemoryKeyShortDescription,
+        flat: !PlatformInfo.isIOS,
+        useNativeSurface: PlatformInfo.isIOS,
+        contentPadding: PlatformInfo.isIOS
+            ? EdgeInsets.zero
+            : const EdgeInsets.only(top: Spacing.md),
+        expanded: _connectionController.showMemoryKey,
+        onChanged: _connectionController.setShowMemoryKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AccessibleFormField(
+              enabled: !_connectionController.operation.isBusy,
+              label: l10n.hermesMemoryKeyFieldLabel,
+              hint: config.sessionKey == null || config.sessionKey!.isEmpty
+                  ? l10n.hermesMemoryKeyPlaceholder
+                  : l10n.hermesConfiguredReplacePlaceholder,
+              obscureText: true,
+              controller: _connectionController.sessionKey,
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              autocorrect: false,
+              onChanged: (_) => _connectionController.markSessionKeyChanged(),
+              iosSettingsRow: PlatformInfo.isIOS,
+            ),
+            Padding(
+              padding: PlatformInfo.isIOS
+                  ? const EdgeInsets.fromLTRB(
+                      Spacing.md,
+                      Spacing.xs,
+                      Spacing.md,
+                      Spacing.md,
+                    )
+                  : const EdgeInsets.only(top: Spacing.sm),
+              child: Text(
+                l10n.hermesMemoryKeyDescription,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
               ),
             ),
-        ],
-      ),
-      if (widget.isOnboarding && _onboardingError != null) ...[
-        const SizedBox(height: Spacing.sm),
-        Text(
-          _onboardingError!,
-          textAlign: TextAlign.center,
-          style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+          ],
         ),
+      ),
+      if (!widget.isOnboarding) ...[
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+        if (PlatformInfo.isIOS)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InsetGroupedList(
+                useNativeSurface: true,
+                children: [
+                  UtilityRow(
+                    title: l10n.testDirectConnection,
+                    titleFontWeight: FontWeight.w400,
+                    foregroundColor: CupertinoColors.activeBlue.resolveFrom(
+                      context,
+                    ),
+                    enabled:
+                        _connectionController.draftIsUsable(config) &&
+                        !_connectionController.operation.isBusy,
+                    status:
+                        _connectionController.operation ==
+                            HermesConnectionOperation.testing
+                        ? const CupertinoActivityIndicator(radius: 8)
+                        : null,
+                    onTap:
+                        _connectionController.draftIsUsable(config) &&
+                            !_connectionController.operation.isBusy
+                        ? _testConnection
+                        : null,
+                  ),
+                ],
+              ),
+              if (_connectionController.attempt.isVisible) ...[
+                const SizedBox(height: Spacing.sm),
+                ConnectionAttemptBanner(state: _connectionController.attempt),
+              ],
+            ],
+          )
+        else
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ConduitButton(
+                text: l10n.testDirectConnection,
+                isSecondary: true,
+                isLoading:
+                    _connectionController.operation ==
+                    HermesConnectionOperation.testing,
+                isFullWidth: true,
+                onPressed:
+                    _connectionController.draftIsUsable(config) &&
+                        !_connectionController.operation.isBusy
+                    ? _testConnection
+                    : null,
+              ),
+              const SizedBox(height: Spacing.sm),
+              ConduitButton(
+                text: l10n.save,
+                isLoading:
+                    _connectionController.operation ==
+                    HermesConnectionOperation.saving,
+                isFullWidth: true,
+                onPressed:
+                    _connectionController.draftIsUsable(config) &&
+                        !_connectionController.operation.isBusy
+                    ? _saveSettings
+                    : null,
+              ),
+              if (_connectionController.attempt.isVisible) ...[
+                const SizedBox(height: Spacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: ConnectionAttemptBanner(
+                    state: _connectionController.attempt,
+                  ),
+                ),
+              ],
+            ],
+          ),
       ],
       if (config.isUsable) ...[
         const SizedBox(height: Spacing.xl),
@@ -446,20 +375,32 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     ];
 
     if (widget.isOnboarding) {
-      return AdaptiveAuthScaffold(
+      return UtilityPageScaffold.auth(
         title: l10n.backendChooserHermesTitle,
-        backLabel: l10n.back,
-        backButtonKey: const ValueKey<String>('hermes-onboarding-back-button'),
-        onBack: () => context.go(Routes.backendChooser),
-        bottomAction: ConduitButton(
-          text: l10n.finishDirectSetup,
-          isFullWidth: true,
-          isLoading: _finishing,
-          useNativeLabel: true,
-          onPressed:
-              _draftIsUsable(config) && !_saving && !_finishing && !_testing
-              ? _finishOnboarding
-              : null,
+        backNavigation: UtilityBackNavigation(
+          label: l10n.back,
+          buttonKey: const ValueKey<String>('hermes-onboarding-back-button'),
+          onPressed: _leaveOnboarding,
+        ),
+        bottomAction: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConnectionAttemptBanner(state: _connectionController.attempt),
+            if (_connectionController.attempt.isVisible)
+              const SizedBox(height: Spacing.sm),
+            ConduitButton(
+              text: l10n.hermesConnectAction,
+              isFullWidth: true,
+              isLoading:
+                  _connectionController.operation ==
+                  HermesConnectionOperation.finishing,
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
+                  ? _finishOnboarding
+                  : null,
+            ),
+          ],
         ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -468,8 +409,34 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       );
     }
 
-    return SettingsPageScaffold(
+    return UtilityPageScaffold.settings(
       title: l10n.hermesAgentSettingsTitle,
+      trailing: PlatformInfo.isIOS
+          ? CupertinoButton(
+              key: const ValueKey<String>('hermes-save-toolbar-button'),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+              minimumSize: const Size(0, TouchTarget.minimum),
+              onPressed:
+                  _connectionController.draftIsUsable(config) &&
+                      !_connectionController.operation.isBusy
+                  ? _saveSettings
+                  : null,
+              child:
+                  _connectionController.operation ==
+                      HermesConnectionOperation.saving
+                  ? const CupertinoActivityIndicator(radius: 8)
+                  : Text(
+                      l10n.save,
+                      style: TextStyle(
+                        color:
+                            _connectionController.draftIsUsable(config) &&
+                                !_connectionController.operation.isBusy
+                            ? CupertinoColors.activeBlue.resolveFrom(context)
+                            : CupertinoColors.inactiveGray.resolveFrom(context),
+                      ),
+                    ),
+            )
+          : null,
       children: content,
     );
   }
@@ -480,17 +447,18 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   Widget _capabilitiesSection() {
     final caps = _capabilities;
-    return _Section(
-      title: 'Server capabilities',
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedSection(
+      title: l10n.hermesCapabilitiesTitle,
       child: Wrap(
         spacing: Spacing.sm,
         runSpacing: Spacing.xs,
         children: [
-          _capabilityChip('Approval gates', caps.runApproval),
-          _capabilityChip('Skills', caps.skills),
-          _capabilityChip('Toolsets', caps.toolsets),
-          _capabilityChip('Scheduled jobs', caps.jobs),
-          _capabilityChip('Sessions', caps.sessions),
+          _capabilityChip(l10n.hermesCapabilityApproval, caps.runApproval),
+          _capabilityChip(l10n.hermesCapabilitySkills, caps.skills),
+          _capabilityChip(l10n.hermesCapabilityToolsets, caps.toolsets),
+          _capabilityChip(l10n.hermesCapabilityJobs, caps.jobs),
+          _capabilityChip(l10n.hermesCapabilitySessions, caps.sessions),
         ],
       ),
     );
@@ -521,14 +489,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   Widget _toolsetsSection() {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final toolsetsAsync = ref.watch(hermesToolsetsProvider);
-    return _Section(
-      title: 'Toolsets',
+    return InsetGroupedSection(
+      title: l10n.hermesCapabilityToolsets,
       child: toolsetsAsync.when(
         data: (toolsets) {
           if (toolsets.isEmpty) {
             return Text(
-              'No toolsets reported.',
+              l10n.hermesNoToolsets,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
               ),
@@ -541,8 +510,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: Spacing.xs),
                   child: Text(
-                    '${toolset.label}  ·  ${toolset.tools.length} tools'
-                    '${toolset.enabled ? '' : ' (disabled)'}',
+                    '${toolset.label}  ·  ${l10n.hermesToolCount(toolset.tools.length)}'
+                    '${toolset.enabled ? '' : ' (${l10n.disabledLabel})'}',
                     style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textPrimary,
                     ),
@@ -557,7 +526,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
         error: (_, _) => Text(
-          'Unavailable.',
+          l10n.directConnectionUnavailableLabel,
           style: AppTypography.bodySmallStyle.copyWith(
             color: theme.textSecondary,
           ),
@@ -568,9 +537,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   Widget _serverStatusSection() {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final statusAsync = ref.watch(hermesServerStatusProvider);
-    return _Section(
-      title: 'Server status',
+    return InsetGroupedSection(
+      title: l10n.hermesServerStatusTitle,
       child: statusAsync.when(
         data: (status) {
           final entries = status.entries
@@ -580,7 +550,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               .toList();
           if (entries.isEmpty) {
             return Text(
-              'No status reported.',
+              l10n.hermesNoServerStatus,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textSecondary,
               ),
@@ -608,7 +578,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
         error: (_, _) => Text(
-          'Unavailable.',
+          l10n.directConnectionUnavailableLabel,
           style: AppTypography.bodySmallStyle.copyWith(
             color: theme.textSecondary,
           ),
@@ -633,32 +603,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
       ),
       child: Icon(icon, size: 18, color: theme.buttonPrimary),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title.toUpperCase(),
-          style: AppTypography.captionStyle.copyWith(
-            color: theme.textSecondary,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        child,
-      ],
     );
   }
 }

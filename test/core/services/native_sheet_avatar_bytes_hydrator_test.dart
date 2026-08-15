@@ -332,7 +332,10 @@ void main() {
 
         final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
           api: api,
-          maxWait: const Duration(milliseconds: 10),
+          // Leave enough headroom for the synchronous response to traverse
+          // Dio on slower CI hosts while still forcing the pending request to
+          // hit the presentation budget.
+          maxWait: const Duration(milliseconds: 100),
           options: const [
             NativeSheetModelOption(
               id: 'fast',

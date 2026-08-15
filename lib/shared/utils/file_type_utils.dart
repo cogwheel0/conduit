@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Utilities for file type detection, icon selection, and formatting.
 ///
@@ -88,22 +88,6 @@ class FileTypeUtils {
     if (isAudio(extension)) return Colors.orange;
     if (isImage(extension)) return Colors.blue;
     return fallback;
-  }
-
-  /// Formats a byte count into a human-readable string.
-  ///
-  /// Returns an empty string when [bytes] is null.
-  /// Examples: `512 B`, `1.5 KB`, `3.2 MB`, `1.1 GB`.
-  static String formatFileSize(int? bytes) {
-    if (bytes == null) return '';
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    }
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
   /// Extracts the file extension from a filename.

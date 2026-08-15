@@ -3,8 +3,8 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,7 +19,6 @@ import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -32,10 +31,11 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -54,10 +54,13 @@ import '../providers/conversation_selection_provider.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
 
-typedef FolderPastedAttachmentUploader =
-    Future<void> Function(LocalAttachment attachment, int fileSize);
-typedef FolderPastedAttachmentRollback =
-    Future<void> Function(LocalAttachment attachment);
+typedef FolderPastedAttachmentUploader = Future<void> Function(
+  LocalAttachment attachment,
+  int fileSize,
+);
+typedef FolderPastedAttachmentRollback = Future<void> Function(
+  LocalAttachment attachment,
+);
 
 @visibleForTesting
 Future<void> acceptFolderPastedAttachments({
@@ -386,7 +389,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   void _toggleDrawer() {
-    final layout = ResponsiveDrawerLayout.of(context);
+    final layout = SidebarDrawerControllerScope.maybeOf(context);
     if (layout == null) {
       return;
     }
@@ -803,9 +806,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       final message = error is StateError
           ? error.message.toString()
           : AppLocalizations.of(context)!.errorMessage;
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -1256,13 +1258,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       orElse: () => null,
     );
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: _buildAdaptiveAppBar(context, l10n, folder),
-        body: _buildBody(context, foldersAsync),
-      ),
+    return AdaptiveRouteShell(
+      backgroundColor: context.conduitTheme.surfaceBackground,
+      extendBodyBehindAppBar: true,
+      appBar: _buildAdaptiveAppBar(context, l10n, folder),
+      body: _buildBody(context, foldersAsync),
     );
   }
 
@@ -1449,6 +1449,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   foldersEnabled: true,
                   folders: folders,
                 ),
+                previewBuilder: buildConversationTileContextPreview,
                 child: ConversationTile(
                   key: ValueKey<String>('folder-chat-${conversation.id}'),
                   title: conversation.title.isEmpty
@@ -1843,9 +1844,14 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _selectIcon(String? alias) {
+    if (_selectedIconAlias == alias) return;
+    ConduitHaptics.selectionClick();
+    setState(() => _selectedIconAlias = alias);
   }
 
   @override
@@ -1929,9 +1935,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                   ],
                 ),
                 selected: _selectedIconAlias == null,
-                onSelected: _isSaving
-                    ? null
-                    : (_) => setState(() => _selectedIconAlias = null),
+                onSelected: _isSaving ? null : (_) => _selectIcon(null),
               ),
               for (final option in folderIconOptions)
                 ChoiceChip(
@@ -1950,8 +1954,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                   selected: _selectedIconAlias == option.alias,
                   onSelected: _isSaving
                       ? null
-                      : (_) =>
-                            setState(() => _selectedIconAlias = option.alias),
+                      : (_) => _selectIcon(option.alias),
                 ),
             ],
           ),
@@ -1959,20 +1962,16 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              ConduitTextButton(
                 onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-                child: Text(l10n.cancel),
+                text: l10n.cancel,
               ),
               const SizedBox(width: Spacing.sm),
-              FilledButton(
+              ConduitButton(
                 onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l10n.save),
+                text: l10n.save,
+                isCompact: true,
+                isLoading: _isSaving,
               ),
             ],
           ),
@@ -2058,9 +2057,8 @@ class _FolderSystemPromptSheetState
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
       return;
     }
 
@@ -2092,9 +2090,8 @@ class _FolderSystemPromptSheetState
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
     }
   }
 
@@ -2134,20 +2131,16 @@ class _FolderSystemPromptSheetState
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              ConduitTextButton(
                 onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-                child: Text(l10n.cancel),
+                text: l10n.cancel,
               ),
               const SizedBox(width: Spacing.sm),
-              FilledButton(
+              ConduitButton(
                 onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l10n.save),
+                text: l10n.save,
+                isCompact: true,
+                isLoading: _isSaving,
               ),
             ],
           ),

@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:vad/vad.dart';
+import 'package:vad/vad.dart' show VadHandler;
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -17,6 +18,7 @@ import '../../../core/services/background_streaming_handler.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'native_stt_service.dart';
+import 'server_vad_recorder.dart';
 
 part 'voice_input_service.g.dart';
 
@@ -62,16 +64,9 @@ class VoiceInputService {
     IosAudioCategoryOption.defaultToSpeaker,
     IosAudioCategoryOption.allowBluetooth,
   ];
-  static const IosRecordConfig _iosStandaloneServerVadRecordConfig =
-      IosRecordConfig(categoryOptions: _iosServerVadCategoryOptions);
-  static const IosRecordConfig _iosManagedServerVadRecordConfig =
-      IosRecordConfig(
-        categoryOptions: _iosServerVadCategoryOptions,
-        // The voice-call path already coordinates AVAudioSession through
-        // audio_session and the native background manager.
-        // ignore: deprecated_member_use
-        manageAudioSession: false,
-      );
+  static const IosRecordConfig _iosServerVadRecordConfig = IosRecordConfig(
+    categoryOptions: _iosServerVadCategoryOptions,
+  );
 
   @visibleForTesting
   static AndroidRecordConfig androidServerVadRecordConfigForTesting({
@@ -95,9 +90,11 @@ class VoiceInputService {
   }
 
   VadHandler? _vadHandler;
+  ServerVadRecorderSession? _serverVadRecorderSession;
   final NativeSttService _nativeStt;
   final ApiService? _api;
   final Ref? _ref;
+  final ServerVadRecorderClient Function() _serverVadRecorderFactory;
   bool _isInitialized = false;
   bool _didAttemptLocalInitialization = false;
   bool _isListening = false;
@@ -154,10 +151,17 @@ class VoiceInputService {
       Platform.isIOS &&
       Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
 
-  VoiceInputService({ApiService? api, Ref? ref, NativeSttService? nativeStt})
-    : _api = api,
-      _ref = ref,
-      _nativeStt = nativeStt ?? NativeSttService();
+  VoiceInputService({
+    ApiService? api,
+    Ref? ref,
+    NativeSttService? nativeStt,
+    @visibleForTesting
+    ServerVadRecorderClient Function()? serverVadRecorderFactory,
+  }) : _api = api,
+       _ref = ref,
+       _nativeStt = nativeStt ?? NativeSttService(),
+       _serverVadRecorderFactory =
+           serverVadRecorderFactory ?? RecordServerVadRecorderClient.new;
 
   void updatePreference(SttPreference preference) {
     _preference = preference;
@@ -652,13 +656,7 @@ class VoiceInputService {
     _usingServerStt = false;
     _nativeAccumulateResultsForCurrentListen = nativeAccumulateResults;
 
-    // Optional haptic feedback when listening starts
-    final hapticsEnabled = _ref?.read(hapticEnabledProvider) ?? false;
-    if (hapticsEnabled) {
-      try {
-        ConduitHaptics.heavyImpact();
-      } catch (_) {}
-    }
+    ConduitHaptics.heavyImpact();
 
     _startIntensityDecayTimer();
 
@@ -867,10 +865,14 @@ class VoiceInputService {
     await _disposeVadHandler();
     _vadPendingSamples = null;
 
-    // Create a fresh VadHandler for this session to avoid reusing any
-    // internal AudioRecorder that may be in a bad state after errors.
+    // Create fresh native resources for every session so audio-focus failures
+    // cannot poison the next recording attempt.
     final vad = VadHandler.create();
+    final recorderSession = ServerVadRecorderSession(
+      _serverVadRecorderFactory(),
+    );
     _vadHandler = vad;
+    _serverVadRecorderSession = recorderSession;
     await _setupVadStreams(vad);
     final settings = _ref?.read(appSettingsProvider);
     final silenceMs =
@@ -882,18 +884,9 @@ class VoiceInputService {
     );
 
     try {
-      await vad.startListening(
-        frameSamples: _vadFrameSamples,
-        model: 'v5',
-        baseAssetPath: _bundledVadAssetBasePath,
-        minSpeechFrames: _vadMinSpeechFrames,
-        preSpeechPadFrames: _vadPreSpeechPadFrames,
-        redemptionFrames: redemptionFrames,
-        endSpeechPadFrames: _vadEndSpeechPadFrames,
-        positiveSpeechThreshold: _vadPositiveSpeechThreshold,
-        negativeSpeechThreshold: _vadNegativeSpeechThreshold,
-        submitUserSpeechOnPause: true,
-        recordConfig: RecordConfig(
+      await recorderSession.start(
+        iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+        config: RecordConfig(
           encoder: AudioEncoder.pcm16bits,
           sampleRate: _vadSampleRate,
           numChannels: 1,
@@ -905,16 +898,35 @@ class VoiceInputService {
             voiceCallSession:
                 Platform.isAndroid && iosAudioSessionManagedExternally,
           ),
-          iosConfig: iosAudioSessionManagedExternally
-              ? _iosManagedServerVadRecordConfig
-              : _iosStandaloneServerVadRecordConfig,
+          iosConfig: _iosServerVadRecordConfig,
         ),
+        connectVad: (audioStream) => vad.startListening(
+          frameSamples: _vadFrameSamples,
+          model: 'v5',
+          baseAssetPath: _bundledVadAssetBasePath,
+          minSpeechFrames: _vadMinSpeechFrames,
+          preSpeechPadFrames: _vadPreSpeechPadFrames,
+          redemptionFrames: redemptionFrames,
+          endSpeechPadFrames: _vadEndSpeechPadFrames,
+          positiveSpeechThreshold: _vadPositiveSpeechThreshold,
+          negativeSpeechThreshold: _vadNegativeSpeechThreshold,
+          submitUserSpeechOnPause: true,
+          audioStream: audioStream,
+        ),
+        onRecorderError: (error, stackTrace) {
+          if (!_isListening || !_usingServerStt) return;
+          _reportRecognitionError(error);
+          unawaited(_stopListening());
+        },
       );
     } catch (error) {
       // If starting the audio stream fails (e.g. recorder disposed),
       // drop this handler so the next session gets a clean instance.
       if (identical(_vadHandler, vad)) {
         _vadHandler = null;
+        if (identical(_serverVadRecorderSession, recorderSession)) {
+          _serverVadRecorderSession = null;
+        }
         try {
           await vad.dispose();
         } catch (_) {}
@@ -984,11 +996,18 @@ class VoiceInputService {
 
   Future<void> _stopVadRecording() async {
     final vad = _vadHandler;
+    final recorderSession = _serverVadRecorderSession;
+    try {
+      await recorderSession?.stopForwarding();
+    } catch (_) {}
     if (vad != null) {
       try {
         await vad.stopListening();
       } catch (_) {}
     }
+    try {
+      await recorderSession?.stopRecorder();
+    } catch (_) {}
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = null;
     await _vadFrameSub?.cancel();
@@ -999,13 +1018,18 @@ class VoiceInputService {
 
   Future<void> _disposeVadHandler() async {
     final vad = _vadHandler;
+    final recorderSession = _serverVadRecorderSession;
     _vadHandler = null;
-    if (vad != null) {
+    _serverVadRecorderSession = null;
+    if (vad != null || recorderSession != null) {
       try {
         // Give the recorder callback loop a brief window to quiesce before
         // disposing internal stream controllers.
         await Future<void>.delayed(_vadDisposeCooldown);
-        await vad.dispose();
+        await vad?.dispose();
+      } catch (_) {}
+      try {
+        await recorderSession?.dispose();
       } catch (_) {}
     }
   }

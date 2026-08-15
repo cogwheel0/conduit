@@ -1,17 +1,25 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'dart:async';
 import 'dart:io' show File, Platform;
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../services/file_attachment_service.dart';
 import '../../../core/services/share_receiver_service.dart';
 import '../../../core/services/media_upload_controller.dart';
 import '../../../core/services/raster_media_policy.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
 
 const Set<String> _previewableImageExtensions = <String>{
   '.jpg',
@@ -59,21 +67,25 @@ class FileAttachmentWidget extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: Spacing.sm),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var index = 0; index < placeholderCount; index++)
-                  const Padding(
-                    padding: EdgeInsets.only(right: Spacing.sm),
-                    child: _FileAttachmentSkeletonCard(),
-                  ),
-                for (final fileState in attachedFiles)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Spacing.sm),
-                    child: _FileAttachmentCard(fileState: fileState),
-                  ),
-              ],
+          HorizontalOverflowFade(
+            child: HorizontalScrollGestureBoundary(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var index = 0; index < placeholderCount; index++)
+                      const Padding(
+                        padding: EdgeInsets.only(right: Spacing.sm),
+                        child: _FileAttachmentSkeletonCard(),
+                      ),
+                    for (final fileState in attachedFiles)
+                      Padding(
+                        padding: const EdgeInsets.only(right: Spacing.sm),
+                        child: _FileAttachmentCard(fileState: fileState),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -130,7 +142,7 @@ class _FileAttachmentCard extends ConsumerWidget {
           ),
           const SizedBox(height: Spacing.xs),
           Text(
-            fileState.formattedSize,
+            LocaleDisplayFormatters.bytes(context, fileState.fileSize),
             style: AppTypography.labelSmallStyle.copyWith(
               color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
             ),
@@ -195,9 +207,8 @@ class _FileAttachmentCard extends ConsumerWidget {
   }
 
   Widget _buildRemoveButton(BuildContext context, WidgetRef ref) {
-    final String tooltip = MaterialLocalizations.of(
-      context,
-    ).deleteButtonTooltip;
+    final String tooltip = MaterialLocalizations.of(context)
+        .deleteButtonTooltip;
     return AdaptiveTooltip(
       message: tooltip,
       child: Semantics(

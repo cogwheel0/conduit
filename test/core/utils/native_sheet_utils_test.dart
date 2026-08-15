@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,5 +40,14 @@ void main() {
     );
 
     check(item).isNull();
+  });
+
+  test('native speech-rate slider shows its value only once', () {
+    final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
+    final speechRate = parts.mainSections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'tts-speech-rate');
+
+    check(speechRate.subtitle).isNull();
   });
 }

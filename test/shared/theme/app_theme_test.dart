@@ -4,7 +4,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -21,9 +21,8 @@ void main() {
     final iosSelection = AppTheme.light(definition).textSelectionTheme;
 
     check(iosSelection.cursorColor).equals(expectedAccent);
-    check(
-      iosSelection.selectionColor,
-    ).equals(expectedAccent.withValues(alpha: 0.2));
+    check(iosSelection.selectionColor)
+        .equals(expectedAccent.withValues(alpha: 0.2));
     check(iosSelection.selectionHandleColor).equals(expectedAccent);
     check(iosSelection).equals(androidSelection);
   });
@@ -84,9 +83,8 @@ void main() {
     check(cupertinoTheme.textTheme.navTitleTextStyle.fontSize).equals(17);
     check(cupertinoTheme.textTheme.navLargeTitleTextStyle.fontSize).equals(34);
     check(cupertinoTheme.textTheme.tabLabelTextStyle.fontSize).equals(11);
-    check(
-      darkMaterialTheme.appBarTheme.titleTextStyle?.color,
-    ).equals(darkTokens.neutralOnSurface);
+    check(darkMaterialTheme.appBarTheme.titleTextStyle?.color)
+        .equals(darkTokens.neutralOnSurface);
     check(
       darkMaterialTheme
           .cupertinoOverrideTheme
@@ -94,12 +92,10 @@ void main() {
           ?.tabLabelTextStyle
           .color,
     ).equals(darkTokens.neutralTone80);
-    check(
-      darkCupertinoTheme.textTheme.navTitleTextStyle.color,
-    ).equals(darkTokens.neutralOnSurface);
-    check(
-      darkCupertinoTheme.textTheme.tabLabelTextStyle.color,
-    ).equals(darkTokens.neutralTone80);
+    check(darkCupertinoTheme.textTheme.navTitleTextStyle.color)
+        .equals(darkTokens.neutralOnSurface);
+    check(darkCupertinoTheme.textTheme.tabLabelTextStyle.color)
+        .equals(darkTokens.neutralTone80);
   });
 
   test('platform control geometry remains adaptive', () {

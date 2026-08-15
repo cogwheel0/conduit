@@ -18,13 +18,14 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -123,15 +124,12 @@ Widget _noteEditorHarness({
       openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
       syncEngineProvider.overrideWith(() => syncEngine),
       notesFeatureEnabledProvider.overrideWith(_EnabledNotesFeature.new),
-      noteByIdProvider(
-        'deleted-note',
-      ).overrideWith((ref) async => Note.fromJson(_deletedNoteJson())),
+      noteByIdProvider('deleted-note')
+          .overrideWith((ref) async => Note.fromJson(_deletedNoteJson())),
     ],
     child: MaterialApp(
-      theme: AppTheme.light(
-        TweakcnThemes.conduit,
-      ).copyWith(platform: platform),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      theme: AppTheme.light(TweakcnThemes.conduit).copyWith(platform: platform),
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       initialRoute: withBackRoute ? '/editor' : null,
       home: withBackRoute ? null : const NoteEditorPage(noteId: 'deleted-note'),
@@ -164,13 +162,12 @@ void main() {
         final messenger =
             TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
         final platformCalls = <MethodCall>[];
-        messenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async {
-            platformCalls.add(call);
-            return null;
-          },
-        );
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          platformCalls.add(call);
+          return null;
+        });
 
         try {
           await tester.binding.setSurfaceSize(const Size(1200, 900));
@@ -537,9 +534,8 @@ void main() {
       );
 
       check(notes.map((note) => note.id).toList()).deepEquals(['own-note']);
-      check(
-        searchResults.map((note) => note.id).toList(),
-      ).deepEquals(['own-note']);
+      check(searchResults.map((note) => note.id).toList())
+          .deepEquals(['own-note']);
       check(otherNote).isNull();
     });
 
@@ -575,9 +571,8 @@ void main() {
       final notes = await container.read(notesListProvider.future);
 
       check(notes.single.markdownContent).isEmpty();
-      check(
-        notes.single.listPreviewMarkdown,
-      ).equals(longBody.substring(0, 1000));
+      check(notes.single.listPreviewMarkdown)
+          .equals(longBody.substring(0, 1000));
     });
 
     test(
@@ -804,71 +799,68 @@ void main() {
       check(api.fetchedIds).deepEquals(['cached-note']);
     });
 
-    test(
-      'does not publish stale individual note responses after the active API changes',
-      () async {
-        final gate = Completer<void>();
-        final staleApi = _FakeNotesApiService(
-          fetchedRaw: _buildNoteJson(
-            id: 'stale-note',
-            title: 'Stale note',
-            markdown: 'stale body',
-            updatedAt: 1713786305000000000,
+    test('does not publish stale individual note responses after the active API changes', () async {
+      final gate = Completer<void>();
+      final staleApi = _FakeNotesApiService(
+        fetchedRaw: _buildNoteJson(
+          id: 'stale-note',
+          title: 'Stale note',
+          markdown: 'stale body',
+          updatedAt: 1713786305000000000,
+        ),
+        fetchGate: gate.future,
+      );
+      final currentApi = _FakeNotesApiService(
+        fetchedRaw: _buildNoteJson(
+          id: 'stale-note',
+          title: 'Current note',
+          markdown: 'current body',
+          updatedAt: 1713872705000000000,
+        ),
+      );
+      final activeApiProvider =
+          NotifierProvider<_MutableValue<ApiService?>, ApiService?>(
+            () => _MutableValue<ApiService?>(staleApi),
+          );
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => null),
+          apiServiceProvider.overrideWith(
+            (ref) => ref.watch(activeApiProvider),
           ),
-          fetchGate: gate.future,
-        );
-        final currentApi = _FakeNotesApiService(
-          fetchedRaw: _buildNoteJson(
-            id: 'stale-note',
-            title: 'Current note',
-            markdown: 'current body',
-            updatedAt: 1713872705000000000,
-          ),
-        );
-        final activeApiProvider =
-            NotifierProvider<_MutableValue<ApiService?>, ApiService?>(
-              () => _MutableValue<ApiService?>(staleApi),
-            );
-        final container = ProviderContainer(
-          overrides: [
-            appDatabaseProvider.overrideWith((ref) => null),
-            apiServiceProvider.overrideWith(
-              (ref) => ref.watch(activeApiProvider),
-            ),
-            isAuthenticatedProvider2.overrideWithValue(true),
-            isOnlineProvider.overrideWithValue(true),
-          ],
-        );
-        addTearDown(container.dispose);
+          isAuthenticatedProvider2.overrideWithValue(true),
+          isOnlineProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final provider = noteByIdProvider('stale-note');
-        final emittedNotes = <Note?>[];
-        final subscription = container.listen<AsyncValue<Note?>>(provider, (
-          _,
-          next,
-        ) {
-          if (next.hasValue) emittedNotes.add(next.value);
-        }, fireImmediately: true);
-        addTearDown(subscription.close);
-        await _waitFor(() => staleApi.fetchedIds.isNotEmpty);
+      final provider = noteByIdProvider('stale-note');
+      final emittedNotes = <Note?>[];
+      final subscription = container.listen<AsyncValue<Note?>>(provider, (
+        _,
+        next,
+      ) {
+        if (next.hasValue) emittedNotes.add(next.value);
+      }, fireImmediately: true);
+      addTearDown(subscription.close);
+      await _waitFor(() => staleApi.fetchedIds.isNotEmpty);
 
-        container.read(activeApiProvider.notifier).set(currentApi);
-        gate.complete();
+      container.read(activeApiProvider.notifier).set(currentApi);
+      gate.complete();
 
-        await _waitFor(() => currentApi.fetchedIds.isNotEmpty);
-        final note = await container.read(provider.future);
+      await _waitFor(() => currentApi.fetchedIds.isNotEmpty);
+      final note = await container.read(provider.future);
 
-        check(note)
-            .isNotNull()
-            .has((it) => it.markdownContent, 'body')
-            .equals('current body');
-        check(
-          emittedNotes
-              .where((note) => note?.markdownContent == 'stale body')
-              .toList(),
-        ).isEmpty();
-      },
-    );
+      check(note)
+          .isNotNull()
+          .has((it) => it.markdownContent, 'body')
+          .equals('current body');
+      check(
+        emittedNotes
+            .where((note) => note?.markdownContent == 'stale body')
+            .toList(),
+      ).isEmpty();
+    });
 
     test(
       'uses an individual cached note without fetching while offline',
@@ -1096,9 +1088,8 @@ void main() {
             );
 
         final notes = container.read(notesListProvider).requireValue;
-        check(
-          notes.map((note) => note.id).toList(),
-        ).deepEquals(['note-1', 'note-2']);
+        check(notes.map((note) => note.id).toList())
+            .deepEquals(['note-1', 'note-2']);
         check(notes.first.isPinned).isTrue();
       },
     );
@@ -1168,61 +1159,58 @@ void main() {
       await db.close();
     });
 
-    test(
-      'writes the edit durably to the active database and enqueues a '
-      'noteUpdate op (never the REST update endpoint)',
-      () async {
-        await db
-            .into(db.notes)
-            .insertOnConflictUpdate(
-              serverToNoteRow({
-                'id': 'note-1',
-                'user_id': 'user-1',
-                'title': 'Original',
-                'data': {
-                  'content': {'md': 'original body', 'html': ''},
-                },
-                'meta': {},
-                'is_pinned': false,
-                'created_at': 1713786305000000000,
-                'updated_at': 1713786305000000000,
-              }),
-            );
+    test('writes the edit durably to the active database and enqueues a '
+        'noteUpdate op (never the REST update endpoint)', () async {
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Original',
+              'data': {
+                'content': {'md': 'original body', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
 
-        // The durable path never touches the REST update endpoint, so the
-        // fake's `updatedRaw` is intentionally left unset.
-        final api = _FakeNotesApiService();
-        final container = ProviderContainer(
-          overrides: [
-            appDatabaseProvider.overrideWith((ref) => db),
-            apiServiceProvider.overrideWithValue(api),
-            isAuthenticatedProvider2.overrideWithValue(true),
-            currentUserProvider2.overrideWithValue(_testUser),
-            syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
-          ],
-        );
-        addTearDown(container.dispose);
+      // The durable path never touches the REST update endpoint, so the
+      // fake's `updatedRaw` is intentionally left unset.
+      final api = _FakeNotesApiService();
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          apiServiceProvider.overrideWithValue(api),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          currentUserProvider2.overrideWithValue(_testUser),
+          syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final note = await container
-            .read(noteUpdaterProvider.notifier)
-            .updateNote(
-              'note-1',
-              title: 'Durable title',
-              markdownContent: 'durable body',
-            );
+      final note = await container
+          .read(noteUpdaterProvider.notifier)
+          .updateNote(
+            'note-1',
+            title: 'Durable title',
+            markdownContent: 'durable body',
+          );
 
-        check(
-          note,
-        ).isNotNull().has((it) => it.title, 'title').equals('Durable title');
-        final row = await db.notesDao.getNote('note-1');
-        check(row).isNotNull().has((it) => it.dirtyTitle, 'dirtyTitle').isTrue();
-        check(row).isNotNull().has((it) => it.dirtyData, 'dirtyData').isTrue();
-        check(
-          (await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind),
-        ).deepEquals([OutboxKind.noteUpdate.name]);
-        check(api.updatedIds).isEmpty();
-      },
-    );
+      check(note)
+          .isNotNull()
+          .has((it) => it.title, 'title')
+          .equals('Durable title');
+      final row = await db.notesDao.getNote('note-1');
+      check(row).isNotNull().has((it) => it.dirtyTitle, 'dirtyTitle').isTrue();
+      check(row).isNotNull().has((it) => it.dirtyData, 'dirtyData').isTrue();
+      check((await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind))
+          .deepEquals([OutboxKind.noteUpdate.name]);
+      check(api.updatedIds).isEmpty();
+    });
 
     test(
       'a content-only update preserves existing versions and files',
@@ -1320,17 +1308,20 @@ void main() {
           .read(notePinTogglerProvider.notifier)
           .togglePin(originalNote);
 
-      check(
-        updatedNote,
-      ).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
+      check(updatedNote)
+          .isNotNull()
+          .has((it) => it.isPinned, 'isPinned')
+          .isTrue();
       final row = await db.notesDao.getNote('note-1');
       check(row).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
       // The pin is a local change awaiting push: dirtyPinned stays set until the
       // drainer confirms it, and a notePin op is queued in the outbox.
-      check(row).isNotNull().has((it) => it.dirtyPinned, 'dirtyPinned').isTrue();
-      check(
-        (await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind),
-      ).deepEquals([OutboxKind.notePin.name]);
+      check(row)
+          .isNotNull()
+          .has((it) => it.dirtyPinned, 'dirtyPinned')
+          .isTrue();
+      check((await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind))
+          .deepEquals([OutboxKind.notePin.name]);
       check(api.toggledIds).isEmpty();
     });
 
@@ -1379,15 +1370,17 @@ void main() {
 
         check(resolvedNote.isPinned).isTrue();
         check(api.toggledIds).deepEquals(['note-1']);
-        check(
-          container.read(notesListProvider).requireValue.first,
-        ).has((it) => it.isPinned, 'isPinned').isTrue();
-        check(
-          container.read(activeNoteProvider),
-        ).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
-        check(
-          container.read(notePinTogglerProvider).requireValue,
-        ).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
+        check(container.read(notesListProvider).requireValue.first)
+            .has((it) => it.isPinned, 'isPinned')
+            .isTrue();
+        check(container.read(activeNoteProvider))
+            .isNotNull()
+            .has((it) => it.isPinned, 'isPinned')
+            .isTrue();
+        check(container.read(notePinTogglerProvider).requireValue)
+            .isNotNull()
+            .has((it) => it.isPinned, 'isPinned')
+            .isTrue();
       },
     );
   });
@@ -1476,7 +1469,9 @@ class _FakeNotesApiService extends ApiService {
     // The durable write path must never hit the REST update endpoint; record
     // the call so tests can assert it stayed unused.
     updatedIds.add(id);
-    throw StateError('REST updateNote should not be called on the durable path');
+    throw StateError(
+      'REST updateNote should not be called on the durable path',
+    );
   }
 
   @override

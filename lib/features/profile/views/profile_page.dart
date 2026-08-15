@@ -1,12 +1,14 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import '../../../core/widgets/error_boundary.dart';
+
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
@@ -16,7 +18,6 @@ import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../../../core/services/api_service.dart';
@@ -24,8 +25,7 @@ import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../widgets/profile_setting_tile.dart';
-import '../widgets/profile_text_styles.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 /// Profile page (You tab) showing user info and main actions
 /// Enhanced with production-grade design tokens for better cohesion
@@ -58,7 +58,7 @@ class ProfilePage extends ConsumerWidget {
       body = _buildProfileBody(context, ref, user, api);
     }
 
-    return ErrorBoundary(child: _buildScaffold(context, body: body));
+    return _buildScaffold(context, body: body);
   }
 
   Widget _buildScaffold(BuildContext context, {required Widget body}) {
@@ -92,16 +92,12 @@ class ProfilePage extends ConsumerWidget {
   ) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
-    final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
     final hasOpenWebUiAccount = userData != null && api != null;
     final items = _buildSettingsItems(
       context,
       ref,
-      userData: userData,
-      api: api,
-      hermesOnly: hermesOnly,
       directPrimary: directPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
@@ -116,23 +112,23 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
-        for (var i = 0; i < items.length; i++) ...[
-          items[i],
-          if (i != items.length - 1) const SizedBox(height: Spacing.md),
+        if (hasOpenWebUiAccount) ...[
+          InsetGroupedList(
+            children: [_buildProfileHeader(context, userData, api)],
+          ),
+          const SizedBox(height: Spacing.sm),
         ],
+        ...items,
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
         if (hasOpenWebUiAccount) const SizedBox(height: Spacing.xl),
-        if (hasOpenWebUiAccount) _buildSignOutOption(context, ref),
+        if (hasOpenWebUiAccount)
+          InsetGroupedList(children: [_buildSignOutOption(context, ref)]),
       ],
     );
   }
 
   double _topContentPadding(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    if (Theme.of(context).platform == TargetPlatform.iOS) {
-      return mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg;
-    }
     return Spacing.lg;
   }
 
@@ -164,28 +160,11 @@ class ProfilePage extends ConsumerWidget {
       ),
     ];
 
-    return Column(
+    return InsetGroupedList(
       key: const Key('settings-donations'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10n.supportConduit,
-          style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
-        ),
-        const SizedBox(height: Spacing.xs),
-        Text(
-          l10n.supportConduitSubtitle,
-          style: theme.bodySmall?.copyWith(
-            color: theme.sidebarForeground.withValues(alpha: 0.75),
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-        for (var i = 0; i < donationOptions.length; i++) ...[
-          donationOptions[i],
-          if (i != donationOptions.length - 1)
-            const SizedBox(height: Spacing.md),
-        ],
-      ],
+      title: l10n.supportConduit,
+      description: l10n.supportConduitSubtitle,
+      children: donationOptions,
     );
   }
 
@@ -198,7 +177,7 @@ class ProfilePage extends ConsumerWidget {
     required Color color,
   }) {
     final theme = context.conduitTheme;
-    return ProfileSettingTile(
+    return UtilityRow(
       onTap: () => _openExternalLink(context, url),
       leading: _buildIconBadge(context, icon, color: color),
       title: title,
@@ -258,94 +237,26 @@ class ProfilePage extends ConsumerWidget {
     }
 
     final email = extractEmail(user) ?? l10n.noEmailLabel;
-    final theme = context.conduitTheme;
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return UtilityRow(
       onTap: () => context.pushNamed(RouteNames.accountSettings),
-      child: Container(
-        padding: const EdgeInsets.all(Spacing.md),
-        decoration: BoxDecoration(
-          color: theme.sidebarAccent.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(AppBorderRadius.large),
-          border: Border.all(
-            color: theme.sidebarBorder.withValues(alpha: 0.6),
-            width: BorderWidth.thin,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    displayName,
-                    style: profileTitleTextStyle(context, large: true),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: Spacing.xs),
-                  Row(
-                    children: [
-                      Icon(
-                        UiUtils.platformIcon(
-                          ios: CupertinoIcons.envelope,
-                          android: Icons.mail_outline,
-                        ),
-                        size: IconSize.small,
-                        color: theme.sidebarForeground.withValues(alpha: 0.75),
-                      ),
-                      const SizedBox(width: Spacing.xs),
-                      Flexible(
-                        child: Text(
-                          email,
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.sidebarForeground.withValues(
-                              alpha: 0.75,
-                            ),
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
-        ),
-      ),
+      leading: UserAvatar(size: 56, imageUrl: avatarUrl, fallbackText: initial),
+      title: displayName,
+      subtitle: email,
+      showChevron: true,
+      padding: const EdgeInsets.all(Spacing.md),
     );
   }
 
   List<Widget> _buildSettingsItems(
     BuildContext context,
     WidgetRef ref, {
-    required dynamic userData,
-    required ApiService? api,
-    required bool hermesOnly,
     required bool directPrimary,
     required bool hasOpenWebUiAccount,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
-    return [
-      if (hasOpenWebUiAccount) _buildProfileHeader(context, userData, api),
+    final appItems = <Widget>[
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -398,6 +309,8 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.personalizationSubtitle,
           onTap: () => context.pushNamed(RouteNames.personalization),
         ),
+    ];
+    final connectionItems = <Widget>[
       _buildAccountOption(
         context,
         iconAsset: 'assets/icons/hermes_agent.png',
@@ -450,7 +363,13 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.connectOpenWebUISubtitle,
           onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
-      _buildAboutTile(context),
+    ];
+    return [
+      InsetGroupedList(children: appItems),
+      const SizedBox(height: Spacing.lg),
+      InsetGroupedList(children: connectionItems),
+      const SizedBox(height: Spacing.lg),
+      InsetGroupedList(children: [_buildAboutTile(context)]),
     ];
   }
 
@@ -467,6 +386,7 @@ class ProfilePage extends ConsumerWidget {
       subtitle: l10n.endYourSession,
       onTap: () => _signOut(context, ref),
       showChevron: false,
+      destructive: true,
     );
   }
 
@@ -479,6 +399,7 @@ class ProfilePage extends ConsumerWidget {
     required String subtitle,
     required VoidCallback onTap,
     bool showChevron = true,
+    bool destructive = false,
   }) {
     assert(
       (icon == null) != (iconAsset == null),
@@ -486,7 +407,7 @@ class ProfilePage extends ConsumerWidget {
     );
     final theme = context.conduitTheme;
     final color = theme.buttonPrimary;
-    return ProfileSettingTile(
+    return UtilityRow(
       key: key,
       onTap: onTap,
       leading: iconAsset != null
@@ -494,16 +415,8 @@ class ProfilePage extends ConsumerWidget {
           : _buildIconBadge(context, icon!, color: color),
       title: title,
       subtitle: subtitle,
-      trailing: showChevron
-          ? Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            )
-          : null,
+      showChevron: showChevron,
+      destructive: destructive,
     );
   }
 
@@ -548,8 +461,8 @@ class ProfilePage extends ConsumerWidget {
       child: Image.asset(
         asset,
         key: const Key('hermes-settings-logo'),
-        width: IconSize.medium,
-        height: IconSize.medium,
+        width: IconSize.medium + 2,
+        height: IconSize.medium + 2,
         color: color,
         colorBlendMode: BlendMode.srcIn,
         filterQuality: FilterQuality.high,

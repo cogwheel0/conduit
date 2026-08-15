@@ -3,7 +3,7 @@ import 'dart:ui' show Tristate;
 import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _buildHarness(Widget child, {bool disableAnimations = false}) {

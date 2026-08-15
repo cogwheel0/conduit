@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../theme/theme_extensions.dart';
 
 /// Enhanced skeleton loader with production-grade animations and better hierarchy

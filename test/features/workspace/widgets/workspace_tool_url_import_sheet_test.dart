@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/widgets/workspace_tool_url_import_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 
 Future<List<String>> _pumpAndRun(
   WidgetTester tester, {
@@ -14,7 +15,7 @@ Future<List<String>> _pumpAndRun(
   await tester.pumpWidget(
     ProviderScope(
       child: MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: WorkspaceToolUrlImportSheet(
@@ -105,18 +106,15 @@ void main() {
       expect(tool['id'], 'custom_id');
     });
 
-    test(
-      'falls back to the title id when a punctuation-only name slugifies to ""',
-      () {
-        final tool = normalizeImportedTool(const {
-          'name': '!!!',
-          'content': '"""\ntitle: Web Search\n"""\n',
-        });
-        // '!!!' is non-empty but nameToId('!!!') == '', so the id must fall back
-        // to the front-matter title rather than end up empty/invalid.
-        expect(tool['id'], 'web_search');
-      },
-    );
+    test('falls back to the title id when a punctuation-only name slugifies to ""', () {
+      final tool = normalizeImportedTool(const {
+        'name': '!!!',
+        'content': '"""\ntitle: Web Search\n"""\n',
+      });
+      // '!!!' is non-empty but nameToId('!!!') == '', so the id must fall back
+      // to the front-matter title rather than end up empty/invalid.
+      expect(tool['id'], 'web_search');
+    });
 
     test('falls back to a safe default when no name or title yields an id', () {
       final tool = normalizeImportedTool(const {

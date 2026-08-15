@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
@@ -39,7 +39,8 @@ class ChannelMessageContent extends StatelessWidget {
       data: normalized,
       dataIsPrepared: true,
       stateScopeId: stateScopeId,
-      onLinkTap: onTapLink ??
+      onLinkTap:
+          onTapLink ??
           (url, _) => launchExternalLink(url, scope: 'channels/markdown'),
     );
   }

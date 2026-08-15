@@ -8,7 +8,8 @@ import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/material.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -475,7 +476,7 @@ Widget _buildHarness(
         terminalChannelConnectorProvider.overrideWithValue(channelConnector),
     ],
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(body: TerminalTab(isActive: isActive)),
     ),
@@ -496,7 +497,7 @@ Widget _buildHarnessWithActivity(
         terminalChannelConnectorProvider.overrideWithValue(channelConnector),
     ],
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: ValueListenableBuilder<bool>(
         valueListenable: isActive,
@@ -512,7 +513,7 @@ Widget _buildHarnessWithContainer(ProviderContainer container) {
   return UncontrolledProviderScope(
     container: container,
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: const Scaffold(body: TerminalTab()),
     ),

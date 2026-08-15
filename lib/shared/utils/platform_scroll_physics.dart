@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 ScrollPhysics platformAlwaysScrollablePhysics(BuildContext context) {
   return switch (Theme.of(context).platform) {

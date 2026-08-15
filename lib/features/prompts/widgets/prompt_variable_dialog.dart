@@ -1,11 +1,12 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'package:conduit/core/utils/prompt_variable_parser.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// A dialog that collects user input for prompt variables.
@@ -254,16 +255,16 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
     final l10n = AppLocalizations.of(context)!;
     final options = variable.options;
 
-    return DropdownButtonFormField<String>(
-      initialValue: _selectValues[variable.name],
+    return AdaptiveDropdownField<String?>(
+      value: _selectValues[variable.name],
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,
       ),
-      dropdownColor: theme.surfaceBackground,
-      style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
-      items: options.map((option) {
-        return DropdownMenuItem<String>(value: option, child: Text(option));
-      }).toList(),
+      textStyle: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
+      options: [
+        for (final option in options)
+          AdaptiveDropdownOption<String?>(value: option, label: option),
+      ],
       onChanged: (value) {
         setState(() {
           _selectValues[variable.name] = value;

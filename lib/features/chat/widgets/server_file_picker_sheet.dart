@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/file_info.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
@@ -255,7 +256,7 @@ class _ServerFileTile extends StatelessWidget {
   }
 
   String _buildSubtitle(BuildContext context) {
-    final sizeText = FileTypeUtils.formatFileSize(file.size);
+    final sizeText = LocaleDisplayFormatters.bytes(context, file.size);
     final updatedText = _formatUpdatedAt(context, file.updatedAt);
     if (sizeText.isEmpty) {
       return updatedText;

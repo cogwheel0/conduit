@@ -3,8 +3,8 @@ import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -13,6 +13,7 @@ import '../../../core/services/api_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 
 const _defaultAudioExtension = '.m4a';
@@ -404,11 +405,10 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(
-                    Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
-                    color: theme.textSecondary,
-                  ),
+                ConduitIconButton(
+                  icon: Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                  iconColor: theme.textSecondary,
+                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
                   onPressed: () => Navigator.pop(context),
                 ),
               ],

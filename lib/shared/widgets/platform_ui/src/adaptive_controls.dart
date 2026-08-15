@@ -1,9 +1,10 @@
-import 'dart:typed_data';
-
 import 'package:cupertino_native_better/cupertino_native_better.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
+import '../../../../core/services/haptic_service.dart';
 import 'platform_ui_capabilities.dart';
 
 /// Native SF Symbol extent for 44-point iOS toolbar and composer controls.
@@ -67,6 +68,7 @@ class AdaptiveButton extends StatelessWidget {
     required this.label,
     this.color,
     this.textColor,
+    this.labelStyle,
     this.style = AdaptiveButtonStyle.filled,
     this.size = AdaptiveButtonSize.medium,
     this.padding,
@@ -95,6 +97,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        icon = null,
        iconColor = null,
        sfSymbol = null;
@@ -115,6 +118,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        child = null,
        sfSymbol = null;
 
@@ -133,6 +137,7 @@ class AdaptiveButton extends StatelessWidget {
     this.useNative = true,
   }) : label = null,
        textColor = null,
+       labelStyle = null,
        child = null,
        icon = null,
        iconColor = null;
@@ -144,6 +149,7 @@ class AdaptiveButton extends StatelessWidget {
   final SFSymbol? sfSymbol;
   final Color? color;
   final Color? textColor;
+  final TextStyle? labelStyle;
   final Color? iconColor;
   final AdaptiveButtonStyle style;
   final AdaptiveButtonSize size;
@@ -186,6 +192,9 @@ class AdaptiveButton extends StatelessWidget {
         shrinkWrap: label != null,
         style: _nativeStyle,
         labelColor: textColor,
+        labelFontFamily: labelStyle?.fontFamily,
+        labelFontSize: labelStyle?.fontSize,
+        labelFontWeight: labelStyle?.fontWeight,
       );
       final active = enabled && onPressed != null;
       Widget button;
@@ -249,7 +258,10 @@ class AdaptiveButton extends StatelessWidget {
         child: customChild,
       );
     }
-    return Text(label ?? '', style: TextStyle(color: fallbackColor));
+    return Text(
+      label ?? '',
+      style: (labelStyle ?? const TextStyle()).copyWith(color: fallbackColor),
+    );
   }
 
   Widget _buildCupertino(BuildContext context) {
@@ -395,390 +407,13 @@ class AdaptiveButton extends StatelessWidget {
   }
 }
 
-/// A non-interactive Liquid Glass backdrop for Flutter-owned content.
-///
-/// On iOS 26 and later this stretches the package's native
-/// [LiquidGlassContainer] across the available bounds so Flutter widgets can
-/// be composited above authentic system glass. Other platforms intentionally
-/// receive no surface; callers should provide their own Cupertino or Material
-/// fallback decoration.
-class AdaptiveGlassBackdrop extends StatelessWidget {
-  const AdaptiveGlassBackdrop({
-    super.key,
-    required this.borderRadius,
-    this.prominent = false,
-    this.autoHideOnModal = true,
-  });
-
-  final BorderRadius borderRadius;
-  final bool prominent;
-  final bool autoHideOnModal;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!PlatformUiCapabilities.usesNativeIOS26) {
-      return const SizedBox.expand();
-    }
-
-    final radius = borderRadius.resolve(Directionality.of(context)).topLeft.x;
-
-    return ExcludeSemantics(
-      child: LiquidGlassContainer(
-        config: LiquidGlassConfig(
-          effect: prominent ? CNGlassEffect.prominent : CNGlassEffect.regular,
-          shape: CNGlassEffectShape.rect,
-          cornerRadius: radius,
-          interactive: false,
-        ),
-        autoHideOnModal: autoHideOnModal,
-        child: const SizedBox.expand(),
-      ),
-    );
-  }
-}
-
-class AdaptiveSwitch extends StatelessWidget {
-  const AdaptiveSwitch({
-    super.key,
-    required this.value,
-    required this.onChanged,
-    this.activeColor,
-    this.thumbColor,
-  });
-
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-  final Color? activeColor;
-  final Color? thumbColor;
-
-  @override
-  Widget build(BuildContext context) {
-    if (PlatformUiCapabilities.usesNativeIOS26 && thumbColor == null) {
-      return CNSwitch(
-        value: value,
-        onChanged: onChanged ?? (_) {},
-        enabled: onChanged != null,
-        color: activeColor,
-      );
-    }
-    if (PlatformUiCapabilities.isIOS) {
-      return CupertinoSwitch(
-        value: value,
-        onChanged: onChanged,
-        activeTrackColor:
-            activeColor ?? CupertinoTheme.of(context).primaryColor,
-        thumbColor: thumbColor,
-      );
-    }
-    return Switch(
-      value: value,
-      onChanged: onChanged,
-      thumbColor: thumbColor == null
-          ? null
-          : WidgetStatePropertyAll<Color?>(thumbColor),
-      trackColor: activeColor == null
-          ? null
-          : WidgetStateProperty.resolveWith((states) {
-              return states.contains(WidgetState.selected) ? activeColor : null;
-            }),
-    );
-  }
-}
-
-class AdaptiveSlider extends StatelessWidget {
-  const AdaptiveSlider({
-    super.key,
-    required this.value,
-    required this.onChanged,
-    this.onChangeStart,
-    this.onChangeEnd,
-    this.min = 0,
-    this.max = 1,
-    this.divisions,
-    this.label,
-    this.activeColor,
-    this.thumbColor,
-  });
-
-  final double value;
-  final ValueChanged<double>? onChanged;
-  final ValueChanged<double>? onChangeStart;
-  final ValueChanged<double>? onChangeEnd;
-  final double min;
-  final double max;
-  final int? divisions;
-  final String? label;
-  final Color? activeColor;
-  final Color? thumbColor;
-
-  @override
-  Widget build(BuildContext context) {
-    if (PlatformUiCapabilities.usesNativeIOS26 &&
-        onChangeStart == null &&
-        onChangeEnd == null) {
-      return CNSlider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        enabled: onChanged != null,
-        onChanged: onChanged ?? (_) {},
-        trackColor: activeColor,
-        thumbColor: thumbColor,
-        step: divisions == null || divisions == 0
-            ? null
-            : (max - min) / divisions!,
-      );
-    }
-    if (PlatformUiCapabilities.isIOS) {
-      return CupertinoSlider(
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        onChanged: onChanged,
-        onChangeStart: onChangeStart,
-        onChangeEnd: onChangeEnd,
-        activeColor: activeColor,
-        thumbColor: thumbColor ?? CupertinoColors.white,
-        divisions: divisions,
-      );
-    }
-    return Slider(
-      value: value.clamp(min, max),
-      min: min,
-      max: max,
-      divisions: divisions,
-      label: label,
-      onChanged: onChanged,
-      onChangeStart: onChangeStart,
-      onChangeEnd: onChangeEnd,
-      activeColor: activeColor,
-      thumbColor: thumbColor,
-    );
-  }
-}
-
-class AdaptiveSegmentedControl extends StatelessWidget {
-  const AdaptiveSegmentedControl({
-    super.key,
-    required this.labels,
-    required this.selectedIndex,
-    required this.onValueChanged,
-    this.enabled = true,
-    this.color,
-    this.height = 36,
-    this.shrinkWrap = false,
-    this.sfSymbols,
-    this.iconSize,
-    this.iconColor,
-    this.textColor,
-    this.selectedTextColor,
-  });
-
-  final List<String> labels;
-  final int selectedIndex;
-  final ValueChanged<int> onValueChanged;
-  final bool enabled;
-  final Color? color;
-  final double height;
-  final bool shrinkWrap;
-  final List<dynamic>? sfSymbols;
-  final double? iconSize;
-  final Color? iconColor;
-  final Color? textColor;
-  final Color? selectedTextColor;
-
-  @override
-  Widget build(BuildContext context) {
-    IconData? fallbackIcon(dynamic icon) => switch (icon) {
-      final IconData value => value,
-      final String symbol => cupertinoIconForSFSymbol(symbol),
-      _ => null,
-    };
-
-    final nativeSymbols = sfSymbols?.map<CNSymbol?>((symbol) {
-      if (symbol is String) {
-        return CNSymbol(symbol, size: iconSize ?? 20, color: iconColor);
-      }
-      return null;
-    }).toList();
-    final nativeCompatible =
-        textColor == null &&
-        selectedTextColor == null &&
-        (nativeSymbols == null ||
-            (nativeSymbols.length == labels.length &&
-                nativeSymbols.every((symbol) => symbol != null)));
-    if (PlatformUiCapabilities.usesNativeIOS26 && nativeCompatible) {
-      return CNSegmentedControl(
-        labels: labels,
-        selectedIndex: selectedIndex,
-        onValueChanged: onValueChanged,
-        enabled: enabled,
-        color: color,
-        height: height,
-        shrinkWrap: shrinkWrap,
-        sfSymbols: nativeSymbols?.cast<CNSymbol>(),
-        iconSize: iconSize,
-        iconColor: iconColor,
-      );
-    }
-
-    final children = <int, Widget>{};
-    final icons = sfSymbols;
-    dynamic iconAt(int index) =>
-        icons != null && index < icons.length ? icons[index] : null;
-    final count = labels.length;
-    for (var index = 0; index < count; index++) {
-      final icon = iconAt(index);
-      final mappedIcon = fallbackIcon(icon);
-      children[index] = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: mappedIcon != null
-            ? Icon(mappedIcon, size: iconSize ?? 20, color: iconColor)
-            : Text(
-                labels[index],
-                style: TextStyle(
-                  color: index == selectedIndex ? selectedTextColor : textColor,
-                ),
-              ),
-      );
-    }
-
-    if (PlatformUiCapabilities.isIOS) {
-      Widget control = ConstrainedBox(
-        constraints: BoxConstraints(minHeight: height),
-        child: CupertinoSlidingSegmentedControl<int>(
-          groupValue: selectedIndex,
-          thumbColor: color ?? CupertinoColors.systemGrey5,
-          onValueChanged: (value) {
-            if (enabled && value != null) onValueChanged(value);
-          },
-          children: children,
-        ),
-      );
-      if (shrinkWrap) {
-        control = Center(child: IntrinsicWidth(child: control));
-      }
-      return control;
-    }
-
-    Widget control = ConstrainedBox(
-      constraints: BoxConstraints(minHeight: height),
-      child: SegmentedButton<int>(
-        segments: [
-          for (var index = 0; index < count; index++)
-            ButtonSegment<int>(
-              value: index,
-              label: fallbackIcon(iconAt(index)) == null
-                  ? Text(labels[index])
-                  : null,
-              icon: fallbackIcon(iconAt(index)) == null
-                  ? null
-                  : Icon(fallbackIcon(iconAt(index))!),
-            ),
-        ],
-        selected: {selectedIndex},
-        onSelectionChanged: enabled
-            ? (selection) => onValueChanged(selection.first)
-            : null,
-      ),
-    );
-    if (shrinkWrap) {
-      control = Center(child: IntrinsicWidth(child: control));
-    }
-    return control;
-  }
-}
-
-class AdaptiveCheckbox extends StatelessWidget {
-  const AdaptiveCheckbox({
-    super.key,
-    required this.value,
-    this.tristate = false,
-    required this.onChanged,
-    this.activeColor,
-    this.checkColor,
-    this.focusColor,
-    this.hoverColor,
-  });
-
-  final bool? value;
-  final bool tristate;
-  final ValueChanged<bool?>? onChanged;
-  final Color? activeColor;
-  final Color? checkColor;
-  final Color? focusColor;
-  final Color? hoverColor;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!PlatformUiCapabilities.isIOS) {
-      return Checkbox(
-        value: value,
-        tristate: tristate,
-        onChanged: onChanged,
-        activeColor: activeColor,
-        checkColor: checkColor,
-        focusColor: focusColor,
-        hoverColor: hoverColor,
-      );
-    }
-    final selected = value != false;
-    return Semantics(
-      checked: value,
-      enabled: onChanged != null,
-      button: true,
-      child: GestureDetector(
-        onTap: onChanged == null
-            ? null
-            : () {
-                if (!tristate) return onChanged!(!(value ?? false));
-                onChanged!(
-                  value == false ? true : (value == true ? null : false),
-                );
-              },
-        child: SizedBox.square(
-          dimension: 44,
-          child: Center(
-            child: AnimatedContainer(
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 120),
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: selected
-                    ? activeColor ?? CupertinoTheme.of(context).primaryColor
-                    : CupertinoColors.systemBackground.resolveFrom(context),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: selected
-                      ? Colors.transparent
-                      : CupertinoColors.systemGrey3.resolveFrom(context),
-                ),
-              ),
-              child: selected
-                  ? Icon(
-                      value == null
-                          ? CupertinoIcons.minus
-                          : CupertinoIcons.check_mark,
-                      size: 16,
-                      color: checkColor ?? CupertinoColors.white,
-                    )
-                  : null,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 abstract class AdaptivePopupMenuEntry {
   const AdaptivePopupMenuEntry();
 }
 
 class AdaptivePopupMenuItem<T> extends AdaptivePopupMenuEntry {
   const AdaptivePopupMenuItem({
+    this.key,
     required this.label,
     this.subtitle,
     this.icon,
@@ -789,6 +424,7 @@ class AdaptivePopupMenuItem<T> extends AdaptivePopupMenuEntry {
     this.value,
   });
 
+  final Key? key;
   final String label;
   final String? subtitle;
   final dynamic icon;
@@ -833,7 +469,8 @@ class AdaptivePopupMenuButton<T> {
         key: key,
         buttonLabel: label,
         items: _nativeItems<T>(items),
-        onSelected: (index) => _dispatch<T>(items, index, onSelected),
+        onSelected: (index) =>
+            _dispatch<T>(items, index, onSelected, haptic: false),
         tint: tint,
         height: height,
         shrinkWrap: shrinkWrap,
@@ -874,7 +511,9 @@ class AdaptivePopupMenuButton<T> {
         buttonCustomIcon: icon is IconData ? icon : null,
         items: _nativeItems<T>(items),
         onSelected: (index) {
-          if (enabled) _dispatch<T>(items, index, onSelected);
+          if (enabled) {
+            _dispatch<T>(items, index, onSelected, haptic: false);
+          }
         },
         tint: tint,
         size: size,
@@ -971,11 +610,19 @@ class AdaptivePopupMenuButton<T> {
   static void _dispatch<T>(
     List<AdaptivePopupMenuEntry> items,
     int index,
-    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
-  ) {
+    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected, {
+    bool haptic = true,
+  }) {
     if (index < 0 || index >= items.length) return;
     final entry = items[index];
     if (entry is AdaptivePopupMenuItem<T> && entry.enabled) {
+      if (haptic) {
+        if (entry.isDestructive) {
+          ConduitHaptics.mediumImpact();
+        } else {
+          ConduitHaptics.selectionClick();
+        }
+      }
       onSelected(index, entry);
     }
   }
@@ -1022,6 +669,7 @@ class AdaptivePopupMenuButton<T> {
             const PopupMenuDivider()
           else
             PopupMenuItem<int>(
+              key: (items[index] as AdaptivePopupMenuItem<T>).key,
               value: index,
               enabled: (items[index] as AdaptivePopupMenuItem<T>).enabled,
               child: _menuItemContent(

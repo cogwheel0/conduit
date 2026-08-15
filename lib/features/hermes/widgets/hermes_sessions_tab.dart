@@ -1,11 +1,14 @@
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/conduit_loading.dart';
-import '../../../shared/widgets/responsive_drawer_layout.dart';
+import '../../../shared/widgets/sidebar_layout_contract.dart';
+import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
+import '../../navigation/models/sidebar_navigation_model.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_jobs_sheet.dart';
@@ -13,13 +16,33 @@ import 'hermes_session_tile.dart';
 
 /// Sidebar tab listing the user's Hermes server-side conversations, with one
 /// compact entry point for scheduled agents when the server exposes jobs.
-class HermesSessionsTab extends ConsumerWidget {
+class HermesSessionsTab extends ConsumerStatefulWidget {
   const HermesSessionsTab({super.key, this.showBottomNavigationBar = true});
 
   final bool showBottomNavigationBar;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HermesSessionsTab> createState() => _HermesSessionsTabState();
+}
+
+class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
+    with SidebarTabScrollRegistration<HermesSessionsTab> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  SidebarTabId get sidebarTabId => SidebarTabId.hermes;
+
+  @override
+  ScrollController get sidebarScrollController => _scrollController;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final caps = ref.watch(hermesCapabilitiesProvider).asData?.value;
     final showJobs = caps?.jobs ?? true;
     final sessionsAsync = ref.watch(hermesSessionsProvider);
@@ -28,35 +51,44 @@ class HermesSessionsTab extends ConsumerWidget {
     // so InkWell / IconButton / CustomizationTile work inside this tab.
     // Top/bottom insets + the refresh edge offset mirror the Chats tab so the
     // content clears the native sidebar chrome and bottom tab bar.
+    final scroll = CustomScrollView(
+      controller: _scrollController,
+      primary: false,
+      physics: platformAlwaysScrollablePhysics(context),
+      slivers: [
+        SliverToBoxAdapter(
+          child: SizedBox(height: sidebarTabContentTopPadding(context)),
+        ),
+        if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
+        ..._sessionSlivers(context, sessionsAsync),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: sidebarTabContentBottomPadding(
+              context,
+              includeNativeBottomBar: widget.showBottomNavigationBar,
+            ),
+          ),
+        ),
+      ],
+    );
+    final refreshable = ConduitRefreshIndicator(
+      edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
+      onRefresh: () async {
+        if (showJobs) ref.invalidate(hermesJobsProvider);
+        ref.invalidate(hermesSessionsProvider);
+        await ref.read(hermesSessionsProvider.future);
+      },
+      child: scroll,
+    );
+    final primary = PrimaryScrollController(
+      controller: _scrollController,
+      child: refreshable,
+    );
     return Material(
       type: MaterialType.transparency,
-      child: ConduitRefreshIndicator(
-        edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
-        onRefresh: () async {
-          if (showJobs) ref.invalidate(hermesJobsProvider);
-          ref.invalidate(hermesSessionsProvider);
-          await ref.read(hermesSessionsProvider.future);
-        },
-        child: CustomScrollView(
-          physics: platformAlwaysScrollablePhysics(context),
-          slivers: [
-            SliverToBoxAdapter(
-              child: SizedBox(height: sidebarTabContentTopPadding(context)),
-            ),
-            if (showJobs)
-              const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
-            ..._sessionSlivers(context, sessionsAsync),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: sidebarTabContentBottomPadding(
-                  context,
-                  includeNativeBottomBar: showBottomNavigationBar,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: context.usesCupertinoChrome
+          ? CupertinoScrollbar(controller: _scrollController, child: primary)
+          : Scrollbar(controller: _scrollController, child: primary),
     );
   }
 
@@ -88,10 +120,10 @@ class HermesSessionsTab extends ConsumerWidget {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.xs,
-            ),
+            // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
+            // gutter. Keep list padding vertical to avoid doubling that inset
+            // only in this tab.
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
             sliver: SliverList.builder(
               itemCount: sessions.length,
               itemBuilder: (context, index) =>

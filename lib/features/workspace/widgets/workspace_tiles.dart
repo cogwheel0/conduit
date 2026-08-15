@@ -1,10 +1,11 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/profile/widgets/profile_text_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/ui_utils.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// 40x40 tinted icon badge matching the settings/profile icon-badge pattern
 /// (see `SettingsIconBadge`): 10% fill, 20% hairline border, medium icon.
@@ -56,6 +57,7 @@ class WorkspaceResourceTile extends StatelessWidget {
     this.onTap,
     this.selected = false,
     this.showChevron = true,
+    this.grouped = false,
   });
 
   /// Icon rendered inside a [WorkspaceIconBadge]; ignored when [leading] is
@@ -80,10 +82,13 @@ class WorkspaceResourceTile extends StatelessWidget {
   final VoidCallback? onTap;
   final bool selected;
   final bool showChevron;
+  final bool grouped;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     final badgeColor = iconColor ?? theme.buttonPrimary;
     final resolvedLeading =
         leading ??
@@ -92,65 +97,112 @@ class WorkspaceResourceTile extends StatelessWidget {
             : WorkspaceIconBadge(icon: icon!, color: badgeColor));
     final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
 
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
-      onTap: onTap,
-      isSelected: selected,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (resolvedLeading != null) ...[
-            resolvedLeading,
-            const SizedBox(width: Spacing.md),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        style: profileTitleTextStyle(context),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (titleTrailing != null) ...[
-                      const SizedBox(width: Spacing.sm),
-                      titleTrailing!,
-                    ],
-                  ],
-                ),
-                if (hasSubtitle) ...[
-                  const SizedBox(height: Spacing.xs),
-                  Text(
-                    subtitle!,
-                    style: profileSubtitleTextStyle(context),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ],
-          if (showChevron && onTap != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.chevron_right,
-                android: Icons.chevron_right,
-              ),
-              color: theme.iconSecondary,
-              size: IconSize.small,
-            ),
-          ],
+    final content = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (resolvedLeading != null) ...[
+          resolvedLeading,
+          const SizedBox(width: Spacing.md),
         ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: usesCupertinoChrome
+                          ? AppTypography.bodyMediumStyle.copyWith(
+                              color: theme.textPrimary,
+                              fontWeight: FontWeight.w400,
+                            )
+                          : profileTitleTextStyle(context),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (titleTrailing != null) ...[
+                    const SizedBox(width: Spacing.sm),
+                    titleTrailing!,
+                  ],
+                ],
+              ),
+              if (hasSubtitle) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  subtitle!,
+                  style: usesCupertinoChrome
+                      ? AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        )
+                      : profileSubtitleTextStyle(context),
+                  maxLines: usesLargeText ? null : 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
+        if (showChevron && onTap != null) ...[
+          SizedBox(width: trailing == null ? Spacing.sm : Spacing.xs),
+          Icon(
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.chevron_right,
+              android: Icons.chevron_right,
+            ),
+            color: theme.iconSecondary,
+            size: IconSize.small,
+          ),
+        ],
+      ],
+    );
+    if (!grouped) {
+      if (usesCupertinoChrome) {
+        final paddedContent = AnimatedContainer(
+          duration: context.motionDuration(AnimationDuration.microInteraction),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(Spacing.md),
+          color: selected
+              ? theme.buttonPrimary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          child: content,
+        );
+        return InsetGroupedSection(
+          useNativeSurface: true,
+          padding: EdgeInsets.zero,
+          child: onTap == null
+              ? paddedContent
+              : CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: onTap,
+                  child: paddedContent,
+                ),
+        );
+      }
+      return ConduitCard(
+        padding: const EdgeInsets.all(Spacing.md),
+        onTap: onTap,
+        isSelected: selected,
+        child: content,
+      );
+    }
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: context.motionDuration(AnimationDuration.microInteraction),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minHeight: TouchTarget.comfortable),
+          padding: const EdgeInsets.all(Spacing.md),
+          color: selected
+              ? theme.buttonPrimary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          child: content,
+        ),
       ),
     );
   }

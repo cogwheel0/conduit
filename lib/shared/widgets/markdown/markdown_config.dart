@@ -6,7 +6,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
@@ -22,10 +22,12 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
+import '../horizontal_gesture_ownership.dart';
 import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
 import 'renderer/markdown_style.dart';
+
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/services/raster_media_policy.dart';
@@ -718,15 +720,16 @@ class ConduitMarkdown {
 
         final placeholder = Container(
           width: double.infinity,
-          height: 200,
           decoration: BoxDecoration(
-            color: theme.surfaceBackground.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            color: theme.surfaceContainer.withValues(alpha: 0.68),
           ),
           child: Center(
-            child: CircularProgressIndicator(
-              color: theme.loadingIndicator,
-              strokeWidth: 2,
+            child: SizedBox.square(
+              dimension: IconSize.medium,
+              child: CircularProgressIndicator(
+                color: theme.loadingIndicator,
+                strokeWidth: 2,
+              ),
             ),
           ),
         );
@@ -748,12 +751,21 @@ class ConduitMarkdown {
               width: double.infinity,
               fit: BoxFit.contain,
               frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                return wasSynchronouslyLoaded || frame != null
-                    ? child
-                    : placeholder;
+                final loaded = wasSynchronouslyLoaded || frame != null;
+                if (!loaded) {
+                  return AspectRatio(aspectRatio: 16 / 9, child: placeholder);
+                }
+                return AnimatedOpacity(
+                  opacity: 1,
+                  duration: context.motionDuration(
+                    AnimationDuration.microInteraction,
+                  ),
+                  curve: Curves.easeOutCubic,
+                  child: child,
+                );
               },
               errorBuilder: (context, error, stackTrace) =>
-                  buildImageError(context, theme),
+                  Center(child: buildImageError(context, theme)),
             ),
           ),
         );
@@ -1260,19 +1272,21 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm + 2,
-            vertical: Spacing.sm,
-          ),
-          child: _HighlightedCodeText(
-            source: displayCode,
-            language: widget.highlightLanguage,
-            theme: widget.highlightTheme,
-            textStyle: widget.codeStyle,
-            isDark: widget.isDark,
-            plainText: renderPlainPreview,
+        HorizontalScrollGestureBoundary(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.sm + 2,
+              vertical: Spacing.sm,
+            ),
+            child: _HighlightedCodeText(
+              source: displayCode,
+              language: widget.highlightLanguage,
+              theme: widget.highlightTheme,
+              textStyle: widget.codeStyle,
+              isDark: widget.isDark,
+              plainText: renderPlainPreview,
+            ),
           ),
         ),
         if (isCollapsible)
@@ -1349,7 +1363,10 @@ class _CollapseToggle extends StatelessWidget {
             AnimatedSwitcher(
               duration: context.motionDuration(AnimationDuration.fast),
               child: Text(
-                isCollapsed ? 'Show $hiddenLineCount more lines' : 'Show less',
+                isCollapsed
+                    ? AppLocalizations.of(context)!
+                          .markdownShowMoreLines(hiddenLineCount)
+                    : AppLocalizations.of(context)!.markdownShowLess,
                 key: ValueKey(isCollapsed),
                 style: markdownStyle.codeChrome.copyWith(
                   color: labelColor,
@@ -2268,9 +2285,8 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         padding: const EdgeInsets.all(Spacing.md),
         child: SelectableText(
           '$error',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.error,
-          ),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: Theme.of(context).colorScheme.error),
         ),
       ),
     );

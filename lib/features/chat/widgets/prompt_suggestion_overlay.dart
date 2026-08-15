@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/prompt.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/providers/hermes_providers.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Autocomplete overlay that appears when the user types `/` commands.
@@ -202,9 +203,8 @@ class _PromptOverlayPlaceholder extends StatelessWidget {
             Flexible(
               child: Text(
                 message!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: context.conduitTheme.textSecondary,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: context.conduitTheme.textSecondary),
               ),
             ),
           ],

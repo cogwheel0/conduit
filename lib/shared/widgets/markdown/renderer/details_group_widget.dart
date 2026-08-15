@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -77,9 +77,8 @@ class _MarkdownDetailsGroupState extends State<MarkdownDetailsGroup> {
       return;
     }
 
-    final restored = PageStorage.maybeOf(
-      context,
-    )?.readState(context, identifier: stateId);
+    final restored = PageStorage.maybeOf(context)
+        ?.readState(context, identifier: stateId);
     if (restored is bool) {
       _isExpanded = restored;
     }
@@ -91,9 +90,8 @@ class _MarkdownDetailsGroupState extends State<MarkdownDetailsGroup> {
     if (stateId == null) {
       return;
     }
-    PageStorage.maybeOf(
-      context,
-    )?.writeState(context, _isExpanded, identifier: stateId);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, _isExpanded, identifier: stateId);
   }
 
   String _buildSummaryText() {

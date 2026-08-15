@@ -1,26 +1,30 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
+const double kConversationTileHorizontalGutter = Spacing.sm;
 const EdgeInsets kConversationTileMargin = EdgeInsets.only(
-  right: Spacing.xs,
+  left: kConversationTileHorizontalGutter,
+  right: kConversationTileHorizontalGutter,
   top: Spacing.xxs,
   bottom: Spacing.xxs,
 );
-const double kConversationTileTintInset = Spacing.sm;
 
 BoxDecoration conduitConversationTileDecoration(
   ConduitThemeExtension theme, {
   required bool selected,
+  bool pressed = false,
 }) {
   final background = selected
       ? Color.alphaBlend(
           theme.buttonPrimary.withValues(alpha: 0.1),
           theme.surfaceBackground,
         )
+      : pressed
+      ? theme.surfaceContainer
       : theme.surfaceBackground;
 
   return BoxDecoration(
@@ -35,35 +39,234 @@ class ConversationTileSurface extends StatelessWidget {
     required this.theme,
     required this.selected,
     required this.child,
+    this.pressed = false,
     this.tintKey,
+    this.pressedKey,
   });
 
   final ConduitThemeExtension theme;
   final bool selected;
   final Widget child;
+  final bool pressed;
   final Key? tintKey;
+  final Key? pressedKey;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        if (selected)
+        if (selected || pressed)
           Positioned.fill(
-            left: kConversationTileTintInset,
-            // The outer tile preserves its historical 4pt trailing margin.
-            // Compensate here so the painted tint has the same physical inset
-            // on both sides without moving the row contents.
-            right: kConversationTileTintInset - kConversationTileMargin.right,
             child: DecoratedBox(
-              key: tintKey,
+              key: selected ? tintKey : pressedKey,
               decoration: conduitConversationTileDecoration(
                 theme,
-                selected: true,
+                selected: selected,
+                pressed: pressed,
               ),
             ),
           ),
         child,
       ],
+    );
+  }
+}
+
+/// Adds the quiet grouped surface used while a chat-style row is lifted by an
+/// iOS context menu. The physical insets match the selected tile tint.
+Widget buildConversationTileContextPreview(BuildContext context, Widget child) {
+  final theme = context.conduitTheme;
+  return Stack(
+    children: [
+      Positioned.fill(
+        left: kConversationTileHorizontalGutter,
+        right: kConversationTileHorizontalGutter,
+        top: kConversationTileMargin.top,
+        bottom: kConversationTileMargin.bottom,
+        child: DecoratedBox(
+          key: const ValueKey<String>(
+            'conversation-tile-context-preview-background',
+          ),
+          decoration: conduitConversationTileDecoration(
+            theme,
+            selected: false,
+            pressed: true,
+          ),
+        ),
+      ),
+      child,
+    ],
+  );
+}
+
+/// Flat pressable row frame shared by high-frequency sidebar lists.
+///
+/// Every row keeps the same 8pt structural gutter. Idle rows remain
+/// transparent; pressed and selected states paint inside those row bounds.
+class ChatStyleSidebarTile extends StatefulWidget {
+  const ChatStyleSidebarTile({
+    super.key,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+    this.semanticLabel,
+    this.tintKey,
+    this.pressedKey,
+    this.surfaceKey,
+    this.enabled = true,
+  });
+
+  final bool selected;
+  final VoidCallback? onTap;
+  final Widget child;
+  final String? semanticLabel;
+  final Key? tintKey;
+  final Key? pressedKey;
+  final Key? surfaceKey;
+  final bool enabled;
+
+  @override
+  State<ChatStyleSidebarTile> createState() => _ChatStyleSidebarTileState();
+}
+
+class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
+  bool _pressed = false;
+
+  void _setPressed(bool pressed) {
+    if (_pressed == pressed) return;
+    setState(() => _pressed = pressed);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatStyleSidebarTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((!widget.enabled || widget.onTap == null) && _pressed) {
+      _pressed = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveEnabled = widget.enabled && widget.onTap != null;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      enabled: effectiveEnabled,
+      label: widget.semanticLabel,
+      child: Container(
+        key: widget.surfaceKey,
+        margin: kConversationTileMargin,
+        child: ConversationTileSurface(
+          theme: context.conduitTheme,
+          selected: widget.selected,
+          pressed: _pressed,
+          tintKey: widget.tintKey,
+          pressedKey: widget.pressedKey,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: effectiveEnabled ? (_) => _setPressed(true) : null,
+            onPointerUp: effectiveEnabled ? (_) => _setPressed(false) : null,
+            onPointerCancel: effectiveEnabled
+                ? (_) => _setPressed(false)
+                : null,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: effectiveEnabled ? widget.onTap : null,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Inner layout for compact sidebar rows that may include supporting text.
+///
+/// This deliberately shares the conversation row's height, typography, and
+/// horizontal rhythm instead of inheriting the smaller utility-row defaults.
+class SidebarListTileContent extends StatelessWidget {
+  const SidebarListTileContent({
+    super.key,
+    required this.title,
+    required this.selected,
+    this.subtitle,
+    this.subtitleMaxLines = 1,
+    this.leading,
+    this.trailing,
+    this.emphasizeTitle = false,
+    this.titleFontWeight,
+  });
+
+  final String title;
+  final bool selected;
+  final String? subtitle;
+  final int subtitleMaxLines;
+  final Widget? leading;
+  final Widget? trailing;
+  final bool emphasizeTitle;
+  final FontWeight? titleFontWeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final hasSubtitle = subtitle?.trim().isNotEmpty ?? false;
+    final titleIsPrimary = selected || emphasizeTitle;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.sm,
+        ),
+        child: Row(
+          children: [
+            if (leading != null) ...[
+              leading!,
+              const SizedBox(width: Spacing.md),
+            ],
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.sidebarTitleStyle.copyWith(
+                      color: titleIsPrimary
+                          ? theme.textPrimary
+                          : theme.textSecondary,
+                      fontWeight:
+                          titleFontWeight ??
+                          (titleIsPrimary ? FontWeight.w600 : FontWeight.w400),
+                      height: 1.4,
+                    ),
+                  ),
+                  if (hasSubtitle) ...[
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      subtitle!,
+                      maxLines: subtitleMaxLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
+                        color: theme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: Spacing.sm),
+              trailing!,
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -313,40 +516,27 @@ class ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Semantics(
+    return ChatStyleSidebarTile(
       selected: selected,
-      button: true,
-      child: Container(
-        margin: kConversationTileMargin,
-        child: ConversationTileSurface(
-          theme: theme,
-          selected: selected,
-          tintKey: const ValueKey<String>('conversation-tile-active-tint'),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: isLoading ? null : onTap,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: TouchTarget.listItem,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.md,
-                  vertical: Spacing.sm,
-                ),
-                child: ConversationTileContent(
-                  title: title,
-                  pinned: pinned,
-                  selected: selected,
-                  unread: unread,
-                  isLoading: isLoading,
-                  isGenerating: isGenerating,
-                  badge: badge,
-                ),
-              ),
-            ),
+      enabled: !isLoading,
+      onTap: onTap,
+      tintKey: const ValueKey<String>('conversation-tile-active-tint'),
+      pressedKey: const ValueKey<String>('conversation-tile-pressed-tint'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          child: ConversationTileContent(
+            title: title,
+            pinned: pinned,
+            selected: selected,
+            unread: unread,
+            isLoading: isLoading,
+            isGenerating: isGenerating,
+            badge: badge,
           ),
         ),
       ),

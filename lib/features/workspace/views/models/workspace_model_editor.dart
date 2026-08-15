@@ -1,17 +1,10 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:conduit/core/network/image_header_utils.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/raster_media_policy.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
@@ -19,20 +12,24 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit/features/workspace/services/workspace_model_avatar_codec.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
-import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
-import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
-import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
+import 'workspace_model_editor_body.dart';
+import 'workspace_model_editor_controller.dart';
+import 'workspace_model_export.dart';
 import 'workspace_model_relationship_sheet.dart';
+
+export 'workspace_model_export.dart' show exportWorkspaceModelsToShare;
 
 /// Section-registry entry point for the Models editor. Dispatches to the
 /// create/detail/edit editor based on [WorkspaceEditorArgs.mode].
@@ -58,53 +55,26 @@ class WorkspaceModelEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return _WorkspaceModelForm(
+    return WorkspaceResourceEditorRoute<WorkspaceModelDetail>(
+      title: l10n.workspaceModels,
+      section: WorkspaceSection.models,
+      mode: mode,
+      resourceId: modelId,
+      errorMessage: l10n.workspaceLoadFailed,
+      createBuilder: () => _WorkspaceModelForm(
         mode: mode,
         initialDraft: WorkspaceModelDraft.empty(),
         writeAccess: true,
-      );
-    }
-
-    final id = modelId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceModelDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        isLoading: true,
-        child: const SizedBox.shrink(),
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceModels,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
-        child: const SizedBox.shrink(),
+      detailLoader: (ref, id) => ref.watch(workspaceModelDetailProvider(id)),
+      onRetry: (ref, id) => ref.invalidate(workspaceModelDetailProvider(id)),
+      builder: (value) => _WorkspaceModelForm(
+        key: ValueKey('workspace-model-form-${value.id}-${mode.name}'),
+        mode: mode,
+        initialDraft: WorkspaceModelDraft.fromSummary(value),
+        writeAccess: value.writeAccess,
+        summary: value,
       ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceModels,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceModelDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceModelForm(
-          key: ValueKey('workspace-model-form-${value.id}-${mode.name}'),
-          mode: mode,
-          initialDraft: WorkspaceModelDraft.fromSummary(value),
-          writeAccess: value.writeAccess,
-          summary: value,
-        );
-      },
     );
   }
 }
@@ -129,228 +99,201 @@ class _WorkspaceModelForm extends ConsumerStatefulWidget {
 }
 
 class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
-  late WorkspaceModelDraft _draft;
-  late final TextEditingController _idController;
-  late final TextEditingController _nameController;
-  late final TextEditingController _descriptionController;
-  late final TextEditingController _systemController;
-  late final TextEditingController _stopController;
-  late final TextEditingController _terminalController;
-  late final TextEditingController _ttsController;
-  late final TextEditingController _defaultFeaturesController;
-  late final TextEditingController _paramsController;
-  late final TextEditingController _builtinToolsController;
+  late final WorkspaceModelEditorController _controller;
+  late final WorkspaceModelRelationshipCoordinator _relationshipCoordinator;
 
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
-  String? _paramsError;
-  // True once the user explicitly removes the avatar, so the editor renders the
-  // placeholder instead of re-fetching the still-persisted server image (which
-  // would silently undo the removal on screen until the model is saved).
-  bool _avatarRemoved = false;
-
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
-  bool get _readOnly => !widget.writeAccess || _isDetail;
+  WorkspaceModelDraft get _draft => _controller.draft;
+  WorkspaceEditorSession get _session => _controller.session;
+  bool get _readOnly => _controller.readOnly;
 
   @override
   void initState() {
     super.initState();
-    _draft = WorkspaceModelDraft.fromSummary(_snapshot());
-    _idController = TextEditingController(text: _draft.id);
-    _nameController = TextEditingController(text: _draft.name);
-    _descriptionController = TextEditingController(text: _draft.description);
-    _systemController = TextEditingController(text: _draft.system);
-    _stopController = TextEditingController(text: _draft.stop.join(', '));
-    _terminalController = TextEditingController(text: _draft.terminalId);
-    _ttsController = TextEditingController(text: _draft.ttsVoice);
-    _defaultFeaturesController = TextEditingController(
-      text: _draft.defaultFeatureIds.join(', '),
-    );
-    _paramsController = TextEditingController(
-      text: _draft.advancedParams.isEmpty
-          ? ''
-          : const JsonEncoder.withIndent('  ').convert(_draft.advancedParams),
-    );
-    _builtinToolsController = TextEditingController(
-      text: _draft.builtinTools.isEmpty
-          ? ''
-          : const JsonEncoder.withIndent('  ').convert(_draft.builtinTools),
-    );
-  }
-
-  WorkspaceModelSummary _snapshot() {
-    // Round-trips the incoming draft so the editing copy is independent of the
-    // provider's cached instance.
-    final source = widget.initialDraft;
-    return WorkspaceModelSummary(
-      id: source.id,
-      name: source.name,
-      userId: widget.summary?.userId ?? '',
-      baseModelId: source.baseModelId,
-      meta: source.buildMeta(),
-      params: source.buildParams(),
-      accessGrants: widget.summary?.accessGrants ?? const [],
-      isActive: source.isActive,
+    _controller = WorkspaceModelEditorController(
+      mode: widget.mode,
+      initialDraft: widget.initialDraft,
       writeAccess: widget.writeAccess,
+      summary: widget.summary,
+    )..addListener(_handleControllerChanged);
+    _relationshipCoordinator = WorkspaceModelRelationshipCoordinator(
+      _controller,
     );
   }
 
   @override
   void dispose() {
-    _idController.dispose();
-    _nameController.dispose();
-    _descriptionController.dispose();
-    _systemController.dispose();
-    _stopController.dispose();
-    _terminalController.dispose();
-    _ttsController.dispose();
-    _defaultFeaturesController.dispose();
-    _paramsController.dispose();
-    _builtinToolsController.dispose();
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
     super.dispose();
   }
 
-  void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _update(void Function() mutate) {
-    setState(() {
-      mutate();
-      _dirty = true;
-    });
+  Future<void> _pickRelationship(WorkspaceModelRelationshipKind kind) async {
+    final l10n = AppLocalizations.of(context)!;
+    final result = await _relationshipCoordinator.pick(
+      kind,
+      load: () => _loadRelationshipOptions(kind),
+      present: (options, selectedIds) {
+        if (!mounted) return Future<List<String>?>.value();
+        return WorkspaceRelationshipSheet.show(
+          context,
+          title: _relationshipTitle(l10n, kind),
+          options: options,
+          selectedIds: selectedIds,
+        );
+      },
+    );
+    if (result.outcome == WorkspaceModelRelationshipPickOutcome.failed) {
+      DebugLogger.error(
+        '${kind.name} relationship selection failed',
+        scope: 'workspace/models',
+        error: result.error,
+        stackTrace: result.stackTrace,
+      );
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.workspaceLoadFailed,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+    }
   }
+
+  Future<List<WorkspaceRelationshipOption>> _loadRelationshipOptions(
+    WorkspaceModelRelationshipKind kind,
+  ) async {
+    switch (kind) {
+      case WorkspaceModelRelationshipKind.knowledge:
+        final state = await ref.read(workspaceKnowledgeProvider.future);
+        return state.items
+            .map(
+              (item) => WorkspaceRelationshipOption(
+                id: item.id,
+                label: item.name,
+                subtitle: item.description,
+              ),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.tools:
+        final state = await ref.read(workspaceToolsProvider.future);
+        return state.items
+            .map(
+              (tool) =>
+                  WorkspaceRelationshipOption(id: tool.id, label: tool.name),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.skills:
+        final state = await ref.read(workspaceSkillsProvider.future);
+        return state.items
+            .map(
+              (skill) => WorkspaceRelationshipOption(
+                id: skill.id,
+                label: skill.name,
+                subtitle: skill.description,
+              ),
+            )
+            .toList();
+      case WorkspaceModelRelationshipKind.filters:
+      case WorkspaceModelRelationshipKind.defaultFilters:
+      case WorkspaceModelRelationshipKind.actions:
+        final functions = await ref.read(workspaceFunctionsProvider.future);
+        final filters = kind != WorkspaceModelRelationshipKind.actions;
+        return functions
+            .where((item) => filters ? item.isFilter : item.isAction)
+            .map(
+              (item) => WorkspaceRelationshipOption(
+                id: item.id,
+                label: item.name,
+                subtitle: item.type,
+              ),
+            )
+            .toList();
+    }
+  }
+
+  String _relationshipTitle(
+    AppLocalizations l10n,
+    WorkspaceModelRelationshipKind kind,
+  ) => switch (kind) {
+    WorkspaceModelRelationshipKind.knowledge => l10n.workspaceModelKnowledge,
+    WorkspaceModelRelationshipKind.tools => l10n.workspaceModelTools,
+    WorkspaceModelRelationshipKind.skills => l10n.workspaceModelSkills,
+    WorkspaceModelRelationshipKind.filters => l10n.workspaceModelFilters,
+    WorkspaceModelRelationshipKind.defaultFilters =>
+      l10n.workspaceModelDefaultFilters,
+    WorkspaceModelRelationshipKind.actions => l10n.workspaceModelActions,
+  };
 
   // --- Save -----------------------------------------------------------------
 
-  bool _syncTextIntoDraft() {
-    _draft.id = _idController.text.trim();
-    _draft.name = _nameController.text;
-    _draft.description = _descriptionController.text;
-    _draft.system = _systemController.text;
-    _draft.stop = _splitList(_stopController.text);
-    _draft.terminalId = _terminalController.text;
-    _draft.ttsVoice = _ttsController.text;
-    _draft.defaultFeatureIds = _splitList(_defaultFeaturesController.text);
-
-    final params = _parseJsonObject(_paramsController.text);
-    if (params == null) {
-      setState(() => _paramsError = 'params');
+  bool _syncDraftOrShowError() {
+    final synchronized = _controller.syncTextIntoDraft();
+    final message = AppLocalizations.of(context)!.workspaceModelInvalidJson;
+    if (!synchronized) {
+      _session.setError(message);
       return false;
     }
-    final builtin = _parseJsonObject(_builtinToolsController.text);
-    if (builtin == null) {
-      setState(() => _paramsError = 'builtinTools');
-      return false;
-    }
-    _draft.advancedParams = params;
-    _draft.builtinTools = builtin;
-    if (_paramsError != null) setState(() => _paramsError = null);
+    if (_session.errorMessage == message) _session.clearError();
     return true;
   }
 
   Future<void> _save() async {
-    if (!_syncTextIntoDraft()) return;
+    final l10n = AppLocalizations.of(context)!;
+    if (!_syncDraftOrShowError()) return;
     if (!_draft.isValid) {
-      setState(
-        () => _errorMessage = _draft.id.trim().isEmpty
-            ? AppLocalizations.of(context)!.workspaceModelIdRequired
-            : AppLocalizations.of(context)!.workspaceModelNameRequired,
+      _session.setError(
+        _draft.id.trim().isEmpty
+            ? l10n.workspaceModelIdRequired
+            : l10n.workspaceModelNameRequired,
       );
       return;
     }
 
-    setState(() {
-      _saving = true;
-      _errorMessage = null;
-    });
     final notifier = ref.read(workspaceModelsProvider.notifier);
     final form = _draft.toForm();
-    try {
-      final WorkspaceModelDetail result = _isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(form);
-      if (!mounted) return;
-      _dirty = false;
-      _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
-      DebugLogger.log(
-        'model saved',
-        scope: 'workspace/models',
-        data: {'id': result.id, 'create': _isCreate},
-      );
-      final router = GoRouter.of(context);
-      if (_isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.models.routes.detailLocation(result.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      } else {
-        // Edit saved with nothing to pop (deep-linked into /edit): release the
-        // saving lock so the form stays usable.
-        setState(() => _saving = false);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model save failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorMessage = AppLocalizations.of(context)!.workspaceModelSaveFailed;
-      });
-    }
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceModelDetail>(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.models,
+      scope: 'workspace/models',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelSaved,
+      failureMessage: l10n.workspaceModelSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) =>
+          isCreate ? notifier.create(form) : notifier.updateItem(form),
+      resourceId: (result) => result.id,
+    );
   }
 
   // --- Overflow actions -----------------------------------------------------
 
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
-    final router = GoRouter.of(context);
     // Abort on invalid params/builtin-tools JSON so the clone is built from the
     // form's actual contents, not stale draft values — matching _save and
     // _toggleHidden.
-    if (!_syncTextIntoDraft()) return;
-    final clone = WorkspaceModelDraft.fromSummary(
-      WorkspaceModelSummary(
-        id: '${_draft.id}-copy',
-        name: '${_draft.name} ${l10n.workspaceModelCloneSuffix}',
-        userId: '',
-        baseModelId: _draft.baseModelId,
-        meta: _draft.buildMeta(),
-        params: _draft.buildParams(),
-        isActive: _draft.isActive,
-      ),
+    if (!_syncDraftOrShowError()) return;
+    final clone = _controller.buildClone(l10n.workspaceModelCloneSuffix);
+    await WorkspaceEditorMutationCoordinator.replaceWithClone<
+      WorkspaceModelDetail
+    >(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.models,
+      scope: 'workspace/models',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelSaved,
+      failureMessage: l10n.workspaceModelSaveFailed,
+      editorMounted: () => mounted,
+      clone: () =>
+          ref.read(workspaceModelsProvider.notifier).create(clone.toForm()),
+      resourceId: (created) => created.id,
     );
-    // Clones do not inherit the source's access grants.
-    clone.accessGrants = [];
-    setState(() => _saving = true);
-    try {
-      final created = await ref
-          .read(workspaceModelsProvider.notifier)
-          .create(clone.toForm());
-      if (!mounted) return;
-      _showSnack(l10n.workspaceModelSaved);
-      router.pushReplacement(
-        WorkspaceSection.models.routes.editLocation(created.id),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model clone failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-      }
-    }
   }
 
   Future<void> _toggleActive() async {
@@ -361,7 +304,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     // edits, then invalidates the detail provider — which rebuilds the editor
     // from the server response and discards any unsaved edits. Honour the same
     // discard-changes guard the navigation paths use before proceeding.
-    if (_dirty) {
+    if (_session.dirty) {
       final discard = await ThemedDialogs.confirm(
         context,
         title: l10n.workspaceEditorDiscardTitle,
@@ -372,29 +315,22 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       );
       if (!discard || !mounted) return;
     }
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceModelsProvider.notifier).toggle(id);
-      if (!mounted) return;
-      _dirty = false;
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(l10n.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model toggle failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _showSnack(
-          AppLocalizations.of(context)!.workspaceModelSaveFailed,
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model toggle',
+      editorMounted: () => mounted,
+      operation: () => ref.read(workspaceModelsProvider.notifier).toggle(id),
+      onSuccess: (_) {
+        _session.markClean();
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(l10n.workspaceModelSaved);
+      },
+      onFailure: (_) => _showSnack(
+        AppLocalizations.of(context)!.workspaceModelSaveFailed,
+        isError: true,
+      ),
+    );
   }
 
   Future<void> _toggleHidden() async {
@@ -402,36 +338,33 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (id.isEmpty) return;
     // There is no hidden-only endpoint, so this persists the whole model. Honour
     // the same validation as _save (abort on invalid params JSON) and reconcile
-    // _dirty on success so the discard-changes guard does not later prompt for
+    // _session.dirty on success so the discard-changes guard does not later prompt for
     // changes that were already saved here.
-    if (!_syncTextIntoDraft()) return;
-    _draft.hidden = !_draft.hidden;
-    setState(() => _saving = true);
-    try {
-      await ref
-          .read(workspaceModelsProvider.notifier)
-          .updateItem(_draft.toForm());
-      if (!mounted) return;
-      _dirty = false;
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model hide toggle failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _draft.hidden = !_draft.hidden;
+    if (!_syncDraftOrShowError()) return;
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model hide toggle',
+      editorMounted: () => mounted,
+      operation: () async {
+        _controller.toggleHidden();
+        await ref
+            .read(workspaceModelsProvider.notifier)
+            .updateItem(_draft.toForm());
+      },
+      onSuccess: (_) {
+        _session.markClean();
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
+      },
+      onFailure: (_) {
+        _controller.toggleHidden();
         _showSnack(
           AppLocalizations.of(context)!.workspaceModelSaveFailed,
           isError: true,
         );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+      },
+    );
   }
 
   Future<void> _delete() async {
@@ -449,30 +382,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceModelsProvider.notifier).delete(id);
-      if (!mounted) return;
-      _dirty = false;
-      _showSnack(l10n.workspaceModelDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.models.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model delete failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.models,
+      scope: 'workspace/models',
+      resourceLabel: 'model',
+      successMessage: l10n.workspaceModelDeleted,
+      failureMessage: l10n.workspaceModelSaveFailed,
+      editorMounted: () => mounted,
+      delete: () => ref.read(workspaceModelsProvider.notifier).delete(id),
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -491,32 +411,33 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       readOnly: _readOnly,
     );
     if (grants == null || !mounted) return;
-    final id = _draft.id;
-    if (_readOnly || id.isEmpty) return;
-    setState(() => _saving = true);
-    try {
-      await ref
-          .read(workspaceModelsProvider.notifier)
-          .updateAccess(id, _draft.name, grants);
-      if (!mounted) return;
-      _update(() => _draft.accessGrants = grants);
-      ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(l10n.workspaceModelSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'model access update failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceModelSaveFailed, isError: true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    if (_readOnly) return;
+    if (_session.isCreate) {
+      _controller.replaceAccessGrants(grants);
+      return;
     }
+    final id = _draft.id;
+    if (id.isEmpty) return;
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/models',
+      operationLabel: 'model access update',
+      editorMounted: () => mounted,
+      operation: () => ref
+          .read(workspaceModelsProvider.notifier)
+          .updateAccess(id, _draft.name, grants),
+      onSuccess: (_) {
+        _controller.replaceAccessGrants(grants, markDirty: false);
+        ref.invalidate(workspaceModelDetailProvider(id));
+        _showSnack(l10n.workspaceModelSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
+    );
   }
 
   Future<void> _exportSingle() async {
-    _syncTextIntoDraft();
+    if (!_syncDraftOrShowError()) return;
     await exportWorkspaceModelsToShare(
       context,
       models: [_draft.toForm().toJson()],
@@ -574,7 +495,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   // --- Build ----------------------------------------------------------------
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _buildContent(context);
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = ref
         .watch(workspaceCapabilitiesProvider)
@@ -582,177 +505,45 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
-    final title = _isCreate
+    final baseModels = ref
+        .watch(workspaceBaseModelsProvider)
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => const <WorkspaceRelationshipOption>[],
+        );
+    final title = _session.isCreate
         ? l10n.workspaceModelNewTitle
-        : (_nameController.text.trim().isEmpty
+        : (_controller.fields.name.text.trim().isEmpty
               ? l10n.workspaceModels
-              : _nameController.text.trim());
+              : _controller.fields.name.text.trim());
 
     return WorkspaceEditorScaffold(
       title: title,
-      isDirty: _dirty && !_saving,
+      section: WorkspaceSection.models,
+      mode: widget.mode,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _readOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_readOnly,
       onSave: _readOnly ? null : _save,
-      errorMessage: _errorMessage,
+      onEdit: _session.isDetail && widget.writeAccess
+          ? () => context.pushWorkspace(
+              WorkspaceSection.models.routes.editLocation(_draft.id),
+            )
+          : null,
+      errorMessage: _session.errorMessage,
       actions: _buildActions(l10n, capabilities),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
-        child: ListView(
-          key: const Key('workspace-model-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
-          children: [
-            if (_isDetail && widget.writeAccess)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-model-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.models.routes.editLocation(_draft.id),
-                  ),
-                ),
-              ),
-            _profileImage(l10n),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionBasics),
-            _textField(
-              key: 'workspace-model-id',
-              controller: _idController,
-              label: l10n.workspaceModelIdLabel,
-              enabled: !_readOnly && _isCreate,
-              onChanged: (_) => _markDirty(),
-            ),
-            _baseModelSelector(l10n),
-            _textField(
-              key: 'workspace-model-name',
-              controller: _nameController,
-              label: l10n.workspaceModelName,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-description',
-              controller: _descriptionController,
-              label: l10n.workspaceModelDescription,
-              enabled: !_readOnly,
-              minLines: 2,
-              maxLines: 4,
-              onChanged: (_) => _markDirty(),
-            ),
-            _tagsField(l10n),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionPrompt),
-            _textField(
-              key: 'workspace-model-system',
-              controller: _systemController,
-              label: l10n.workspaceModelSystemPrompt,
-              enabled: !_readOnly,
-              minLines: 3,
-              maxLines: 10,
-              onChanged: (_) => _markDirty(),
-            ),
-            _suggestionPrompts(l10n),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAdvanced),
-            _textField(
-              key: 'workspace-model-stop',
-              controller: _stopController,
-              label: l10n.workspaceModelStopSequences,
-              helperText: l10n.workspaceModelStopHint,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _jsonField(
-              key: 'workspace-model-params',
-              controller: _paramsController,
-              label: l10n.workspaceModelAdvancedParams,
-              helperText: l10n.workspaceModelParamsHint,
-              hasError: _paramsError == 'params',
-            ),
-            _capabilities(l10n),
-            _textField(
-              key: 'workspace-model-terminal',
-              controller: _terminalController,
-              label: l10n.workspaceModelTerminal,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-tts',
-              controller: _ttsController,
-              label: l10n.workspaceModelTtsVoice,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _textField(
-              key: 'workspace-model-default-features',
-              controller: _defaultFeaturesController,
-              label: l10n.workspaceModelDefaultFeatures,
-              enabled: !_readOnly,
-              onChanged: (_) => _markDirty(),
-            ),
-            _jsonField(
-              key: 'workspace-model-builtin-tools',
-              controller: _builtinToolsController,
-              label: l10n.workspaceModelBuiltinTools,
-              helperText: l10n.workspaceModelParamsHint,
-              hasError: _paramsError == 'builtinTools',
-            ),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(
-              title: l10n.workspaceModelSectionRelationships,
-            ),
-            _knowledgeSelector(l10n),
-            _relationshipTile(
-              keyId: 'workspace-model-tools',
-              label: l10n.workspaceModelTools,
-              count: _draft.toolIds.length,
-              onTap: _readOnly ? null : () => _pickTools(l10n),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-skills',
-              label: l10n.workspaceModelSkills,
-              count: _draft.skillIds.length,
-              onTap: _readOnly ? null : () => _pickSkills(l10n),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-filters',
-              label: l10n.workspaceModelFilters,
-              count: _draft.filterIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: true),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-default-filters',
-              label: l10n.workspaceModelDefaultFilters,
-              count: _draft.defaultFilterIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: true, isDefault: true),
-            ),
-            _relationshipTile(
-              keyId: 'workspace-model-actions',
-              label: l10n.workspaceModelActions,
-              count: _draft.actionIds.length,
-              onTap: _readOnly
-                  ? null
-                  : () => _pickFunctions(l10n, isFilter: false),
-            ),
-            const SizedBox(height: Spacing.xl),
-            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAccess),
-            _accessTile(l10n),
-            const SizedBox(height: Spacing.xl),
-          ],
+        absorbing: _session.saving,
+        child: WorkspaceModelEditorBody(
+          controller: _controller,
+          baseModels: baseModels,
+          onPickImage: _pickImage,
+          onAddTag: () => _addTag(l10n),
+          onAddSuggestion: () => _addSuggestion(l10n),
+          onPickRelationship: _pickRelationship,
+          onManageAccess: _manageAccess,
         ),
       ),
     );
@@ -762,7 +553,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     AppLocalizations l10n,
     WorkspaceCapabilities capabilities,
   ) {
-    if (_isCreate) {
+    if (_session.isCreate) {
       return [
         if (capabilities.models.importItems)
           WorkspaceEditorAction(
@@ -835,308 +626,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     ];
   }
 
-  // --- Field builders -------------------------------------------------------
-
-  Widget _textField({
-    required String key,
-    required TextEditingController controller,
-    required String label,
-    required bool enabled,
-    String? helperText,
-    int minLines = 1,
-    int maxLines = 1,
-    ValueChanged<String>? onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: WorkspaceLabeledField(
-        helperText: helperText,
-        child: ConduitInput(
-          key: Key(key),
-          controller: controller,
-          label: label,
-          enabled: enabled,
-          minLines: minLines,
-          maxLines: maxLines < minLines ? minLines : maxLines,
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
-
-  Widget _jsonField({
-    required String key,
-    required TextEditingController controller,
-    required String label,
-    String? helperText,
-    bool hasError = false,
-  }) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: WorkspaceLabeledField(
-        helperText: helperText,
-        child: ConduitInput(
-          key: Key(key),
-          controller: controller,
-          label: label,
-          enabled: !_readOnly,
-          minLines: 2,
-          maxLines: 8,
-          style: theme.code?.copyWith(color: theme.textPrimary),
-          errorText: hasError
-              ? AppLocalizations.of(context)!.workspaceModelInvalidJson
-              : null,
-          onChanged: (_) => _markDirty(),
-        ),
-      ),
-    );
-  }
-
-  Widget _profileImage(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Row(
-      children: [
-        _ModelAvatar(
-          draftImage: _draft.profileImageUrl,
-          modelId: _draft.id,
-          removed: _avatarRemoved,
-        ),
-        const SizedBox(width: Spacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(l10n.workspaceModelProfileImage, style: theme.label),
-              const SizedBox(height: Spacing.xs),
-              if (!_readOnly)
-                Wrap(
-                  spacing: Spacing.sm,
-                  children: [
-                    WorkspacePlainIconButton(
-                      buttonKey: const Key('workspace-model-image-pick'),
-                      onPressed: _pickImage,
-                      icon: Icons.image_outlined,
-                      label: l10n.workspaceModelChangeImage,
-                    ),
-                    if (_draft.profileImageUrl != null)
-                      WorkspacePlainIconButton(
-                        buttonKey: const Key('workspace-model-image-remove'),
-                        onPressed: () => _update(() {
-                          _draft.profileImageUrl = null;
-                          _avatarRemoved = true;
-                        }),
-                        icon: Icons.close,
-                        label: l10n.workspaceModelRemoveImage,
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _baseModelSelector(AppLocalizations l10n) {
-    // Base models are the raw `/models/base` options (not the general chat
-    // model list, which also contains already-composed custom models).
-    final models = ref
-        .watch(workspaceBaseModelsProvider)
-        .maybeWhen(
-          data: (value) => value,
-          orElse: () => const <WorkspaceRelationshipOption>[],
-        );
-    // Drive the field from the draft's saved id. A `FormFieldState` only honours
-    // `initialValue` on its first build, so `workspaceBaseModelsProvider`
-    // resolving later must not be what first supplies the id — otherwise the
-    // field is created with `null` (empty options) and stays on "None" even
-    // though `_draft.baseModelId` holds the real id. We seed `initialValue` with
-    // the saved id directly and guarantee it is always a selectable item (adding
-    // a synthetic entry when the async options have not yet arrived or no longer
-    // contain it), so an existing base model renders correctly from build one.
-    final selectedId = _draft.baseModelId;
-    final hasSelectedOption =
-        selectedId == null || models.any((m) => m.id == selectedId);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: DropdownButtonFormField<String?>(
-        key: const Key('workspace-model-base'),
-        initialValue: selectedId,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: l10n.workspaceModelBaseModel,
-          isDense: true,
-          border: const OutlineInputBorder(),
-        ),
-        items: [
-          DropdownMenuItem<String?>(
-            value: null,
-            child: Text(l10n.workspaceModelBaseModelNone),
-          ),
-          if (!hasSelectedOption)
-            DropdownMenuItem<String?>(
-              value: selectedId,
-              child: Text(selectedId, overflow: TextOverflow.ellipsis),
-            ),
-          for (final model in models)
-            DropdownMenuItem<String?>(
-              value: model.id,
-              child: Text(model.label, overflow: TextOverflow.ellipsis),
-            ),
-        ],
-        onChanged: _readOnly
-            ? null
-            : (value) => _update(() => _draft.baseModelId = value),
-      ),
-    );
-  }
-
-  Widget _tagsField(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.workspaceModelTags, style: theme.label),
-          const SizedBox(height: Spacing.xs),
-          Wrap(
-            spacing: Spacing.xs,
-            runSpacing: Spacing.xs,
-            children: [
-              for (final tag in _draft.tags)
-                InputChip(
-                  key: Key('workspace-model-tag-$tag'),
-                  label: Text(tag),
-                  onDeleted: _readOnly
-                      ? null
-                      : () => _update(() => _draft.tags.remove(tag)),
-                ),
-              if (!_readOnly)
-                ActionChip(
-                  key: const Key('workspace-model-tag-add'),
-                  avatar: const Icon(Icons.add, size: IconSize.small),
-                  label: Text(l10n.workspaceModelTagsHint),
-                  onPressed: () => _addTag(l10n),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _suggestionPrompts(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
-          const SizedBox(height: Spacing.xs),
-          for (var i = 0; i < _draft.suggestionPrompts.length; i++)
-            AdaptiveListTile(
-              key: Key('workspace-model-suggestion-$i'),
-              padding: EdgeInsets.zero,
-              title: Text(_draft.suggestionPrompts[i]),
-              trailing: _readOnly
-                  ? null
-                  : IconButton(
-                      tooltip: l10n.workspaceModelRemoveSuggestion,
-                      icon: const Icon(Icons.close, size: IconSize.small),
-                      onPressed: () =>
-                          _update(() => _draft.suggestionPrompts.removeAt(i)),
-                    ),
-            ),
-          if (!_readOnly)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: WorkspacePlainIconButton(
-                buttonKey: const Key('workspace-model-suggestion-add'),
-                onPressed: () => _addSuggestion(l10n),
-                icon: Icons.add,
-                label: l10n.workspaceModelAddSuggestion,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _capabilities(AppLocalizations l10n) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.workspaceModelCapabilities,
-            style: context.conduitTheme.label,
-          ),
-          for (final key in _draft.capabilities.keys)
-            AdaptiveListTile(
-              key: Key('workspace-model-capability-$key'),
-              padding: EdgeInsets.zero,
-              title: Text(key),
-              trailing: AdaptiveSwitch(
-                value: _draft.capabilities[key] ?? false,
-                onChanged: _readOnly
-                    ? null
-                    : (value) =>
-                          _update(() => _draft.capabilities[key] = value),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _relationshipTile({
-    required String keyId,
-    required String label,
-    required int count,
-    VoidCallback? onTap,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.md),
-      child: WorkspaceResourceTile(
-        key: Key(keyId),
-        icon: Icons.account_tree_outlined,
-        title: label,
-        subtitle: count == 0
-            ? l10n.workspaceModelSelectNone
-            : l10n.workspaceModelSelectCount(count),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _knowledgeSelector(AppLocalizations l10n) {
-    return _relationshipTile(
-      keyId: 'workspace-model-knowledge',
-      label: l10n.workspaceModelKnowledge,
-      count: _draft.knowledge.length,
-      onTap: _readOnly ? null : () => _pickKnowledge(l10n),
-    );
-  }
-
-  Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_draft.normalizedAccessGrants);
-    final isPublic = workspaceGrantsArePublic(_draft.normalizedAccessGrants);
-    return WorkspaceResourceTile(
-      key: const Key('workspace-model-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
-      title: l10n.workspaceModelManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
-      onTap: _manageAccess,
-    );
-  }
-
   // --- Interactions ---------------------------------------------------------
 
   Future<void> _pickImage() async {
@@ -1148,7 +637,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       // Cap the avatar's dimensions before base64-embedding it so a large source
       // image does not bloat the draft JSON / spike memory. A downscaled image
       // is always re-encoded as PNG; an unchanged image keeps its source mime.
-      final bounded = await _boundAvatarBytes(bytes);
+      final bounded = await WorkspaceModelAvatarCodec.bound(bytes);
       final String mime;
       if (identical(bounded, bytes)) {
         final ext = (file.extension ?? 'png').toLowerCase();
@@ -1162,10 +651,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         mime = 'image/png';
       }
       final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
-      _update(() {
-        _draft.profileImageUrl = dataUrl;
-        _avatarRemoved = false;
-      });
+      _controller.setAvatar(dataUrl);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'model image pick failed',
@@ -1182,53 +668,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     }
   }
 
-  /// Downscales [bytes] so the longest edge is at most [_avatarMaxEdge],
-  /// re-encoding as PNG. Returns the original [bytes] unchanged when the image
-  /// already fits, and falls back to the original on any decode/encode failure
-  /// so picking an avatar never breaks.
-  static const int _avatarMaxEdge = 512;
-
-  Future<Uint8List> _boundAvatarBytes(Uint8List bytes) async {
-    ui.ImmutableBuffer? buffer;
-    ui.ImageDescriptor? descriptor;
-    ui.Codec? codec;
-    ui.Image? image;
-    try {
-      buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      descriptor = await ui.ImageDescriptor.encoded(buffer);
-      final width = descriptor.width;
-      final height = descriptor.height;
-      final longest = width > height ? width : height;
-      if (longest <= _avatarMaxEdge) {
-        return bytes;
-      }
-      final scale = _avatarMaxEdge / longest;
-      codec = await descriptor.instantiateCodec(
-        targetWidth: (width * scale).round(),
-        targetHeight: (height * scale).round(),
-      );
-      final frame = await codec.getNextFrame();
-      image = frame.image;
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      return data?.buffer.asUint8List() ?? bytes;
-    } catch (_) {
-      return bytes;
-    } finally {
-      // Release every native handle even when a step above throws, disposing
-      // the image/codec/descriptor before the backing buffer.
-      image?.dispose();
-      codec?.dispose();
-      descriptor?.dispose();
-      buffer?.dispose();
-    }
-  }
-
   Future<void> _addTag(AppLocalizations l10n) async {
     final value = await _promptText(l10n.workspaceModelTags);
     if (value == null) return;
     final tag = value.trim();
     if (tag.isEmpty || _draft.tags.contains(tag)) return;
-    _update(() => _draft.tags.add(tag));
+    _controller.addTag(tag);
   }
 
   Future<void> _addSuggestion(AppLocalizations l10n) async {
@@ -1236,186 +681,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     if (value == null) return;
     final prompt = value.trim();
     if (prompt.isEmpty) return;
-    _update(() => _draft.suggestionPrompts.add(prompt));
-  }
-
-  Future<void> _pickKnowledge(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceKnowledgeProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (item) => WorkspaceRelationshipOption(
-                    id: item.id,
-                    label: item.name,
-                    subtitle: item.description,
-                  ),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelKnowledge,
-      options: options,
-      selectedIds: _draft.knowledge.map((ref) => ref.id).toList(),
-    );
-    if (selected == null) return;
-    _update(() {
-      _draft.knowledge = [
-        for (final id in selected)
-          _draft.knowledge.firstWhere(
-            (ref) => ref.id == id,
-            orElse: () => WorkspaceModelKnowledgeRef(
-              id: id,
-              name: options
-                  .firstWhere(
-                    (option) => option.id == id,
-                    orElse: () =>
-                        WorkspaceRelationshipOption(id: id, label: id),
-                  )
-                  .label,
-            ),
-          ),
-      ];
-    });
-  }
-
-  Future<void> _pickTools(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceToolsProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (t) => WorkspaceRelationshipOption(id: t.id, label: t.name),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'tools relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelTools,
-      options: options,
-      selectedIds: _draft.toolIds,
-    );
-    if (selected != null) _update(() => _draft.toolIds = selected);
-  }
-
-  Future<void> _pickSkills(AppLocalizations l10n) async {
-    final List<WorkspaceRelationshipOption> options;
-    try {
-      options = await ref
-          .read(workspaceSkillsProvider.future)
-          .then(
-            (state) => state.items
-                .map(
-                  (s) => WorkspaceRelationshipOption(
-                    id: s.id,
-                    label: s.name,
-                    subtitle: s.description,
-                  ),
-                )
-                .toList(),
-          );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'skills relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: l10n.workspaceModelSkills,
-      options: options,
-      selectedIds: _draft.skillIds,
-    );
-    if (selected != null) _update(() => _draft.skillIds = selected);
-  }
-
-  Future<void> _pickFunctions(
-    AppLocalizations l10n, {
-    required bool isFilter,
-    bool isDefault = false,
-  }) async {
-    final List<WorkspaceFunctionRef> functions;
-    try {
-      functions = await ref.read(workspaceFunctionsProvider.future);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'functions relationship load failed',
-        scope: 'workspace/models',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
-      return;
-    }
-    if (!mounted) return;
-    final options = functions
-        .where((fn) => isFilter ? fn.isFilter : fn.isAction)
-        .map(
-          (fn) => WorkspaceRelationshipOption(
-            id: fn.id,
-            label: fn.name,
-            subtitle: fn.type,
-          ),
-        )
-        .toList();
-    final current = isFilter
-        ? (isDefault ? _draft.defaultFilterIds : _draft.filterIds)
-        : _draft.actionIds;
-    final title = isFilter
-        ? (isDefault
-              ? l10n.workspaceModelDefaultFilters
-              : l10n.workspaceModelFilters)
-        : l10n.workspaceModelActions;
-    final selected = await WorkspaceRelationshipSheet.show(
-      context,
-      title: title,
-      options: options,
-      selectedIds: current,
-    );
-    if (selected == null) return;
-    _update(() {
-      if (isFilter) {
-        if (isDefault) {
-          _draft.defaultFilterIds = selected;
-        } else {
-          _draft.filterIds = selected;
-        }
-      } else {
-        _draft.actionIds = selected;
-      }
-    });
+    _controller.addSuggestion(prompt);
   }
 
   Future<String?> _promptText(String label) {
@@ -1434,173 +700,5 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );
-  }
-
-  static List<String> _splitList(String raw) => raw
-      .split(RegExp(r'[,\n]'))
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList();
-
-  static Map<String, dynamic>? _parseJsonObject(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return <String, dynamic>{};
-    try {
-      final decoded = json.decode(trimmed);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-}
-
-/// Renders the model's current profile image: from an inline draft data/URL, or
-/// lazily fetched from the dedicated profile-image endpoint for saved models.
-class _ModelAvatar extends ConsumerStatefulWidget {
-  const _ModelAvatar({
-    required this.draftImage,
-    required this.modelId,
-    this.removed = false,
-  });
-
-  final String? draftImage;
-  final String modelId;
-
-  /// When true the user has explicitly removed the avatar this session, so the
-  /// persisted server image must not be re-fetched until the model is saved.
-  final bool removed;
-
-  @override
-  ConsumerState<_ModelAvatar> createState() => _ModelAvatarState();
-}
-
-class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
-  // Memoized profile-image request, keyed by the model id it was issued for, so
-  // parent rebuilds (e.g. every keystroke in the form) reuse the in-flight /
-  // resolved future instead of firing a fresh request and flickering the avatar.
-  Future<List<int>?>? _imageFuture;
-  String? _fetchedModelId;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final decodeTarget = RasterMediaPolicy.forBox(
-      context,
-      profile: RasterDecodeProfile.avatar,
-      logicalWidth: 56,
-      logicalHeight: 56,
-    );
-    final draftImage = widget.draftImage;
-    final modelId = widget.modelId;
-    final placeholder = Container(
-      key: const Key('workspace-model-avatar-placeholder'),
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: theme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-      ),
-      child: Icon(Icons.smart_toy_outlined, color: theme.iconSecondary),
-    );
-
-    Widget wrap(Widget child) => ClipRRect(
-      borderRadius: BorderRadius.circular(AppBorderRadius.medium),
-      child: SizedBox(width: 56, height: 56, child: child),
-    );
-
-    final inline = draftImage;
-    if (inline != null && inline.startsWith('data:image')) {
-      try {
-        final bytes = base64Decode(inline.split(',').last);
-        return wrap(
-          Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(bytes),
-              decodeTarget,
-            ),
-            fit: BoxFit.cover,
-          ),
-        );
-      } catch (_) {
-        return placeholder;
-      }
-    }
-    if (inline != null && inline.startsWith('http')) {
-      final api = ref.watch(apiServiceProvider);
-      // Draft URLs are user-controlled and can redirect off-origin. Send only
-      // the public product identity; server credentials and custom proxy
-      // headers must never follow them.
-      final headers = imageUrlIsServerOrigin(api?.serverConfig.url, inline)
-          ? ConduitUserAgent.mergeHeaders()
-          : null;
-      return wrap(
-        Image(
-          image: RasterMediaPolicy.resizeProvider(
-            NetworkImage(inline, headers: headers),
-            decodeTarget,
-          ),
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => placeholder,
-        ),
-      );
-    }
-    // A fresh model or an explicit removal both render the placeholder without
-    // reaching for the persisted server image.
-    if (modelId.isEmpty || widget.removed) return placeholder;
-
-    if (_fetchedModelId != modelId) {
-      _fetchedModelId = modelId;
-      _imageFuture = ref
-          .read(apiServiceProvider)
-          ?.getWorkspaceModelProfileImage(modelId);
-    }
-
-    return FutureBuilder<List<int>?>(
-      future: _imageFuture,
-      builder: (context, snapshot) {
-        final data = snapshot.data;
-        if (data == null || data.isEmpty) return placeholder;
-        return wrap(
-          Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(Uint8List.fromList(data)),
-              decodeTarget,
-            ),
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => placeholder,
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Shares one or more model definitions as a JSON file via the OS share sheet.
-Future<void> exportWorkspaceModelsToShare(
-  BuildContext context, {
-  required List<Map<String, dynamic>> models,
-  required String filename,
-}) async {
-  final l10n = AppLocalizations.of(context)!;
-  try {
-    await WorkspaceExportController().shareJson(
-      filename: filename,
-      data: models,
-    );
-  } catch (error, stackTrace) {
-    DebugLogger.error(
-      'model export share failed',
-      scope: 'workspace/models',
-      error: error,
-      stackTrace: stackTrace,
-    );
-    if (context.mounted) {
-      AdaptiveSnackBar.show(
-        context,
-        message: l10n.workspaceModelExportFailed,
-        type: AdaptiveSnackBarType.error,
-      );
-    }
   }
 }

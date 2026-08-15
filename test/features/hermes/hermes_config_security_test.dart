@@ -4,7 +4,10 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
+import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/services/hermes_connection_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1210,6 +1213,79 @@ void main() {
     check(
       container.read(hermesConfigProvider).baseUrl,
     ).equals('https://two.example/v1');
+  });
+
+  test(
+    'onboarding rollback snapshots credentials after cold-start hydration',
+    () async {
+      final storage = _GatedSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      }, gatedReadKey: 'hermes_api_key_v1');
+      addTearDown(storage.releaseAll);
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final gateway = container.read(hermesConnectionGatewayProvider);
+      const replacement = 'replacement-key';
+
+      final commit = gateway.commitOnboarding(
+        const HermesConnectionDraft(
+          config: HermesConfig(
+            enabled: true,
+            baseUrl: 'https://one.example/v1',
+            apiKey: replacement,
+          ),
+          apiKeyChanged: true,
+          sessionKeyChanged: false,
+        ),
+        isCurrent: () => storage.values['hermes_api_key_v1'] != replacement,
+      );
+
+      await storage.readStarted.future.timeout(const Duration(seconds: 1));
+      storage.releaseRead();
+      await expectLater(
+        commit,
+        throwsA(isA<HermesConnectionCommitCancelled>()),
+      );
+
+      check(storage.values['hermes_api_key_v1']).equals('key-for-one');
+      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
+      final restored = container.read(hermesConfigProvider);
+      check(restored.apiKey).equals('key-for-one');
+      check(restored.sessionKey).equals('memory-for-one');
+    },
+  );
+
+  test('onboarding reports secret hydration failure as persistence', () async {
+    final storage = _FailOnceSecureStorage({})..failReads = true;
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    await check(
+      container
+          .read(hermesConnectionGatewayProvider)
+          .commitOnboarding(
+            const HermesConnectionDraft(
+              config: HermesConfig(
+                enabled: true,
+                baseUrl: 'https://one.example/v1',
+                apiKey: 'replacement-key',
+              ),
+              apiKeyChanged: true,
+              sessionKeyChanged: false,
+            ),
+            isCurrent: () => true,
+          ),
+    ).throws<HermesConnectionCommitException>((failure) {
+      failure
+          .has((value) => value.stage, 'stage')
+          .equals(HermesConnectionCommitStage.persistence);
+      failure.has((value) => value.error, 'error').isA<StateError>();
+    });
   });
 
   test('provider rebuild cannot lower an in-memory clear barrier', () async {

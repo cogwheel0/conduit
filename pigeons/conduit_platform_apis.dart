@@ -4,8 +4,7 @@ import 'package:pigeon/pigeon.dart';
   PigeonOptions(
     dartOut: 'lib/core/platform/conduit_platform_apis.g.dart',
     dartOptions: DartOptions(),
-    kotlinOut:
-        'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
+    kotlinOut: 'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
     kotlinOptions: KotlinOptions(package: 'app.cogwheel.conduit'),
     swiftOut: 'ios/Runner/ConduitPlatformApis.g.swift',
     swiftOptions: SwiftOptions(),
@@ -278,6 +277,36 @@ class PlatformNativeSheetOption {
   bool hasMoreSiblings;
 }
 
+class PlatformNativeSheetTheme {
+  PlatformNativeSheetTheme({
+    required this.isDark,
+    required this.backgroundArgb,
+    required this.surfaceArgb,
+    required this.elevatedSurfaceArgb,
+    required this.inputArgb,
+    required this.foregroundArgb,
+    required this.secondaryForegroundArgb,
+    required this.iconArgb,
+    required this.borderArgb,
+    required this.accentArgb,
+    required this.onAccentArgb,
+    required this.destructiveArgb,
+  });
+
+  bool isDark;
+  int backgroundArgb;
+  int surfaceArgb;
+  int elevatedSurfaceArgb;
+  int inputArgb;
+  int foregroundArgb;
+  int secondaryForegroundArgb;
+  int iconArgb;
+  int borderArgb;
+  int accentArgb;
+  int onAccentArgb;
+  int destructiveArgb;
+}
+
 class PlatformNativeSheetItem {
   PlatformNativeSheetItem({
     required this.id,
@@ -285,6 +314,8 @@ class PlatformNativeSheetItem {
     this.subtitle,
     required this.sfSymbol,
     this.iconAsset,
+    this.iconSize,
+    this.showsDisclosure,
     required this.destructive,
     required this.dismissOnSelect,
     this.actionId,
@@ -312,6 +343,8 @@ class PlatformNativeSheetItem {
   String? subtitle;
   String sfSymbol;
   String? iconAsset;
+  double? iconSize;
+  bool? showsDisclosure;
   bool destructive;
   bool dismissOnSelect;
   String? actionId;
@@ -612,15 +645,19 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   PlatformNativeSheetApplyDetailPatchRequest({
     required this.detailId,
     required this.items,
+    required this.sections,
     this.title,
     this.subtitle,
+    required this.clearSubtitle,
     this.detailSheets,
   });
 
   String detailId;
   List<PlatformNativeSheetItem> items;
+  List<PlatformNativeSheetSection> sections;
   String? title;
   String? subtitle;
+  bool clearSubtitle;
   List<PlatformNativeSheetDetail>? detailSheets;
 }
 
@@ -761,6 +798,8 @@ abstract class NativeDropdownHostApi {
 
 @HostApi()
 abstract class NativeSheetHostApi {
+  void setTheme(PlatformNativeSheetTheme theme);
+
   @async
   bool presentProfileMenu(PlatformNativeProfileSheetConfig config);
 

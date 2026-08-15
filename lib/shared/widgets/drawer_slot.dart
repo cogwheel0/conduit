@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Splits drawer content into a main region and a footer (e.g. bottom tabs).
 ///

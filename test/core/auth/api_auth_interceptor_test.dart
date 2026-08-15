@@ -122,6 +122,24 @@ void main() {
       );
     });
 
+    test('default-port HTTPS upgrade receives server credentials', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: 'http://host.example/openwebui',
+        authToken: 'server-token',
+        customHeaders: const {'X-Proxy-Credential': 'proxy-secret'},
+      );
+      final handler = _TestRequestInterceptorHandler();
+
+      interceptor.onRequest(
+        RequestOptions(path: 'https://host.example/api/models'),
+        handler,
+      );
+      final forwarded = await handler.forwardedRequest;
+
+      expect(forwarded?.headers['Authorization'], 'Bearer server-token');
+      expect(forwarded?.headers['X-Proxy-Credential'], 'proxy-secret');
+    });
+
     test(
       'configured User-Agent cannot override the Conduit identity',
       () async {
@@ -164,45 +182,42 @@ void main() {
       expect(forwarded?.headers['Authorization'], 'Bearer account-a');
     });
 
-    test(
-      'candidate validation tokens are request-scoped and do not rotate session',
-      () async {
-        final interceptor = ApiAuthInterceptor(
-          serverUrl: _serverUrl,
-          authToken: 'settled-session',
-        );
-        final firstHandler = _TestRequestInterceptorHandler();
-        interceptor.onRequest(
-          RequestOptions(
-            path: '/api/v1/auths/',
-            extra: const {
-              ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-a',
-            },
-          ),
-          firstHandler,
-        );
-        final secondHandler = _TestRequestInterceptorHandler();
-        interceptor.onRequest(
-          RequestOptions(
-            path: '/api/v1/auths/',
-            extra: const {
-              ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-b',
-            },
-          ),
-          secondHandler,
-        );
+    test('candidate validation tokens are request-scoped and do not rotate session', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'settled-session',
+      );
+      final firstHandler = _TestRequestInterceptorHandler();
+      interceptor.onRequest(
+        RequestOptions(
+          path: '/api/v1/auths/',
+          extra: const {
+            ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-a',
+          },
+        ),
+        firstHandler,
+      );
+      final secondHandler = _TestRequestInterceptorHandler();
+      interceptor.onRequest(
+        RequestOptions(
+          path: '/api/v1/auths/',
+          extra: const {
+            ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-b',
+          },
+        ),
+        secondHandler,
+      );
 
-        expect(
-          (await firstHandler.forwardedRequest)?.headers['Authorization'],
-          'Bearer candidate-a',
-        );
-        expect(
-          (await secondHandler.forwardedRequest)?.headers['Authorization'],
-          'Bearer candidate-b',
-        );
-        expect(interceptor.authToken, 'settled-session');
-      },
-    );
+      expect(
+        (await firstHandler.forwardedRequest)?.headers['Authorization'],
+        'Bearer candidate-a',
+      );
+      expect(
+        (await secondHandler.forwardedRequest)?.headers['Authorization'],
+        'Bearer candidate-b',
+      );
+      expect(interceptor.authToken, 'settled-session');
+    });
 
     test('stale auth snapshot rejects locally after token rotation', () async {
       final interceptor = ApiAuthInterceptor(
@@ -224,29 +239,26 @@ void main() {
       expect(options.headers.containsKey('Authorization'), isFalse);
     });
 
-    test(
-      'logout and reauthentication invalidate a snapshot even if the token repeats',
-      () async {
-        final interceptor = ApiAuthInterceptor(
-          serverUrl: _serverUrl,
-          authToken: 'shared-token',
-        );
-        final snapshot = interceptor.captureSnapshot();
-        interceptor.updateAuthToken(null);
-        interceptor.updateAuthToken('shared-token');
-        final handler = _TestRequestInterceptorHandler();
-        final options = RequestOptions(
-          path: '/api/chat/completed',
-          extra: {ApiAuthInterceptor.authSnapshotExtraKey: snapshot},
-        );
+    test('logout and reauthentication invalidate a snapshot even if the token repeats', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'shared-token',
+      );
+      final snapshot = interceptor.captureSnapshot();
+      interceptor.updateAuthToken(null);
+      interceptor.updateAuthToken('shared-token');
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(
+        path: '/api/chat/completed',
+        extra: {ApiAuthInterceptor.authSnapshotExtraKey: snapshot},
+      );
 
-        interceptor.onRequest(options, handler);
-        final rejected = await handler.rejectedError;
+      interceptor.onRequest(options, handler);
+      final rejected = await handler.rejectedError;
 
-        expect(rejected?.type, DioExceptionType.cancel);
-        expect(options.headers.containsKey('Authorization'), isFalse);
-      },
-    );
+      expect(rejected?.type, DioExceptionType.cancel);
+      expect(options.headers.containsKey('Authorization'), isFalse);
+    });
 
     test('admin configs models request requires auth', () async {
       final interceptor = ApiAuthInterceptor(serverUrl: _serverUrl);

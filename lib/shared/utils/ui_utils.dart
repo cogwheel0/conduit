@@ -1,7 +1,9 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+
 import 'dart:io' show Platform;
+
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Utility functions for common UI patterns and helpers

@@ -135,8 +135,9 @@ abstract final class WorkspaceToolContent {
   /// The `required_open_webui_version` declared in [content]'s front-matter, or
   /// null when none is declared.
   static String? requiredServerVersion(String content) {
-    final value = parseFrontmatter(content)['required_open_webui_version']
-        ?.trim();
+    final value = parseFrontmatter(
+      content,
+    )['required_open_webui_version']?.trim();
     return (value == null || value.isEmpty) ? null : value;
   }
 
@@ -193,14 +194,35 @@ abstract final class WorkspaceToolContent {
   }
 
   static const Map<String, String> _accentFolds = {
-    'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'æ': 'ae',
+    'à': 'a',
+    'á': 'a',
+    'â': 'a',
+    'ã': 'a',
+    'ä': 'a',
+    'å': 'a',
+    'æ': 'ae',
     'ç': 'c',
-    'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',
-    'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
+    'è': 'e',
+    'é': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'ì': 'i',
+    'í': 'i',
+    'î': 'i',
+    'ï': 'i',
     'ñ': 'n',
-    'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o',
-    'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
-    'ý': 'y', 'ÿ': 'y',
+    'ò': 'o',
+    'ó': 'o',
+    'ô': 'o',
+    'õ': 'o',
+    'ö': 'o',
+    'ø': 'o',
+    'ù': 'u',
+    'ú': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ý': 'y',
+    'ÿ': 'y',
     'ß': 'ss',
   };
 }

@@ -3,7 +3,6 @@
 final class PreferenceKeys {
   static const String reduceMotion = 'reduce_motion';
   static const String animationSpeed = 'animation_speed';
-  static const String hapticFeedback = 'haptic_feedback';
   static const String disableHapticsWhileStreaming =
       'disable_haptics_while_streaming';
   static const String highContrast = 'high_contrast';
@@ -102,6 +101,7 @@ final class PreferenceKeys {
   static const String notesListShowRecent = 'notes_list_show_recent';
 
   static const String sidebarActiveTab = 'sidebar_active_tab';
+  static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';
   static const String serverFeatureAvailability =
       'server_feature_availability_v1';
 

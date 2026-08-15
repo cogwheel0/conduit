@@ -1,6 +1,6 @@
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 PageRoute<T> buildPlatformPageRoute<T>({
   required WidgetBuilder builder,
@@ -38,8 +38,7 @@ class SwipeablePageRoute<T> extends PageRoute<T> {
   final WidgetBuilder builder;
   final bool _fullscreenDialog;
   final bool _opaque;
-  static const _cupertinoTransitionsBuilder =
-      CupertinoPageTransitionsBuilder();
+  static const _cupertinoTransitionsBuilder = CupertinoPageTransitionsBuilder();
 
   @override
   bool get fullscreenDialog => _fullscreenDialog;

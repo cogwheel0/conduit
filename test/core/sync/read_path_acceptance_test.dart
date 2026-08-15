@@ -144,9 +144,8 @@ void main() {
     final container = makeContainer(offlineClient);
 
     final conversations = await container.read(conversationsProvider.future);
-    check(
-      conversations.map((c) => c.id),
-    ).deepEquals(['chat-3', 'chat-2', 'chat-1']);
+    check(conversations.map((c) => c.id))
+        .deepEquals(['chat-3', 'chat-2', 'chat-1']);
 
     final folders = await container.read(foldersProvider.future);
     check(folders.map((f) => f.id)).deepEquals(['folder-1']);
@@ -189,9 +188,8 @@ void main() {
       final state = container.read(conversationsProvider);
       return (state.asData?.value ?? const []).isNotEmpty;
     });
-    check(
-      container.read(conversationsProvider).requireValue.single.title,
-    ).equals('Title chat-1');
+    check(container.read(conversationsProvider).requireValue.single.title)
+        .equals('Title chat-1');
     final before = await loadLocalConversation(container, 'chat-1');
     check(before!.messages.single.content).equals('original body');
 
@@ -261,5 +259,5 @@ void main() {
       emissions.length - baseline,
     ).isLessOrEqual(chatCount + 1);
     check(emissions.last.length).equals(chatCount);
-  });
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

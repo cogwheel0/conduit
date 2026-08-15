@@ -1,7 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -14,6 +13,10 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_read_only_badge.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
@@ -21,7 +24,6 @@ import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// Section-registry entry point for the Knowledge editor.
@@ -51,52 +53,27 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    if (mode == WorkspaceRouteMode.create) {
-      return const _WorkspaceKnowledgeForm(
+    return WorkspaceResourceEditorRoute<WorkspaceKnowledgeDetail>(
+      title: l10n.workspaceKnowledge,
+      section: WorkspaceSection.knowledge,
+      mode: mode,
+      resourceId: knowledgeId,
+      errorMessage: l10n.workspaceLoadFailed,
+      createBuilder: () => const _WorkspaceKnowledgeForm(
         mode: WorkspaceRouteMode.create,
         summary: null,
-      );
-    }
-
-    final id = knowledgeId;
-    if (id == null || id.isEmpty) {
-      return WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        errorMessage: l10n.workspaceLoadFailed,
-        child: const SizedBox.shrink(),
-      );
-    }
-
-    final detail = ref.watch(workspaceKnowledgeDetailProvider(id));
-    return detail.when(
-      loading: () => WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        isLoading: true,
-        child: const SizedBox.shrink(),
       ),
-      error: (_, _) => WorkspaceEditorScaffold(
-        title: l10n.workspaceKnowledge,
-        errorMessage: l10n.workspaceLoadFailed,
-        onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
-        child: const SizedBox.shrink(),
+      detailLoader: (ref, id) =>
+          ref.watch(workspaceKnowledgeDetailProvider(id)),
+      onRetry: (ref, id) =>
+          ref.invalidate(workspaceKnowledgeDetailProvider(id)),
+      builder: (value) => _WorkspaceKnowledgeForm(
+        key: ValueKey(
+          'workspace-knowledge-form-${value.summary.id}-${mode.name}',
+        ),
+        mode: mode,
+        summary: value.summary,
       ),
-      data: (value) {
-        if (value == null) {
-          return WorkspaceEditorScaffold(
-            title: l10n.workspaceKnowledge,
-            errorMessage: l10n.workspaceLoadFailed,
-            onRetry: () => ref.invalidate(workspaceKnowledgeDetailProvider(id)),
-            child: const SizedBox.shrink(),
-          );
-        }
-        return _WorkspaceKnowledgeForm(
-          key: ValueKey(
-            'workspace-knowledge-form-${value.summary.id}-${mode.name}',
-          ),
-          mode: mode,
-          summary: value.summary,
-        );
-      },
     );
   }
 }
@@ -118,18 +95,14 @@ class _WorkspaceKnowledgeFormState
   late final TextEditingController _descriptionController;
   late List<WorkspaceAccessGrantInput> _grants;
 
-  bool _dirty = false;
-  bool _saving = false;
-  String? _errorMessage;
-
-  bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
-  bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
+  late final WorkspaceEditorSession _session;
   bool get _isExternal => widget.summary?.isExternal ?? false;
-  bool get _writeAccess => _isCreate || (widget.summary?.writeAccess ?? false);
+  bool get _writeAccess =>
+      _session.isCreate || (widget.summary?.writeAccess ?? false);
 
   /// Metadata fields are editable only in create/edit modes with write access on
   /// a local base. Detail is read-only for fields (edit via the Edit button).
-  bool get _fieldsReadOnly => _isExternal || !_writeAccess || _isDetail;
+  bool get _fieldsReadOnly => _isExternal || !_writeAccess || _session.isDetail;
 
   /// The file browser is manageable in both detail and edit for local, writable
   /// bases; external/connected bases are always read-only.
@@ -146,6 +119,8 @@ class _WorkspaceKnowledgeFormState
   @override
   void initState() {
     super.initState();
+    _session = WorkspaceEditorSession(widget.mode)
+      ..addListener(_handleSessionChanged);
     _nameController = TextEditingController(text: widget.summary?.name ?? '');
     _descriptionController = TextEditingController(
       text: widget.summary?.description ?? '',
@@ -158,64 +133,47 @@ class _WorkspaceKnowledgeFormState
 
   @override
   void dispose() {
+    _session.removeListener(_handleSessionChanged);
+    _session.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
 
+  void _handleSessionChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+    _session.markDirty();
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
     if (_nameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = l10n.workspaceKnowledgeNameRequired);
+      _session.setError(l10n.workspaceKnowledgeNameRequired);
       return;
     }
-    setState(() {
-      _saving = true;
-      _errorMessage = null;
-    });
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       accessGrants: _grants,
     );
-    try {
-      final WorkspaceKnowledgeDetail result = _isCreate
-          ? await notifier.create(form)
-          : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
-      _dirty = false;
-      DebugLogger.log(
-        'knowledge saved',
-        scope: 'workspace/knowledge',
-        data: {'id': result.summary.id, 'create': _isCreate},
-      );
-      _showSnack(l10n.workspaceKnowledgeSaved);
-      final router = GoRouter.of(context);
-      if (_isCreate) {
-        router.pushReplacement(
-          WorkspaceSection.knowledge.routes.detailLocation(result.summary.id),
-        );
-      } else if (router.canPop()) {
-        router.pop();
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge save failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _errorMessage = l10n.workspaceKnowledgeSaveFailed;
-      });
-    }
+    await WorkspaceEditorMutationCoordinator.run<WorkspaceKnowledgeDetail>(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.knowledge,
+      scope: 'workspace/knowledge',
+      resourceLabel: 'knowledge',
+      successMessage: l10n.workspaceKnowledgeSaved,
+      failureMessage: l10n.workspaceKnowledgeSaveFailed,
+      editorMounted: () => mounted,
+      mutate: (isCreate) => isCreate
+          ? notifier.create(form)
+          : notifier.updateItem(widget.summary!.id, form),
+      resourceId: (result) => result.summary.id,
+    );
   }
 
   Future<void> _manageAccess() async {
@@ -243,26 +201,22 @@ class _WorkspaceKnowledgeFormState
       if (summary == null) _markDirty();
       return;
     }
-    setState(() => _saving = true);
-    try {
-      await ref
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/knowledge',
+      operationLabel: 'knowledge access update',
+      editorMounted: () => mounted,
+      operation: () => ref
           .read(workspaceKnowledgeProvider.notifier)
-          .updateAccess(summary.id, grants);
-      if (!mounted) return;
-      setState(() => _grants = grants);
-      ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
-      _showSnack(l10n.workspaceKnowledgeSaved);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge access update failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+          .updateAccess(summary.id, grants),
+      onSuccess: (_) {
+        setState(() => _grants = grants);
+        ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
+        _showSnack(l10n.workspaceKnowledgeSaved);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
+    );
   }
 
   Future<void> _reset() async {
@@ -278,25 +232,22 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
-      if (!mounted) return;
-      // Reset deleted every file server-side; refetch the browser so it no
-      // longer shows (or offers actions on) the now-deleted entries.
-      ref.invalidate(workspaceKnowledgeFilesProvider(summary.id));
-      _showSnack(l10n.workspaceKnowledgeResetDone);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge reset failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    await WorkspaceEditorOperationRunner.stay<void>(
+      session: _session,
+      scope: 'workspace/knowledge',
+      operationLabel: 'knowledge reset',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id),
+      onSuccess: (_) {
+        // Reset deleted every file server-side; refetch the browser so it no
+        // longer shows (or offers actions on) the now-deleted entries.
+        ref.invalidate(workspaceKnowledgeFilesProvider(summary.id));
+        _showSnack(l10n.workspaceKnowledgeResetDone);
+      },
+      onFailure: (_) =>
+          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
+    );
   }
 
   Future<void> _export() async {
@@ -339,63 +290,56 @@ class _WorkspaceKnowledgeFormState
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    final router = GoRouter.of(context);
-    setState(() => _saving = true);
-    try {
-      await ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id);
-      if (!mounted) return;
-      _dirty = false;
-      _showSnack(l10n.workspaceKnowledgeDeleted);
-      if (router.canPop()) {
-        router.pop();
-      } else {
-        router.go(WorkspaceSection.knowledge.routes.collectionPath);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'knowledge delete failed',
-        scope: 'workspace/knowledge',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true);
-      }
-    }
+    await WorkspaceEditorMutationCoordinator.exitAfterDelete(
+      context: context,
+      session: _session,
+      section: WorkspaceSection.knowledge,
+      scope: 'workspace/knowledge',
+      resourceLabel: 'knowledge',
+      successMessage: l10n.workspaceKnowledgeDeleted,
+      failureMessage: l10n.workspaceKnowledgeSaveFailed,
+      editorMounted: () => mounted,
+      delete: () =>
+          ref.read(workspaceKnowledgeProvider.notifier).delete(summary.id),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _buildContent(context);
+
+  Widget _buildContent(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final summary = widget.summary;
-    final title = _isCreate
+    final title = _session.isCreate
         ? l10n.workspaceKnowledgeCreateTitle
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceKnowledge
               : _nameController.text.trim());
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
-      isDirty: _dirty && !_saving,
+      section: WorkspaceSection.knowledge,
+      mode: widget.mode,
+      isDirty: _session.dirty && !_session.saving,
       readOnly: _fieldsReadOnly,
-      isSaving: _saving,
+      isSaving: _session.saving,
       canSave: !_fieldsReadOnly,
       onSave: _fieldsReadOnly ? null : _save,
-      errorMessage: _errorMessage,
+      onEdit: _session.isDetail && _writeAccess && !_isExternal
+          ? () => context.pushWorkspace(
+              WorkspaceSection.knowledge.routes.editLocation(summary!.id),
+            )
+          : null,
+      errorMessage: _session.errorMessage,
       actions: _buildActions(l10n),
       bodyPadding: EdgeInsets.zero,
       child: AbsorbPointer(
-        absorbing: _saving,
+        absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-knowledge-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
             if (_isExternal)
               Padding(
@@ -416,39 +360,32 @@ class _WorkspaceKnowledgeFormState
                   ],
                 ),
               ),
-            if (_isDetail && _writeAccess && !_isExternal)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: ConduitButton(
-                  key: const Key('workspace-knowledge-edit'),
-                  text: l10n.edit,
-                  icon: Icons.edit_outlined,
-                  onPressed: () => context.push(
-                    WorkspaceSection.knowledge.routes.editLocation(summary!.id),
-                  ),
+            WorkspaceEditorFieldGroup(
+              children: [
+                WorkspaceEditorField(
+                  fieldKey: 'workspace-knowledge-name',
+                  controller: _nameController,
+                  label: l10n.workspaceKnowledgeName,
+                  isDetail: _session.isDetail,
+                  enabled: !_fieldsReadOnly,
+                  onChanged: (_) => _markDirty(),
                 ),
-              ),
-            ConduitInput(
-              key: const Key('workspace-knowledge-name'),
-              controller: _nameController,
-              label: l10n.workspaceKnowledgeName,
-              enabled: !_fieldsReadOnly,
-              onChanged: (_) => _markDirty(),
+                WorkspaceEditorField(
+                  fieldKey: 'workspace-knowledge-description',
+                  controller: _descriptionController,
+                  label: l10n.workspaceKnowledgeDescription,
+                  isDetail: _session.isDetail,
+                  enabled: !_fieldsReadOnly,
+                  minLines: 2,
+                  maxLines: 4,
+                  onChanged: (_) => _markDirty(),
+                ),
+              ],
             ),
-            const SizedBox(height: Spacing.md),
-            ConduitInput(
-              key: const Key('workspace-knowledge-description'),
-              controller: _descriptionController,
-              label: l10n.workspaceKnowledgeDescription,
-              enabled: !_fieldsReadOnly,
-              minLines: 2,
-              maxLines: 4,
-              onChanged: (_) => _markDirty(),
-            ),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             _accessTile(l10n),
-            if (!_isCreate && summary != null) ...[
-              const SizedBox(height: Spacing.xl),
+            if (!_session.isCreate && summary != null) ...[
+              SizedBox(height: sectionGap),
               WorkspaceKnowledgeFileBrowser(
                 key: Key('workspace-knowledge-files-${summary.id}'),
                 knowledgeId: summary.id,
@@ -456,7 +393,7 @@ class _WorkspaceKnowledgeFormState
                 canDeleteUnderlying: _canDeleteUnderlying,
               ),
             ],
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),
@@ -478,7 +415,7 @@ class _WorkspaceKnowledgeFormState
   }
 
   List<WorkspaceEditorAction> _buildActions(AppLocalizations l10n) {
-    if (_isCreate) return const [];
+    if (_session.isCreate) return const [];
     final summary = widget.summary;
     if (summary == null) return const [];
     final capabilities = ref

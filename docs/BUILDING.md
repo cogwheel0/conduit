@@ -10,8 +10,8 @@ instead.
 
 | | |
 | --- | --- |
-| Flutter SDK | Recent stable, with Dart `3.9.2` or newer |
-| Android | Java 17, Android SDK (compile/target SDK 36), Android 7.0+ (API 24) at runtime |
+| Flutter SDK | Flutter `3.47.0` or newer, with Dart `3.13.0` or newer |
+| Android | Java 17+, AGP 9.1.0, KGP 2.4.0, Gradle 9.3.1, Android SDK 36, Android 7.0+ (API 24) at runtime |
 | iOS | Xcode with an iOS 16.0+ deployment target |
 | Backend | An Open WebUI instance, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
 
@@ -54,11 +54,28 @@ new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
 
+Pigeon remains pinned separately because its analyzer constraint does not
+overlap the Dart 3.13-compatible Riverpod and Freezed generators. Install its
+isolated tool dependencies before regenerating platform bindings:
+
+```bash
+dart pub get --directory tool/pigeon_codegen
+dart tool/pigeon_codegen/bin/generate.dart
+```
+
 Use `--delete-conflicting-outputs` when generated files fall out of sync:
 
 ```bash
 dart run build_runner build --delete-conflicting-outputs
 ```
+
+`vad` 0.0.8 still declares Record 6.x support. The root pubspec temporarily
+pins VAD and overrides `record` to 7.1.1; Conduit passes VAD a PCM stream owned
+by `VoiceInputService`, so VAD never creates its incompatible internal
+recorder. Remove the override and exact VAD pin when [upstream issue
+#22](https://github.com/keyur2maru/vad/issues/22) ships Record 7 support. Keep
+the Conduit-owned stream until upstream can also preserve externally managed
+iOS audio sessions.
 
 ## Verify
 

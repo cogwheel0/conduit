@@ -4,15 +4,17 @@ import 'dart:typed_data';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/raster_media_policy.dart';
 import '../services/brand_service.dart';
 import '../theme/theme_extensions.dart';
 
-typedef AvatarWidgetBuilder =
-    Widget Function(BuildContext context, double size);
+typedef AvatarWidgetBuilder = Widget Function(
+  BuildContext context,
+  double size,
+);
 
 class AvatarImage extends ConsumerWidget {
   final double size;

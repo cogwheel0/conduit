@@ -1,14 +1,16 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
+
 // app_theme not required here; using theme extension tokens
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,6 +18,7 @@ import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
@@ -46,11 +49,15 @@ import '../../../core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -863,17 +870,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         lease.tryCommit(() {
           _clipboardService.claimNativePasteSync(prepared, (attachments) {
             unawaited(
-              currentOnPasted(attachments).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                DebugLogger.error(
-                  'Native pasted attachment processing failed',
-                  scope: 'clipboard/native-paste',
-                  error: error,
-                  stackTrace: stackTrace,
-                );
-              }),
+              currentOnPasted(attachments)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    DebugLogger.error(
+                      'Native pasted attachment processing failed',
+                      scope: 'clipboard/native-paste',
+                      error: error,
+                      stackTrace: stackTrace,
+                    );
+                  }),
             );
           });
         });
@@ -3028,19 +3033,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       showCompactComposer ? compactRadius : expandedRadius,
     );
 
-    final List<Widget> composerChildren = <Widget>[
-      if (_shouldShowPromptOverlay)
-        Padding(
-          key: const ValueKey('prompt-overlay'),
-          padding: const EdgeInsets.fromLTRB(
-            Spacing.sm,
-            0,
-            Spacing.sm,
-            Spacing.xs,
+    late final Widget shellContent;
+    Widget? compactPromptOverlay;
+
+    if (!showCompactComposer) {
+      final List<Widget> composerChildren = <Widget>[
+        if (_shouldShowPromptOverlay)
+          Padding(
+            key: const ValueKey('prompt-overlay'),
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.sm,
+              0,
+              Spacing.sm,
+              Spacing.xs,
+            ),
+            child: _buildActiveOverlay(),
           ),
-          child: _buildActiveOverlay(),
-        ),
-      if (!showCompactComposer) ...[
         Padding(
           key: const ValueKey('composer-expanded-input'),
           padding: const EdgeInsets.fromLTRB(
@@ -3104,16 +3112,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ],
               if (quickPills.isNotEmpty)
                 Expanded(
-                  child: ClipRect(
-                    child: SingleChildScrollView(
-                      key: const ValueKey('composer-quick-pills'),
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: _withHorizontalSpacing(
-                          quickPills,
-                          Spacing.xxs,
+                  child: HorizontalOverflowFade(
+                    child: HorizontalScrollGestureBoundary(
+                      child: SingleChildScrollView(
+                        key: const ValueKey('composer-quick-pills'),
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: _withHorizontalSpacing(
+                            quickPills,
+                            Spacing.xxs,
+                          ),
                         ),
                       ),
                     ),
@@ -3143,15 +3153,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ],
           ),
         ),
-      ],
-    ];
+      ];
 
-    late final Widget shellContent;
-    Widget? compactPromptOverlay;
-
-    // Compact mode keeps every action inside one full-width shell. Matching
-    // control sizes and insets make the resting row mirror the focused shell.
-    if (showCompactComposer) {
+      // Multiline and quick-pill states use the full two-tier shell.
+      shellContent = KeyedSubtree(
+        key: const ValueKey('expanded-composer-shell'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4,
+          ),
+          // Keep text-entry height changes direct. AnimatedSize here runs on
+          // each new or removed line, making the composer trail the user's
+          // typing and repeatedly relaying out the chat viewport.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: RepaintBoundary(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: composerChildren,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      // Compact mode keeps every action inside one full-width shell. Matching
+      // control sizes and insets make the resting row mirror the focused shell.
       final textFieldContent = Container(
         key: const ValueKey('compact-composer-content'),
         height: conduitScaledControlExtent(
@@ -3238,28 +3265,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               child: _buildActiveOverlay(),
             )
           : null;
-    } else {
-      // Multiline and quick-pill states use the full two-tier shell.
-      shellContent = KeyedSubtree(
-        key: const ValueKey('expanded-composer-shell'),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.4,
-          ),
-          // Keep text-entry height changes direct. AnimatedSize here runs on
-          // each new or removed line, making the composer trail the user's
-          // typing and repeatedly relaying out the chat viewport.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
-            ),
-          ),
-        ),
-      );
     }
 
     // Keep the native backdrop in one stable element slot when the composer

@@ -10,11 +10,12 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _imageUrl = 'https://openwebui.example.com/api/v1/files/shared/content';
+const _markdownImageKey = ValueKey<String>('markdown-network-image');
 
 ApiService _buildApi(WorkerManager workerManager) => ApiService(
   serverConfig: const ServerConfig(
@@ -38,10 +39,13 @@ Widget _buildHost(ProviderContainer container) => UncontrolledProviderScope(
               imageUrl: _imageUrl,
               fallbackBuilder: (_, _) => const SizedBox.shrink(),
             ),
-            ConduitMarkdown.buildImage(
-              context,
-              Uri.parse(_imageUrl),
-              context.conduitTheme,
+            KeyedSubtree(
+              key: _markdownImageKey,
+              child: ConduitMarkdown.buildImage(
+                context,
+                Uri.parse(_imageUrl),
+                context.conduitTheme,
+              ),
             ),
           ],
         ),
@@ -58,9 +62,10 @@ List<CachedNetworkImageProvider> _cachedProviders(WidgetTester tester) => tester
     .whereType<CachedNetworkImageProvider>()
     .toList(growable: false);
 
-List<String?> _cacheKeys(WidgetTester tester) => _cachedProviders(
-  tester,
-).map((provider) => provider.cacheKey).toList(growable: false);
+List<String?> _cacheKeys(WidgetTester tester) =>
+    _cachedProviders(tester)
+        .map((provider) => provider.cacheKey)
+        .toList(growable: false);
 
 void main() {
   testWidgets(
@@ -95,6 +100,30 @@ void main() {
 
       final firstKeys = _cacheKeys(tester);
       expect(firstKeys, hasLength(2));
+      final markdownImage = tester.widget<Image>(
+        find.descendant(
+          of: find.byKey(_markdownImageKey),
+          matching: find.byType(Image),
+        ),
+      );
+      expect(markdownImage.width, double.infinity);
+      expect(markdownImage.height, isNull);
+      expect(
+        tester
+            .widgetList<Container>(
+              find.descendant(
+                of: find.byKey(_markdownImageKey),
+                matching: find.byType(Container),
+              ),
+            )
+            .whereType<Container>()
+            .any(
+              (container) =>
+                  container.constraints?.maxWidth == 480 &&
+                  container.constraints?.maxHeight == 480,
+            ),
+        isTrue,
+      );
       expect(
         tester
             .widgetList<Image>(find.byType(Image))
