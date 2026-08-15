@@ -1,3 +1,5 @@
+import '../../../core/network/credential_transport_policy.dart';
+
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
 /// explicit `null` (which clears a secret).
 const Object _unset = Object();
@@ -35,7 +37,8 @@ class HermesConfig {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
-        uri.hasFragment) {
+        uri.hasFragment ||
+        !isAllowedCredentialTransport(uri)) {
       return null;
     }
     final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
@@ -63,7 +66,7 @@ class HermesConfig {
   /// Whether there is enough config to actually talk to a Hermes server.
   bool get isUsable =>
       enabled &&
-      baseUrl.trim().isNotEmpty &&
+      connectionOrigin(baseUrl) != null &&
       (apiKey?.trim().isNotEmpty ?? false);
 
   HermesConfig copyWith({

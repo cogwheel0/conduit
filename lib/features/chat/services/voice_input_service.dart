@@ -656,13 +656,7 @@ class VoiceInputService {
     _usingServerStt = false;
     _nativeAccumulateResultsForCurrentListen = nativeAccumulateResults;
 
-    // Optional haptic feedback when listening starts
-    final hapticsEnabled = _ref?.read(hapticEnabledProvider) ?? false;
-    if (hapticsEnabled) {
-      try {
-        ConduitHaptics.heavyImpact();
-      } catch (_) {}
-    }
+    ConduitHaptics.heavyImpact();
 
     _startIntensityDecayTimer();
 

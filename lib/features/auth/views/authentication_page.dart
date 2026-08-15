@@ -10,8 +10,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/services/platform_service.dart';
-import '../../../core/services/settings_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
@@ -309,10 +308,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
       if (!mounted) return;
 
-      PlatformService.hapticFeedbackWithSettings(
-        type: HapticType.success,
-        hapticEnabled: ref.read(hapticEnabledProvider),
-      );
+      ConduitHaptics.success();
 
       // Success - navigation will be handled by auth state change
     } catch (e) {
@@ -323,10 +319,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       setState(() {
         _loginError = _formatLoginError(e.toString());
       });
-      PlatformService.hapticFeedbackWithSettings(
-        type: HapticType.error,
-        hapticEnabled: ref.read(hapticEnabledProvider),
-      );
+      ConduitHaptics.error();
     } finally {
       if (mounted) {
         setState(() {
@@ -476,10 +469,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         onValueChanged: (index) {
           final mode = methods[index];
           if (mode == _authMode) return;
-          PlatformService.hapticFeedbackWithSettings(
-            type: HapticType.selection,
-            hapticEnabled: ref.read(hapticEnabledProvider),
-          );
           setState(() {
             _authMode = mode;
             _loginError = null;
@@ -778,10 +767,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           setState(() {
             _loginError = _formatLoginError(e.toString());
           });
-          PlatformService.hapticFeedbackWithSettings(
-            type: HapticType.error,
-            hapticEnabled: ref.read(hapticEnabledProvider),
-          );
+          ConduitHaptics.error();
         }
         if (mounted) setState(() => _isSigningIn = false);
         return;

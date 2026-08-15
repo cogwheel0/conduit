@@ -43,7 +43,7 @@ import '../providers/chat_providers.dart'
         streamingContentProvider;
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/services/platform_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/utils/embed_utils.dart';
 import 'sources/openwebui_sources.dart';
@@ -921,11 +921,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// Fires a single haptic impulse if streaming haptics are enabled.
   void _streamingHaptic(HapticType type) {
-    final enabled = _streamingHapticsAllowed;
-    PlatformService.hapticFeedbackWithSettings(
-      type: type,
-      hapticEnabled: enabled,
-    );
+    if (_streamingHapticsAllowed) ConduitHaptics.trigger(type);
   }
 
   bool get _streamingHapticsAllowed =>

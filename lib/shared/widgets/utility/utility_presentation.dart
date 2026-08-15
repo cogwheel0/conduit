@@ -67,6 +67,7 @@ class UtilityDisclosureSection extends StatelessWidget {
     this.leading,
     this.contentPadding = const EdgeInsets.all(Spacing.md),
     this.flat = false,
+    this.useNativeSurface = false,
   });
 
   final String title;
@@ -77,6 +78,7 @@ class UtilityDisclosureSection extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry contentPadding;
   final bool flat;
+  final bool useNativeSurface;
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +87,7 @@ class UtilityDisclosureSection extends StatelessWidget {
     return InsetGroupedSection(
       padding: EdgeInsets.zero,
       flat: flat,
+      useNativeSurface: useNativeSurface,
       child: Column(
         children: [
           UtilityRow(
@@ -93,6 +96,7 @@ class UtilityDisclosureSection extends StatelessWidget {
             leading: leading,
             onTap: () => onChanged(!expanded),
             expanded: expanded,
+            titleFontWeight: useNativeSurface ? FontWeight.w400 : null,
             trailing: AnimatedRotation(
               turns: expanded ? 0.5 : 0,
               duration: duration,

@@ -5,12 +5,13 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
+const double kConversationTileHorizontalGutter = Spacing.sm;
 const EdgeInsets kConversationTileMargin = EdgeInsets.only(
-  right: Spacing.xs,
+  left: kConversationTileHorizontalGutter,
+  right: kConversationTileHorizontalGutter,
   top: Spacing.xxs,
   bottom: Spacing.xxs,
 );
-const double kConversationTileTintInset = Spacing.sm;
 
 BoxDecoration conduitConversationTileDecoration(
   ConduitThemeExtension theme, {
@@ -56,11 +57,6 @@ class ConversationTileSurface extends StatelessWidget {
       children: [
         if (selected || pressed)
           Positioned.fill(
-            left: kConversationTileTintInset,
-            // The outer tile preserves its historical 4pt trailing margin.
-            // Compensate here so the painted tint has the same physical inset
-            // on both sides without moving the row contents.
-            right: kConversationTileTintInset - kConversationTileMargin.right,
             child: DecoratedBox(
               key: selected ? tintKey : pressedKey,
               decoration: conduitConversationTileDecoration(
@@ -83,8 +79,8 @@ Widget buildConversationTileContextPreview(BuildContext context, Widget child) {
   return Stack(
     children: [
       Positioned.fill(
-        left: kConversationTileTintInset,
-        right: kConversationTileTintInset,
+        left: kConversationTileHorizontalGutter,
+        right: kConversationTileHorizontalGutter,
         top: kConversationTileMargin.top,
         bottom: kConversationTileMargin.bottom,
         child: DecoratedBox(
@@ -105,8 +101,8 @@ Widget buildConversationTileContextPreview(BuildContext context, Widget child) {
 
 /// Flat pressable row frame shared by high-frequency sidebar lists.
 ///
-/// Idle rows remain transparent. Only pressed and selected states paint the
-/// same quiet inset surface used by conversation tiles.
+/// Every row keeps the same 8pt structural gutter. Idle rows remain
+/// transparent; pressed and selected states paint inside those row bounds.
 class ChatStyleSidebarTile extends StatefulWidget {
   const ChatStyleSidebarTile({
     super.key,
@@ -179,6 +175,96 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
               child: widget.child,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Inner layout for compact sidebar rows that may include supporting text.
+///
+/// This deliberately shares the conversation row's height, typography, and
+/// horizontal rhythm instead of inheriting the smaller utility-row defaults.
+class SidebarListTileContent extends StatelessWidget {
+  const SidebarListTileContent({
+    super.key,
+    required this.title,
+    required this.selected,
+    this.subtitle,
+    this.subtitleMaxLines = 1,
+    this.leading,
+    this.trailing,
+    this.emphasizeTitle = false,
+    this.titleFontWeight,
+  });
+
+  final String title;
+  final bool selected;
+  final String? subtitle;
+  final int subtitleMaxLines;
+  final Widget? leading;
+  final Widget? trailing;
+  final bool emphasizeTitle;
+  final FontWeight? titleFontWeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final hasSubtitle = subtitle?.trim().isNotEmpty ?? false;
+    final titleIsPrimary = selected || emphasizeTitle;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.sm,
+        ),
+        child: Row(
+          children: [
+            if (leading != null) ...[
+              leading!,
+              const SizedBox(width: Spacing.md),
+            ],
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.sidebarTitleStyle.copyWith(
+                      color: titleIsPrimary
+                          ? theme.textPrimary
+                          : theme.textSecondary,
+                      fontWeight:
+                          titleFontWeight ??
+                          (titleIsPrimary ? FontWeight.w600 : FontWeight.w400),
+                      height: 1.4,
+                    ),
+                  ),
+                  if (hasSubtitle) ...[
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      subtitle!,
+                      maxLines: subtitleMaxLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.sidebarSupportingStyle.copyWith(
+                        color: theme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: Spacing.sm),
+              trailing!,
+            ],
+          ],
         ),
       ),
     );

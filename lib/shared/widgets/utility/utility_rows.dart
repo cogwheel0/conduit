@@ -1,13 +1,11 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/services/platform_service.dart';
-import '../../../core/services/settings_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../theme/theme_extensions.dart';
 
 /// Shared utility row with full-row semantics and immediate press feedback.
-class UtilityRow extends ConsumerStatefulWidget {
+class UtilityRow extends StatefulWidget {
   const UtilityRow({
     super.key,
     required this.title,
@@ -23,6 +21,10 @@ class UtilityRow extends ConsumerStatefulWidget {
     this.expanded,
     this.enabled = true,
     this.destructive = false,
+    this.foregroundColor,
+    this.titleFontWeight,
+    this.titleFlex,
+    this.statusFlex,
     this.showChevron = false,
     this.semanticLabel,
     this.padding = const EdgeInsets.symmetric(
@@ -47,16 +49,20 @@ class UtilityRow extends ConsumerStatefulWidget {
   final bool? expanded;
   final bool enabled;
   final bool destructive;
+  final Color? foregroundColor;
+  final FontWeight? titleFontWeight;
+  final int? titleFlex;
+  final int? statusFlex;
   final bool showChevron;
   final String? semanticLabel;
   final EdgeInsetsGeometry padding;
   final HapticType? hapticType;
 
   @override
-  ConsumerState<UtilityRow> createState() => _UtilityRowState();
+  State<UtilityRow> createState() => _UtilityRowState();
 }
 
-class _UtilityRowState extends ConsumerState<UtilityRow> {
+class _UtilityRowState extends State<UtilityRow> {
   bool _pressed = false;
 
   bool get _interactive => widget.enabled && widget.onTap != null;
@@ -70,10 +76,7 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
     if (!_interactive) return;
     final type = widget.hapticType;
     if (type != null) {
-      PlatformService.hapticFeedbackWithSettings(
-        type: type,
-        hapticEnabled: ref.read(hapticEnabledProvider),
-      );
+      ConduitHaptics.trigger(type);
     }
     widget.onTap!();
   }
@@ -82,7 +85,9 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
-    final foreground = widget.destructive ? theme.error : theme.textPrimary;
+    final foreground =
+        widget.foregroundColor ??
+        (widget.destructive ? theme.error : theme.textPrimary);
     final opacity = widget.enabled ? 1.0 : 0.45;
     final semantics =
         widget.semanticLabel ??
@@ -126,21 +131,33 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
             child: Opacity(
               opacity: opacity,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: TouchTarget.minimum,
+                constraints: BoxConstraints(
+                  minHeight: context.usesCupertinoChrome
+                      ? TouchTarget.comfortable
+                      : TouchTarget.minimum,
                 ),
                 child: Padding(
                   padding: widget.padding,
                   child: Row(
                     children: [
                       if (widget.leading != null) ...[
-                        if (widget.preserveTrailingSemantics)
-                          ExcludeSemantics(child: widget.leading!)
-                        else
-                          widget.leading!,
-                        const SizedBox(width: Spacing.md),
+                        SizedBox(
+                          width: context.usesCupertinoChrome ? 40 : null,
+                          child: Align(
+                            alignment: Alignment.center,
+                            child: widget.preserveTrailingSemantics
+                                ? ExcludeSemantics(child: widget.leading!)
+                                : widget.leading!,
+                          ),
+                        ),
+                        SizedBox(
+                          width: context.usesCupertinoChrome
+                              ? Spacing.sm + Spacing.xs
+                              : Spacing.md,
+                        ),
                       ],
                       Expanded(
+                        flex: widget.titleFlex ?? 1,
                         child: ExcludeSemantics(
                           excluding: widget.preserveTrailingSemantics,
                           child: Column(
@@ -155,7 +172,11 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                                     : TextOverflow.ellipsis,
                                 style: AppTypography.bodyMediumStyle.copyWith(
                                   color: foreground,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      widget.titleFontWeight ??
+                                      (context.usesCupertinoChrome
+                                          ? FontWeight.w400
+                                          : FontWeight.w600),
                                 ),
                               ),
                               if (widget.subtitle != null &&
@@ -191,24 +212,50 @@ class _UtilityRowState extends ConsumerState<UtilityRow> {
                         ),
                       ),
                       if (widget.status != null) ...[
-                        const SizedBox(width: Spacing.sm),
-                        Flexible(
-                          child: widget.preserveTrailingSemantics
-                              ? widget.status!
-                              : ExcludeSemantics(child: widget.status!),
+                        SizedBox(
+                          width: widget.statusFlex == null
+                              ? Spacing.sm
+                              : Spacing.md,
                         ),
+                        if (widget.statusFlex != null)
+                          Expanded(
+                            flex: widget.statusFlex!,
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: widget.preserveTrailingSemantics
+                                  ? widget.status!
+                                  : ExcludeSemantics(child: widget.status!),
+                            ),
+                          )
+                        else
+                          Flexible(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: widget.preserveTrailingSemantics
+                                  ? widget.status!
+                                  : ExcludeSemantics(child: widget.status!),
+                            ),
+                          ),
                       ],
                       if (widget.trailing != null) ...[
                         const SizedBox(width: Spacing.sm),
                         widget.trailing!,
-                      ] else if (widget.showChevron && _interactive) ...[
+                      ] else if (widget.showChevron) ...[
                         const SizedBox(width: Spacing.sm),
-                        Icon(
-                          context.usesCupertinoChrome
-                              ? CupertinoIcons.chevron_right
-                              : Icons.chevron_right,
-                          color: theme.iconSecondary,
-                          size: IconSize.small,
+                        SizedBox(
+                          width: context.usesCupertinoChrome
+                              ? IconSize.small
+                              : null,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Icon(
+                              context.usesCupertinoChrome
+                                  ? CupertinoIcons.chevron_right
+                                  : Icons.chevron_right,
+                              color: theme.iconSecondary,
+                              size: IconSize.small,
+                            ),
+                          ),
                         ),
                       ],
                     ],
@@ -313,6 +360,10 @@ class UtilityValueRow extends StatelessWidget {
     this.onTap,
     this.monospace = false,
     this.stacked = false,
+    this.titleFontWeight,
+    this.valueFontWeight,
+    this.valueTextStyle,
+    this.selectable = true,
     this.showChevron = false,
     this.showDivider = false,
   });
@@ -324,18 +375,23 @@ class UtilityValueRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool monospace;
   final bool stacked;
+  final FontWeight? titleFontWeight;
+  final FontWeight? valueFontWeight;
+  final TextStyle? valueTextStyle;
+  final bool selectable;
   final bool showChevron;
   final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final valueStyle = AppTypography.bodySmallStyle.copyWith(
-      color: theme.textSecondary,
-      fontWeight: FontWeight.w600,
-      fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
-    );
-    final valueText = onTap == null
+    final valueStyle = (valueTextStyle ?? AppTypography.bodySmallStyle)
+        .copyWith(
+          color: valueTextStyle?.color ?? theme.textSecondary,
+          fontWeight: valueFontWeight ?? FontWeight.w600,
+          fontFamily: monospace ? AppTypography.monospaceFontFamily : null,
+        );
+    final valueText = onTap == null && selectable
         ? SelectableText(
             value,
             maxLines: 2,
@@ -355,10 +411,16 @@ class UtilityValueRow extends StatelessWidget {
       leading: leading,
       trailing: trailing,
       onTap: onTap,
+      titleFontWeight: titleFontWeight,
+      titleFlex: context.usesCupertinoChrome && !stacked ? 4 : null,
+      statusFlex: context.usesCupertinoChrome && !stacked ? 6 : null,
       showChevron: showChevron,
       hapticType: onTap == null ? null : HapticType.selection,
       semanticLabel: '$label. $value',
-      padding: const EdgeInsets.all(Spacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
+      ),
       status: stacked ? null : valueText,
     );
     if (!showDivider) return row;

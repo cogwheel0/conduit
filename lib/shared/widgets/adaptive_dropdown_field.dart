@@ -283,7 +283,6 @@ Future<AdaptiveSingleChoiceResult<T>?> showAdaptiveNativeSingleChoice<T>({
     selectedId: selected,
     options: options,
   );
-  if (result != null) ConduitHaptics.selectionClick();
   return result;
 }
 

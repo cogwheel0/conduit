@@ -5,6 +5,7 @@ import 'package:conduit/features/profile/widgets/profile_text_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/ui_utils.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// 40x40 tinted icon badge matching the settings/profile icon-badge pattern
 /// (see `SettingsIconBadge`): 10% fill, 20% hairline border, medium icon.
@@ -86,6 +87,7 @@ class WorkspaceResourceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
     final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     final badgeColor = iconColor ?? theme.buttonPrimary;
     final resolvedLeading =
@@ -111,7 +113,12 @@ class WorkspaceResourceTile extends StatelessWidget {
                   Flexible(
                     child: Text(
                       title,
-                      style: profileTitleTextStyle(context),
+                      style: usesCupertinoChrome
+                          ? AppTypography.bodyMediumStyle.copyWith(
+                              color: theme.textPrimary,
+                              fontWeight: FontWeight.w400,
+                            )
+                          : profileTitleTextStyle(context),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -126,7 +133,11 @@ class WorkspaceResourceTile extends StatelessWidget {
                 const SizedBox(height: Spacing.xs),
                 Text(
                   subtitle!,
-                  style: profileSubtitleTextStyle(context),
+                  style: usesCupertinoChrome
+                      ? AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        )
+                      : profileSubtitleTextStyle(context),
                   maxLines: usesLargeText ? null : 3,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -149,6 +160,28 @@ class WorkspaceResourceTile extends StatelessWidget {
       ],
     );
     if (!grouped) {
+      if (usesCupertinoChrome) {
+        final paddedContent = AnimatedContainer(
+          duration: context.motionDuration(AnimationDuration.microInteraction),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(Spacing.md),
+          color: selected
+              ? theme.buttonPrimary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          child: content,
+        );
+        return InsetGroupedSection(
+          useNativeSurface: true,
+          padding: EdgeInsets.zero,
+          child: onTap == null
+              ? paddedContent
+              : CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: onTap,
+                  child: paddedContent,
+                ),
+        );
+      }
       return ConduitCard(
         padding: const EdgeInsets.all(Spacing.md),
         onTap: onTap,

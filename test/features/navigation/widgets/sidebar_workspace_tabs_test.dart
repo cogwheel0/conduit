@@ -9,11 +9,13 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
@@ -57,14 +59,14 @@ void main() {
     const note = Note(
       id: 'flat-note',
       title: 'Flat Note',
-      data: NoteData(content: NoteContent(md: 'Note preview')),
+      data: NoteData(content: NoteContent(md: '')),
       createdAt: 1767225600000000000,
       updatedAt: 1767225600000000000,
     );
     const channel = Channel(
       id: 'flat-channel',
       name: 'Flat Channel',
-      description: 'Channel preview',
+      description: '',
     );
 
     await tester.pumpWidget(
@@ -90,6 +92,9 @@ void main() {
     );
     expect(noteMenu.previewBuilder, isNotNull);
     final noteRect = tester.getRect(noteRow);
+    final noteTitle = tester.widget<Text>(
+      find.descendant(of: noteRow, matching: find.text('Flat Note')),
+    );
 
     await tester.tap(sidebarTestBottomNavTabLabel('Chats'));
     await tester.pumpAndSettle();
@@ -98,8 +103,12 @@ void main() {
         ValueKey<String>('drawer-chat-${conversationScopedId(conversation)}'),
       ),
     );
+    final chatTitle = tester.widget<Text>(find.text('Flat Chat'));
     expect(noteRect.left, chatRect.left);
     expect(noteRect.right, chatRect.right);
+    expect(noteRect.height, chatRect.height);
+    expect(noteTitle.style?.fontSize, AppTypography.sidebarTitleStyle.fontSize);
+    expect(noteTitle.style?.fontSize, chatTitle.style?.fontSize);
 
     await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
     await tester.pumpAndSettle();
@@ -116,8 +125,17 @@ void main() {
     );
     expect(channelMenu.previewBuilder, isNotNull);
     final channelRect = tester.getRect(channelRow);
+    final channelTitle = tester.widget<Text>(
+      find.descendant(of: channelRow, matching: find.text('Flat Channel')),
+    );
     expect(channelRect.left, chatRect.left);
     expect(channelRect.right, chatRect.right);
+    expect(channelRect.height, chatRect.height);
+    expect(
+      channelTitle.style?.fontSize,
+      AppTypography.sidebarTitleStyle.fontSize,
+    );
+    expect(channelTitle.style?.fontSize, chatTitle.style?.fontSize);
   });
 
   testWidgets('channel semantics include the unread message count', (
@@ -147,6 +165,74 @@ void main() {
     expect(
       tester.getSemantics(channelRow).label,
       contains('3 unread messages'),
+    );
+  });
+
+  testWidgets('note rows show last-edited metadata instead of descriptions', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers(
+      initialTab: SidebarTabId.notes,
+    );
+    const note = Note(
+      id: 'hierarchy-note',
+      title: 'Project brief',
+      data: NoteData(
+        content: NoteContent(md: 'Supporting description for the note'),
+      ),
+      createdAt: 1767225600000000000,
+      updatedAt: 1767225600000000000,
+    );
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(controllers: controllers, notes: const [note]),
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(
+      const ValueKey<String>('note-sidebar-row-hierarchy-note'),
+    );
+    final title = tester.widget<Text>(
+      find.descendant(of: row, matching: find.text('Project brief')),
+    );
+    final tileContent = tester.widget<SidebarListTileContent>(
+      find.descendant(of: row, matching: find.byType(SidebarListTileContent)),
+    );
+    final lastEditedFinder = find.descendant(
+      of: row,
+      matching: find.byKey(
+        const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
+      ),
+    );
+    final lastEdited = tester.widget<Text>(lastEditedFinder);
+    final theme = tester.element(row).conduitTheme;
+
+    expect(title.style?.fontWeight, FontWeight.w400);
+    expect(tileContent.titleFontWeight, FontWeight.w400);
+    expect(title.style?.color, theme.textSecondary);
+    expect(lastEdited.data, 'Jan 1');
+    expect(lastEdited.style?.fontSize, AppTypography.bodySmallStyle.fontSize);
+    expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
+    expect(
+      lastEdited.style?.color,
+      theme.textSecondary.withValues(alpha: Alpha.secondary),
+    );
+    expect(
+      tester.getCenter(lastEditedFinder).dx,
+      greaterThan(
+        tester
+            .getCenter(
+              find.descendant(of: row, matching: find.text('Project brief')),
+            )
+            .dx,
+      ),
+    );
+    expect(
+      find.descendant(
+        of: row,
+        matching: find.text('Supporting description for the note'),
+      ),
+      findsNothing,
     );
   });
 

@@ -5,6 +5,26 @@ private func dropdownLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
 
+final class NativeDropdownCompletion: NSObject, UIAdaptivePresentationControllerDelegate {
+    private var completion: ((Result<String?, Error>) -> Void)?
+
+    init(_ completion: @escaping (Result<String?, Error>) -> Void) {
+        self.completion = completion
+    }
+
+    func finish(_ result: Result<String?, Error>) {
+        guard let completion else { return }
+        self.completion = nil
+        completion(result)
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        finish(.success(nil))
+    }
+}
+
+private var nativeDropdownCompletionKey: UInt8 = 0
+
 private struct NativeDropdownOption {
     let id: String
     let label: String
@@ -147,13 +167,20 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
             message: configuration.message,
             preferredStyle: .actionSheet
         )
+        let result = NativeDropdownCompletion(completion)
+        objc_setAssociatedObject(
+            controller,
+            &nativeDropdownCompletionKey,
+            result,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
 
         configuration.options.forEach { option in
             let style: UIAlertAction.Style = option.destructive
                 ? .destructive
                 : .default
             let action = UIAlertAction(title: option.label, style: style) { _ in
-                completion(.success(option.id))
+                result.finish(.success(option.id))
             }
             action.isEnabled = option.enabled
             if let sfSymbol = option.sfSymbol,
@@ -165,9 +192,11 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
 
         controller.addAction(
             UIAlertAction(title: configuration.cancelLabel, style: .cancel) { _ in
-                completion(.success(nil))
+                result.finish(.success(nil))
             }
         )
+
+        NativeSheetTheme.shared.apply(to: controller)
 
         if let popover = controller.popoverPresentationController {
             popover.sourceView = presenter.view
@@ -184,7 +213,16 @@ final class NativeDropdownBridge: NativeDropdownHostApi {
             popover.permittedArrowDirections = [.up, .down]
         }
 
+        controller.presentationController?.delegate = result
+
         presenter.present(controller, animated: true)
+        if controller.presentingViewController == nil {
+            result.finish(.failure(PigeonError(
+                code: "PRESENTATION_FAILED",
+                message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
+                details: nil
+            )))
+        }
     }
 
     private func topViewController() -> UIViewController? {

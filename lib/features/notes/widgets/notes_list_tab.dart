@@ -12,12 +12,11 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
-import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
@@ -424,8 +423,9 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = ConduitMarkdownPreprocessor.toPlainText(
-      note.listPreviewMarkdown,
+    final timeAgo = LocaleDisplayFormatters.compactRelativeTime(
+      context,
+      note.updatedDateTime,
     );
 
     return ConduitContextMenu(
@@ -438,20 +438,31 @@ class _NoteListTile extends StatelessWidget {
         semanticLabel: [
           title,
           if (note.isPinned) l10n.pinned,
-          if (preview.isNotEmpty) preview,
+          timeAgo,
         ].join('. '),
         tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
-        child: UtilityRow(
+        child: SidebarListTileContent(
           title: title,
-          subtitle: preview.isEmpty ? null : preview,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
+          selected: selected,
+          titleFontWeight: FontWeight.w400,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (note.isPinned) ...[
+                Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                timeAgo,
+                key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
+                maxLines: 1,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.textSecondary.withValues(alpha: Alpha.secondary),
+                ),
+              ),
+            ],
           ),
-          trailing: note.isPinned
-              ? Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary)
-              : null,
         ),
       ),
     );

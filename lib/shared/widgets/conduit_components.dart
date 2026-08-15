@@ -4,18 +4,17 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/conduit_button_styles.dart';
 import '../theme/conduit_input_styles.dart';
 import '../theme/theme_extensions.dart';
 import '../services/brand_service.dart';
 import '../../core/services/enhanced_accessibility_service.dart';
+import '../../core/services/haptic_service.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../core/services/platform_service.dart';
-import '../../core/services/settings_service.dart';
+part 'accessible_form_field.dart';
 
 /// Unified component library following Conduit design patterns
 /// This provides consistent, reusable UI components throughout the app
@@ -438,7 +437,7 @@ class ConduitGlassSearchField extends StatelessWidget {
 // EXISTING COMPONENTS
 // =============================================================================
 
-class ConduitButton extends ConsumerWidget {
+class ConduitButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
   final bool isLoading;
@@ -465,8 +464,7 @@ class ConduitButton extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hapticEnabled = ref.watch(hapticEnabledProvider);
+  Widget build(BuildContext context) {
     final styles = context.conduitButtonStyles;
     final variant = isDestructive
         ? styles.destructive()
@@ -507,9 +505,8 @@ class ConduitButton extends ConsumerWidget {
         // Trigger haptic feedback on tap down for immediate tactile response
         onTapDown: (onPressed != null && !isLoading)
             ? (_) {
-                PlatformService.hapticFeedbackWithSettings(
-                  type: isDestructive ? HapticType.warning : HapticType.light,
-                  hapticEnabled: hapticEnabled,
+                ConduitHaptics.trigger(
+                  isDestructive ? HapticType.warning : HapticType.light,
                 );
               }
             : null,
@@ -941,7 +938,7 @@ class ConduitCard extends StatelessWidget {
   }
 }
 
-class ConduitIconButton extends ConsumerWidget {
+class ConduitIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final String? tooltip;
@@ -964,8 +961,7 @@ class ConduitIconButton extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hapticEnabled = ref.watch(hapticEnabledProvider);
+  Widget build(BuildContext context) {
     final styles = context.conduitButtonStyles;
     final variant = isActive ? styles.primary() : styles.ghost();
     final effectiveIconColor =
@@ -1000,10 +996,7 @@ class ConduitIconButton extends ConsumerWidget {
           child: AdaptiveButton.child(
             onPressed: onPressed != null
                 ? () {
-                    PlatformService.hapticFeedbackWithSettings(
-                      type: HapticType.selection,
-                      hapticEnabled: hapticEnabled,
-                    );
+                    ConduitHaptics.selectionClick();
                     onPressed!();
                   }
                 : null,
@@ -1049,7 +1042,7 @@ class ConduitIconButton extends ConsumerWidget {
 ///
 /// Wraps [AdaptiveButton] with [ConduitButtonStyles.ghost] for the
 /// default style or uses primary/destructive colors for emphasis.
-class ConduitTextButton extends ConsumerWidget {
+class ConduitTextButton extends StatelessWidget {
   /// The button label text.
   final String text;
 
@@ -1072,8 +1065,7 @@ class ConduitTextButton extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hapticEnabled = ref.watch(hapticEnabledProvider);
+  Widget build(BuildContext context) {
     final styles = context.conduitButtonStyles;
     final Color textColor;
     if (isDestructive) {
@@ -1087,9 +1079,8 @@ class ConduitTextButton extends ConsumerWidget {
     return AdaptiveButton(
       onPressed: onPressed != null
           ? () {
-              PlatformService.hapticFeedbackWithSettings(
-                type: isDestructive ? HapticType.warning : HapticType.light,
-                hapticEnabled: hapticEnabled,
+              ConduitHaptics.trigger(
+                isDestructive ? HapticType.warning : HapticType.light,
               );
               onPressed!();
             }
@@ -1397,217 +1388,6 @@ class ConduitSpacer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(height: isCompact ? height * 0.5 : height);
-  }
-}
-
-/// Enhanced form field with better accessibility and validation
-class AccessibleFormField extends StatelessWidget {
-  final String? label;
-  final String? hint;
-  final TextEditingController? controller;
-  final ValueChanged<String>? onChanged;
-  final ValueChanged<String>? onSubmitted;
-  final VoidCallback? onTap;
-  final bool obscureText;
-  final bool enabled;
-  final String? errorText;
-  final int? maxLines;
-  final int? minLines;
-  final Widget? suffixIcon;
-  final Widget? prefixIcon;
-  final TextInputType? keyboardType;
-  final bool autofocus;
-  final String? semanticLabel;
-  final String? Function(String?)? validator;
-  final bool isRequired;
-  final bool isCompact;
-  final Iterable<String>? autofillHints;
-  final FocusNode? focusNode;
-  final TextInputAction? textInputAction;
-  final bool autocorrect;
-
-  const AccessibleFormField({
-    super.key,
-    this.label,
-    this.hint,
-    this.controller,
-    this.onChanged,
-    this.onSubmitted,
-    this.onTap,
-    this.obscureText = false,
-    this.enabled = true,
-    this.errorText,
-    this.maxLines = 1,
-    this.minLines,
-    this.suffixIcon,
-    this.prefixIcon,
-    this.keyboardType,
-    this.autofocus = false,
-    this.semanticLabel,
-    this.validator,
-    this.isRequired = false,
-    this.isCompact = false,
-    this.autofillHints,
-    this.focusNode,
-    this.textInputAction,
-    this.autocorrect = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasExternalError = errorText?.trim().isNotEmpty ?? false;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label != null) ...[
-          Wrap(
-            spacing: Spacing.textSpacing,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                label!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.standard.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: context.conduitTheme.textPrimary,
-                ),
-              ),
-              if (isRequired)
-                Text(
-                  '*',
-                  style: AppTypography.standard.copyWith(
-                    color: context.conduitTheme.error,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(height: isCompact ? Spacing.xs : Spacing.sm),
-        ],
-        Semantics(
-          label:
-              semanticLabel ??
-              label ??
-              (AppLocalizations.of(context)?.inputField ?? 'Input field'),
-          textField: true,
-          child: AdaptiveTextFormField(
-            controller: controller,
-            focusNode: focusNode,
-            onChanged: onChanged,
-            onTap: onTap,
-            onSubmitted: onSubmitted,
-            obscureText: obscureText,
-            enabled: enabled,
-            maxLines: maxLines,
-            minLines: minLines,
-            keyboardType: keyboardType,
-            textInputAction: textInputAction,
-            autocorrect: autocorrect,
-            autofocus: autofocus,
-            validator: validator != null
-                ? (value) => validator!(value ?? controller?.text)
-                : null,
-            autofillHints: autofillHints?.toList(),
-            placeholder: hint,
-            prefixIcon: prefixIcon,
-            suffixIcon: suffixIcon,
-            style: AppTypography.standard.copyWith(
-              color: context.conduitTheme.textPrimary,
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: isCompact ? Spacing.md : Spacing.inputPadding,
-              vertical: isCompact ? Spacing.sm : Spacing.md,
-            ),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: AppTypography.standard.copyWith(
-                color: context.conduitTheme.inputPlaceholder,
-              ),
-              filled: true,
-              fillColor: context.conduitTheme.inputBackground,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.inputBorder,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.buttonPrimary,
-                  width: BorderWidth.thick,
-                ),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.standard,
-                ),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppBorderRadius.input),
-                borderSide: BorderSide(
-                  color: context.conduitTheme.error,
-                  width: BorderWidth.thick,
-                ),
-              ),
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: isCompact ? Spacing.md : Spacing.inputPadding,
-                vertical: isCompact ? Spacing.sm : Spacing.md,
-              ),
-              suffixIcon: suffixIcon,
-              prefixIcon: prefixIcon,
-              errorText: context.usesCupertinoChrome ? null : errorText,
-              errorStyle: AppTypography.small.copyWith(
-                color: context.conduitTheme.error,
-              ),
-            ),
-            cupertinoDecoration: BoxDecoration(
-              color: enabled
-                  ? CupertinoColors.tertiarySystemFill.resolveFrom(context)
-                  : CupertinoColors.quaternarySystemFill.resolveFrom(context),
-              border: hasExternalError
-                  ? Border.all(
-                      color: CupertinoColors.systemRed.resolveFrom(context),
-                      width: BorderWidth.standard,
-                    )
-                  : null,
-              borderRadius: BorderRadius.circular(AppBorderRadius.input),
-            ),
-          ),
-        ),
-        if (context.usesCupertinoChrome && hasExternalError)
-          Semantics(
-            liveRegion: true,
-            label: errorText,
-            child: ExcludeSemantics(
-              child: Padding(
-                padding: const EdgeInsets.only(
-                  top: Spacing.xs,
-                  left: Spacing.inputPadding,
-                ),
-                child: Text(
-                  errorText!,
-                  style: AppTypography.small.copyWith(
-                    color: context.conduitTheme.error,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
   }
 }
 

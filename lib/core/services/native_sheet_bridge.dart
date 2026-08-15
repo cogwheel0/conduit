@@ -22,6 +22,85 @@ void _logNativeSheetBridgeError(
   );
 }
 
+@immutable
+class NativeSheetThemeConfig {
+  const NativeSheetThemeConfig({
+    required this.isDark,
+    required this.backgroundArgb,
+    required this.surfaceArgb,
+    required this.elevatedSurfaceArgb,
+    required this.inputArgb,
+    required this.foregroundArgb,
+    required this.secondaryForegroundArgb,
+    required this.iconArgb,
+    required this.borderArgb,
+    required this.accentArgb,
+    required this.onAccentArgb,
+    required this.destructiveArgb,
+  });
+
+  final bool isDark;
+  final int backgroundArgb;
+  final int surfaceArgb;
+  final int elevatedSurfaceArgb;
+  final int inputArgb;
+  final int foregroundArgb;
+  final int secondaryForegroundArgb;
+  final int iconArgb;
+  final int borderArgb;
+  final int accentArgb;
+  final int onAccentArgb;
+  final int destructiveArgb;
+
+  PlatformNativeSheetTheme toPlatform() => PlatformNativeSheetTheme(
+    isDark: isDark,
+    backgroundArgb: backgroundArgb,
+    surfaceArgb: surfaceArgb,
+    elevatedSurfaceArgb: elevatedSurfaceArgb,
+    inputArgb: inputArgb,
+    foregroundArgb: foregroundArgb,
+    secondaryForegroundArgb: secondaryForegroundArgb,
+    iconArgb: iconArgb,
+    borderArgb: borderArgb,
+    accentArgb: accentArgb,
+    onAccentArgb: onAccentArgb,
+    destructiveArgb: destructiveArgb,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NativeSheetThemeConfig &&
+          isDark == other.isDark &&
+          backgroundArgb == other.backgroundArgb &&
+          surfaceArgb == other.surfaceArgb &&
+          elevatedSurfaceArgb == other.elevatedSurfaceArgb &&
+          inputArgb == other.inputArgb &&
+          foregroundArgb == other.foregroundArgb &&
+          secondaryForegroundArgb == other.secondaryForegroundArgb &&
+          iconArgb == other.iconArgb &&
+          borderArgb == other.borderArgb &&
+          accentArgb == other.accentArgb &&
+          onAccentArgb == other.onAccentArgb &&
+          destructiveArgb == other.destructiveArgb;
+
+  @override
+  int get hashCode => Object.hash(
+    isDark,
+    backgroundArgb,
+    surfaceArgb,
+    elevatedSurfaceArgb,
+    inputArgb,
+    foregroundArgb,
+    secondaryForegroundArgb,
+    iconArgb,
+    borderArgb,
+    accentArgb,
+    onAccentArgb,
+    destructiveArgb,
+  );
+}
+
 class NativeSheetRoutes {
   const NativeSheetRoutes._();
 
@@ -61,6 +140,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Object? _reasoningEffortChangedHandlerOwner;
   Object? _reasoningEffortUpdateOwner;
   Future<void> _reasoningEffortUpdateQueue = Future<void>.value();
+  NativeSheetThemeConfig? _lastTheme;
 
   @visibleForTesting
   bool? debugIsIOSOverride;
@@ -68,6 +148,25 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Stream<NativeSheetEvent> get events => _events.stream;
 
   bool get _isIOS => debugIsIOSOverride ?? Platform.isIOS;
+
+  Future<void> syncTheme(NativeSheetThemeConfig theme) async {
+    if (!_isIOS || theme == _lastTheme) return;
+    _lastTheme = theme;
+    try {
+      await _api.setTheme(theme.toPlatform());
+    } on PlatformException catch (error, stackTrace) {
+      _lastTheme = null;
+      _logNativeSheetBridgeError('setTheme', error, stackTrace);
+    } catch (error, stackTrace) {
+      _lastTheme = null;
+      _logNativeSheetBridgeError('setTheme', error, stackTrace);
+    }
+  }
+
+  @visibleForTesting
+  void debugResetThemeCache() {
+    _lastTheme = null;
+  }
 
   Future<bool> presentProfileMenu(NativeProfileSheetConfig config) async {
     if (!_isIOS) return false;
@@ -483,6 +582,11 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) async {
+    if (items.isNotEmpty && sections.isNotEmpty) {
+      throw ArgumentError(
+        'A native detail patch must use either items or sections, not both.',
+      );
+    }
     if (!_isIOS) return false;
     try {
       return await _api.applyDetailPatch(

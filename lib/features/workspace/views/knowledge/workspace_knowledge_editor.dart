@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
@@ -23,9 +24,7 @@ import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// Section-registry entry point for the Knowledge editor.
 Widget buildWorkspaceKnowledgeEditor(
@@ -317,6 +316,7 @@ class _WorkspaceKnowledgeFormState
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceKnowledge
               : _nameController.text.trim());
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -339,12 +339,7 @@ class _WorkspaceKnowledgeFormState
         absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-knowledge-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
             if (_isExternal)
               Padding(
@@ -365,47 +360,32 @@ class _WorkspaceKnowledgeFormState
                   ],
                 ),
               ),
-            InsetGroupedSection(
-              child: Column(
-                children: [
-                  if (_session.isDetail) ...[
-                    UtilityValueRow(
-                      key: const Key('workspace-knowledge-name'),
-                      label: l10n.workspaceKnowledgeName,
-                      value: _nameController.text,
-                      showDivider: true,
-                    ),
-                    UtilityValueRow(
-                      key: const Key('workspace-knowledge-description'),
-                      label: l10n.workspaceKnowledgeDescription,
-                      value: _descriptionController.text,
-                    ),
-                  ] else ...[
-                    ConduitInput(
-                      key: const Key('workspace-knowledge-name'),
-                      controller: _nameController,
-                      label: l10n.workspaceKnowledgeName,
-                      enabled: !_fieldsReadOnly,
-                      onChanged: (_) => _markDirty(),
-                    ),
-                    const SizedBox(height: Spacing.md),
-                    ConduitInput(
-                      key: const Key('workspace-knowledge-description'),
-                      controller: _descriptionController,
-                      label: l10n.workspaceKnowledgeDescription,
-                      enabled: !_fieldsReadOnly,
-                      minLines: 2,
-                      maxLines: 4,
-                      onChanged: (_) => _markDirty(),
-                    ),
-                  ],
-                ],
-              ),
+            WorkspaceEditorFieldGroup(
+              children: [
+                WorkspaceEditorField(
+                  fieldKey: 'workspace-knowledge-name',
+                  controller: _nameController,
+                  label: l10n.workspaceKnowledgeName,
+                  isDetail: _session.isDetail,
+                  enabled: !_fieldsReadOnly,
+                  onChanged: (_) => _markDirty(),
+                ),
+                WorkspaceEditorField(
+                  fieldKey: 'workspace-knowledge-description',
+                  controller: _descriptionController,
+                  label: l10n.workspaceKnowledgeDescription,
+                  isDetail: _session.isDetail,
+                  enabled: !_fieldsReadOnly,
+                  minLines: 2,
+                  maxLines: 4,
+                  onChanged: (_) => _markDirty(),
+                ),
+              ],
             ),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             _accessTile(l10n),
             if (!_session.isCreate && summary != null) ...[
-              const SizedBox(height: Spacing.xl),
+              SizedBox(height: sectionGap),
               WorkspaceKnowledgeFileBrowser(
                 key: Key('workspace-knowledge-files-${summary.id}'),
                 knowledgeId: summary.id,
@@ -413,7 +393,7 @@ class _WorkspaceKnowledgeFormState
                 canDeleteUnderlying: _canDeleteUnderlying,
               ),
             ],
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),

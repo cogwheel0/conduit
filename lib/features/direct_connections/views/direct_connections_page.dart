@@ -30,6 +30,9 @@ Widget _buildDirectConnectionsScaffold(
   if (isOnboarding) {
     return UtilityPageScaffold.auth(
       title: l10n.backendChooserDirectTitle,
+      backgroundColor: PlatformInfo.isIOS
+          ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+          : null,
       backNavigation: UtilityBackNavigation(
         label: l10n.back,
         buttonKey: const ValueKey<String>('direct-onboarding-back-button'),
@@ -44,6 +47,9 @@ Widget _buildDirectConnectionsScaffold(
   }
   return UtilityPageScaffold.settings(
     title: l10n.directConnectionsTitle,
+    backgroundColor: PlatformInfo.isIOS
+        ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+        : null,
     children: children,
   );
 }
@@ -222,12 +228,22 @@ class DirectConnectionsContent extends StatelessWidget {
     final content = <Widget>[
       if (showHistorySync) ...[
         InsetGroupedList(
+          useNativeSurface: PlatformInfo.isIOS,
+          footer: PlatformInfo.isIOS
+              ? (syncWithOpenWebUi
+                    ? l10n.syncDirectHistorySubtitle
+                    : l10n.directHistoryLocalOnlySubtitle)
+              : null,
           children: [
             UtilityRow(
               title: l10n.syncDirectHistory,
-              subtitle: syncWithOpenWebUi
+              subtitle: PlatformInfo.isIOS
+                  ? null
+                  : syncWithOpenWebUi
                   ? l10n.syncDirectHistorySubtitle
                   : l10n.directHistoryLocalOnlySubtitle,
+              titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+              preserveTrailingSemantics: true,
               trailing: AdaptiveSwitch(
                 value: syncWithOpenWebUi,
                 onChanged: onSyncChanged,
@@ -460,7 +476,19 @@ class _DirectConnectionSectionHeader extends StatelessWidget {
               Expanded(child: SettingsSectionHeader(title: title)),
               if (onAdd != null) ...[
                 const SizedBox(width: Spacing.sm),
-                if (constraints.maxWidth < 330)
+                if (PlatformInfo.isIOS)
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+                    minimumSize: const Size(0, TouchTarget.minimum),
+                    onPressed: onAdd,
+                    child: Text(
+                      l10n.addDirectConnection,
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.buttonPrimary,
+                      ),
+                    ),
+                  )
+                else if (constraints.maxWidth < 330)
                   ConduitIconButton(
                     icon: Icons.add,
                     tooltip: l10n.addDirectConnection,
@@ -541,6 +569,7 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
     final content = UtilityRow(
       title: title,
       subtitle: subtitle,
+      titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
       trailing: Icon(
         context.usesCupertinoChrome
             ? CupertinoIcons.add_circled
@@ -550,13 +579,16 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
       ),
       onTap: onAdd,
     );
-    if (flat) {
+    if (flat && !PlatformInfo.isIOS) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
         child: content,
       );
     }
-    return InsetGroupedList(children: [content]);
+    return InsetGroupedList(
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [content],
+    );
   }
 }
 
@@ -586,6 +618,17 @@ class _DirectConnectionTile extends StatelessWidget {
         : profile.enabled
         ? l10n.enabledLabel
         : l10n.disabledLabel;
+
+    if (PlatformInfo.isIOS) {
+      return UtilityRow(
+        title: profile.name,
+        subtitle: '$provider · $status\n${profile.baseUrl}',
+        subtitleMaxLines: 2,
+        titleFontWeight: FontWeight.w400,
+        showChevron: true,
+        onTap: onTap,
+      );
+    }
 
     return UtilitySelectionRow(
       leading: SettingsIconBadge(
@@ -641,13 +684,16 @@ class _DirectConnectionListSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (flat) {
+    if (flat && !PlatformInfo.isIOS) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
         child: Column(children: children),
       );
     }
-    return InsetGroupedList(children: children);
+    return InsetGroupedList(
+      useNativeSurface: PlatformInfo.isIOS,
+      children: children,
+    );
   }
 }
 

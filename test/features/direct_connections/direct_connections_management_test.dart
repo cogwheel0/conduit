@@ -6,6 +6,7 @@ import 'package:conduit/features/direct_connections/services/openwebui_direct_co
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'direct_connections_ui_test_support.dart';
 
 void main() {
+  tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+  testWidgets('iOS management uses native grouped rows', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    final profile = DirectConnectionProfile(
+      id: 'native-profile',
+      name: 'Native provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://native.example/v1',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.iOS),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: [profile],
+            syncWithOpenWebUi: true,
+            isOnboarding: false,
+            showHistorySync: true,
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final nativeSections = tester
+        .widgetList<InsetGroupedSection>(find.byType(InsetGroupedSection))
+        .where((section) => section.useNativeSurface);
+    expect(nativeSections.length, greaterThanOrEqualTo(2));
+    final syncRow = tester.widget<UtilityRow>(
+      find.widgetWithText(UtilityRow, 'Open WebUI history'),
+    );
+    final profileRow = tester.widget<UtilityRow>(
+      find.widgetWithText(UtilityRow, 'Native provider'),
+    );
+    expect(syncRow.titleFontWeight, FontWeight.w400);
+    expect(syncRow.subtitle, isNull);
+    expect(profileRow.titleFontWeight, FontWeight.w400);
+    expect(profileRow.showChevron, isTrue);
+    expect(find.text('This device'), findsNothing);
+  });
+
   testWidgets('management content shows profiles and history policy', (
     tester,
   ) async {

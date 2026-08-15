@@ -1198,6 +1198,87 @@ data class PlatformNativeSheetOption (
 }
 
 /** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformNativeSheetTheme (
+  val isDark: Boolean,
+  val backgroundArgb: Long,
+  val surfaceArgb: Long,
+  val elevatedSurfaceArgb: Long,
+  val inputArgb: Long,
+  val foregroundArgb: Long,
+  val secondaryForegroundArgb: Long,
+  val iconArgb: Long,
+  val borderArgb: Long,
+  val accentArgb: Long,
+  val onAccentArgb: Long,
+  val destructiveArgb: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetTheme {
+      val isDark = pigeonVar_list[0] as Boolean
+      val backgroundArgb = pigeonVar_list[1] as Long
+      val surfaceArgb = pigeonVar_list[2] as Long
+      val elevatedSurfaceArgb = pigeonVar_list[3] as Long
+      val inputArgb = pigeonVar_list[4] as Long
+      val foregroundArgb = pigeonVar_list[5] as Long
+      val secondaryForegroundArgb = pigeonVar_list[6] as Long
+      val iconArgb = pigeonVar_list[7] as Long
+      val borderArgb = pigeonVar_list[8] as Long
+      val accentArgb = pigeonVar_list[9] as Long
+      val onAccentArgb = pigeonVar_list[10] as Long
+      val destructiveArgb = pigeonVar_list[11] as Long
+      return PlatformNativeSheetTheme(isDark, backgroundArgb, surfaceArgb, elevatedSurfaceArgb, inputArgb, foregroundArgb, secondaryForegroundArgb, iconArgb, borderArgb, accentArgb, onAccentArgb, destructiveArgb)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      isDark,
+      backgroundArgb,
+      surfaceArgb,
+      elevatedSurfaceArgb,
+      inputArgb,
+      foregroundArgb,
+      secondaryForegroundArgb,
+      iconArgb,
+      borderArgb,
+      accentArgb,
+      onAccentArgb,
+      destructiveArgb,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformNativeSheetTheme
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.isDark, other.isDark) && ConduitPlatformApisPigeonUtils.deepEquals(this.backgroundArgb, other.backgroundArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.surfaceArgb, other.surfaceArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.elevatedSurfaceArgb, other.elevatedSurfaceArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.inputArgb, other.inputArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.foregroundArgb, other.foregroundArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.secondaryForegroundArgb, other.secondaryForegroundArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconArgb, other.iconArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.borderArgb, other.borderArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.accentArgb, other.accentArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.onAccentArgb, other.onAccentArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructiveArgb, other.destructiveArgb)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.isDark)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.backgroundArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.surfaceArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.elevatedSurfaceArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.inputArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.foregroundArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.secondaryForegroundArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.iconArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.borderArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.accentArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.onAccentArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.destructiveArgb)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformNativeSheetTheme(isDark=$isDark, backgroundArgb=$backgroundArgb, surfaceArgb=$surfaceArgb, elevatedSurfaceArgb=$elevatedSurfaceArgb, inputArgb=$inputArgb, foregroundArgb=$foregroundArgb, secondaryForegroundArgb=$secondaryForegroundArgb, iconArgb=$iconArgb, borderArgb=$borderArgb, accentArgb=$accentArgb, onAccentArgb=$onAccentArgb, destructiveArgb=$destructiveArgb)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformNativeSheetItem (
   val id: String,
   val title: String,
@@ -2585,100 +2666,105 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
       }
       153.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetItem.fromList(it)
+          PlatformNativeSheetTheme.fromList(it)
         }
       }
       154.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetLink.fromList(it)
+          PlatformNativeSheetItem.fromList(it)
         }
       }
       155.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetSection.fromList(it)
+          PlatformNativeSheetLink.fromList(it)
         }
       }
       156.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileSheetConfig.fromList(it)
+          PlatformNativeSheetSection.fromList(it)
         }
       }
       157.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeProfileSheetUser.fromList(it)
+          PlatformNativeEditProfileSheetConfig.fromList(it)
         }
       }
       158.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetail.fromList(it)
+          PlatformNativeProfileSheetUser.fromList(it)
         }
       }
       159.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeProfileSheetConfig.fromList(it)
+          PlatformNativeSheetDetail.fromList(it)
         }
       }
       160.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelOption.fromList(it)
+          PlatformNativeProfileSheetConfig.fromList(it)
         }
       }
       161.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelSelectorRequest.fromList(it)
+          PlatformNativeSheetModelOption.fromList(it)
         }
       }
       162.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
+          PlatformNativeSheetModelSelectorRequest.fromList(it)
         }
       }
       163.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDatePickerRequest.fromList(it)
+          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
         }
       }
       164.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetTextEditorRequest.fromList(it)
+          PlatformNativeSheetDatePickerRequest.fromList(it)
         }
       }
       165.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetResultRequest.fromList(it)
+          PlatformNativeSheetTextEditorRequest.fromList(it)
         }
       }
       166.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
+          PlatformNativeSheetResultRequest.fromList(it)
         }
       }
       167.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetControlChangedEvent.fromList(it)
+          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
         }
       }
       168.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetailAppearedEvent.fromList(it)
+          PlatformNativeSheetControlChangedEvent.fromList(it)
         }
       }
       169.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelPinToggledEvent.fromList(it)
+          PlatformNativeSheetDetailAppearedEvent.fromList(it)
         }
       }
       170.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
+          PlatformNativeSheetModelPinToggledEvent.fromList(it)
         }
       }
       171.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileCommittedEvent.fromList(it)
+          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
         }
       }
       172.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformNativeEditProfileCommittedEvent.fromList(it)
+        }
+      }
+      173.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           PlatformNativeSheetActionResult.fromList(it)
         }
@@ -2784,84 +2870,88 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         stream.write(152)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetItem -> {
+      is PlatformNativeSheetTheme -> {
         stream.write(153)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetLink -> {
+      is PlatformNativeSheetItem -> {
         stream.write(154)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetSection -> {
+      is PlatformNativeSheetLink -> {
         stream.write(155)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileSheetConfig -> {
+      is PlatformNativeSheetSection -> {
         stream.write(156)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeProfileSheetUser -> {
+      is PlatformNativeEditProfileSheetConfig -> {
         stream.write(157)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetail -> {
+      is PlatformNativeProfileSheetUser -> {
         stream.write(158)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeProfileSheetConfig -> {
+      is PlatformNativeSheetDetail -> {
         stream.write(159)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelOption -> {
+      is PlatformNativeProfileSheetConfig -> {
         stream.write(160)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelSelectorRequest -> {
+      is PlatformNativeSheetModelOption -> {
         stream.write(161)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetOptionsSelectorRequest -> {
+      is PlatformNativeSheetModelSelectorRequest -> {
         stream.write(162)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDatePickerRequest -> {
+      is PlatformNativeSheetOptionsSelectorRequest -> {
         stream.write(163)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetTextEditorRequest -> {
+      is PlatformNativeSheetDatePickerRequest -> {
         stream.write(164)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetResultRequest -> {
+      is PlatformNativeSheetTextEditorRequest -> {
         stream.write(165)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetApplyDetailPatchRequest -> {
+      is PlatformNativeSheetResultRequest -> {
         stream.write(166)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetControlChangedEvent -> {
+      is PlatformNativeSheetApplyDetailPatchRequest -> {
         stream.write(167)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetailAppearedEvent -> {
+      is PlatformNativeSheetControlChangedEvent -> {
         stream.write(168)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelPinToggledEvent -> {
+      is PlatformNativeSheetDetailAppearedEvent -> {
         stream.write(169)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetReasoningEffortChangedEvent -> {
+      is PlatformNativeSheetModelPinToggledEvent -> {
         stream.write(170)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileCommittedEvent -> {
+      is PlatformNativeSheetReasoningEffortChangedEvent -> {
         stream.write(171)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetActionResult -> {
+      is PlatformNativeEditProfileCommittedEvent -> {
         stream.write(172)
+        writeValue(stream, value.toList())
+      }
+      is PlatformNativeSheetActionResult -> {
+        stream.write(173)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -3546,6 +3636,7 @@ interface NativeDropdownHostApi {
 }
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativeSheetHostApi {
+  fun setTheme(theme: PlatformNativeSheetTheme)
   fun presentProfileMenu(config: PlatformNativeProfileSheetConfig, callback: (Result<Boolean>) -> Unit)
   fun dismiss(): Boolean
   fun requestAppStoreReview(): Boolean
@@ -3567,6 +3658,24 @@ interface NativeSheetHostApi {
     @JvmOverloads
     fun setUp(binaryMessenger: BinaryMessenger, api: NativeSheetHostApi?, messageChannelSuffix: String = "") {
       val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.setTheme$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val themeArg = args[0] as PlatformNativeSheetTheme
+            val wrapped: List<Any?> = try {
+              api.setTheme(themeArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
       run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.presentProfileMenu$separatedMessageChannelSuffix", codec)
         if (api != null) {

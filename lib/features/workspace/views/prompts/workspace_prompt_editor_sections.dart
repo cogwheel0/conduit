@@ -8,7 +8,6 @@ import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
-import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -46,83 +45,48 @@ final class WorkspacePromptCoreFields extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    return WorkspaceEditorRows(
       children: [
-        if (isDetail)
-          UtilityValueRow(
-            key: const Key('workspace-prompt-name'),
-            label: l10n.workspacePromptName,
-            value: nameController.text,
-          )
-        else
-          ConduitInput(
-            key: const Key('workspace-prompt-name'),
-            controller: nameController,
-            label: l10n.workspacePromptName,
-            enabled: !readOnly,
-            onChanged: onNameChanged,
-            textInputAction: TextInputAction.next,
-          ),
-        const SizedBox(height: Spacing.md),
-        if (isDetail)
-          UtilityValueRow(
-            key: const Key('workspace-prompt-command'),
-            label: l10n.workspacePromptCommand,
-            value: WorkspacePromptCommand.display(commandController.text),
-          )
-        else
-          WorkspaceLabeledField(
-            helperText: l10n.workspacePromptCommandHint,
-            child: ConduitInput(
-              key: const Key('workspace-prompt-command'),
-              controller: commandController,
-              label: l10n.workspacePromptCommand,
-              enabled: !readOnly,
-              onChanged: onCommandChanged,
-              errorText: commandError
-                  ? l10n.workspacePromptCommandInvalid
-                  : null,
-              prefixIcon: Padding(
-                padding: const EdgeInsets.only(
-                  left: Spacing.md,
-                  right: Spacing.xs,
-                ),
-                child: Text(
-                  '/',
-                  style: AppTypography.standard.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
+        WorkspaceEditorField(
+          fieldKey: 'workspace-prompt-name',
+          controller: nameController,
+          label: l10n.workspacePromptName,
+          isDetail: isDetail,
+          enabled: !readOnly,
+          onChanged: onNameChanged,
+          textInputAction: TextInputAction.next,
+        ),
+        WorkspaceEditorField(
+          fieldKey: 'workspace-prompt-command',
+          controller: commandController,
+          label: l10n.workspacePromptCommand,
+          isDetail: isDetail,
+          enabled: !readOnly,
+          onChanged: onCommandChanged,
+          detailValue: WorkspacePromptCommand.display(commandController.text),
+          helperText: usesCupertinoChrome
+              ? null
+              : l10n.workspacePromptCommandHint,
+          errorText: commandError ? l10n.workspacePromptCommandInvalid : null,
+          prefixIcon: Padding(
+            padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.xs),
+            child: Text(
+              '/',
+              style: AppTypography.standard.copyWith(
+                color: theme.textSecondary,
               ),
             ),
           ),
-        const SizedBox(height: Spacing.md),
-        Text(l10n.workspacePromptTags, style: theme.label),
-        const SizedBox(height: Spacing.xs),
-        Wrap(
-          spacing: Spacing.xs,
-          runSpacing: Spacing.xs,
-          children: [
-            for (final tag in tags)
-              InputChip(
-                key: Key('workspace-prompt-tag-$tag'),
-                label: Text(tag),
-                onDeleted: readOnly
-                    ? null
-                    : () {
-                        ConduitHaptics.selectionClick();
-                        onRemoveTag(tag);
-                      },
-              ),
-            if (!readOnly)
-              ActionChip(
-                key: const Key('workspace-prompt-tag-add'),
-                avatar: const Icon(Icons.add, size: IconSize.small),
-                label: Text(l10n.workspacePromptTagAdd),
-                onPressed: onAddTag,
-              ),
-          ],
+        ),
+        WorkspaceTagField(
+          keyPrefix: 'workspace-prompt',
+          label: l10n.workspacePromptTags,
+          addLabel: l10n.workspacePromptTagAdd,
+          tags: tags,
+          readOnly: readOnly,
+          onRemove: onRemoveTag,
+          onAdd: onAddTag,
         ),
       ],
     );
@@ -235,21 +199,28 @@ final class WorkspacePromptVersionSection extends StatelessWidget {
       title: l10n.workspacePromptVersionSection,
       expanded: expanded,
       onChanged: onExpandedChanged,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      contentPadding: context.usesCupertinoChrome
+          ? EdgeInsets.zero
+          : const EdgeInsets.all(Spacing.md),
+      child: WorkspaceEditorRows(
         children: [
-          ConduitInput(
+          AccessibleFormField(
             key: const Key('workspace-prompt-commit-message'),
             controller: commitController,
             label: l10n.workspacePromptCommitMessage,
             hint: l10n.workspacePromptCommitMessageHint,
             enabled: !readOnly,
             onChanged: (_) => onCommitChanged(),
+            iosSettingsRow: true,
           ),
-          const SizedBox(height: Spacing.xs),
           AdaptiveListTile(
             key: const Key('workspace-prompt-production-toggle'),
-            padding: EdgeInsets.zero,
+            padding: context.usesCupertinoChrome
+                ? const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.sm,
+                  )
+                : EdgeInsets.zero,
             title: Text(l10n.workspacePromptSetProduction),
             subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
             trailing: AdaptiveSwitch(

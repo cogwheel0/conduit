@@ -3,8 +3,7 @@ import 'dart:io' show Platform;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/services/platform_service.dart';
-import '../../../core/services/settings_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
@@ -58,10 +57,7 @@ class DrawerShellPage extends ConsumerWidget {
           localizations.sidebarWidthValue(width.round()),
       onTabletDrawerWidthChanged: (width) {
         ref.read(sidebarTabletWidthProvider.notifier).setWidth(width);
-        PlatformService.hapticFeedbackWithSettings(
-          type: HapticType.selection,
-          hapticEnabled: ref.read(hapticEnabledProvider),
-        );
+        ConduitHaptics.selectionClick();
       },
       onOpenStart: () {
         // Suppress composer auto-focus when drawer opens on mobile

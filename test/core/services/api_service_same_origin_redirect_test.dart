@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -87,9 +88,11 @@ void main() {
 
     test('follows a same-origin 301 for GET and keeps credentials', () async {
       final seenAuthByPath = <String, String?>{};
+      String? replayRequestId;
       server.listen((request) async {
-        seenAuthByPath[request.uri.path] =
-            request.headers.value(HttpHeaders.authorizationHeader);
+        seenAuthByPath[request.uri.path] = request.headers.value(
+          HttpHeaders.authorizationHeader,
+        );
         if (request.uri.path == '/api/config') {
           request.response.statusCode = HttpStatus.movedPermanently;
           request.response.headers.set(
@@ -97,6 +100,7 @@ void main() {
             '/api/config/',
           );
         } else {
+          replayRequestId = request.headers.value('X-Request-ID');
           request.response.statusCode = HttpStatus.ok;
           request.response.headers.contentType = ContentType.json;
           request.response.write('{"ok":true}');
@@ -104,10 +108,14 @@ void main() {
         await request.response.close();
       });
 
-      final response = await api.dio.get<Map<String, dynamic>>('/api/config');
+      final response = await api.dio.get<Map<String, dynamic>>(
+        '/api/config',
+        options: Options(headers: {'X-Request-ID': 'redirect-test'}),
+      );
       check(response.statusCode).equals(200);
       check(response.data).isNotNull();
       check(seenAuthByPath['/api/config/']).equals('Bearer session-token');
+      check(replayRequestId).equals('redirect-test');
     });
 
     test('converts a 303 POST into a GET of the target', () async {
@@ -134,6 +142,31 @@ void main() {
       check(methodsByPath['/result']).equals('GET');
     });
 
+    test('replay uses the current authentication session', () async {
+      String? replayAuthorization;
+      server.listen((request) async {
+        if (request.uri.path == '/api/config') {
+          api.updateAuthToken('rotated-token');
+          request.response.statusCode = HttpStatus.movedPermanently;
+          request.response.headers.set(
+            HttpHeaders.locationHeader,
+            '/api/config/',
+          );
+        } else {
+          replayAuthorization = request.headers.value(
+            HttpHeaders.authorizationHeader,
+          );
+          request.response.statusCode = HttpStatus.ok;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write('{"ok":true}');
+        }
+        await request.response.close();
+      });
+
+      await api.dio.get<Map<String, dynamic>>('/api/config');
+      check(replayAuthorization).equals('Bearer rotated-token');
+    });
+
     test('surfaces a non-303 POST redirect instead of following it', () async {
       var followUps = 0;
       server.listen((request) async {
@@ -148,9 +181,8 @@ void main() {
         await request.response.close();
       });
 
-      await check(
-        api.dio.post<void>('/submit', data: {'value': 1}),
-      ).throws<Exception>();
+      await check(api.dio.post<void>('/submit', data: {'value': 1}))
+          .throws<Exception>();
       check(followUps).equals(0);
     });
 

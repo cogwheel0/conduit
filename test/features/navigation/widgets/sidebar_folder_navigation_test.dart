@@ -357,9 +357,12 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.md);
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, sectionLeadingLeft);
-    expect(folderIconLeft, sectionLeadingLeft);
+    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.lg);
+    expect(
+      tester.getTopLeft(find.text('Active Chat')).dx,
+      sectionLeadingLeft + Spacing.sm,
+    );
+    expect(folderIconLeft, sectionLeadingLeft + Spacing.sm);
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();
@@ -374,7 +377,7 @@ void main() {
     final leftTintInset = chatTintRect.left - drawerRect.left;
     final rightTintInset = drawerRect.right - chatTintRect.right;
     final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
-    expect(titleLeft - chatTintRect.left, Spacing.sm);
+    expect(titleLeft - chatTintRect.left, Spacing.md);
     expect(chatTintRect.left, Spacing.sm);
     expect(rightTintInset, leftTintInset);
     expect(chatTintRect.left, folderTintRect.left);

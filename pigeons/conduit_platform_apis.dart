@@ -4,8 +4,7 @@ import 'package:pigeon/pigeon.dart';
   PigeonOptions(
     dartOut: 'lib/core/platform/conduit_platform_apis.g.dart',
     dartOptions: DartOptions(),
-    kotlinOut:
-        'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
+    kotlinOut: 'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
     kotlinOptions: KotlinOptions(package: 'app.cogwheel.conduit'),
     swiftOut: 'ios/Runner/ConduitPlatformApis.g.swift',
     swiftOptions: SwiftOptions(),
@@ -276,6 +275,36 @@ class PlatformNativeSheetOption {
   List<bool> ancestorHasMoreSiblings;
   bool showBranch;
   bool hasMoreSiblings;
+}
+
+class PlatformNativeSheetTheme {
+  PlatformNativeSheetTheme({
+    required this.isDark,
+    required this.backgroundArgb,
+    required this.surfaceArgb,
+    required this.elevatedSurfaceArgb,
+    required this.inputArgb,
+    required this.foregroundArgb,
+    required this.secondaryForegroundArgb,
+    required this.iconArgb,
+    required this.borderArgb,
+    required this.accentArgb,
+    required this.onAccentArgb,
+    required this.destructiveArgb,
+  });
+
+  bool isDark;
+  int backgroundArgb;
+  int surfaceArgb;
+  int elevatedSurfaceArgb;
+  int inputArgb;
+  int foregroundArgb;
+  int secondaryForegroundArgb;
+  int iconArgb;
+  int borderArgb;
+  int accentArgb;
+  int onAccentArgb;
+  int destructiveArgb;
 }
 
 class PlatformNativeSheetItem {
@@ -769,6 +798,8 @@ abstract class NativeDropdownHostApi {
 
 @HostApi()
 abstract class NativeSheetHostApi {
+  void setTheme(PlatformNativeSheetTheme theme);
+
   @async
   bool presentProfileMenu(PlatformNativeProfileSheetConfig config);
 

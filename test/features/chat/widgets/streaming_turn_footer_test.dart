@@ -31,17 +31,17 @@ ProviderContainer _buildContainer() {
   return ProviderContainer(
     overrides: [
       appSettingsProvider.overrideWithValue(
-        const AppSettings(hapticFeedback: false),
+        const AppSettings(disableHapticsWhileStreaming: true),
       ),
     ],
   );
 }
 
-ProviderContainer _buildHapticsContainer({bool hapticFeedback = true}) {
+ProviderContainer _buildHapticsContainer({bool enabled = true}) {
   return ProviderContainer(
     overrides: [
       appSettingsProvider.overrideWithValue(
-        AppSettings(hapticFeedback: hapticFeedback),
+        AppSettings(disableHapticsWhileStreaming: !enabled),
       ),
     ],
   );
@@ -249,7 +249,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         appSettingsProvider.overrideWithValue(
-          const AppSettings(hapticFeedback: false),
+          const AppSettings(disableHapticsWhileStreaming: true),
         ),
         queuedCompletionInfoForMessageProvider('assistant-queued').overrideWith(
           (ref) => Stream<QueuedCompletionInfo?>.value(
@@ -391,41 +391,42 @@ void main() {
     },
   );
 
-  testWidgets('does not fire the running haptic when haptics are disabled', (
-    tester,
-  ) async {
-    final container = _buildHapticsContainer(hapticFeedback: false);
-    addTearDown(container.dispose);
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final calls = <_RecordedPlatformCall>[];
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      calls.add(_RecordedPlatformCall(call.method, call.arguments));
-      return null;
-    });
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+  testWidgets(
+    'does not fire the running haptic when streaming haptics are disabled',
+    (tester) async {
+      final container = _buildHapticsContainer(enabled: false);
+      addTearDown(container.dispose);
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final calls = <_RecordedPlatformCall>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        calls.add(_RecordedPlatformCall(call.method, call.arguments));
+        return null;
+      });
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
 
-    try {
-      await tester.pumpWidget(
-        _buildHarness(
-          container: container,
-          message: ChatMessage(
-            id: 'assistant-1',
-            role: 'assistant',
-            content: '',
-            timestamp: DateTime(2026),
-            isStreaming: true,
+      try {
+        await tester.pumpWidget(
+          _buildHarness(
+            container: container,
+            message: ChatMessage(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              timestamp: DateTime(2026),
+              isStreaming: true,
+            ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      expect(_lightImpactCalls(calls), isEmpty);
-    } finally {
-      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
+        expect(_lightImpactCalls(calls), isEmpty);
+      } finally {
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   testWidgets('hides the typing indicator once the turn settles', (
     tester,

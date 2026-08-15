@@ -3415,6 +3415,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
                     ),
                   ),
+                  fadeHeight: Spacing.md,
                 ),
               ),
               Positioned(

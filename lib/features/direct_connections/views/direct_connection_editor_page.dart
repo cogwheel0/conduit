@@ -120,6 +120,13 @@ class _DirectConnectionEditorPageState
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
     );
+    if (mounted &&
+        PlatformInfo.isIOS &&
+        result.outcome == DirectEditorActionOutcome.invalidDraft &&
+        _form.headerError != null) {
+      await showDirectConnectionAdvancedSettings(context, _form);
+      return;
+    }
     _handleSaveResult(result);
   }
 
@@ -137,6 +144,13 @@ class _DirectConnectionEditorPageState
       messages: _editorMessages(),
       confirmCredentialTransfer: _confirmOriginSecretTransfer,
     );
+    if (mounted &&
+        PlatformInfo.isIOS &&
+        result.outcome == DirectEditorActionOutcome.invalidDraft &&
+        _form.headerError != null) {
+      await showDirectConnectionAdvancedSettings(context, _form);
+      return;
+    }
     _handleSaveResult(result);
   }
 
@@ -266,11 +280,15 @@ class _DirectConnectionEditorPageState
     required String title,
     required List<Widget> children,
     Widget bottomAction = const SizedBox.shrink(),
+    Widget? trailing,
   }) {
     if (widget.isOnboarding) {
       final l10n = AppLocalizations.of(context)!;
       return UtilityPageScaffold.auth(
         title: title,
+        backgroundColor: PlatformInfo.isIOS
+            ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+            : null,
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('direct-editor-back-button'),
@@ -291,7 +309,22 @@ class _DirectConnectionEditorPageState
       );
     }
 
-    return UtilityPageScaffold.settings(title: title, children: children);
+    return UtilityPageScaffold.settings(
+      title: title,
+      backgroundColor: PlatformInfo.isIOS
+          ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+          : null,
+      trailing: trailing,
+      contentPadding: PlatformInfo.isIOS
+          ? const EdgeInsets.fromLTRB(
+              Spacing.screenPadding,
+              Spacing.sm,
+              Spacing.screenPadding,
+              Spacing.lg,
+            )
+          : null,
+      children: children,
+    );
   }
 
   Widget _buildForm(BuildContext context) {
@@ -302,7 +335,7 @@ class _DirectConnectionEditorPageState
         directDraftValidationMessage(l10n, _form.errors.form) ??
         _form.errors.profile;
     final content = <Widget>[
-      if (!widget.isOnboarding && !_mode.isNew)
+      if (!widget.isOnboarding && !_mode.isNew && !PlatformInfo.isIOS)
         UtilityIdentityHeader(
           leading: ConnectionMark(
             child: Icon(
@@ -330,82 +363,149 @@ class _DirectConnectionEditorPageState
                 )
               : null,
         ),
-      if (!widget.isOnboarding && !_mode.isNew)
+      if (!widget.isOnboarding && !_mode.isNew && !PlatformInfo.isIOS)
         const SizedBox(height: Spacing.xl),
       if (!widget.isOnboarding) ...[
-        DirectConnectionAvailabilitySection(form: _form),
-        const SizedBox(height: Spacing.lg),
+        if (PlatformInfo.isIOS)
+          DirectConnectionGeneralSection(form: _form)
+        else
+          DirectConnectionAvailabilitySection(form: _form),
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       ],
-      DirectConnectionProviderSection(form: _form, flat: widget.isOnboarding),
-      const SizedBox(height: Spacing.lg),
+      if (widget.isOnboarding || !PlatformInfo.isIOS) ...[
+        DirectConnectionProviderSection(form: _form, flat: widget.isOnboarding),
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      ],
       DirectConnectionDetailsSection(form: _form, flat: widget.isOnboarding),
       if (formError != null) ...[
         const SizedBox(height: Spacing.lg),
-        Container(
+        KeyedSubtree(
           key: const ValueKey<String>('direct-form-error'),
-          padding: const EdgeInsets.all(Spacing.md),
-          decoration: BoxDecoration(
-            color: theme.error.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            border: Border.all(color: theme.error.withValues(alpha: 0.3)),
-          ),
-          child: Text(
-            formError,
-            style: theme.bodySmall?.copyWith(color: theme.error),
-          ),
+          child: PlatformInfo.isIOS
+              ? UtilityStatusBanner(
+                  message: formError,
+                  tone: UtilityStatusTone.error,
+                )
+              : Container(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  decoration: BoxDecoration(
+                    color: theme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
+                    border: Border.all(
+                      color: theme.error.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Text(
+                    formError,
+                    style: theme.bodySmall?.copyWith(color: theme.error),
+                  ),
+                ),
         ),
       ],
-      const SizedBox(height: Spacing.lg),
+      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       DirectConnectionAdvancedSettingsSection(
         form: _form,
         flat: widget.isOnboarding,
       ),
       if (!widget.isOnboarding) ...[
-        const SizedBox(height: Spacing.lg),
-        Wrap(
-          spacing: Spacing.md,
-          runSpacing: Spacing.sm,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            ConduitButton(
-              text: l10n.save,
-              isLoading: _saving,
-              onPressed:
-                  _testing ||
-                      _deleting ||
-                      _form.authentication ==
-                          DirectAuthenticationMode.unsupported
-                  ? null
-                  : _save,
-            ),
-            ConduitButton(
-              text: l10n.testDirectConnection,
-              isSecondary: true,
-              isLoading: _testing,
-              onPressed:
-                  _saving ||
-                      _deleting ||
-                      _form.authentication ==
-                          DirectAuthenticationMode.unsupported
-                  ? null
-                  : _testConnection,
-            ),
-            if (_attempt.isVisible)
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 320),
-                child: ConnectionAttemptBanner(state: _attempt),
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+        if (PlatformInfo.isIOS) ...[
+          InsetGroupedList(
+            useNativeSurface: true,
+            children: [
+              UtilityRow(
+                key: const ValueKey<String>(
+                  'direct-editor-test-connection-row',
+                ),
+                title: l10n.testDirectConnection,
+                titleFontWeight: FontWeight.w400,
+                foregroundColor: CupertinoColors.activeBlue.resolveFrom(
+                  context,
+                ),
+                enabled:
+                    !_saving &&
+                    !_deleting &&
+                    _form.authentication !=
+                        DirectAuthenticationMode.unsupported,
+                status: _testing
+                    ? const SizedBox.square(
+                        dimension: IconSize.small,
+                        child: CupertinoActivityIndicator(radius: 8),
+                      )
+                    : null,
+                onTap: _testing ? null : _testConnection,
               ),
+            ],
+          ),
+          if (_attempt.isVisible) ...[
+            const SizedBox(height: Spacing.sm),
+            ConnectionAttemptBanner(state: _attempt),
           ],
-        ),
+        ] else
+          Wrap(
+            spacing: Spacing.md,
+            runSpacing: Spacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ConduitButton(
+                text: l10n.save,
+                isLoading: _saving,
+                onPressed:
+                    _testing ||
+                        _deleting ||
+                        _form.authentication ==
+                            DirectAuthenticationMode.unsupported
+                    ? null
+                    : _save,
+              ),
+              ConduitButton(
+                text: l10n.testDirectConnection,
+                isSecondary: true,
+                isLoading: _testing,
+                onPressed:
+                    _saving ||
+                        _deleting ||
+                        _form.authentication ==
+                            DirectAuthenticationMode.unsupported
+                    ? null
+                    : _testConnection,
+              ),
+              if (_attempt.isVisible)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: ConnectionAttemptBanner(state: _attempt),
+                ),
+            ],
+          ),
       ],
       if (!_mode.isNew) ...[
         const SizedBox(height: Spacing.xl),
-        ConduitButton(
-          text: 'Delete connection',
-          isDestructive: true,
-          isLoading: _deleting,
-          onPressed: _saving || _testing ? null : _delete,
-        ),
+        if (PlatformInfo.isIOS)
+          InsetGroupedList(
+            useNativeSurface: true,
+            children: [
+              UtilityRow(
+                title: l10n.delete,
+                titleFontWeight: FontWeight.w400,
+                destructive: true,
+                enabled: !_saving && !_testing,
+                status: _deleting
+                    ? const SizedBox.square(
+                        dimension: IconSize.small,
+                        child: CupertinoActivityIndicator(radius: 8),
+                      )
+                    : null,
+                onTap: _deleting ? null : _delete,
+              ),
+            ],
+          )
+        else
+          ConduitButton(
+            text: l10n.delete,
+            isDestructive: true,
+            isLoading: _deleting,
+            onPressed: _saving || _testing ? null : _delete,
+          ),
       ],
     ];
 
@@ -440,6 +540,24 @@ class _DirectConnectionEditorPageState
               ],
             )
           : const SizedBox.shrink(),
+      trailing: !widget.isOnboarding && PlatformInfo.isIOS
+          ? CupertinoButton(
+              key: const ValueKey<String>('direct-editor-save-toolbar-button'),
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+              minimumSize: const Size(0, TouchTarget.minimum),
+              onPressed:
+                  _testing ||
+                      _saving ||
+                      _deleting ||
+                      _form.authentication ==
+                          DirectAuthenticationMode.unsupported
+                  ? null
+                  : _save,
+              child: _saving
+                  ? const CupertinoActivityIndicator(radius: 8)
+                  : Text(l10n.save),
+            )
+          : null,
     );
   }
 }

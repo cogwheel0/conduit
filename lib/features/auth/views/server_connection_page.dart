@@ -23,8 +23,6 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
-import '../../../core/services/platform_service.dart';
-import '../../../core/services/settings_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/sensitive_value_utils.dart';
 import '../../../core/utils/unicode_prefix.dart';
@@ -422,10 +420,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       // Don't save server config yet - wait until authentication succeeds
       // The config is passed to the authentication page along with backend config
       if (mounted) {
-        PlatformService.hapticFeedbackWithSettings(
-          type: HapticType.success,
-          hapticEnabled: ref.read(hapticEnabledProvider),
-        );
+        ConduitHaptics.success();
         final authFlowConfig = AuthFlowConfig(
           serverConfig: tempConfig,
           backendConfig: backendConfig,
@@ -442,10 +437,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         setState(() {
           _connectionError = _formatConnectionError(e);
         });
-        PlatformService.hapticFeedbackWithSettings(
-          type: HapticType.error,
-          hapticEnabled: ref.read(hapticEnabledProvider),
-        );
+        ConduitHaptics.error();
       }
     } finally {
       connectionApi?.dispose();

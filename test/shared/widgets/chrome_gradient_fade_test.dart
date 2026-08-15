@@ -5,7 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('chrome fade combines backdrop blur with its gradient', (
+  testWidgets('chrome fade uses the 4.0.3 gradient without a blur layer', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -22,10 +22,11 @@ void main() {
       ),
     );
 
-    expect(find.byType(BackdropFilter), findsOneWidget);
-    expect(find.byType(ShaderMask), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(ShaderMask), findsNothing);
     expect(find.byType(DecoratedBox), findsWidgets);
     final fade = find.byType(ConduitChromeGradientFade);
+    expect(tester.getSize(fade).height, 110);
     expect(
       find.descendant(of: fade, matching: find.byType(IgnorePointer)),
       findsOneWidget,

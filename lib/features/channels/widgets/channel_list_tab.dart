@@ -14,7 +14,6 @@ import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/utility_components.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../navigation/providers/sidebar_search_providers.dart';
@@ -388,18 +387,15 @@ class _ChannelTile extends ConsumerWidget {
         semanticLabel: semanticLabel,
         tintKey: ValueKey<String>('channel-sidebar-selected-${channel.id}'),
         pressedKey: ValueKey<String>('channel-sidebar-pressed-${channel.id}'),
-        child: UtilityRow(
+        child: SidebarListTileContent(
           leading: Icon(
             _channelIcon(),
             color: selected ? theme.textPrimary : theme.textSecondary,
             size: IconSize.listItem,
           ),
           title: displayName,
+          selected: selected,
           subtitle: description,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.sm,
-          ),
           trailing: unread <= 0
               ? null
               : Container(

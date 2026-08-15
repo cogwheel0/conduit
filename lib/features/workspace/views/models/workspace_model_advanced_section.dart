@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/utility_components.dart';
+import '../../widgets/workspace_editor_fields.dart';
 import 'workspace_model_editor_controller.dart';
 import 'workspace_model_editor_field.dart';
 
@@ -20,7 +21,11 @@ final class WorkspaceModelAdvancedSection extends StatelessWidget {
       title: l10n.workspaceModelSectionAdvanced,
       expanded: controller.advancedExpanded,
       onChanged: controller.setAdvancedExpanded,
-      child: Column(
+      contentPadding: context.usesCupertinoChrome
+          ? EdgeInsets.zero
+          : const EdgeInsets.all(Spacing.md),
+      child: WorkspaceEditorRows(
+        androidGap: Spacing.sm,
         children: [
           WorkspaceModelEditorField(
             fieldKey: 'workspace-model-stop',
@@ -87,19 +92,32 @@ final class WorkspaceModelAdvancedSection extends StatelessWidget {
   }
 
   Widget _capabilities(BuildContext context, AppLocalizations l10n) {
+    final usesCupertinoChrome = context.usesCupertinoChrome;
     return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
+      padding: usesCupertinoChrome
+          ? const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.sm,
+            )
+          : EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             l10n.workspaceModelCapabilities,
-            style: context.conduitTheme.label,
+            style: usesCupertinoChrome
+                ? AppTypography.bodyMediumStyle.copyWith(
+                    color: context.conduitTheme.textPrimary,
+                    fontWeight: FontWeight.w400,
+                  )
+                : context.conduitTheme.label,
           ),
           for (final entry in controller.draft.capabilities.entries)
             AdaptiveListTile(
               key: Key('workspace-model-capability-${entry.key}'),
-              padding: EdgeInsets.zero,
+              padding: usesCupertinoChrome
+                  ? const EdgeInsets.symmetric(vertical: Spacing.xs)
+                  : EdgeInsets.zero,
               title: Text(entry.key),
               trailing: AdaptiveSwitch(
                 value: entry.value,

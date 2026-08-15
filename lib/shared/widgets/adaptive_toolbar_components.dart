@@ -5,7 +5,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/services/haptic_service.dart';
 import '../theme/theme_extensions.dart';
 import '../utils/adaptive_glass.dart';
 import 'conduit_components.dart';
@@ -733,13 +732,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
                 ],
                 onMenuSelected: (index) {
                   if (index >= 0 && index < action.menuItems.length) {
-                    final item = action.menuItems[index];
-                    if (item.isDestructive) {
-                      ConduitHaptics.mediumImpact();
-                    } else {
-                      ConduitHaptics.selectionClick();
-                    }
-                    item.onSelected();
+                    action.menuItems[index].onSelected();
                   }
                 },
                 enabled: action.enabled,

@@ -120,10 +120,10 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Spacing.sm,
-              vertical: Spacing.xs,
-            ),
+            // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
+            // gutter. Keep list padding vertical to avoid doubling that inset
+            // only in this tab.
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
             sliver: SliverList.builder(
               itemCount: sessions.length,
               itemBuilder: (context, index) =>

@@ -161,6 +161,61 @@ void main() {
     expect(find.byKey(pressedKey), findsNothing);
   });
 
+  testWidgets('selected sidebar rows keep the 4.0.3 Hermes edge gutter', (
+    tester,
+  ) async {
+    const hostKey = ValueKey<String>('sidebar-row-host');
+    const tintKey = ValueKey<String>('sidebar-row-tint');
+    await tester.pumpWidget(
+      _harness(
+        SizedBox(
+          key: hostKey,
+          width: 320,
+          child: ChatStyleSidebarTile(
+            selected: true,
+            onTap: () {},
+            tintKey: tintKey,
+            child: const SizedBox(height: TouchTarget.listItem),
+          ),
+        ),
+      ),
+    );
+
+    final hostRect = tester.getRect(find.byKey(hostKey));
+    final tintRect = tester.getRect(find.byKey(tintKey));
+    expect(tintRect.left - hostRect.left, Spacing.sm);
+    expect(hostRect.right - tintRect.right, Spacing.sm);
+  });
+
+  testWidgets('inactive sidebar rows keep the 4.0.3 Hermes edge gutter', (
+    tester,
+  ) async {
+    const hostKey = ValueKey<String>('inactive-sidebar-row-host');
+    const contentKey = ValueKey<String>('inactive-sidebar-row-content');
+    await tester.pumpWidget(
+      _harness(
+        SizedBox(
+          key: hostKey,
+          width: 320,
+          child: ChatStyleSidebarTile(
+            selected: false,
+            onTap: () {},
+            child: const SizedBox(
+              key: contentKey,
+              height: TouchTarget.listItem,
+              width: double.infinity,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final hostRect = tester.getRect(find.byKey(hostKey));
+    final contentRect = tester.getRect(find.byKey(contentKey));
+    expect(contentRect.left - hostRect.left, Spacing.sm);
+    expect(hostRect.right - contentRect.right, Spacing.sm);
+  });
+
   testWidgets('generating conversations show a spinner', (tester) async {
     await tester.pumpWidget(
       _harness(

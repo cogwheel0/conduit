@@ -3,7 +3,6 @@
 final class PreferenceKeys {
   static const String reduceMotion = 'reduce_motion';
   static const String animationSpeed = 'animation_speed';
-  static const String hapticFeedback = 'haptic_feedback';
   static const String disableHapticsWhileStreaming =
       'disable_haptics_while_streaming';
   static const String highContrast = 'high_contrast';

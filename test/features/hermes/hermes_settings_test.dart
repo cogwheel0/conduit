@@ -17,6 +17,22 @@ const _messages = HermesConnectionMessages(
 );
 
 void main() {
+  test('credential transport requires HTTPS for public Hermes hosts', () {
+    check(HermesConfig.connectionOrigin('http://api.example.com:8642'))
+        .isNull();
+    check(HermesConfig.connectionOrigin('http://192.168.1.10:8642'))
+        .equals('http://192.168.1.10:8642');
+    check(HermesConfig.connectionOrigin('https://api.example.com:8642'))
+        .equals('https://api.example.com:8642');
+    check(
+      const HermesConfig(
+        enabled: true,
+        baseUrl: 'http://api.example.com:8642',
+        apiKey: 'persisted-secret',
+      ).isUsable,
+    ).isFalse();
+  });
+
   test(
     'connection test probes a valid draft while Hermes is disabled',
     () async {
@@ -123,9 +139,8 @@ void main() {
       check(gateway.calls).deepEquals(['probe', 'persist', 'activate']);
       check(gateway.probedDraft).isNotNull();
       check(gateway.persistedDraft).isNotNull();
-      check(
-        identical(gateway.probedDraft, gateway.persistedDraft!.config),
-      ).isTrue();
+      check(identical(gateway.probedDraft, gateway.persistedDraft!.config))
+          .isTrue();
     },
   );
 
@@ -212,9 +227,8 @@ void main() {
     ).isFalse();
     check(controller.attempt.isVisible).isTrue();
 
-    check(
-      await controller.save(const HermesConfig(), messages: _messages),
-    ).isTrue();
+    check(await controller.save(const HermesConfig(), messages: _messages))
+        .isTrue();
 
     check(controller.operation).equals(HermesConnectionOperation.idle);
     check(controller.attempt.message).equals('Saved');

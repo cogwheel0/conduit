@@ -3,8 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../persistence/persistence_keys.dart';
-import '../persistence/preferences_store.dart';
+/// Semantic haptic feedback used throughout the app.
+enum HapticType { light, medium, heavy, selection, success, warning, error }
 
 /// App-wide helper for Flutter's system haptics on supported mobile platforms.
 class ConduitHaptics {
@@ -13,11 +13,21 @@ class ConduitHaptics {
   /// Whether the current target supports mobile haptics.
   static bool get supportsHaptics =>
       !kIsWeb &&
-      (PreferencesStore.get<bool>(PreferenceKeys.hapticFeedback) ?? true) &&
       switch (defaultTargetPlatform) {
         TargetPlatform.android || TargetPlatform.iOS => true,
         _ => false,
       };
+
+  /// Triggers the feedback associated with [type].
+  static Future<void> trigger(HapticType type) => switch (type) {
+    HapticType.light => lightImpact(),
+    HapticType.medium => mediumImpact(),
+    HapticType.heavy => heavyImpact(),
+    HapticType.selection => selectionClick(),
+    HapticType.success => success(),
+    HapticType.warning => warning(),
+    HapticType.error => error(),
+  };
 
   /// Triggers a light impact haptic.
   static Future<void> lightImpact() => _feedback(HapticFeedback.lightImpact);

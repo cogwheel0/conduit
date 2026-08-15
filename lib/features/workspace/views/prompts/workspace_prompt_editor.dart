@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
@@ -23,7 +24,6 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 
 import 'workspace_prompt_editor_sections.dart';
 
@@ -481,6 +481,8 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         : (_nameController.text.trim().isEmpty
               ? l10n.workspacePrompts
               : _nameController.text.trim());
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -517,36 +519,31 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-prompt-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
-            InsetGroupedSection(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  WorkspacePromptCoreFields(
-                    isDetail: _session.isDetail,
-                    readOnly: _fieldsReadOnly,
-                    commandError: _commandError,
-                    nameController: _nameController,
-                    commandController: _commandController,
-                    tags: _tags,
-                    onNameChanged: _onNameChanged,
-                    onCommandChanged: _onCommandChanged,
-                    onRemoveTag: (tag) {
-                      setState(() => _tags = [..._tags]..remove(tag));
-                      _session.markDirty();
-                    },
-                    onAddTag: () => _addTag(l10n),
-                  ),
-                ],
-              ),
+            WorkspaceEditorFieldGroup(
+              footer: usesCupertinoChrome
+                  ? l10n.workspacePromptCommandHint
+                  : null,
+              children: [
+                WorkspacePromptCoreFields(
+                  isDetail: _session.isDetail,
+                  readOnly: _fieldsReadOnly,
+                  commandError: _commandError,
+                  nameController: _nameController,
+                  commandController: _commandController,
+                  tags: _tags,
+                  onNameChanged: _onNameChanged,
+                  onCommandChanged: _onCommandChanged,
+                  onRemoveTag: (tag) {
+                    setState(() => _tags = [..._tags]..remove(tag));
+                    _session.markDirty();
+                  },
+                  onAddTag: () => _addTag(l10n),
+                ),
+              ],
             ),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             WorkspacePromptContentEditor(
               isDetail: _session.isDetail,
               readOnly: _fieldsReadOnly,
@@ -557,7 +554,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
               onContentChanged: _markDirty,
             ),
             if (!_fieldsReadOnly) ...[
-              const SizedBox(height: Spacing.xl),
+              SizedBox(height: sectionGap),
               WorkspacePromptVersionSection(
                 readOnly: _fieldsReadOnly,
                 expanded: _versionExpanded,
@@ -572,10 +569,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
                 },
               ),
             ],
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             WorkspacePromptAccessTile(grants: _grants, onTap: _manageAccess),
             if (!_session.isCreate && summary != null) ...[
-              const SizedBox(height: Spacing.xl),
+              SizedBox(height: sectionGap),
               WorkspacePromptHistorySection(
                 key: Key('workspace-prompt-history-${summary.id}'),
                 promptId: summary.id,
@@ -588,7 +585,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
                 },
               ),
             ],
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),

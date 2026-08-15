@@ -56,20 +56,41 @@ void main() {
     expect(find.byKey(const ValueKey('utility-route-back-button')), findsOne);
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(ConduitChromeGradientFade), findsOneWidget);
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
 
     final list = tester.widget<ListView>(find.byType(ListView));
     expect(
       list.padding,
       EdgeInsets.fromLTRB(
-        Spacing.pagePadding,
-        Spacing.lg +
+        Spacing.screenPadding,
+        Spacing.sm +
             tester.view.padding.top / tester.view.devicePixelRatio +
             kTextTabBarHeight,
-        Spacing.pagePadding,
-        Spacing.pagePadding +
-            tester.view.padding.bottom / tester.view.devicePixelRatio,
+        Spacing.screenPadding,
+        Spacing.lg + tester.view.padding.bottom / tester.view.devicePixelRatio,
       ),
+    );
+  });
+
+  testWidgets('Material utility routes retain their trailing action', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UtilityPageScaffold.settings(
+          title: 'Settings',
+          trailing: const Icon(Icons.done, key: ValueKey('trailing-action')),
+          children: const [SizedBox(height: 20)],
+        ),
+      ),
+    );
+
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byKey(const ValueKey('trailing-action')),
+      ),
+      findsOneWidget,
     );
   });
 }

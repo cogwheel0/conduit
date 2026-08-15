@@ -27,10 +27,8 @@ import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 
 /// Reads a user-picked Markdown file as text, or null if cancelled.
 typedef WorkspaceMarkdownPicker = Future<String?> Function();
@@ -541,6 +539,8 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceSkills
               : _nameController.text.trim());
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -563,30 +563,21 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-skill-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
-            InsetGroupedSection(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _nameField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _idField(l10n),
-                  const SizedBox(height: Spacing.md),
-                  _descriptionField(l10n),
-                ],
-              ),
+            WorkspaceEditorFieldGroup(
+              footer: usesCupertinoChrome ? l10n.workspaceSkillIdHint : null,
+              children: [
+                _nameField(l10n),
+                _idField(l10n),
+                _descriptionField(l10n),
+              ],
             ),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             _contentEditor(l10n),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             _accessTile(l10n),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),
@@ -594,17 +585,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
-    if (_session.isDetail) {
-      return UtilityValueRow(
-        key: const Key('workspace-skill-name'),
-        label: l10n.workspaceSkillName,
-        value: _nameController.text,
-      );
-    }
-    return ConduitInput(
-      key: const Key('workspace-skill-name'),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-name',
       controller: _nameController,
       label: l10n.workspaceSkillName,
+      isDetail: _session.isDetail,
       hint: l10n.workspaceSkillNameHint,
       enabled: !_fieldsReadOnly,
       onChanged: _onNameChanged,
@@ -613,38 +598,27 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _idField(AppLocalizations l10n) {
-    if (_session.isDetail) {
-      return UtilityValueRow(
-        key: const Key('workspace-skill-id'),
-        label: l10n.workspaceSkillId,
-        value: _idController.text,
-      );
-    }
-    return WorkspaceLabeledField(
-      helperText: l10n.workspaceSkillIdHint,
-      child: ConduitInput(
-        key: const Key('workspace-skill-id'),
-        controller: _idController,
-        label: l10n.workspaceSkillId,
-        enabled: !_idReadOnly,
-        onChanged: _onIdChanged,
-        errorText: _idErrorText,
-      ),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-id',
+      controller: _idController,
+      label: l10n.workspaceSkillId,
+      isDetail: _session.isDetail,
+      enabled: !_idReadOnly,
+      onChanged: _onIdChanged,
+      hint: context.usesCupertinoChrome ? l10n.workspaceSkillIdHint : null,
+      helperText: context.usesCupertinoChrome
+          ? null
+          : l10n.workspaceSkillIdHint,
+      errorText: _idErrorText,
     );
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
-    if (_session.isDetail) {
-      return UtilityValueRow(
-        key: const Key('workspace-skill-description'),
-        label: l10n.workspaceSkillDescription,
-        value: _descriptionController.text,
-      );
-    }
-    return ConduitInput(
-      key: const Key('workspace-skill-description'),
+    return WorkspaceEditorField(
+      fieldKey: 'workspace-skill-description',
       controller: _descriptionController,
       label: l10n.workspaceSkillDescription,
+      isDetail: _session.isDetail,
       hint: l10n.workspaceSkillDescriptionHint,
       enabled: !_fieldsReadOnly,
       onChanged: (_) => _markDirty(),

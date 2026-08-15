@@ -39,6 +39,7 @@ class UtilityPageScaffold extends StatefulWidget {
     this.backNavigation,
     this.bottomActionPadding,
     this.onTitleLongPress,
+    this.trailing,
   }) : content = List<Widget>.unmodifiable(content);
 
   factory UtilityPageScaffold.auth({
@@ -80,12 +81,18 @@ class UtilityPageScaffold extends StatefulWidget {
     Key? key,
     required String title,
     required List<Widget> children,
+    Color? backgroundColor,
+    Widget? trailing,
+    EdgeInsetsGeometry? contentPadding,
   }) => UtilityPageScaffold._(
     key: key,
     title: title,
     content: children,
     maxWidth: 640,
     interactiveScrollbar: false,
+    backgroundColor: backgroundColor,
+    trailing: trailing,
+    contentPadding: contentPadding,
   );
 
   final String title;
@@ -99,6 +106,7 @@ class UtilityPageScaffold extends StatefulWidget {
   final bool interactiveScrollbar;
   final EdgeInsets? bottomActionPadding;
   final VoidCallback? onTitleLongPress;
+  final Widget? trailing;
 
   @override
   State<UtilityPageScaffold> createState() => _UtilityPageScaffoldState();
@@ -118,12 +126,19 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
     final mediaQuery = MediaQuery.of(context);
     final basePadding =
         (widget.contentPadding ??
-                const EdgeInsets.fromLTRB(
-                  Spacing.pagePadding,
-                  Spacing.lg,
-                  Spacing.pagePadding,
-                  Spacing.pagePadding,
-                ))
+                (context.usesCupertinoChrome
+                    ? const EdgeInsets.fromLTRB(
+                        Spacing.screenPadding,
+                        Spacing.sm,
+                        Spacing.screenPadding,
+                        Spacing.lg,
+                      )
+                    : const EdgeInsets.fromLTRB(
+                        Spacing.pagePadding,
+                        Spacing.lg,
+                        Spacing.pagePadding,
+                        Spacing.pagePadding,
+                      )))
             .resolve(Directionality.of(context));
     final contentPadding = basePadding.copyWith(
       top: context.usesCupertinoChrome
@@ -211,6 +226,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               textScaler: MediaQuery.textScalerOf(context),
               leading: leading ?? const SizedBox.shrink(),
               middle: title,
+              trailing: widget.trailing,
               systemOverlayStyle: Theme.of(context)
                   .appBarTheme
                   .systemOverlayStyle,
@@ -221,11 +237,19 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
             titleWidget: widget.onTitleLongPress == null ? null : title,
             tintColor: context.conduitTheme.textPrimary,
             leading: leading,
+            appBar: AppBar(
+              leading: leading,
+              title: title,
+              actions: widget.trailing == null ? null : [widget.trailing!],
+            ),
           );
 
     return AdaptiveRouteShell(
       backgroundColor:
-          widget.backgroundColor ?? context.conduitTheme.surfaceBackground,
+          widget.backgroundColor ??
+          (context.usesCupertinoChrome
+              ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+              : context.conduitTheme.surfaceBackground),
       appBar: appBar,
       body: Stack(
         children: [

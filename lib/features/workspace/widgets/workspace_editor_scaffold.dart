@@ -102,6 +102,9 @@ class WorkspaceEditorScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final pageBackground = context.usesCupertinoChrome
+        ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
+        : theme.surfaceBackground;
     final compact = MediaQuery.sizeOf(context).width < 840;
     // The route title already identifies compact editors. Repeating the same
     // icon and title at the top of the form made these screens read like web
@@ -167,15 +170,19 @@ class WorkspaceEditorScaffold extends StatelessWidget {
       },
       child: compact
           ? AdaptiveRouteShell(
-              backgroundColor: theme.surfaceBackground,
+              backgroundColor: pageBackground,
               appBar: _compactAppBar(context),
-              body: _compactBody(context, content),
+              body: _compactBody(context, content, pageBackground),
             )
           : content,
     );
   }
 
-  Widget _compactBody(BuildContext context, Widget content) {
+  Widget _compactBody(
+    BuildContext context,
+    Widget content,
+    Color pageBackground,
+  ) {
     final usesCupertinoChrome = context.usesCupertinoChrome;
     final topInset = usesCupertinoChrome
         ? MediaQuery.paddingOf(context).top +
@@ -194,7 +201,10 @@ class WorkspaceEditorScaffold extends StatelessWidget {
             left: 0,
             right: 0,
             top: 0,
-            child: ConduitChromeGradientFade.top(contentHeight: topInset),
+            child: ConduitChromeGradientFade.top(
+              contentHeight: topInset,
+              backgroundColor: pageBackground,
+            ),
           ),
       ],
     );

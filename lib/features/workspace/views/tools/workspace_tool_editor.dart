@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_mutation_coordinator.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_session.dart';
 import 'package:conduit/features/workspace/widgets/workspace_resource_editor_host.dart';
@@ -518,6 +519,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         : (_nameController.text.trim().isEmpty
               ? l10n.workspaceTools
               : _nameController.text.trim());
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
 
     return WorkspaceEditorScaffold(
       title: title,
@@ -554,33 +557,26 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         absorbing: _session.saving,
         child: ListView(
           key: const Key('workspace-tool-editor-body'),
-          padding: EdgeInsets.fromLTRB(
-            Spacing.pagePadding,
-            Spacing.md,
-            Spacing.pagePadding,
-            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-          ),
+          padding: WorkspaceEditorMetrics.bodyPadding(context),
           children: [
-            InsetGroupedSection(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  WorkspaceToolCoreFields(
-                    isDetail: _session.isDetail,
-                    fieldsReadOnly: _fieldsReadOnly,
-                    idReadOnly: _idReadOnly,
-                    idError: _idError,
-                    nameController: _nameController,
-                    idController: _idController,
-                    descriptionController: _descriptionController,
-                    onNameChanged: _onNameChanged,
-                    onIdChanged: _onIdChanged,
-                    onDescriptionChanged: _markDirty,
-                  ),
-                ],
-              ),
+            WorkspaceEditorFieldGroup(
+              footer: usesCupertinoChrome ? l10n.workspaceToolIdHint : null,
+              children: [
+                WorkspaceToolCoreFields(
+                  isDetail: _session.isDetail,
+                  fieldsReadOnly: _fieldsReadOnly,
+                  idReadOnly: _idReadOnly,
+                  idError: _idError,
+                  nameController: _nameController,
+                  idController: _idController,
+                  descriptionController: _descriptionController,
+                  onNameChanged: _onNameChanged,
+                  onIdChanged: _onIdChanged,
+                  onDescriptionChanged: _markDirty,
+                ),
+              ],
             ),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             if (_isIncompatible)
               WorkspaceToolIncompatibilityBanner(
                 requiredVersion: _requiredVersion,
@@ -594,7 +590,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             ),
             const SizedBox(height: Spacing.sm),
             const WorkspaceToolWarning(),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
             if (summary != null) ...[
               UtilityDisclosureSection(
                 key: const Key('workspace-tool-details-disclosure'),
@@ -606,10 +602,10 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
                   children: [WorkspaceToolDetailsSummary(summary: summary)],
                 ),
               ),
-              const SizedBox(height: Spacing.xl),
+              SizedBox(height: sectionGap),
             ],
             WorkspaceToolAccessTile(grants: _grants, onTap: _manageAccess),
-            const SizedBox(height: Spacing.xl),
+            SizedBox(height: sectionGap),
           ],
         ),
       ),

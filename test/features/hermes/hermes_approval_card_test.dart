@@ -1,5 +1,4 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/hermes/widgets/hermes_approval_card.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -16,7 +15,6 @@ void main() {
   ) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [hapticEnabledProvider.overrideWithValue(false)],
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,

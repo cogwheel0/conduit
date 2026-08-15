@@ -315,16 +315,12 @@ void main() {
     final advancedToggle = find.byKey(
       const ValueKey<String>('direct-advanced-settings-toggle'),
     );
-    final advancedToggleRow = find.descendant(
-      of: advancedToggle,
-      matching: find.byType(UtilityRow),
-    );
-    await tester.ensureVisible(advancedToggleRow);
+    await tester.ensureVisible(advancedToggle);
     await tester.pumpAndSettle();
-    await tester.tap(advancedToggleRow);
+    await tester.tap(advancedToggle);
     await tester.pumpAndSettle();
 
-    expect(find.byType(AccessibleFormField), findsNWidgets(9));
+    expect(find.byType(AccessibleFormField), findsNWidgets(5));
     expect(
       find.byKey(const ValueKey<String>('direct-api-version-field')),
       findsOneWidget,
@@ -332,7 +328,7 @@ void main() {
     final addHeaderFinder = find.byKey(
       const ValueKey<String>('add-direct-custom-header-button'),
     );
-    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNull();
+    check(tester.widget<UtilityRow>(addHeaderFinder).onTap).isNull();
     await tester.enterText(
       find.descendant(
         of: find.byKey(
@@ -343,7 +339,7 @@ void main() {
       'X.Test+Header',
     );
     await tester.pump();
-    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNotNull();
+    check(tester.widget<UtilityRow>(addHeaderFinder).onTap).isNotNull();
     await tester.enterText(
       find.descendant(
         of: find.byKey(
@@ -354,10 +350,14 @@ void main() {
       'test-value',
     );
     await tester.pump();
-    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNotNull();
+    check(tester.widget<UtilityRow>(addHeaderFinder).onTap).isNotNull();
 
     expect(find.text('X.Test+Header'), findsOneWidget);
     expect(find.text('test-value'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('utility-route-back-button')),
+    );
+    await tester.pumpAndSettle();
     check(
       tester
           .widget<ConduitButton>(

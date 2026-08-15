@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_job.dart';
@@ -161,7 +160,6 @@ void main() {
               ),
             ),
           ),
-          hapticEnabledProvider.overrideWithValue(false),
         ],
         child: const MaterialApp(home: HermesJobsPage()),
       ),

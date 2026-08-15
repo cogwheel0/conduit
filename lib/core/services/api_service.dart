@@ -25,6 +25,9 @@ import '../models/server_memory.dart';
 import '../models/server_user_settings.dart';
 import '../models/user.dart';
 import '../network/conduit_user_agent.dart';
+import '../network/same_origin_redirect_interceptor.dart';
+export '../network/same_origin_redirect_interceptor.dart'
+    show isCredentialSafeRedirectTarget, nextSameOriginRedirectRequest;
 import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
 import '../../features/workspace/models/workspace_prompt_command.dart';
@@ -57,75 +60,6 @@ const Set<int> _publicHealthRedirectStatusCodes = {
   HttpStatus.temporaryRedirect,
   HttpStatus.permanentRedirect,
 };
-
-const int _maximumSameOriginRedirectHops = 5;
-const String _sameOriginRedirectHopExtraKey = 'conduit.sameOriginRedirectHops';
-
-int _effectiveHttpPort(Uri uri) {
-  if (uri.hasPort) return uri.port;
-  return uri.scheme.toLowerCase() == 'https' ? 443 : 80;
-}
-
-/// Whether a redirect target may keep this client's credentials: the exact
-/// request origin, or its default-port https upgrade. Cross-origin hops,
-/// scheme downgrades, and port remaps must surface to the caller instead.
-@visibleForTesting
-bool isCredentialSafeRedirectTarget(Uri from, Uri to) {
-  final fromScheme = from.scheme.toLowerCase();
-  final toScheme = to.scheme.toLowerCase();
-  if (toScheme != 'http' && toScheme != 'https') return false;
-  if (to.host.isEmpty || to.host.toLowerCase() != from.host.toLowerCase()) {
-    return false;
-  }
-  if (toScheme == fromScheme) {
-    return _effectiveHttpPort(to) == _effectiveHttpPort(from);
-  }
-  return fromScheme == 'http' &&
-      toScheme == 'https' &&
-      _effectiveHttpPort(from) == 80 &&
-      _effectiveHttpPort(to) == 443;
-}
-
-RequestOptions? nextSameOriginRedirectRequest({
-  required RequestOptions options,
-  required Response<dynamic> response,
-}) {
-  final status = response.statusCode;
-  if (status == null || !_publicHealthRedirectStatusCodes.contains(status)) {
-    return null;
-  }
-  final method = options.method.toUpperCase();
-  final convertsToGet = status == HttpStatus.seeOther && method != 'HEAD';
-  if (method != 'GET' && method != 'HEAD' && !convertsToGet) return null;
-
-  final locationValue = response.headers.value(HttpHeaders.locationHeader);
-  final location = locationValue == null ? null : Uri.tryParse(locationValue);
-  if (location == null) return null;
-  final target = options.uri.resolveUri(location);
-  final hops = (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
-  if (hops >= _maximumSameOriginRedirectHops ||
-      !isCredentialSafeRedirectTarget(options.uri, target)) {
-    return null;
-  }
-
-  final redirected = options.copyWith(
-    path: target.toString(),
-    queryParameters: const <String, dynamic>{},
-    extra: Map<String, dynamic>.of(options.extra)
-      ..[_sameOriginRedirectHopExtraKey] = hops + 1,
-    headers: Map<String, dynamic>.of(options.headers),
-  );
-  if (convertsToGet) {
-    redirected.method = 'GET';
-    redirected.data = null;
-    redirected.headers.removeWhere((name, _) {
-      final normalized = name.toLowerCase();
-      return normalized == Headers.contentLengthHeader ||
-          normalized == Headers.contentTypeHeader;
-    });
-  }
-  return redirected;
-}
 
 final class _PublicHealthDeadline {
   _PublicHealthDeadline(this.budget) : _clock = Stopwatch()..start();
@@ -960,30 +894,9 @@ class ApiService {
     // following was disabled, so safe idempotent hops are replayed here with
     // the target restricted by [isCredentialSafeRedirectTarget].
     _dio.interceptors.add(
-      InterceptorsWrapper(
-        onError: (error, handler) async {
-          final response = error.response;
-          final status = response?.statusCode;
-          if (error.type != DioExceptionType.badResponse ||
-              response == null ||
-              status == null ||
-              !_publicHealthRedirectStatusCodes.contains(status)) {
-            return handler.next(error);
-          }
-          final redirectedOptions = nextSameOriginRedirectRequest(
-            options: error.requestOptions,
-            response: response,
-          );
-          if (redirectedOptions == null) return handler.next(error);
-          try {
-            final redirected = await _replaySameOriginRedirect(
-              redirectedOptions,
-            );
-            return handler.resolve(redirected);
-          } on DioException catch (redirectError) {
-            return handler.next(redirectError);
-          }
-        },
+      SameOriginRedirectInterceptor(
+        _dio,
+        prepareReplay: _authInterceptor.prepareRedirectReplay,
       ),
     );
 
@@ -1034,79 +947,6 @@ class ApiService {
         },
       ),
     );
-  }
-
-  Future<Response<dynamic>> _replaySameOriginRedirect(
-    RequestOptions initialOptions,
-  ) async {
-    var options = initialOptions;
-
-    while (true) {
-      final redirectDio = Dio();
-      ServerTlsHttpClientFactory.configureDio(
-        redirectDio,
-        serverConfig,
-        userAgent: ConduitUserAgent.value,
-      );
-      late final Response<dynamic> response;
-      try {
-        response = await redirectDio.requestUri<dynamic>(
-          options.uri,
-          data: options.data,
-          options: Options(
-            method: options.method,
-            sendTimeout: options.sendTimeout,
-            receiveTimeout: options.receiveTimeout,
-            transformTimeout: options.transformTimeout,
-            connectTimeout: options.connectTimeout,
-            extra: options.extra,
-            headers: options.headers,
-            preserveHeaderCase: options.preserveHeaderCase,
-            responseType: options.responseType,
-            validateStatus: (status) => status != null,
-            receiveDataWhenStatusError: options.receiveDataWhenStatusError,
-            followRedirects: false,
-            maxRedirects: 0,
-            persistentConnection: options.persistentConnection,
-            requestEncoder: options.requestEncoder,
-            responseDecoder: options.responseDecoder,
-            listFormat: options.listFormat,
-          ),
-          cancelToken: options.cancelToken,
-          onSendProgress: options.onSendProgress,
-          onReceiveProgress: options.onReceiveProgress,
-        );
-      } finally {
-        redirectDio.close();
-      }
-
-      final status = response.statusCode;
-      if (status != null && options.validateStatus(status)) {
-        return response;
-      }
-      if (status == null ||
-          !_publicHealthRedirectStatusCodes.contains(status)) {
-        throw DioException.badResponse(
-          statusCode: status ?? 0,
-          requestOptions: response.requestOptions,
-          response: response,
-        );
-      }
-
-      final redirectedOptions = nextSameOriginRedirectRequest(
-        options: options,
-        response: response,
-      );
-      if (redirectedOptions == null) {
-        throw DioException.badResponse(
-          statusCode: status,
-          requestOptions: response.requestOptions,
-          response: response,
-        );
-      }
-
-      options = redirectedOptions;
-    }
   }
 
   Future<Uint8List> fetchImageBytes(

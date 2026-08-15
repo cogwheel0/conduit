@@ -4,7 +4,6 @@ import 'package:material_ui/material_ui.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
 import '../../../../shared/widgets/conduit_components.dart';
-import '../../../../shared/widgets/utility_components.dart';
 import '../../widgets/workspace_editor_fields.dart';
 import 'workspace_model_editor_controller.dart';
 import 'workspace_model_editor_field.dart';
@@ -22,34 +21,46 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedSection(
+    return WorkspaceEditorFieldGroup(
       title: l10n.workspaceModelSectionPrompt,
-      child: Column(
-        children: [
-          WorkspaceModelEditorField(
-            fieldKey: 'workspace-model-system',
-            controller: controller.fields.system,
-            label: l10n.workspaceModelSystemPrompt,
-            isDetail: controller.session.isDetail,
-            enabled: !controller.readOnly,
-            minLines: 3,
-            maxLines: 10,
-            onChanged: controller.markDirty,
-          ),
-          _suggestionPrompts(context, l10n),
-        ],
-      ),
+      androidGap: Spacing.sm,
+      children: [
+        WorkspaceModelEditorField(
+          fieldKey: 'workspace-model-system',
+          controller: controller.fields.system,
+          label: l10n.workspaceModelSystemPrompt,
+          isDetail: controller.session.isDetail,
+          enabled: !controller.readOnly,
+          minLines: 3,
+          maxLines: 10,
+          onChanged: controller.markDirty,
+        ),
+        _suggestionPrompts(context, l10n),
+      ],
     );
   }
 
   Widget _suggestionPrompts(BuildContext context, AppLocalizations l10n) {
     final theme = context.conduitTheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm),
+      padding: context.usesCupertinoChrome
+          ? const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.sm,
+            )
+          : EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
+          Text(
+            l10n.workspaceModelSuggestionPrompts,
+            style: context.usesCupertinoChrome
+                ? AppTypography.bodyMediumStyle.copyWith(
+                    color: theme.textPrimary,
+                    fontWeight: FontWeight.w400,
+                  )
+                : theme.label,
+          ),
           const SizedBox(height: Spacing.xs),
           for (
             var index = 0;

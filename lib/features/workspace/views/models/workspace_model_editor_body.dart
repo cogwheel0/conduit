@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/theme/theme_extensions.dart';
+import '../../../../shared/widgets/utility_components.dart';
 import '../../providers/workspace_model_relationships.dart';
 import '../../widgets/workspace_editor_fields.dart';
 import 'workspace_model_advanced_section.dart';
@@ -34,36 +35,32 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sectionGap = WorkspaceEditorMetrics.sectionGap(context);
     return ListView(
       key: const Key('workspace-model-editor-body'),
-      padding: EdgeInsets.fromLTRB(
-        Spacing.pagePadding,
-        Spacing.md,
-        Spacing.pagePadding,
-        Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
-      ),
+      padding: WorkspaceEditorMetrics.bodyPadding(context),
       children: [
         _profileImage(context),
-        const SizedBox(height: Spacing.xl),
+        SizedBox(height: sectionGap),
         WorkspaceModelBasicsSection(
           controller: controller,
           baseModels: baseModels,
           onAddTag: onAddTag,
         ),
-        const SizedBox(height: Spacing.xl),
+        SizedBox(height: sectionGap),
         WorkspaceModelPromptSection(
           controller: controller,
           onAddSuggestion: onAddSuggestion,
         ),
-        const SizedBox(height: Spacing.xl),
+        SizedBox(height: sectionGap),
         WorkspaceModelAdvancedSection(controller: controller),
-        const SizedBox(height: Spacing.xl),
+        SizedBox(height: sectionGap),
         WorkspaceModelRelationshipsSection(
           controller: controller,
           onPick: onPickRelationship,
           onManageAccess: onManageAccess,
         ),
-        const SizedBox(height: Spacing.xl),
+        SizedBox(height: sectionGap),
       ],
     );
   }
@@ -71,7 +68,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
   Widget _profileImage(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    return Row(
+    final content = Row(
       children: [
         WorkspaceModelAvatar(
           draftImage: controller.draft.profileImageUrl,
@@ -83,7 +80,15 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(l10n.workspaceModelProfileImage, style: theme.label),
+              Text(
+                l10n.workspaceModelProfileImage,
+                style: context.usesCupertinoChrome
+                    ? AppTypography.bodyMediumStyle.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w400,
+                      )
+                    : theme.label,
+              ),
               const SizedBox(height: Spacing.xs),
               if (!controller.readOnly)
                 Wrap(
@@ -108,6 +113,12 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
           ),
         ),
       ],
+    );
+    if (!context.usesCupertinoChrome) return content;
+    return InsetGroupedSection(
+      useNativeSurface: true,
+      padding: const EdgeInsets.all(Spacing.md),
+      child: content,
     );
   }
 }

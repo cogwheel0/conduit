@@ -2,7 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
-import '../../../core/services/platform_service.dart';
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../providers/streaming_haptic_memory.dart';
 import '../providers/queued_completion_provider.dart';
@@ -73,10 +73,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
     final enabled =
         ref.read(streamingHapticsEnabledProvider) &&
         !widget.suppressStreamingHaptics;
-    PlatformService.hapticFeedbackWithSettings(
-      type: HapticType.light,
-      hapticEnabled: enabled,
-    );
+    if (enabled) ConduitHaptics.lightImpact();
   }
 
   @override

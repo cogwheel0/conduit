@@ -1,3 +1,4 @@
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../theme/theme_extensions.dart';
@@ -9,21 +10,28 @@ class InsetGroupedSection extends StatelessWidget {
     required this.child,
     this.title,
     this.description,
+    this.footer,
     this.padding = const EdgeInsets.all(Spacing.md),
     this.flat = false,
+    this.useNativeSurface = false,
   });
 
   final String? title;
   final String? description;
+  final String? footer;
   final Widget child;
   final EdgeInsetsGeometry padding;
   final bool flat;
+  final bool useNativeSurface;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final hasTitle = title != null && title!.isNotEmpty;
     final hasDescription = description != null && description!.isNotEmpty;
+    final hasFooter = footer != null && footer!.isNotEmpty;
+    final nativeSurface =
+        context.usesCupertinoChrome && (useNativeSurface || !flat);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -32,10 +40,16 @@ class InsetGroupedSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
             child: Text(
               title!,
-              style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
+              style:
+                  (nativeSurface
+                          ? AppTypography.bodySmallStyle
+                          : AppTypography.labelMediumStyle)
+                      .copyWith(
+                        color: theme.textSecondary,
+                        fontWeight: nativeSurface
+                            ? FontWeight.w400
+                            : FontWeight.w600,
+                      ),
             ),
           ),
         if (hasDescription) ...[
@@ -61,15 +75,34 @@ class InsetGroupedSection extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             padding: padding,
             decoration: BoxDecoration(
-              color: theme.surfaceContainer.withValues(alpha: 0.68),
-              borderRadius: BorderRadius.circular(AppBorderRadius.card),
-              border: Border.all(
-                color: theme.cardBorder,
-                width: BorderWidth.thin,
+              color: nativeSurface
+                  ? CupertinoColors.secondarySystemGroupedBackground
+                        .resolveFrom(context)
+                  : theme.surfaceContainer.withValues(alpha: 0.68),
+              borderRadius: BorderRadius.circular(
+                nativeSurface ? AppBorderRadius.md : AppBorderRadius.card,
               ),
+              border: nativeSurface
+                  ? null
+                  : Border.all(
+                      color: theme.cardBorder,
+                      width: BorderWidth.thin,
+                    ),
             ),
             child: Material(type: MaterialType.transparency, child: child),
           ),
+        if (hasFooter) ...[
+          const SizedBox(height: Spacing.xs),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+            child: Text(
+              footer!,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textTertiary,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -82,19 +115,25 @@ class InsetGroupedList extends StatelessWidget {
     required this.children,
     this.title,
     this.description,
+    this.footer,
     this.dividerIndent = Spacing.md,
+    this.useNativeSurface = false,
   });
 
   final List<Widget> children;
   final String? title;
   final String? description;
+  final String? footer;
   final double dividerIndent;
+  final bool useNativeSurface;
 
   @override
   Widget build(BuildContext context) {
     return InsetGroupedSection(
       title: title,
       description: description,
+      footer: footer,
+      useNativeSurface: useNativeSurface,
       padding: EdgeInsets.zero,
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -56,6 +56,7 @@ import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
+import 'shared/theme/theme_extensions.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -986,6 +987,28 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         final materialTheme = brightness == Brightness.dark
             ? darkTheme
             : lightTheme;
+        final nativeTheme = materialTheme.extension<ConduitThemeExtension>();
+        if (nativeTheme != null) {
+          unawaited(
+            NativeSheetBridge.instance.syncTheme(
+              NativeSheetThemeConfig(
+                isDark: brightness == Brightness.dark,
+                backgroundArgb: nativeTheme.surfaceBackground.toARGB32(),
+                surfaceArgb: nativeTheme.cardBackground.toARGB32(),
+                elevatedSurfaceArgb: nativeTheme.surfaceContainerHighest
+                    .toARGB32(),
+                inputArgb: nativeTheme.inputBackground.toARGB32(),
+                foregroundArgb: nativeTheme.textPrimary.toARGB32(),
+                secondaryForegroundArgb: nativeTheme.textSecondary.toARGB32(),
+                iconArgb: nativeTheme.iconSecondary.toARGB32(),
+                borderArgb: nativeTheme.cardBorder.toARGB32(),
+                accentArgb: nativeTheme.buttonPrimary.toARGB32(),
+                onAccentArgb: nativeTheme.buttonPrimaryText.toARGB32(),
+                destructiveArgb: nativeTheme.error.toARGB32(),
+              ),
+            ),
+          );
+        }
 
         return Theme(
           data: materialTheme,

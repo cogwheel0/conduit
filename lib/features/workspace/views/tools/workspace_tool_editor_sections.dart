@@ -9,9 +9,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/shared/widgets/utility_components.dart';
 
 final class WorkspaceToolCoreFields extends StatelessWidget {
   const WorkspaceToolCoreFields({
@@ -42,61 +40,39 @@ final class WorkspaceToolCoreFields extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final usesCupertinoChrome = context.usesCupertinoChrome;
+    return WorkspaceEditorRows(
       children: [
-        if (isDetail)
-          UtilityValueRow(
-            key: const Key('workspace-tool-name'),
-            label: l10n.workspaceToolName,
-            value: nameController.text,
-          )
-        else
-          ConduitInput(
-            key: const Key('workspace-tool-name'),
-            controller: nameController,
-            label: l10n.workspaceToolName,
-            hint: l10n.workspaceToolNameHint,
-            enabled: !fieldsReadOnly,
-            onChanged: onNameChanged,
-            textInputAction: TextInputAction.next,
-          ),
-        const SizedBox(height: Spacing.md),
-        if (isDetail)
-          UtilityValueRow(
-            key: const Key('workspace-tool-id'),
-            label: l10n.workspaceToolId,
-            value: idController.text,
-          )
-        else
-          WorkspaceLabeledField(
-            helperText: l10n.workspaceToolIdHint,
-            child: ConduitInput(
-              key: const Key('workspace-tool-id'),
-              controller: idController,
-              label: l10n.workspaceToolId,
-              enabled: !idReadOnly,
-              onChanged: onIdChanged,
-              errorText: idError ? l10n.workspaceToolIdInvalid : null,
-            ),
-          ),
-        const SizedBox(height: Spacing.md),
-        if (isDetail)
-          UtilityValueRow(
-            key: const Key('workspace-tool-description'),
-            label: l10n.workspaceToolDescription,
-            value: descriptionController.text,
-          )
-        else
-          ConduitInput(
-            key: const Key('workspace-tool-description'),
-            controller: descriptionController,
-            label: l10n.workspaceToolDescription,
-            hint: l10n.workspaceToolDescriptionHint,
-            enabled: !fieldsReadOnly,
-            onChanged: (_) => onDescriptionChanged(),
-            textInputAction: TextInputAction.next,
-          ),
+        WorkspaceEditorField(
+          fieldKey: 'workspace-tool-name',
+          controller: nameController,
+          label: l10n.workspaceToolName,
+          isDetail: isDetail,
+          enabled: !fieldsReadOnly,
+          onChanged: onNameChanged,
+          hint: l10n.workspaceToolNameHint,
+          textInputAction: TextInputAction.next,
+        ),
+        WorkspaceEditorField(
+          fieldKey: 'workspace-tool-id',
+          controller: idController,
+          label: l10n.workspaceToolId,
+          isDetail: isDetail,
+          enabled: !idReadOnly,
+          onChanged: onIdChanged,
+          helperText: usesCupertinoChrome ? null : l10n.workspaceToolIdHint,
+          errorText: idError ? l10n.workspaceToolIdInvalid : null,
+        ),
+        WorkspaceEditorField(
+          fieldKey: 'workspace-tool-description',
+          controller: descriptionController,
+          label: l10n.workspaceToolDescription,
+          isDetail: isDetail,
+          enabled: !fieldsReadOnly,
+          onChanged: (_) => onDescriptionChanged(),
+          hint: l10n.workspaceToolDescriptionHint,
+          textInputAction: TextInputAction.next,
+        ),
       ],
     );
   }
