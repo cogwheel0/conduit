@@ -2161,6 +2161,21 @@ class Models extends _$Models {
       return;
     }
     await ref.read(directModelDiscoveryProvider.notifier).refresh();
+    final hermesConfig = ref.read(hermesConfigProvider);
+    if (hermesConfig.isUsable &&
+        hermesConfig.mode == HermesBackendMode.desktopGateway) {
+      ref.invalidate(hermesDesktopModelsProvider);
+      try {
+        await ref.read(hermesDesktopModelsProvider.future);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'desktop-discovery-refresh-failed',
+          scope: 'models/hermes',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
     final modelAuth = ref.read(_modelAuthReadinessProvider);
     if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
       // An explicit refresh during login/revalidation is deferred. This keeps

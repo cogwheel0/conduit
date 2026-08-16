@@ -6484,6 +6484,8 @@ private final class NativeModelAvatarView: UIView {
         let generation = imageGeneration
         expectedImageUrl = avatarUrl
         imageView.image = nil
+        imageView.tintColor = nil
+        imageView.contentMode = .scaleAspectFill
         imageView.isHidden = true
 
         let accentColor = nativeAvatarAccentColor(seed: name)
@@ -6543,7 +6545,13 @@ private final class NativeModelAvatarView: UIView {
             guard let self,
                   self.imageGeneration == generation,
                   self.expectedImageUrl == avatarUrl else { return }
-            self.imageView.image = image
+            self.imageView.image = usesTemplateImage
+                ? image.withRenderingMode(.alwaysTemplate)
+                : image
+            self.imageView.tintColor = usesTemplateImage
+                ? NativeSheetTheme.shared.foreground
+                : nil
+            self.imageView.contentMode = usesTemplateImage ? .scaleAspectFit : .scaleAspectFill
             self.imageView.isHidden = false
             self.initialsLabel.isHidden = true
             self.symbolView.isHidden = true

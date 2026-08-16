@@ -289,14 +289,59 @@ void main() {
       addTearDown(container.dispose);
 
       check(await container.read(modelsProvider.future)).length.equals(2);
+      container.read(selectedModelProvider.notifier).set(discovered);
+      container.read(isManualModelSelectionProvider.notifier).set(true);
 
       (container.read(
         hermesConfigProvider.notifier,
       ) as _MutableHermesConfigController).setConfig(_usableHermes);
       final responsesModels = await container.read(modelsProvider.future);
+      await Future<void>.delayed(Duration.zero);
 
       check(responsesModels).length.equals(1);
       check(responsesModels.single.id).equals(kHermesDefaultModelId);
+      check(container.read(selectedModelProvider)?.id)
+          .equals(kHermesDefaultModelId);
+    });
+
+    test('refresh reloads Desktop model discovery', () async {
+      final first = hermesDesktopModel(
+        modelId: 'first',
+        name: 'First',
+        provider: 'provider',
+      );
+      var discovered = first;
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(
+        (await container.read(modelsProvider.future))
+            .any((model) => identical(model, first)),
+      ).isTrue();
+
+      final second = hermesDesktopModel(
+        modelId: 'second',
+        name: 'Second',
+        provider: 'provider',
+      );
+      discovered = second;
+      await container.read(modelsProvider.notifier).refresh();
+
+      final refreshed = container.read(modelsProvider).requireValue;
+      check(refreshed.any((model) => identical(model, second))).isTrue();
+      check(refreshed.any((model) => identical(model, first))).isFalse();
     });
 
     test('fast tier stays distinct from model capability', () {
