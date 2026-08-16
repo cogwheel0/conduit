@@ -83,17 +83,18 @@ class ConduitMarkdownPreprocessor {
           );
         }
       }
-      final fenceMatch = _fenceLine.firstMatch(line);
+      final containerIndent = listContentIndents.isEmpty
+          ? 0
+          : listContentIndents.last;
+      final fenceLine = _withoutContainerIndent(line, containerIndent);
+      final fenceMatch = _fenceLine.firstMatch(fenceLine);
       if (fence == null &&
           fenceMatch != null &&
           (fenceMatch[1]!.startsWith('~') || !fenceMatch[2]!.contains('`'))) {
         fence = fenceMatch[1]!;
-      } else if (fence != null && _closesFence(line, fence)) {
+      } else if (fence != null && _closesFence(fenceLine, fence)) {
         fence = null;
       }
-      final containerIndent = listContentIndents.isEmpty
-          ? 0
-          : listContentIndents.last;
       final isCode = fence != null || indent.columns - containerIndent >= 4;
       final rendered = isCode
           ? line
@@ -146,6 +147,14 @@ class ConduitMarkdownPreprocessor {
       columns += line[index] == '\t' ? 4 - (columns % 4) : 1;
     }
     return columns;
+  }
+
+  static String _withoutContainerIndent(String line, int containerColumns) {
+    if (containerColumns == 0) return line;
+    final indent = _structuralIndent(line);
+    if (indent.columns < containerColumns) return line;
+    return '${' ' * (indent.columns - containerColumns)}'
+        '${line.substring(indent.characters)}';
   }
 
   static String stripAssistantPlaceholders(String content) {

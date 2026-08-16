@@ -318,6 +318,22 @@ $image
       $image''');
     });
 
+    test('detects fenced code relative to list indentation', () {
+      const image = 'data:image/png;base64,AAAA';
+      const input = '''- caption
+    ```text
+    $image
+    ```
+    $image''';
+
+      check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
+          .equals('''- caption
+    ```text
+    $image
+    ```
+    ![Generated Image]($image)''');
+    });
+
     test('rejects backticks in a backtick fence info string', () {
       const image = 'data:image/png;base64,AAAA';
       const input = '''```dart`invalid
