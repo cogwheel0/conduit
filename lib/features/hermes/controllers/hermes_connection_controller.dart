@@ -62,6 +62,8 @@ final class _HermesConnectionState {
     this.validationIssue,
     this.apiKeyDirty = false,
     this.sessionKeyDirty = false,
+    this.desktopCredentialsDirty = false,
+    this.accessHeadersDirty = false,
     this.showMemoryKey = false,
   });
 
@@ -72,6 +74,8 @@ final class _HermesConnectionState {
   final HermesConnectionValidationIssue? validationIssue;
   final bool apiKeyDirty;
   final bool sessionKeyDirty;
+  final bool desktopCredentialsDirty;
+  final bool accessHeadersDirty;
   final bool showMemoryKey;
 
   _HermesConnectionState copyWith({
@@ -80,6 +84,8 @@ final class _HermesConnectionState {
     Object? validationIssue = _unchanged,
     bool? apiKeyDirty,
     bool? sessionKeyDirty,
+    bool? desktopCredentialsDirty,
+    bool? accessHeadersDirty,
     bool? showMemoryKey,
   }) => _HermesConnectionState(
     operation: operation ?? this.operation,
@@ -89,6 +95,9 @@ final class _HermesConnectionState {
         : validationIssue as HermesConnectionValidationIssue?,
     apiKeyDirty: apiKeyDirty ?? this.apiKeyDirty,
     sessionKeyDirty: sessionKeyDirty ?? this.sessionKeyDirty,
+    desktopCredentialsDirty:
+        desktopCredentialsDirty ?? this.desktopCredentialsDirty,
+    accessHeadersDirty: accessHeadersDirty ?? this.accessHeadersDirty,
     showMemoryKey: showMemoryKey ?? this.showMemoryKey,
   );
 }
@@ -99,13 +108,24 @@ final class HermesConnectionController extends ChangeNotifier {
     required HermesConfig initialConfig,
     required HermesConnectionGateway gateway,
   }) : _gateway = gateway,
-       url = TextEditingController(text: initialConfig.baseUrl);
+       url = TextEditingController(text: initialConfig.baseUrl),
+       _mode = initialConfig.mode,
+       _desktopAuthKind = initialConfig.desktopAuthKind,
+       _desktopProfile = initialConfig.desktopProfile,
+       _initialAccessHeaders = Map.of(initialConfig.accessHeaders),
+       _accessHeaders = Map.of(initialConfig.accessHeaders);
 
   final HermesConnectionGateway _gateway;
 
   final TextEditingController url;
   final TextEditingController apiKey = TextEditingController();
   final TextEditingController sessionKey = TextEditingController();
+  final TextEditingController desktopLegacyToken = TextEditingController();
+  HermesBackendMode _mode;
+  HermesDesktopAuthKind _desktopAuthKind;
+  String _desktopProfile;
+  Map<String, String> _initialAccessHeaders;
+  Map<String, String> _accessHeaders;
 
   _HermesConnectionState _state = const _HermesConnectionState();
   bool _isDisposed = false;
@@ -117,7 +137,22 @@ final class HermesConnectionController extends ChangeNotifier {
       _state.validationIssue;
   bool get apiKeyDirty => _state.apiKeyDirty;
   bool get sessionKeyDirty => _state.sessionKeyDirty;
+  bool get desktopCredentialsDirty => _state.desktopCredentialsDirty;
+  bool get accessHeadersDirty => _state.accessHeadersDirty;
   bool get showMemoryKey => _state.showMemoryKey;
+  HermesBackendMode get mode => _mode;
+  HermesDesktopAuthKind get desktopAuthKind => _desktopAuthKind;
+  String get desktopProfile => _desktopProfile;
+  Map<String, String> get accessHeaders => Map.unmodifiable(_accessHeaders);
+
+  void reportFailure(String message) {
+    _publish(
+      _state.copyWith(
+        operation: HermesConnectionOperation.idle,
+        attempt: ConnectionAttemptState.failed(message),
+      ),
+    );
+  }
 
   bool draftIsUsable(HermesConfig saved) => _validate(saved) == null;
 
@@ -126,10 +161,40 @@ final class HermesConnectionController extends ChangeNotifier {
     final originChanged = _originChanged(saved, trimmedUrl);
     final trimmedApiKey = apiKey.text.trim();
     final trimmedSessionKey = sessionKey.text.trim();
+    final trimmedLegacyToken = desktopLegacyToken.text.trim();
+    final previousDesktop = saved.desktopCredentials;
+    final initialHeadersByName = {
+      for (final entry in _initialAccessHeaders.entries)
+        entry.key.toLowerCase(): entry.value,
+    };
+    final initialHeaderValues = _initialAccessHeaders.values.toSet();
+    final newOriginHeaders = <String, String>{
+      for (final entry in _accessHeaders.entries)
+        if (initialHeadersByName[entry.key.toLowerCase()] != entry.value &&
+            !initialHeaderValues.contains(entry.value))
+          entry.key: entry.value,
+    };
+    final nextDesktop = originChanged
+        ? HermesDesktopCredentials(
+            legacyToken: trimmedLegacyToken.isEmpty ? null : trimmedLegacyToken,
+            accessHeaders: accessHeadersDirty ? newOriginHeaders : const {},
+          )
+        : desktopCredentialsDirty
+        ? HermesDesktopCredentials(
+            legacyToken: trimmedLegacyToken.isEmpty
+                ? previousDesktop?.legacyToken
+                : trimmedLegacyToken,
+            nativeTokens: previousDesktop?.nativeTokens,
+            accessHeaders: _accessHeaders,
+          )
+        : previousDesktop;
     return HermesConnectionDraft(
       config: HermesConfig(
         enabled: true,
         baseUrl: trimmedUrl,
+        mode: _mode,
+        desktopAuthKind: _desktopAuthKind,
+        desktopProfile: _desktopProfile,
         apiKey: originChanged || apiKeyDirty
             ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
             : saved.apiKey,
@@ -140,9 +205,11 @@ final class HermesConnectionController extends ChangeNotifier {
             : sessionKeyDirty
             ? (trimmedSessionKey.isEmpty ? null : trimmedSessionKey)
             : saved.sessionKey,
+        desktopCredentials: nextDesktop,
       ),
       apiKeyChanged: originChanged || apiKeyDirty,
       sessionKeyChanged: originChanged || sessionKeyDirty,
+      desktopCredentialsChanged: originChanged || desktopCredentialsDirty,
     );
   }
 
@@ -151,6 +218,39 @@ final class HermesConnectionController extends ChangeNotifier {
   void markApiKeyChanged() => _markDraftChanged(apiKeyDirty: true);
 
   void markSessionKeyChanged() => _markDraftChanged(sessionKeyDirty: true);
+
+  void markDesktopLegacyTokenChanged() =>
+      _markDraftChanged(desktopCredentialsDirty: true);
+
+  void setMode(HermesBackendMode value) {
+    if (_mode == value) return;
+    _mode = value;
+    _markDraftChanged();
+  }
+
+  void setDesktopAuthKind(HermesDesktopAuthKind value) {
+    if (_desktopAuthKind == value) return;
+    _desktopAuthKind = value;
+    _markDraftChanged();
+  }
+
+  void setDesktopProfile(String value) {
+    final normalized = value.trim();
+    if (!HermesConfig.isValidDesktopProfile(normalized) ||
+        _desktopProfile == normalized) {
+      return;
+    }
+    _desktopProfile = normalized;
+    _markDraftChanged();
+  }
+
+  String? setAccessHeaders(Map<String, String> value) {
+    final error = HermesConfig.validateAccessHeaders(value);
+    if (error != null) return error;
+    _accessHeaders = Map.of(value);
+    _markDraftChanged(desktopCredentialsDirty: true, accessHeadersDirty: true);
+    return null;
+  }
 
   void setShowMemoryKey(bool value) {
     if (showMemoryKey == value) return;
@@ -203,6 +303,7 @@ final class HermesConnectionController extends ChangeNotifier {
       if (!_ownsOperation(operationEpoch)) return true;
       _acceptPersistedDraft(
         operationEpoch,
+        persistedConfig: draft.config,
         attempt: ConnectionAttemptState.connected(messages.saved),
       );
       return true;
@@ -322,7 +423,7 @@ final class HermesConnectionController extends ChangeNotifier {
       );
     }
 
-    _acceptPersistedDraft(operationEpoch);
+    _acceptPersistedDraft(operationEpoch, persistedConfig: draft.config);
     return const HermesConnectionResult(HermesConnectionOutcome.success);
   }
 
@@ -355,7 +456,8 @@ final class HermesConnectionController extends ChangeNotifier {
       return HermesConnectionValidationIssue.invalidUrl;
     }
     final draft = buildDraft(saved).config;
-    if (draft.apiKey?.trim().isEmpty ?? true) {
+    if (draft.mode == HermesBackendMode.responsesApi &&
+        (draft.apiKey?.trim().isEmpty ?? true)) {
       return HermesConnectionValidationIssue.credentialsReentryRequired;
     }
     return null;
@@ -402,11 +504,15 @@ final class HermesConnectionController extends ChangeNotifier {
 
   void _acceptPersistedDraft(
     int operationEpoch, {
+    required HermesConfig persistedConfig,
     ConnectionAttemptState? attempt,
   }) {
     if (!_ownsOperation(operationEpoch)) return;
+    _accessHeaders = Map.of(persistedConfig.accessHeaders);
+    _initialAccessHeaders = Map.of(persistedConfig.accessHeaders);
     apiKey.clear();
     sessionKey.clear();
+    desktopLegacyToken.clear();
     _publish(
       _state.copyWith(
         operation: HermesConnectionOperation.idle,
@@ -414,11 +520,18 @@ final class HermesConnectionController extends ChangeNotifier {
         validationIssue: null,
         apiKeyDirty: false,
         sessionKeyDirty: false,
+        desktopCredentialsDirty: false,
+        accessHeadersDirty: false,
       ),
     );
   }
 
-  void _markDraftChanged({bool? apiKeyDirty, bool? sessionKeyDirty}) {
+  void _markDraftChanged({
+    bool? apiKeyDirty,
+    bool? sessionKeyDirty,
+    bool? desktopCredentialsDirty,
+    bool? accessHeadersDirty,
+  }) {
     if (_state.operation.isBusy) _operationEpoch++;
     _publish(
       _state.copyWith(
@@ -427,6 +540,8 @@ final class HermesConnectionController extends ChangeNotifier {
         attempt: const ConnectionAttemptState.idle(),
         apiKeyDirty: apiKeyDirty,
         sessionKeyDirty: sessionKeyDirty,
+        desktopCredentialsDirty: desktopCredentialsDirty,
+        accessHeadersDirty: accessHeadersDirty,
       ),
     );
   }
@@ -444,6 +559,7 @@ final class HermesConnectionController extends ChangeNotifier {
     url.dispose();
     apiKey.dispose();
     sessionKey.dispose();
+    desktopLegacyToken.dispose();
     super.dispose();
   }
 }

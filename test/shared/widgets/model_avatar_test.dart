@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/shared/widgets/model_avatar.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +40,52 @@ void main() {
       );
 
       expect(find.byType(ModelAvatar), findsOneWidget);
+    });
+
+    testWidgets('renders bundled asset avatars', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: ModelAvatar(
+                size: 40,
+                imageUrl: 'asset:assets/icons/hermes_agent.png',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      final provider = tester.widget<Image>(find.byType(Image)).image;
+      check(provider).isA<ResizeImage>();
+      check((provider as ResizeImage).imageProvider)
+          .equals(const AssetImage('assets/icons/hermes_agent.png'));
+      check(tester.widget<Image>(find.byType(Image)).color).isNull();
+      expect(find.byIcon(Icons.psychology), findsNothing);
+    });
+
+    testWidgets('tints bundled asset avatars white in dark mode', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            themeMode: ThemeMode.dark,
+            darkTheme: ThemeData.dark(),
+            home: const Scaffold(
+              body: ModelAvatar(
+                size: 40,
+                imageUrl: 'asset:assets/icons/hermes_agent.png',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      check(tester.widget<Image>(find.byType(Image)).color)
+          .equals(Colors.white);
     });
   });
 }

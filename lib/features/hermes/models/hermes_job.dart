@@ -17,6 +17,10 @@ class HermesJob {
     this.name,
     this.enabled = true,
     this.lastStatus,
+    this.state,
+    this.deliveryTarget,
+    this.lastError,
+    this.lastDeliveryError,
     this.nextRun,
     this.lastRun,
   });
@@ -48,6 +52,10 @@ class HermesJob {
   final bool enabled;
 
   final String? lastStatus;
+  final String? state;
+  final String? deliveryTarget;
+  final String? lastError;
+  final String? lastDeliveryError;
   final DateTime? nextRun;
   final DateTime? lastRun;
 
@@ -87,6 +95,22 @@ class HermesJob {
       lastStatus: validateHermesBoundedString(
         json['last_status'] ?? json['status'],
         maxCharacters: kMaxHermesJobStatusCharacters,
+      ),
+      state: validateHermesBoundedString(
+        json['state'],
+        maxCharacters: kMaxHermesJobStatusCharacters,
+      ),
+      deliveryTarget: validateHermesBoundedString(
+        json['deliver'],
+        maxCharacters: kMaxHermesJobStatusCharacters,
+      ),
+      lastError: validateHermesBoundedString(
+        json['last_error'],
+        maxCharacters: 4096,
+      ),
+      lastDeliveryError: validateHermesBoundedString(
+        json['last_delivery_error'],
+        maxCharacters: 4096,
       ),
       nextRun: parseHermesTimestamp(json['next_run_at'] ?? json['next_run']),
       lastRun: parseHermesTimestamp(json['last_run_at'] ?? json['last_run']),

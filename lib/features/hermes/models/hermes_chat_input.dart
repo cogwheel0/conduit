@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:openai_dart/openai_dart.dart' as openai;
 
 const int kHermesMaxInlineImages = 4;
@@ -149,5 +151,49 @@ final class HermesInputImagePart extends HermesChatContentPart {
   openai.InputContent toResponseContent() => openai.InputContent.imageUrl(
     imageUrl,
     detail: detail == null ? null : openai.ImageDetail.fromJson(detail!),
+  );
+}
+
+/// Ephemeral local file bytes used by the Desktop Gateway upload RPCs.
+/// Conduit never persists this data URL in chat metadata.
+final class HermesInputFilePart extends HermesChatContentPart {
+  HermesInputFilePart({
+    required this.filename,
+    required this.mediaType,
+    required this.base64Data,
+  }) {
+    if (filename.trim().isEmpty || filename.length > 512) {
+      throw ArgumentError.value(filename, 'filename', 'must be a safe name');
+    }
+    if (mediaType.length > 128 ||
+        !RegExp(r'^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$')
+            .hasMatch(mediaType)) {
+      throw ArgumentError.value(mediaType, 'mediaType', 'must be a MIME type');
+    }
+    if (base64Data.isEmpty) {
+      throw ArgumentError.value(base64Data, 'base64Data', 'must not be empty');
+    }
+    try {
+      base64Decode(base64Data);
+    } on FormatException {
+      throw ArgumentError.value(base64Data, 'base64Data', 'must be Base64');
+    }
+  }
+
+  final String filename;
+  final String mediaType;
+  final String base64Data;
+
+  bool get isPdf => mediaType == 'application/pdf';
+  String get dataUrl => 'data:$mediaType;base64,$base64Data';
+
+  @override
+  Map<String, dynamic> toJson() => toResponseContent().toJson();
+
+  @override
+  openai.InputContent toResponseContent() => openai.InputContent.fileData(
+    base64Data,
+    mediaType: mediaType,
+    filename: filename,
   );
 }

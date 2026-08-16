@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../utils/debug_logger.dart';
 
 /// Secure credential storage with platform-specific options.
@@ -24,6 +26,8 @@ class SecureCredentialStorage {
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
+  static const String _hermesDesktopCredentialsKey =
+      'hermes_desktop_credentials_v1';
   static const String _directConnectionProfilesKey =
       'direct_connection_profiles_v1';
   static const String _openWebUiDirectIdentityKey =
@@ -360,6 +364,19 @@ class SecureCredentialStorage {
     }
   }
 
+  /// Persists the versioned Desktop Gateway credential document. Callers own
+  /// JSON validation; this class deliberately never logs the payload.
+  Future<void> saveHermesDesktopCredentials(String value) =>
+      _secureStorage.write(key: _hermesDesktopCredentialsKey, value: value);
+
+  Future<String?> getHermesDesktopCredentials() => _readHermesSecret(
+    _hermesDesktopCredentialsKey,
+    scope: 'hermes/desktop-credentials',
+  );
+
+  Future<void> deleteHermesDesktopCredentials() =>
+      _secureStorage.delete(key: _hermesDesktopCredentialsKey);
+
   /// Persists the complete versioned direct-connection document securely.
   ///
   /// Profiles include API keys, custom headers, and optional mTLS material, so
@@ -416,7 +433,9 @@ class SecureCredentialStorage {
   Future<List<int>> getOrCreateOpenWebUiDirectIdentityKey() {
     if (_openWebUiDirectIdentityWritesBlocked) {
       return Future<List<int>>.error(
-        StateError('Direct identity changes are unavailable while signing out.'),
+        StateError(
+          'Direct identity changes are unavailable while signing out.',
+        ),
       );
     }
     final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
@@ -434,7 +453,9 @@ class SecureCredentialStorage {
   Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed() {
     if (_openWebUiDirectIdentityWritesBlocked) {
       return Future<List<int>>.error(
-        StateError('Direct identity changes are unavailable while signing out.'),
+        StateError(
+          'Direct identity changes are unavailable while signing out.',
+        ),
       );
     }
     return _loadOrCreateOpenWebUiDirectIdentityKey();

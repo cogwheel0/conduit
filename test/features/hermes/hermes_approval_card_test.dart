@@ -36,4 +36,28 @@ void main() {
     check(buttons.every((button) => button.isLoading)).isTrue();
     check(buttons.every((button) => button.onPressed == null)).isTrue();
   });
+
+  testWidgets('sends an advertised approval scope', (tester) async {
+    String? choice;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: HermesApprovalCard(
+              state: HermesApprovalState.pending,
+              choices: const ['once', 'session', 'always', 'deny'],
+              onChoice: (value) => choice = value,
+              onDecision: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Allow for session'));
+    expect(choice, 'session');
+  });
 }

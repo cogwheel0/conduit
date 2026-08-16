@@ -17,6 +17,13 @@ final Set<WebsiteDataType> _appleWebsiteDataTypes = <WebsiteDataType>{
   WebsiteDataType.WKWebsiteDataTypeServiceWorkerRegistrations,
 };
 
+@visibleForTesting
+bool webViewCookieBelongsToExactHost(String? domain, String host) {
+  final raw = domain?.trim().toLowerCase();
+  final normalized = raw?.startsWith('.') == true ? raw!.substring(1) : raw;
+  return normalized == null || normalized.isEmpty || normalized == host;
+}
+
 /// Deletes cookies and verifies the empty-store postcondition when the
 /// platform reports `false`. Android uses `false` both for "nothing removed"
 /// and some failures, so the boolean alone is not a safe freshness boundary.
@@ -77,6 +84,10 @@ class WebViewCookieHelper {
     );
     return result;
   }
+
+  static Future<T> runSerializedDataOperation<T>(
+    Future<T> Function() operation,
+  ) => _serializeDataOperation(operation);
 
   /// Waits until every cookie/storage mutation requested before this call has
   /// completed. Proxy auth uses this before constructing its WebView so a late
@@ -180,6 +191,104 @@ class WebViewCookieHelper {
       remainingCookieCount: () async => (await manager.getAllCookies()).length,
     );
   }
+
+  /// Deletes only the supplied cookie identities at one exact origin.
+  static Future<bool> deleteCookieIdentitiesForOrigin(
+    String origin,
+    Set<String> identities,
+  ) => _serializeDataOperation(
+    () => deleteCookieIdentitiesForOriginUnlocked(origin, identities),
+  );
+
+  /// Performs an exact-cookie deletion inside an already-serialized mutation.
+  static Future<bool> deleteCookieIdentitiesForOriginUnlocked(
+    String origin,
+    Set<String> identities,
+  ) async {
+    if (!isWebViewSupported) return true;
+    final uri = Uri.tryParse(origin);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      return false;
+    }
+    final url = WebUri(
+      uri
+          .replace(
+            path: uri.path.isEmpty ? '/' : uri.path,
+            query: null,
+            fragment: null,
+          )
+          .toString(),
+    );
+    try {
+      final manager = CookieManager.instance();
+      if (identities.isEmpty) return true;
+      final cookies = await manager.getCookies(url: url);
+      var success = true;
+      for (final cookie in cookies.where(
+        (cookie) => identities.contains(cookieIdentity(cookie)),
+      )) {
+        final deleted = await manager.deleteCookie(
+          url: url,
+          name: cookie.name,
+          path: cookie.path ?? '/',
+          domain: cookie.domain,
+        );
+        success = success && deleted;
+      }
+      final remaining = await manager.getCookies(url: url);
+      return success &&
+          remaining.every(
+            (cookie) => !identities.contains(cookieIdentity(cookie)),
+          );
+    } catch (error) {
+      DebugLogger.warning(
+        'origin-cookie-clear-failed',
+        scope: 'auth/webview',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return false;
+    }
+  }
+
+  static Future<Set<String>> cookieIdentitiesForOrigin(String origin) async {
+    if (!isWebViewSupported) return const {};
+    final uri = Uri.tryParse(origin);
+    if (uri == null || uri.host.isEmpty) return const {};
+    final cookies = await CookieManager.instance().getCookies(
+      url: WebUri(
+        uri
+            .replace(
+              path: uri.path.isEmpty ? '/' : uri.path,
+              query: null,
+              fragment: null,
+            )
+            .toString(),
+      ),
+    );
+    return cookies
+        .where(
+          (cookie) => webViewCookieBelongsToExactHost(
+            cookie.domain,
+            uri.host.toLowerCase(),
+          ),
+        )
+        .map(cookieIdentity)
+        .toSet();
+  }
+
+  static String cookieIdentity(Cookie cookie) => cookieIdentityParts(
+    name: cookie.name,
+    path: cookie.path,
+    domain: cookie.domain,
+  );
+
+  static String cookieIdentityParts({
+    required String name,
+    String? path,
+    String? domain,
+  }) => '$name\u0000${path ?? '/'}\u0000${domain ?? ''}';
 
   /// Clears all WebView data including cookies, localStorage, and cache.
   ///
