@@ -18,6 +18,8 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
@@ -93,6 +95,7 @@ Widget _buildAssistantHarness(
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
+  int? activeVersionIndex,
 }) {
   return ProviderScope(
     overrides: [
@@ -123,6 +126,7 @@ Widget _buildAssistantHarness(
           onRegenerate: onRegenerate ?? () {},
           onDelete: () {},
           onFollowUpSelected: onFollowUpSelected,
+          activeVersionIndex: activeVersionIndex,
         ),
       ),
     ),
@@ -158,6 +162,29 @@ Future<void> _tapVersionControl(
 }
 
 void main() {
+  testWidgets('lightweight Markdown part omits assistant chrome', (
+    tester,
+  ) async {
+    final document = compilePreparedMarkdownSync('Middle **block**');
+
+    await tester.pumpWidget(
+      _buildHarness(
+        AssistantMarkdownPartRow(
+          document: document,
+          partId: 'paragraph-1',
+          stateScopeId: 'assistant-1|current',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Middle block'), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byType(AssistantMessageWidget), findsNothing);
+    expect(find.byType(HorizontalGestureExclusion), findsOneWidget);
+    expect(find.byType(PrioritizedHorizontalGesture), findsOneWidget);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
@@ -532,6 +559,74 @@ void main() {
 
     expect(find.text('Model B'), findsOneWidget);
     expect(find.text('Model A'), findsNothing);
+  });
+
+  testWidgets('controlled version changes refresh body and header state', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'controlled-version',
+      role: 'assistant',
+      content: 'Current controlled body',
+      timestamp: DateTime(2024, 1, 1),
+      model: 'Current model',
+      versions: [
+        ChatMessageVersion(
+          id: 'controlled-version-v1',
+          content: 'Archived controlled body',
+          timestamp: DateTime(2023, 12, 31),
+          model: 'Archived model',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, activeVersionIndex: -1),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Current controlled body'), findsOneWidget);
+    expect(find.text('Current model'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, activeVersionIndex: 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Archived controlled body'), findsOneWidget);
+    expect(find.text('Archived model'), findsOneWidget);
+    expect(find.text('Current controlled body'), findsNothing);
+  });
+
+  testWidgets('selected archived version refreshes at the same index', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'same-index-version',
+      role: 'assistant',
+      content: 'Current body',
+      timestamp: DateTime(2024, 1, 1),
+      versions: [
+        ChatMessageVersion(
+          id: 'same-index-version-v1',
+          content: 'Old archived body',
+          timestamp: DateTime(2023, 12, 31),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, activeVersionIndex: 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Old archived body'), findsOneWidget);
+
+    final refreshed = message.copyWith(
+      versions: [message.versions.single.copyWith(content: 'Refreshed body')],
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(refreshed, activeVersionIndex: 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Refreshed body'), findsOneWidget);
+    expect(find.text('Old archived body'), findsNothing);
   });
 
   testWidgets('archived version stays settled when the live version resumes', (

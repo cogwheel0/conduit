@@ -95,6 +95,9 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.askConduitComposerTargetId,
     this.stateScopeId,
     this.enableStreamingTextFade = true,
+    this.includeSelectionArea = true,
+    this.onCompiledDocument,
+    this.onSettledDocument,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
@@ -130,6 +133,18 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// explicitly disables it so token updates remain immediate; low-frequency
   /// preview surfaces can retain the decorative reveal.
   final bool enableStreamingTextFade;
+
+  /// Standalone surfaces own their selection region. Chat supplies one region
+  /// around the transcript so selection can cross virtualized block rows.
+  final bool includeSelectionArea;
+
+  /// Reports each fresh document, including while content is streaming.
+  final void Function(String content, CompiledMarkdownDocument document)?
+  onCompiledDocument;
+
+  /// Reports only a fresh, settled document so a parent sliver can reuse the
+  /// exact compiled blocks without normalizing or compiling them again.
+  final ValueChanged<CompiledMarkdownDocument>? onSettledDocument;
 
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
@@ -178,6 +193,7 @@ class _StreamingMarkdownWidgetState
   PreparedMarkdownText _preparedStreamingContent =
       const PreparedMarkdownText.empty();
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
+  String _snapshotSourceContent = '';
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
   bool _settledSnapshotInFlight = false;
@@ -232,6 +248,7 @@ class _StreamingMarkdownWidgetState
       // the real content, so rows built while scrolling up through history
       // would change extent a few frames later and visibly jump the viewport.
       // Only live streaming updates may take the async coalescing path below.
+      _snapshotSourceContent = widget.content;
       _snapshot = _buildMarkdownSnapshot(
         widget.content,
         streaming: widget.isStreaming,
@@ -314,6 +331,7 @@ class _StreamingMarkdownWidgetState
         _settledPreparationPending = false;
         _applyPreparedSnapshotIfNeeded(
           prepareMarkdownContent(widget.content, streaming: false),
+          sourceContent: widget.content,
           // A scope change means a new message/version, not a continuation of
           // the current content. Clear stale content while the new body compiles.
           clearStaleDocument: scopeChanged,
@@ -349,6 +367,7 @@ class _StreamingMarkdownWidgetState
       _invalidatePendingAsyncSnapshot();
       _applyPreparedSnapshotIfNeeded(
         preparedContent,
+        sourceContent: widget.content,
         clearStaleDocument: scopeChanged,
       );
       return;
@@ -517,7 +536,10 @@ class _StreamingMarkdownWidgetState
           content,
           streaming: true,
         );
-        _applyPreparedSnapshotIfNeeded(synchronousPrepared);
+        _applyPreparedSnapshotIfNeeded(
+          synchronousPrepared,
+          sourceContent: content,
+        );
         return;
       }
       final sessionId = _ensurePreparationSession();
@@ -545,6 +567,7 @@ class _StreamingMarkdownWidgetState
         if (mounted && generation == _snapshotGeneration) {
           _applyPreparedSnapshotIfNeeded(
             prepareMarkdownContent(content, streaming: true),
+            sourceContent: content,
           );
         }
         return;
@@ -564,7 +587,11 @@ class _StreamingMarkdownWidgetState
           generation != _snapshotGeneration) {
         return;
       }
-      _applyPreparedPatchIfNeeded(preparedContent, patch);
+      _applyPreparedPatchIfNeeded(
+        preparedContent,
+        patch,
+        sourceContent: content,
+      );
     } catch (_) {
       if (!mounted || generation != _snapshotGeneration) {
         return;
@@ -572,6 +599,7 @@ class _StreamingMarkdownWidgetState
       _retirePreparationSession();
       _applyPreparedSnapshotIfNeeded(
         prepareMarkdownContent(content, streaming: true),
+        sourceContent: content,
       );
     } finally {
       _snapshotInFlight = false;
@@ -612,6 +640,7 @@ class _StreamingMarkdownWidgetState
     if (needsUpdate) {
       _applyPreparedSnapshotIfNeeded(
         preparedContent,
+        sourceContent: content,
         clearStaleDocument: clearStaleDocument,
       );
     } else {
@@ -661,10 +690,12 @@ class _StreamingMarkdownWidgetState
 
   void _applySnapshot(
     _MarkdownRenderSnapshot nextSnapshot, {
+    required String sourceContent,
     bool clearStaleDocument = false,
   }) {
     final changed = _snapshot != nextSnapshot;
     if (!changed) {
+      _snapshotSourceContent = sourceContent;
       if (_compiledDocument == null ||
           !_compiledMatchesSnapshot(nextSnapshot)) {
         _resolveCompiledDocument(
@@ -676,13 +707,17 @@ class _StreamingMarkdownWidgetState
     }
     if (!mounted) {
       _snapshot = nextSnapshot;
+      _snapshotSourceContent = sourceContent;
       _resolveCompiledDocument(
         nextSnapshot,
         clearStaleDocument: clearStaleDocument,
       );
       return;
     }
-    setState(() => _snapshot = nextSnapshot);
+    setState(() {
+      _snapshot = nextSnapshot;
+      _snapshotSourceContent = sourceContent;
+    });
     _resolveCompiledDocument(
       nextSnapshot,
       clearStaleDocument: clearStaleDocument,
@@ -747,7 +782,15 @@ class _StreamingMarkdownWidgetState
     if (widget.isStreaming ||
         _settledPreparationPending ||
         !hasFreshCompiledDocument) {
-      return result;
+      return widget.includeSelectionArea
+          ? result
+          : SelectionContainer.disabled(child: result);
+    }
+
+    if (!widget.includeSelectionArea) {
+      return HorizontalGestureExclusion(
+        child: PrioritizedHorizontalGesture(child: result),
+      );
     }
 
     return HorizontalGestureExclusion(
@@ -901,13 +944,20 @@ class _StreamingMarkdownWidgetState
 
   void _applyPreparedSnapshotIfNeeded(
     String preparedContent, {
+    required String sourceContent,
     bool clearStaleDocument = false,
   }) {
     if (!_needsPreparedSnapshotUpdate(preparedContent)) {
+      _snapshotSourceContent = sourceContent;
+      final document = _compiledDocument;
+      if (document != null && _compiledMatchesSnapshot(_snapshot)) {
+        widget.onCompiledDocument?.call(sourceContent, document);
+      }
       return;
     }
     _applySnapshot(
       _MarkdownRenderSnapshot.full(preparedContent),
+      sourceContent: sourceContent,
       clearStaleDocument: clearStaleDocument,
     );
   }
@@ -915,18 +965,18 @@ class _StreamingMarkdownWidgetState
   void _applyPreparedPatchIfNeeded(
     PreparedMarkdownText preparedContent,
     MarkdownPreparationPatch patch, {
+    required String sourceContent,
     bool clearStaleDocument = false,
   }) {
     final nextSnapshot = _MarkdownRenderSnapshot.prepared(
       preparedContent: preparedContent,
       patch: patch,
     );
-    if (_snapshot == nextSnapshot &&
-        _compiledDocument != null &&
-        _compiledMatchesSnapshot(nextSnapshot)) {
-      return;
-    }
-    _applySnapshot(nextSnapshot, clearStaleDocument: clearStaleDocument);
+    _applySnapshot(
+      nextSnapshot,
+      sourceContent: sourceContent,
+      clearStaleDocument: clearStaleDocument,
+    );
   }
 
   bool get _canActivelyRefreshStreamingMarkdown =>
@@ -993,6 +1043,20 @@ class _StreamingMarkdownWidgetState
     // Rebuild so the freshly compiled document (or a cleared document) is
     // reflected. Any stale document already on screen is superseded here.
     setState(() {});
+    if (document != null && _compiledMatchesSnapshot(_snapshot)) {
+      widget.onCompiledDocument?.call(_snapshotSourceContent, document);
+    }
+    if (!widget.isStreaming && document != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            widget.isStreaming ||
+            !identical(document, _compiledDocument) ||
+            !_compiledMatchesSnapshot(_snapshot)) {
+          return;
+        }
+        widget.onSettledDocument?.call(document);
+      });
+    }
     scheduleEmbeddedPreviewEligibilityRecheck();
   }
 }

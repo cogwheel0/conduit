@@ -2377,6 +2377,90 @@ void main() {
     check(controller.visibleMessageIds)
         .deepEquals(['first', 'duplicate', 'last']);
   });
+
+  _viewportTest('block rows navigate and report as their parent message', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    const ids = ['user', 'assistant:block:a', 'assistant:block:b', 'next'];
+    const parents = {
+      'assistant:block:a': 'assistant',
+      'assistant:block:b': 'assistant',
+    };
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          messageIdByRowId: parents,
+          followLatest: false,
+          rowHeight: (_) => 300,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(await controller.jumpMessageToTop('assistant')).isTrue();
+    await tester.pump();
+    check(controller.distanceFromMessageTop('assistant')!).isLessThan(1);
+    check(controller.visibleMessageIds.where((id) => id == 'assistant')).length
+        .equals(1);
+    final anchor = controller.captureTopVisibleAnchor(loadedCount: 3);
+    check(anchor?.messageId).equals('assistant');
+    check(anchor?.rowId).equals('assistant:block:a');
+  });
+
+  _viewportTest('removed block anchor remaps while the center row survives', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    var ids = [
+      ...List<String>.generate(18, (index) => 'message-$index'),
+      'assistant:block:old',
+      ...List<String>.generate(22, (index) => 'message-${index + 18}'),
+    ];
+    var parents = const {'assistant:block:old': 'assistant'};
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              messageIdByRowId: parents,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'message-20',
+                rowId: 'message-20',
+                offsetWithinMessage: 156,
+                loadedCount: 41,
+              ),
+              maintainVisibleAnchor: true,
+              followLatest: false,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final anchor = controller.captureTopVisibleAnchor(loadedCount: ids.length);
+    check(anchor?.rowId).equals('assistant:block:old');
+    final before = controller.rowRect('assistant')!.top;
+
+    rebuild(() {
+      ids = [...ids.take(18), 'assistant:block:new', ...ids.skip(19)];
+      parents = const {'assistant:block:new': 'assistant'};
+    });
+    await tester.pump();
+    await tester.pump();
+
+    check(controller.rowRect('assistant')!.top).isCloseTo(before, 1);
+    check(controller.captureTopVisibleAnchor(loadedCount: ids.length)?.rowId)
+        .equals('assistant:block:new');
+  });
 }
 
 Widget _viewportHost(
@@ -2396,6 +2480,7 @@ Widget _viewportHost(
 Widget _viewport({
   required ChatTimelineViewportController controller,
   required List<String> ids,
+  Map<String, String> messageIdByRowId = const <String, String>{},
   int ownerGeneration = 1,
   ChatScrollAnchor? initialAnchor,
   String? pinnedUserMessageId,
@@ -2422,7 +2507,8 @@ Widget _viewport({
   return ChatTimelineViewport(
     controller: controller,
     ownerGeneration: ownerGeneration,
-    messageIds: ids,
+    rowIds: ids,
+    messageIdByRowId: messageIdByRowId,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,

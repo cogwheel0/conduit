@@ -1,6 +1,8 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/views/chat_timeline_render_model.dart';
 import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,12 +34,11 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.completed);
     expect(timeline.runningFooterHost, isNull);
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-1': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-1': 1});
     check(timeline.listItemCount).equals(2);
     check(timeline.messageIds).deepEquals(['user-1', 'assistant-1']);
-    check(timeline.sourceIndexByRenderIndex).deepEquals([0, 1]);
+    check(timeline.rows.map((row) => row.sourceIndex)).deepEquals([0, 1]);
     check(timeline.tailAssistantRenderIndex).equals(1);
     check(timeline.messageAtListIndex(0)?.id).equals('user-1');
     check(timeline.messageAtListIndex(1)?.id).equals('assistant-1');
@@ -46,6 +47,44 @@ void main() {
     check(timeline.messageAtListIndex(-1)).isNull();
     check(timeline.messageAtListIndex(2)).isNull();
     check(timeline.indexForMessageId('missing')).isNull();
+  });
+
+  test('expands compiled assistant parts into stable top-level rows', () {
+    final assistant = ChatMessage(
+      id: 'assistant-long',
+      role: 'assistant',
+      content: 'first\n\nsecond\n\nthird',
+      timestamp: DateTime(2026),
+    );
+    final parts = buildMarkdownDisplayParts(
+      compilePreparedMarkdownSync(assistant.content),
+      isStreaming: false,
+    );
+
+    final timeline = ChatTimelineRenderModel.fromMessages(
+      [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Question',
+          timestamp: DateTime(2026),
+        ),
+        assistant,
+      ],
+      virtualizedPartsByMessageId: {'assistant-long': parts},
+    );
+
+    check(timeline.rows).length.equals(1 + parts.length);
+    final assistantRows = timeline.rows.skip(1).toList(growable: false);
+    check(assistantRows.map((row) => row.messageId).toSet())
+        .deepEquals({'assistant-long'});
+    check(assistantRows.first.showLeading).isTrue();
+    check(assistantRows.first.showTrailing).equals(parts.length == 1);
+    check(assistantRows.last.showTrailing).isTrue();
+    check(assistantRows.map((row) => row.rowId).toSet()).length
+        .equals(parts.length);
+    check(timeline.indexForMessageId('assistant-long')).equals(1);
+    check(timeline.rowAt(1)?.markdownPart?.partId).equals(parts.first.partId);
   });
 
   test('extracts the active tail assistant from stable history', () {
@@ -72,9 +111,8 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.running);
     expect(timeline.runningFooterHost?.messageId, 'assistant-live');
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-live': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-live': 1});
     check(timeline.listItemCount).equals(2);
     check(timeline.tailAssistantRenderIndex).equals(1);
   });
@@ -93,12 +131,32 @@ void main() {
         duplicate.copyWith(content: 'Malformed duplicate'),
       ]);
       check(historyDuplicate.messageIds).deepEquals(['duplicate']);
-      check(historyDuplicate.sourceIndexByRenderIndex).deepEquals([0]);
+      check(historyDuplicate.rows.map((row) => row.sourceIndex))
+          .deepEquals([0]);
       check(historyDuplicate.listIndexByMessageId).deepEquals({'duplicate': 0});
       check(historyDuplicate.listItemCount).equals(1);
       check(historyDuplicate.historyMessages).length.equals(2);
       check(historyDuplicate.messageAtListIndex(0)?.content).equals('First');
       check(historyDuplicate.messageAtListIndex(1)).isNull();
+
+      final parts = buildMarkdownDisplayParts(
+        compilePreparedMarkdownSync('assistant parts'),
+        isStreaming: false,
+      );
+      final crossRoleDuplicate = ChatTimelineRenderModel.fromMessages(
+        [
+          duplicate,
+          ChatMessage(
+            id: duplicate.id,
+            role: 'assistant',
+            content: 'assistant parts',
+            timestamp: DateTime(2026),
+          ),
+        ],
+        virtualizedPartsByMessageId: {duplicate.id: parts},
+      );
+      check(crossRoleDuplicate.rows).length.equals(1);
+      check(crossRoleDuplicate.rows.single.isMarkdownPart).isFalse();
 
       final tailDuplicate = ChatTimelineRenderModel.fromMessages([
         duplicate,
@@ -117,10 +175,10 @@ void main() {
         ),
       ]);
       check(tailDuplicate.messageIds).deepEquals(['duplicate', 'distinct']);
-      check(
-        tailDuplicate.listIndexByMessageId,
-      ).deepEquals({'duplicate': 0, 'distinct': 1});
-      check(tailDuplicate.sourceIndexByRenderIndex).deepEquals([0, 1]);
+      check(tailDuplicate.listIndexByMessageId)
+          .deepEquals({'duplicate': 0, 'distinct': 1});
+      check(tailDuplicate.rows.map((row) => row.sourceIndex))
+          .deepEquals([0, 1]);
       check(tailDuplicate.listItemCount).equals(2);
       check(tailDuplicate.tailAssistant?.content).equals('Malformed live tail');
       check(tailDuplicate.tailAssistantRenderIndex).isNull();
@@ -137,17 +195,14 @@ void main() {
           isStreaming: true,
         ),
       ]);
-      check(
-        uniqueTailAfterDuplicate.messageIds,
-      ).deepEquals(['duplicate', 'assistant-live']);
-      check(
-        uniqueTailAfterDuplicate.sourceIndexByRenderIndex,
-      ).deepEquals([0, 2]);
+      check(uniqueTailAfterDuplicate.messageIds)
+          .deepEquals(['duplicate', 'assistant-live']);
+      check(uniqueTailAfterDuplicate.rows.map((row) => row.sourceIndex))
+          .deepEquals([0, 2]);
       check(uniqueTailAfterDuplicate.tailAssistantSourceIndex).equals(2);
       check(uniqueTailAfterDuplicate.tailAssistantRenderIndex).equals(1);
-      check(
-        uniqueTailAfterDuplicate.indexForMessageId('assistant-live'),
-      ).equals(1);
+      check(uniqueTailAfterDuplicate.indexForMessageId('assistant-live'))
+          .equals(1);
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(1)).equals(2);
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(-1)).isNull();
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(2)).isNull();
@@ -289,12 +344,10 @@ void main() {
       'assistant-streaming',
       'user-final',
     ]);
-    check(
-      nonTailTimeline.listIndexByMessageId,
-    ).deepEquals({'assistant-streaming': 0, 'user-final': 1});
-    check(
-      nonTailTimeline.messageIds,
-    ).deepEquals(['assistant-streaming', 'user-final']);
+    check(nonTailTimeline.listIndexByMessageId)
+        .deepEquals({'assistant-streaming': 0, 'user-final': 1});
+    check(nonTailTimeline.messageIds)
+        .deepEquals(['assistant-streaming', 'user-final']);
   });
 
   test(
@@ -378,9 +431,8 @@ void main() {
       'user-1',
       'assistant-archived',
     ]);
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-archived': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-archived': 1});
   });
 
   test('fromMessages([]) yields an empty, tail-less timeline', () {

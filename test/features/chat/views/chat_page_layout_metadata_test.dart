@@ -21,9 +21,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('message cache shrinks only while streaming', () {
+  test('message cache shrinks for streaming and virtualized rows', () {
     check(debugChatMessageScrollCachePixels(streaming: false)).equals(600);
     check(debugChatMessageScrollCachePixels(streaming: true)).equals(120);
+    check(
+      debugChatMessageScrollCachePixels(
+        streaming: false,
+        hasVirtualizedRows: true,
+      ),
+    ).equals(300);
+    check(
+      debugChatMessageScrollCachePixels(
+        streaming: true,
+        hasVirtualizedRows: true,
+      ),
+    ).equals(120);
   });
 
   testWidgets(

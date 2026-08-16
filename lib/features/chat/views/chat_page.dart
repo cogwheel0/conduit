@@ -44,11 +44,14 @@ import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import '../../../shared/utils/ask_conduit_context_menu.dart';
 import '../../../core/utils/android_assistant_handler.dart';
 import '../widgets/model_selector_sheet.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
+import '../providers/assistant_response_builder_provider.dart';
+import 'chat_markdown_virtualization_controller.dart';
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
@@ -154,8 +157,14 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 }
 
 @visibleForTesting
-double debugChatMessageScrollCachePixels({required bool streaming}) =>
-    streaming ? 120.0 : 600.0;
+double debugChatMessageScrollCachePixels({
+  required bool streaming,
+  bool hasVirtualizedRows = false,
+}) => streaming
+    ? 120.0
+    : hasVirtualizedRows
+    ? 300.0
+    : 600.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -346,6 +355,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Timer? _screenContextRetryTimer;
   String? _screenContextRetryContext;
   int _screenContextRetryAttempts = 0;
+  late final ChatMarkdownVirtualizationController _markdownVirtualization;
+  String? _selectedTranscriptText;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -692,6 +703,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _markdownVirtualization = ChatMarkdownVirtualizationController(
+      compiler: ref.read(markdownCompileServiceProvider),
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
@@ -782,6 +799,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _cancelPendingViewportNavigation();
     _endScrollProfile(reason: 'disposed');
     _timelineViewportController.dispose();
+    _markdownVirtualization.dispose();
     super.dispose();
   }
 
@@ -1979,6 +1997,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     _conversationOwnerGeneration += 1;
+    _clearVirtualizedMarkdownState();
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     _saveCurrentScrollAnchor(conversationId: outgoingId);
@@ -2025,6 +2044,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _initialScrollAnchor = null;
     _hasPrewarmedAttachedViewport = false;
     _conversationOwnerGeneration += 1;
+    _clearVirtualizedMarkdownState();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     setState(() {
@@ -2033,6 +2053,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _showScrollToBottom = false;
       _hasUserScrolled = false;
     });
+  }
+
+  void _clearVirtualizedMarkdownState() {
+    _markdownVirtualization.clear();
+    _selectedTranscriptText = null;
   }
 
   void _scheduleViewportOwnerChanged() {
@@ -2532,10 +2557,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
     );
+    final customResponseBuilderActive =
+        watchRef.watch(assistantResponseBuilderProvider) != null;
+    final virtualization = _markdownVirtualization.reconcile(
+      messages,
+      customResponseBuilderActive: customResponseBuilderActive,
+    );
+    if (virtualization.pendingMessageIds.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _markdownVirtualization.startPendingCompilations();
+      });
+    }
     final timeline = ChatTimelineRenderModel.fromMessages(
       messages,
       duplicateReportScope:
           '${identityHashCode(this)}:$_conversationOwnerGeneration',
+      virtualizedPartsByMessageId: virtualization.partsByMessageId,
     );
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
     _syncLayoutBottomAnchor();
@@ -2552,7 +2589,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    final messageIds = timeline.messageIds;
+    final rowIds = timeline.rows
+        .map((row) => row.rowId)
+        .toList(growable: false);
+    final messageIdByRowId = <String, String>{
+      for (final row in timeline.rows) row.rowId: row.messageId,
+    };
+    final hasVirtualizedRows = timeline.rows.any((row) => row.isMarkdownPart);
     // Reversed iteration plus map overwrite preserves the first source row for
     // malformed duplicate IDs while keeping the indexed fast path allocation-free.
     late final historyMessagesById = <String, ChatMessage>{
@@ -2571,10 +2614,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       positionSettled: _pinToTopPositionSettled,
     );
 
-    return ChatTimelineViewport(
+    final viewport = ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
-      messageIds: messageIds,
+      rowIds: rowIds,
+      messageIdByRowId: messageIdByRowId,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null
@@ -2597,7 +2641,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
-      cacheExtent: debugChatMessageScrollCachePixels(streaming: isStreaming),
+      cacheExtent: debugChatMessageScrollCachePixels(
+        streaming: isStreaming,
+        hasVirtualizedRows: hasVirtualizedRows,
+      ),
       physics: platformAlwaysScrollablePhysics(context),
       isLoadingOlder: paging.isLoadingOlder,
       maintainVisibleAnchor:
@@ -2655,15 +2702,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
       rowBuilder: (context, renderIndex) {
-        final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
-        if (sourceIndex == null || renderIndex >= messageIds.length) {
+        final renderRow = timeline.rowAt(renderIndex);
+        if (renderRow == null) {
           return const SizedBox.shrink();
         }
-        final renderedMessageId = messageIds[renderIndex];
-        final tailRenderIndex = timeline.tailAssistantRenderIndex;
-        if (tailRenderIndex != null && renderIndex == tailRenderIndex) {
+        final sourceIndex = renderRow.sourceIndex;
+        if (timeline.tailAssistant?.id == renderRow.messageId &&
+            sourceIndex == timeline.tailAssistantSourceIndex) {
           return _buildTailAssistantRow(
             timeline: timeline,
+            renderRow: renderRow,
             layoutMetadata: layoutMetadata,
             sourceIndex: sourceIndex,
             layoutRowByMessageId: layoutRowByMessageId,
@@ -2672,8 +2720,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
         return _buildHistoryRow(
           timeline: timeline,
+          renderRow: renderRow,
           layoutMetadata: layoutMetadata,
-          requestedMessageId: renderedMessageId,
+          requestedMessageId: renderRow.messageId,
           sourceIndex: sourceIndex,
           historyMessageById: historyMessageById,
           layoutRowByMessageId: layoutRowByMessageId,
@@ -2681,10 +2730,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       },
     );
+    return SelectionArea(
+      contextMenuBuilder: (context, selectableRegionState) =>
+          buildAskConduitSelectionAreaContextMenu(
+            selectableRegionState: selectableRegionState,
+            ref: ref,
+            selectedText: _selectedTranscriptText,
+            composerTargetId: chatComposerTextInsertionTargetId,
+          ),
+      onSelectionChanged: (content) {
+        _selectedTranscriptText = content?.plainText;
+      },
+      child: viewport,
+    );
   }
 
   Widget _buildTailAssistantRow({
     required ChatTimelineRenderModel timeline,
+    required ChatTimelineRenderRow renderRow,
     required _ChatListStableLayoutMetadata layoutMetadata,
     required int sourceIndex,
     required _ChatRowLayoutMetadata? Function(String) layoutRowByMessageId,
@@ -2744,13 +2807,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             chatMessageByIdProvider(tailAssistant.id),
           );
           if (liveMessage == null) return const SizedBox.shrink();
-          return _buildAssistantMessageRowContent(
+          final row = _buildAssistantMessageRowContent(
             rowRef: rowRef,
             messageId: tailAssistant.id,
             latestMessage: liveMessage,
             rowMetadata: tailRowMetadata,
             suppressStreamingHaptics: suppressStreamingHaptics,
+            renderRow: renderRow,
           );
+          return liveMessage.isStreaming
+              ? SelectionContainer.disabled(child: row)
+              : row;
         },
       ),
     );
@@ -2758,6 +2825,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildHistoryRow({
     required ChatTimelineRenderModel timeline,
+    required ChatTimelineRenderRow renderRow,
     required _ChatListStableLayoutMetadata layoutMetadata,
     required String requestedMessageId,
     required int sourceIndex,
@@ -2852,13 +2920,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             chatMessageByIdProvider(messageId),
           );
           if (latestMessage == null) return const SizedBox.shrink();
-          return _buildAssistantMessageRowContent(
+          final row = _buildAssistantMessageRowContent(
             rowRef: rowRef,
             messageId: messageId,
             latestMessage: latestMessage,
             rowMetadata: rowMetadata,
             suppressStreamingHaptics: suppressStreamingHaptics,
+            renderRow: renderRow,
           );
+          return latestMessage.isStreaming
+              ? SelectionContainer.disabled(child: row)
+              : row;
         },
       ),
     );
@@ -2873,7 +2945,54 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required ChatMessage latestMessage,
     required _ChatRowLayoutMetadata rowMetadata,
     required bool suppressStreamingHaptics,
+    required ChatTimelineRenderRow renderRow,
   }) {
+    final selectedVersionIndex = _markdownVirtualization.activeVersionIndex(
+      latestMessage,
+    );
+    final markdownPart = renderRow.markdownPart;
+    final versionIndex = markdownPart == null
+        ? selectedVersionIndex
+        : _markdownVirtualization.displayedVersionIndex(latestMessage);
+    if (markdownPart != null && !renderRow.showTrailing) {
+      final version = versionIndex >= 0
+          ? latestMessage.versions[versionIndex]
+          : null;
+      final stateScopeId = version == null
+          ? '$messageId|current'
+          : '$messageId|version:${version.id}';
+      return assistant.AssistantMarkdownPartRow(
+        document: markdownPart.document,
+        partId: markdownPart.partId,
+        stateScopeId: stateScopeId,
+        sources: version?.sources ?? latestMessage.sources,
+        showLeading: renderRow.showLeading,
+        modelName: renderRow.showLeading
+            ? (versionIndex >= 0
+                  ? rowMetadata.versionModelNames[versionIndex] ??
+                        rowMetadata.displayModelName
+                  : rowMetadata.displayModelName)
+            : null,
+        modelIconUrl: renderRow.showLeading
+            ? (versionIndex >= 0
+                  ? rowMetadata.versionModelIconUrls[versionIndex]
+                  : rowMetadata.modelIconUrl)
+            : null,
+      );
+    }
+    final activeContent = _markdownVirtualization.preparedContent(
+      latestMessage,
+      selectedVersionIndex,
+    );
+    final pendingLongCompile =
+        renderRow.markdownPart == null &&
+        activeContent.length >
+            ChatMarkdownVirtualizationController.characterThreshold &&
+        _markdownVirtualization.isPending(
+          messageId,
+          selectedVersionIndex,
+          activeContent,
+        );
     return assistant.AssistantMessageWidget(
       message: latestMessage,
       isStreaming: latestMessage.isStreaming,
@@ -2892,6 +3011,35 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
+      compiledMarkdownPart: renderRow.markdownPart?.document,
+      markdownPartId: renderRow.markdownPart?.partId,
+      showLeading: renderRow.showLeading,
+      showTrailing: renderRow.showTrailing,
+      includeSelectionArea: false,
+      deferMarkdown: pendingLongCompile,
+      activeVersionIndex: versionIndex,
+      onActiveVersionIndexChanged: (nextIndex) {
+        setState(() {
+          _markdownVirtualization.selectVersion(messageId, nextIndex);
+        });
+      },
+      onCompiledDocument: rowRef.read(assistantResponseBuilderProvider) != null
+          ? null
+          : (content, document) =>
+                _markdownVirtualization.cacheStreamingDocument(
+                  message: latestMessage,
+                  versionIndex: versionIndex,
+                  content: content,
+                  document: document,
+                ),
+      onSettledDocument: rowRef.read(assistantResponseBuilderProvider) != null
+          ? null
+          : (document) => _markdownVirtualization.acceptSettledDocument(
+              message: latestMessage,
+              versionIndex: versionIndex,
+              content: activeContent,
+              document: document,
+            ),
       onFollowUpSelected: _handleFollowUpSend,
       onCopy: () {
         final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));

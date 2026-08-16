@@ -43,6 +43,36 @@ class ConduitMarkdownPreprocessor {
     caseSensitive: false,
   );
   static final _multipleNewlines = RegExp(r'\n{3,}');
+  static final _standaloneBase64Image = RegExp(
+    r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\n|$))',
+    multiLine: true,
+  );
+
+  /// Turns standalone base64 image lines into renderable Markdown images.
+  static String prepareAssistantContent(String content) =>
+      wrapStandaloneBase64Images(stripAssistantPlaceholders(content));
+
+  static String wrapStandaloneBase64Images(String content) {
+    if (!content.contains('data:image/')) return content;
+    return content.replaceAllMapped(_standaloneBase64Image, (match) {
+      final linePrefix = match.group(1) ?? '';
+      final indentation = match.group(2) ?? '';
+      final imageData = match.group(3)!;
+      return '$linePrefix$indentation![Generated Image]($imageData)';
+    });
+  }
+
+  static String stripAssistantPlaceholders(String content) {
+    const typingIndicator = '[TYPING_INDICATOR]';
+    const searchBanner = '🔍 Searching the web...';
+    if (content.startsWith(typingIndicator)) {
+      content = content.substring(typingIndicator.length);
+    }
+    if (content.startsWith(searchBanner)) {
+      content = content.substring(searchBanner.length);
+    }
+    return content;
+  }
 
   /// Combined pattern for all reasoning/thinking blocks.
   static final _reasoningBlocks = RegExp(

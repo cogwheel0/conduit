@@ -116,9 +116,15 @@ final class ChatScrollAnchor {
     required this.messageId,
     required this.offsetWithinMessage,
     required this.loadedCount,
+    this.rowId,
   });
 
   final String messageId;
+
+  /// Exact render-row identity when [messageId] is split into Markdown rows.
+  /// Anchors are in-memory only, so older callers safely fall back to the
+  /// message's first row.
+  final String? rowId;
 
   /// Logical pixels from the viewport's top content inset to the top edge of
   /// [messageId]'s row. Negative means the row begins above that inset;

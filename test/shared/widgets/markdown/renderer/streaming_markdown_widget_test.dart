@@ -1582,6 +1582,112 @@ graph TD
     expect(widget.enableStreamingTextFade, isTrue);
   });
 
+  testWidgets('reports fresh compiled documents while streaming', (
+    tester,
+  ) async {
+    CompiledMarkdownDocument? compiled;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: StreamingMarkdownWidget(
+            content: 'One\n\nTwo',
+            isStreaming: true,
+            onCompiledDocument: (content, document) {
+              expect(content, 'One\n\nTwo');
+              compiled = document;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(compiled, isNotNull);
+  });
+
+  testWidgets('compiled callbacks retain their source snapshot at stream end', (
+    tester,
+  ) async {
+    const streamingContent = 'Streaming snapshot';
+    const settledContent = 'Streaming snapshot with final text';
+    final compiler = _SelectiveDelayedMarkdownCompileService(
+      delayedPreparedContent: prepareMarkdownContent(
+        streamingContent,
+        streaming: true,
+      ),
+    );
+    addTearDown(compiler.dispose);
+    final reports = <(String, String)>[];
+
+    Widget harness(String content, bool streaming) => ProviderScope(
+      overrides: [markdownCompileServiceProvider.overrideWithValue(compiler)],
+      child: MaterialApp(
+        home: StreamingMarkdownWidget(
+          key: const ValueKey('snapshot-source'),
+          content: content,
+          isStreaming: streaming,
+          onCompiledDocument: (source, document) =>
+              reports.add((source, document.normalizedContent)),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(streamingContent, true));
+    await tester.pump();
+    await tester.pumpWidget(harness(settledContent, false));
+    await tester.pump();
+    compiler.release();
+    await tester.pump();
+    await tester.pump();
+
+    for (final (source, normalized) in reports) {
+      final streaming = source == streamingContent;
+      expect(normalized, prepareMarkdownContent(source, streaming: streaming));
+    }
+    expect(reports.any((report) => report.$1 == settledContent), isTrue);
+  });
+
+  testWidgets('stale settled markdown opts out of ancestor selection', (
+    tester,
+  ) async {
+    const initial = 'Initial settled markdown';
+    const replacement = 'Replacement settled markdown';
+    final compiler = _SelectiveDelayedMarkdownCompileService(
+      delayedPreparedContent: prepareMarkdownContent(
+        replacement,
+        streaming: false,
+      ),
+    );
+    addTearDown(compiler.dispose);
+
+    Widget harness(String content) => ProviderScope(
+      overrides: [markdownCompileServiceProvider.overrideWithValue(compiler)],
+      child: MaterialApp(
+        home: SelectionArea(
+          child: StreamingMarkdownWidget(
+            key: const ValueKey('ancestor-selection'),
+            content: content,
+            isStreaming: false,
+            includeSelectionArea: false,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(initial));
+    await tester.pump();
+    await tester.pumpWidget(harness(replacement));
+    await tester.pump();
+
+    expect(
+      tester
+          .widgetList<SelectionContainer>(find.byType(SelectionContainer))
+          .any((container) => container.delegate == null),
+      isTrue,
+    );
+  });
+
   testWidgets('streaming markdown fades newly appended rendered text', (
     tester,
   ) async {

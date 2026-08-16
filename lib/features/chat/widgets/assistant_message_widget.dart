@@ -9,11 +9,16 @@ import 'package:dio/dio.dart' show CancelToken;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
+import '../../../shared/widgets/horizontal_gesture_ownership.dart';
+import '../../../shared/widgets/markdown/compiled_markdown_document.dart';
+import '../../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import '../../../shared/widgets/markdown/renderer/block_renderer.dart';
+import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
+import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/providers/app_providers.dart'
     show activeConversationProvider;
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
@@ -56,11 +61,6 @@ import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
 
-// Wrap only standalone base64 image lines so <details> attributes stay intact.
-final _standaloneBase64ImagePattern = RegExp(
-  r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\n|$))',
-  multiLine: true,
-);
 final _ttsDetailsPattern = RegExp(
   r'<details[^>]*>[\s\S]*?<\/details>',
   caseSensitive: false,
@@ -76,6 +76,151 @@ typedef _HermesApprovalBinding = ({
   String runId,
   String approvalId,
 });
+
+/// Lightweight body for virtualized Markdown rows that own no message chrome.
+class AssistantMarkdownPartRow extends StatelessWidget {
+  const AssistantMarkdownPartRow({
+    super.key,
+    required this.document,
+    required this.partId,
+    required this.stateScopeId,
+    this.sources = const <ChatSourceReference>[],
+    this.showLeading = false,
+    this.modelName,
+    this.modelIconUrl,
+  });
+
+  final CompiledMarkdownDocument document;
+  final String partId;
+  final String stateScopeId;
+  final List<ChatSourceReference> sources;
+  final bool showLeading;
+  final String? modelName;
+  final String? modelIconUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = modelName?.trim().isNotEmpty == true
+        ? modelName!.trim()
+        : 'Assistant';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(right: Spacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showLeading)
+            _AssistantHeader(modelName: name, modelIconUrl: modelIconUrl),
+          _AssistantCompiledMarkdownPart(
+            document: document,
+            partId: partId,
+            stateScopeId: stateScopeId,
+            sources: sources,
+            trimLastBlockBottomPadding: false,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantHeader extends StatelessWidget {
+  const _AssistantHeader({required this.modelName, this.modelIconUrl});
+
+  final String modelName;
+  final String? modelIconUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final iconUrl = modelIconUrl?.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: Row(
+        children: [
+          if (iconUrl != null && iconUrl.isNotEmpty)
+            ModelAvatar(size: 20, imageUrl: iconUrl, label: modelName)
+          else
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: theme.buttonPrimary,
+                borderRadius: BorderRadius.circular(AppBorderRadius.small),
+              ),
+              child: Icon(
+                Icons.auto_awesome,
+                color: theme.buttonPrimaryText,
+                size: 12,
+              ),
+            ),
+          const SizedBox(width: Spacing.xs),
+          Flexible(
+            child: MiddleEllipsisText(
+              modelName,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+                fontWeight: FontWeight.w500,
+                letterSpacing: AppTypography.letterSpacingNormal,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantCompiledMarkdownPart extends StatelessWidget {
+  const _AssistantCompiledMarkdownPart({
+    required this.document,
+    required this.partId,
+    required this.stateScopeId,
+    required this.sources,
+    required this.trimLastBlockBottomPadding,
+  });
+
+  final CompiledMarkdownDocument document;
+  final String partId;
+  final String stateScopeId;
+  final List<ChatSourceReference> sources;
+  final bool trimLastBlockBottomPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return HorizontalGestureExclusion(
+      child: PrioritizedHorizontalGesture(
+        child: RepaintBoundary(
+          child: ConduitMarkdownWidget(
+            compiledDocument: document,
+            onLinkTap: (url, _) {
+              launchExternalLink(url, scope: 'chat/assistant');
+            },
+            imageBuilder: (src, alt, title) {
+              final uri = Uri.tryParse(src);
+              if (uri == null) return const SizedBox.shrink();
+              return RepaintBoundary(
+                child: EnhancedImageAttachment(
+                  attachmentId: uri.toString(),
+                  isMarkdownFormat: true,
+                  constraints: const BoxConstraints(
+                    maxWidth: 500,
+                    maxHeight: 400,
+                  ),
+                  disableAnimation: false,
+                ),
+              );
+            },
+            sources: sources,
+            stateScopeId: '$stateScopeId:$partId',
+            heavyBlockPolicy: MarkdownHeavyBlockPolicy.eager,
+            trimLastBlockBottomPadding: trimLastBlockBottomPadding,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class AssistantMessageWidget extends ConsumerStatefulWidget {
   final dynamic message;
@@ -93,6 +238,17 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
   final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
+  final CompiledMarkdownDocument? compiledMarkdownPart;
+  final bool showLeading;
+  final bool showTrailing;
+  final bool includeSelectionArea;
+  final void Function(String content, CompiledMarkdownDocument document)?
+  onCompiledDocument;
+  final ValueChanged<CompiledMarkdownDocument>? onSettledDocument;
+  final int? activeVersionIndex;
+  final ValueChanged<int>? onActiveVersionIndexChanged;
+  final String? markdownPartId;
+  final bool deferMarkdown;
 
   @visibleForTesting
   final VoidCallback? debugOnShellBuild;
@@ -117,6 +273,16 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.onLike,
     this.onDislike,
     this.onFollowUpSelected,
+    this.compiledMarkdownPart,
+    this.showLeading = true,
+    this.showTrailing = true,
+    this.includeSelectionArea = true,
+    this.onCompiledDocument,
+    this.onSettledDocument,
+    this.activeVersionIndex,
+    this.onActiveVersionIndexChanged,
+    this.markdownPartId,
+    this.deferMarkdown = false,
     this.debugOnShellBuild,
     this.debugOnStreamingContentBuild,
   });
@@ -230,6 +396,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .platformDispatcher
         .accessibilityFeatures
         .disableAnimations;
+    _activeVersionIndex = widget.activeVersionIndex ?? -1;
     final shouldAnimateOnMount = _shouldAnimateOnMount;
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -274,6 +441,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     super.didUpdateWidget(oldWidget);
 
     final messageChanged = oldWidget.message.id != widget.message.id;
+
+    final controlledVersionChanged =
+        widget.activeVersionIndex != null &&
+        widget.activeVersionIndex != _activeVersionIndex;
+    if (controlledVersionChanged) {
+      _activeVersionIndex = widget.activeVersionIndex!;
+    }
+    final archivedVersionContentChanged = _didActiveVersionContentChange(
+      oldWidget,
+    );
+    if (controlledVersionChanged || archivedVersionContentChanged) {
+      _replaceDisplayedContentForActiveVersion();
+    }
 
     if (messageChanged) {
       _lastStreamingContent = null;
@@ -339,6 +519,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Rebuild cached avatar if model name or icon changes
     if (messageChanged ||
+        controlledVersionChanged ||
         oldWidget.modelName != widget.modelName ||
         oldWidget.modelIconUrl != widget.modelIconUrl ||
         oldWidget.versionModelNames != widget.versionModelNames ||
@@ -356,17 +537,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ''
         : (overrideContent ?? widget.message.content ?? '');
 
-    // Strip any leftover placeholders from content before parsing
-    const ti = '[TYPING_INDICATOR]';
-    const searchBanner = '🔍 Searching the web...';
-    String raw = raw0;
-    if (raw.startsWith(ti)) {
-      raw = raw.substring(ti.length);
-    }
-    if (raw.startsWith(searchBanner)) {
-      raw = raw.substring(searchBanner.length);
-    }
-    return raw;
+    return ConduitMarkdownPreprocessor.stripAssistantPlaceholders(raw0);
   }
 
   void _queueDisplayedContentRefresh([String? overrideContent]) {
@@ -472,6 +643,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _displayedContent = raw;
     });
     _displayedContentListenable.value = raw;
+    widget.onActiveVersionIndexChanged?.call(nextIndex);
     _resetTtsPlainTextState();
     _buildCachedAvatar();
   }
@@ -793,7 +965,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _buildCachedAvatar() {
-    final theme = context.conduitTheme;
     final modelName = _resolveActiveModelName();
     final iconUrl = _resolveActiveModelIconUrl();
     if (_cachedAvatar != null &&
@@ -801,42 +972,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _cachedAvatarIconUrl == iconUrl) {
       return;
     }
-    final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
-
-    final Widget leading = hasIcon
-        ? ModelAvatar(size: 20, imageUrl: iconUrl, label: modelName)
-        : Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: theme.buttonPrimary,
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            ),
-            child: Icon(
-              Icons.auto_awesome,
-              color: theme.buttonPrimaryText,
-              size: 12,
-            ),
-          );
-
-    _cachedAvatar = Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.md),
-      child: Row(
-        children: [
-          leading,
-          const SizedBox(width: Spacing.xs),
-          Flexible(
-            child: MiddleEllipsisText(
-              modelName,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w500,
-                letterSpacing: AppTypography.letterSpacingNormal,
-              ),
-            ),
-          ),
-        ],
-      ),
+    _cachedAvatar = _AssistantHeader(
+      modelName: modelName,
+      modelIconUrl: iconUrl,
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
@@ -996,6 +1134,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return true;
     }
     return oldWidget.isStreaming != widget.isStreaming;
+  }
+
+  bool _didActiveVersionContentChange(AssistantMessageWidget oldWidget) {
+    final index = _activeVersionIndex;
+    if (index < 0 ||
+        index >= oldWidget.message.versions.length ||
+        index >= widget.message.versions.length) {
+      return false;
+    }
+    final oldVersion = oldWidget.message.versions[index];
+    final version = widget.message.versions[index];
+    return oldVersion.id != version.id || oldVersion.content != version.content;
+  }
+
+  void _replaceDisplayedContentForActiveVersion() {
+    final content = _resolvedMessageContent();
+    _displayedContent = content;
+    _displayedContentListenable.value = content;
+    _pendingDisplayedContent = null;
+    _clearVisibleFollowUps();
+    _resetTtsPlainTextState();
+    _cachedAvatar = null;
+    _cachedAvatarModelName = null;
+    _cachedAvatarIconUrl = null;
   }
 
   void _clearVisibleFollowUps() {
@@ -1276,14 +1438,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? _buildFooterBar(activeSources: activeSources)
         : null;
 
+    final virtualizedPart = widget.compiledMarkdownPart;
     final content = Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
+      margin: EdgeInsets.only(
+        bottom: widget.showTrailing ? 16 : 0,
+        right: Spacing.xs,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Cached AI Name and Avatar to prevent flashing
-          _cachedAvatar ?? const SizedBox.shrink(),
+          if (widget.showLeading) _cachedAvatar ?? const SizedBox.shrink(),
 
           // Reasoning blocks are now rendered inline where they appear
 
@@ -1294,21 +1460,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Display attachments - prioritize files array over attachmentIds to avoid duplication
-                if (activeFiles != null && activeFiles.isNotEmpty) ...[
+                if (widget.showTrailing &&
+                    activeFiles != null &&
+                    activeFiles.isNotEmpty) ...[
                   _buildFilesFromArray(),
                   const SizedBox(height: Spacing.md),
-                ] else if (widget.message.attachmentIds != null &&
+                ] else if (widget.showTrailing &&
+                    widget.message.attachmentIds != null &&
                     widget.message.attachmentIds!.isNotEmpty) ...[
                   _buildAttachmentItems(),
                   const SizedBox(height: Spacing.md),
                 ],
 
-                if (activeEmbeds != null && activeEmbeds.isNotEmpty) ...[
+                if (widget.showTrailing &&
+                    activeEmbeds != null &&
+                    activeEmbeds.isNotEmpty) ...[
                   _buildEmbedsFromArray(activeEmbeds),
                   const SizedBox(height: Spacing.md),
                 ],
 
-                if (hasStatusTimeline) ...[
+                if (widget.showTrailing && hasStatusTimeline) ...[
                   StreamingStatusWidget(
                     updates: displayStatusHistory,
                     isStreaming: _uiTreatsAsStreaming,
@@ -1316,7 +1487,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.xs),
                 ],
 
-                if (showQueuedAsEmptyState)
+                if (virtualizedPart != null)
+                  _AssistantCompiledMarkdownPart(
+                    document: virtualizedPart,
+                    partId: widget.markdownPartId ?? 'part',
+                    stateScopeId: _markdownStateScopeId(),
+                    sources: contentSources,
+                    trimLastBlockBottomPadding: widget.showTrailing,
+                  )
+                else if (widget.deferMarkdown)
+                  MarkdownLoadingSkeleton(
+                    contentLength: _displayedContent.length,
+                  )
+                else if (showQueuedAsEmptyState)
                   _buildQueuedCompletionBanner(queuedCompletion)
                 else if (suppressEmptyQueuedContent)
                   const SizedBox.shrink()
@@ -1331,20 +1514,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     activeSources: contentSources,
                   ),
 
-                _buildHermesApprovalCard(),
+                if (widget.showTrailing) _buildHermesApprovalCard(),
 
-                if (showQueuedRecoveryBanner) ...[
+                if (widget.showTrailing && showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),
                   _buildQueuedCompletionBanner(queuedCompletion),
                 ],
 
                 // Display error banner if message or active version has an error
-                if (_getActiveError() != null) ...[
+                if (widget.showTrailing && _getActiveError() != null) ...[
                   const SizedBox(height: Spacing.sm),
                   _buildErrorBanner(_getActiveError()!),
                 ],
 
-                if (hasCodeExecutions) ...[
+                if (widget.showTrailing && hasCodeExecutions) ...[
                   const SizedBox(height: Spacing.md),
                   CodeExecutionListView(executions: activeCodeExecutions),
                 ],
@@ -1356,7 +1539,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Footer slot: keep completion actions inside the message while the
           // running turn indicator is owned by the timeline.
-          if (!hasQueuedCompletion)
+          if (widget.showTrailing && !hasQueuedCompletion)
             AnimatedSwitcher(
               // The running indicator is owned by the timeline footer now, so
               // this switch only swaps in the completed action row instantly.
@@ -1639,7 +1822,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Keep the raw markdown intact so the shared renderer can parse
     // Open WebUI-style <details> blocks directly.
-    final processedContent = _processContentForImages(content);
+    final processedContent =
+        ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(content);
     final bodyTreatsAsStreaming = _uiTreatsAsStreaming;
 
     Widget buildDefault(BuildContext context) {
@@ -1650,6 +1834,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         // already owns the single first-content reveal; re-fading every suffix
         // makes streaming trail the model.
         enableStreamingTextFade: false,
+        includeSelectionArea: widget.includeSelectionArea,
+        onCompiledDocument: widget.onCompiledDocument,
+        onSettledDocument: widget.onSettledDocument,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
         onTapLink: _markdownLinkTapCallback,
@@ -1754,19 +1941,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return widget.message.versions[_activeVersionIndex].usage;
     }
     return widget.message.usage;
-  }
-
-  String _processContentForImages(String content) {
-    if (!content.contains('data:image/')) {
-      return content;
-    }
-
-    return content.replaceAllMapped(_standaloneBase64ImagePattern, (match) {
-      final linePrefix = match.group(1) ?? '';
-      final indentation = match.group(2) ?? '';
-      final imageData = match.group(3)!;
-      return '$linePrefix$indentation![Generated Image]($imageData)';
-    });
   }
 
   Widget _buildAttachmentItems() {

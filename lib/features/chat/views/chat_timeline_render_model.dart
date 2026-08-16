@@ -4,7 +4,29 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../shared/widgets/markdown/markdown_display_part.dart';
 import 'chat_turn_render_state.dart';
+
+@immutable
+class ChatTimelineRenderRow {
+  const ChatTimelineRenderRow({
+    required this.rowId,
+    required this.messageId,
+    required this.sourceIndex,
+    this.markdownPart,
+    this.showLeading = true,
+    this.showTrailing = true,
+  });
+
+  final String rowId;
+  final String messageId;
+  final int sourceIndex;
+  final MarkdownDisplayPart? markdownPart;
+  final bool showLeading;
+  final bool showTrailing;
+
+  bool get isMarkdownPart => markdownPart != null;
+}
 
 @immutable
 class ChatTimelineRenderModel {
@@ -26,12 +48,15 @@ class ChatTimelineRenderModel {
     required this.runningFooterHost,
     required this.listIndexByMessageId,
     required this.messageIds,
-    required this.sourceIndexByRenderIndex,
+    required this.rows,
+    required this.rowIndexById,
   });
 
   factory ChatTimelineRenderModel.fromMessages(
     List<ChatMessage> messages, {
     String duplicateReportScope = 'unscoped',
+    Map<String, List<MarkdownDisplayPart>> virtualizedPartsByMessageId =
+        const <String, List<MarkdownDisplayPart>>{},
   }) {
     final tailAssistantSourceIndex = _tailAssistantIndex(messages);
     final historyLength = tailAssistantSourceIndex ?? messages.length;
@@ -47,7 +72,8 @@ class ChatTimelineRenderModel {
         : ChatTurnFooterHost(messageId: tailAssistant.id);
     final listIndexByMessageId = <String, int>{};
     final messageIds = <String>[];
-    final sourceIndexByRenderIndex = <int>[];
+    final rows = <ChatTimelineRenderRow>[];
+    final rowIndexById = <String, int>{};
     var duplicateCount = 0;
     final duplicateMessageIds = <String>{};
 
@@ -58,15 +84,31 @@ class ChatTimelineRenderModel {
         duplicateMessageIds.add(messageId);
         continue;
       }
-      listIndexByMessageId[messageId] = messageIds.length;
+      listIndexByMessageId[messageId] = rows.length;
       messageIds.add(messageId);
-      sourceIndexByRenderIndex.add(index);
+      _appendRows(
+        rows: rows,
+        rowIndexById: rowIndexById,
+        messageId: messageId,
+        sourceIndex: index,
+        parts: historyMessages[index].role == 'assistant'
+            ? virtualizedPartsByMessageId[messageId]
+            : null,
+      );
     }
     if (tailAssistant != null &&
         !listIndexByMessageId.containsKey(tailAssistant.id)) {
-      listIndexByMessageId[tailAssistant.id] = messageIds.length;
+      listIndexByMessageId[tailAssistant.id] = rows.length;
       messageIds.add(tailAssistant.id);
-      sourceIndexByRenderIndex.add(historyLength);
+      _appendRows(
+        rows: rows,
+        rowIndexById: rowIndexById,
+        messageId: tailAssistant.id,
+        sourceIndex: historyLength,
+        parts: tailAssistant.isStreaming
+            ? null
+            : virtualizedPartsByMessageId[tailAssistant.id],
+      );
     } else if (tailAssistant != null) {
       duplicateCount += 1;
       duplicateMessageIds.add(tailAssistant.id);
@@ -74,10 +116,7 @@ class ChatTimelineRenderModel {
     if (duplicateCount > 0) {
       final newlyObservedIds = <String>[];
       for (final messageId in duplicateMessageIds) {
-        final reportKey = (
-          scope: duplicateReportScope,
-          messageId: messageId,
-        );
+        final reportKey = (scope: duplicateReportScope, messageId: messageId);
         if (_reportedDuplicateMessageIds.remove(reportKey)) {
           _reportedDuplicateMessageIds.add(reportKey);
           continue;
@@ -111,9 +150,8 @@ class ChatTimelineRenderModel {
           : null,
       listIndexByMessageId: Map<String, int>.unmodifiable(listIndexByMessageId),
       messageIds: List<String>.unmodifiable(messageIds),
-      sourceIndexByRenderIndex: List<int>.unmodifiable(
-        sourceIndexByRenderIndex,
-      ),
+      rows: List<ChatTimelineRenderRow>.unmodifiable(rows),
+      rowIndexById: Map<String, int>.unmodifiable(rowIndexById),
     );
   }
 
@@ -137,12 +175,14 @@ class ChatTimelineRenderModel {
   /// ID is not already present.
   final List<String> messageIds;
 
-  /// Original message-list index for each row in [messageIds].
-  final List<int> sourceIndexByRenderIndex;
+  /// Top-level sliver rows. Long settled assistant messages contribute one
+  /// row per compiled Markdown part; ordinary messages contribute one row.
+  final List<ChatTimelineRenderRow> rows;
+  final Map<String, int> rowIndexById;
 
   bool get hasTailAssistant => tailAssistant != null;
   bool get hasRunningTurn => runningFooterHost != null;
-  int get listItemCount => messageIds.length;
+  int get listItemCount => rows.length;
 
   /// Physical index in the deduplicated viewport, not the original source.
   /// Use [sourceIndexAtRenderIndex] when resolving layout metadata.
@@ -160,22 +200,61 @@ class ChatTimelineRenderModel {
   }
 
   ChatMessage? messageAtListIndex(int listIndex) {
-    if (listIndex < 0 || listIndex >= listItemCount) return null;
-    final sourceIndex = sourceIndexByRenderIndex[listIndex];
+    final sourceIndex = rowAt(listIndex)?.sourceIndex;
+    if (sourceIndex == null) return null;
     if (sourceIndex == tailAssistantSourceIndex) {
       return tailAssistant;
     }
     return historyMessages[sourceIndex];
   }
 
+  ChatTimelineRenderRow? rowAt(int renderIndex) =>
+      renderIndex < 0 || renderIndex >= rows.length ? null : rows[renderIndex];
+
+  int? indexForRowId(String rowId) => rowIndexById[rowId];
+
   int? sourceIndexAtRenderIndex(int renderIndex) {
-    if (renderIndex < 0 || renderIndex >= sourceIndexByRenderIndex.length) {
-      return null;
-    }
-    return sourceIndexByRenderIndex[renderIndex];
+    return rowAt(renderIndex)?.sourceIndex;
   }
 
   int? indexForMessageId(String messageId) => listIndexByMessageId[messageId];
+}
+
+void _appendRows({
+  required List<ChatTimelineRenderRow> rows,
+  required Map<String, int> rowIndexById,
+  required String messageId,
+  required int sourceIndex,
+  List<MarkdownDisplayPart>? parts,
+}) {
+  if (parts == null || parts.isEmpty) {
+    rowIndexById[messageId] = rows.length;
+    rows.add(
+      ChatTimelineRenderRow(
+        rowId: messageId,
+        messageId: messageId,
+        sourceIndex: sourceIndex,
+      ),
+    );
+    return;
+  }
+
+  for (var index = 0; index < parts.length; index += 1) {
+    final part = parts[index];
+    final rowId = '$messageId:markdown:${part.partId}';
+    assert(!rowIndexById.containsKey(rowId), 'render row ids must be unique');
+    rowIndexById[rowId] = rows.length;
+    rows.add(
+      ChatTimelineRenderRow(
+        rowId: rowId,
+        messageId: messageId,
+        sourceIndex: sourceIndex,
+        markdownPart: part,
+        showLeading: index == 0,
+        showTrailing: index == parts.length - 1,
+      ),
+    );
+  }
 }
 
 int? _tailAssistantIndex(List<ChatMessage> messages) {

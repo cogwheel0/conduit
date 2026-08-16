@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show listEquals, mapEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart'
     show RenderBox, RenderObject, ScrollCacheExtent, ScrollDirection;
@@ -17,7 +18,7 @@ const double debugChatTimelineTrailingRefreshThreshold = 72;
 
 const Duration _trailingRefreshTimeout = Duration(seconds: 20);
 
-/// Builds the row at [sourceIndex] in the original [ChatTimelineViewport.messageIds].
+/// Builds the row at [sourceIndex] in the original [ChatTimelineViewport.rowIds].
 ///
 /// The viewport defensively removes duplicate IDs for rendering and semantics,
 /// but preserves this raw source index so callers keep their source-list
@@ -161,7 +162,7 @@ class ChatTimelineViewportController {
   List<String> get visibleMessageIds =>
       metrics?.visibleMessageIds ?? const <String>[];
 
-  Rect? rowRect(String messageId) => _state?._rowRect(messageId);
+  Rect? rowRect(String messageId) => _state?._rowRectForMessage(messageId);
 
   double? distanceFromMessageTop(String messageId) =>
       _state?._distanceFromMessageTop(messageId);
@@ -251,7 +252,8 @@ class ChatTimelineViewport extends StatefulWidget {
   const ChatTimelineViewport({
     required this.controller,
     required this.ownerGeneration,
-    required this.messageIds,
+    required this.rowIds,
+    this.messageIdByRowId = const <String, String>{},
     required this.rowBuilder,
     required this.topContentInset,
     required this.bottomPadding,
@@ -283,7 +285,8 @@ class ChatTimelineViewport extends StatefulWidget {
 
   final ChatTimelineViewportController controller;
   final int ownerGeneration;
-  final List<String> messageIds;
+  final List<String> rowIds;
+  final Map<String, String> messageIdByRowId;
   final ChatScrollAnchor? initialAnchor;
   final ChatTimelineRowBuilder rowBuilder;
   final String? pinnedUserMessageId;
@@ -313,8 +316,9 @@ class ChatTimelineViewport extends StatefulWidget {
 }
 
 class _VisibleAnchor {
-  const _VisibleAnchor(this.messageId, this.offsetFromTopInset);
+  const _VisibleAnchor(this.rowId, this.messageId, this.offsetFromTopInset);
 
+  final String rowId;
   final String messageId;
   final double offsetFromTopInset;
 }
@@ -357,10 +361,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _geometryRecoveryCallbackScheduled = false;
 
   late List<({String id, int sourceIndex})> _timelineEntries;
-  late List<String> _messageIds;
-  late Set<String> _messageIdSet;
-  late Map<String, int> _messageIndexById;
-  late String _centerMessageId;
+  late List<String> _rowIds;
+  late Set<String> _rowIdSet;
+  late Map<String, int> _rowIndexById;
+  late Map<String, String> _firstRowIdByMessageId;
+  late String _centerRowId;
   late int _centerIndex;
   _VisibleAnchor? _freeAnchor;
   bool _centerRecoveryPending = false;
@@ -409,7 +414,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     );
     WidgetsBinding.instance.addObserver(this);
     _syncTimelineEntries();
-    _setCenterMessageId(_resolveInitialCenter());
+    _setCenterRowId(_resolveInitialCenter());
     _syncRowKeys();
     widget.controller._attach(this);
     _scrollController.addListener(_handleControllerChanged);
@@ -419,22 +424,30 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   @override
   void didUpdateWidget(covariant ChatTimelineViewport oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final previousMessageIds = _messageIds;
-    final messageIdsChanged = !listEquals(
-      oldWidget.messageIds,
-      widget.messageIds,
-    );
+    final previousRowIds = _rowIds;
+    final rowIdsChanged =
+        !listEquals(oldWidget.rowIds, widget.rowIds) ||
+        !mapEquals(oldWidget.messageIdByRowId, widget.messageIdByRowId);
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
-        (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
+        (_freeAnchor == null || _rowRectForRow(_freeAnchor!.rowId) == null)) {
       // Capture before the new child configuration is laid out. This is the
       // exact screen coordinate that insertions and size changes must retain.
       final capturedAnchor = _captureVisibleMaintenanceAnchor();
       // A route transition can temporarily detach the row or insert an
       // unlaid-out transform above it. Keep the last valid anchor until a
       // complete render tree is measurable again.
-      if (capturedAnchor != null) _freeAnchor = capturedAnchor;
+      if (capturedAnchor != null) {
+        final oldMessageId =
+            oldWidget.messageIdByRowId[capturedAnchor.rowId] ??
+            capturedAnchor.messageId;
+        _freeAnchor = _VisibleAnchor(
+          capturedAnchor.rowId,
+          oldMessageId,
+          capturedAnchor.offsetFromTopInset,
+        );
+      }
     }
-    if (messageIdsChanged) {
+    if (rowIdsChanged) {
       _syncTimelineEntries();
       _refreshCenterIndex();
     }
@@ -455,13 +468,13 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (oldWidget.ownerGeneration != widget.ownerGeneration) {
       _handleOwnerGenerationChange();
     } else {
-      _recoverCenterAfterIdChange(previousMessageIds);
+      _recoverCenterAfterIdChange(previousRowIds);
     }
 
-    if (messageIdsChanged) {
+    if (rowIdsChanged) {
       _syncRowKeys();
-      if (!_initialPositionResolved && _messageIds.isNotEmpty) {
-        if (previousMessageIds.isEmpty) {
+      if (!_initialPositionResolved && _rowIds.isNotEmpty) {
+        if (previousRowIds.isEmpty) {
           // An asynchronously loaded transcript starts one bounded settlement
           // phase after the empty fallback. Layout-maintenance re-arms within
           // either phase never reset this monotonic retry budget.
@@ -477,7 +490,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   void _handleOwnerGenerationChange() {
     _cancelProgrammaticNavigation();
     _invalidateInitialPositionCallback();
-    _setCenterMessageId(_resolveInitialCenter());
+    _setCenterRowId(_resolveInitialCenter());
     _freeAnchor = null;
     _centerRecoveryPending = false;
     _metricsSnapshot = null;
@@ -497,46 +510,64 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _scheduleInitialPositionCallback(_restoreInitialPosition);
   }
 
-  void _recoverCenterAfterIdChange(List<String> previousMessageIds) {
-    if (_messageIdSet.contains(_centerMessageId)) return;
+  void _recoverCenterAfterIdChange(List<String> previousRowIds) {
+    final freeAnchor = _freeAnchor;
+    if (freeAnchor != null && !_rowIdSet.contains(freeAnchor.rowId)) {
+      final remappedRowId = _firstRowIdForMessage(freeAnchor.messageId);
+      _freeAnchor = remappedRowId == null
+          ? null
+          : _VisibleAnchor(
+              remappedRowId,
+              freeAnchor.messageId,
+              freeAnchor.offsetFromTopInset,
+            );
+      _centerRecoveryPending = remappedRowId != null;
+      _anchorCorrectionAttempts = 0;
+    }
+    if (_rowIdSet.contains(_centerRowId)) return;
     final rowRects = _mountedRowRectSnapshot();
     final topVisibleAnchor = _captureVisibleMaintenanceAnchor(rowRects);
-    final previouslyVisibleIds = _visibleMessageIds(
-      previousMessageIds,
-      rowRects,
-    );
-    final survivingAnchor = _freeAnchor?.messageId;
+    final previouslyVisibleIds = _visibleRowIds(previousRowIds, rowRects);
+    final survivingAnchor = _freeAnchor?.rowId;
+    final remappedAnchor = _freeAnchor == null
+        ? null
+        : _firstRowIdForMessage(_freeAnchor!.messageId);
     String? survivingVisible;
     for (final id in previouslyVisibleIds) {
-      if (_messageIdSet.contains(id)) {
+      if (_rowIdSet.contains(id)) {
         survivingVisible = id;
         break;
       }
     }
     final survivingBoundary = _nearestSurvivingCenter(
-      previousMessageIds,
-      _messageIdSet,
+      previousRowIds,
+      _rowIdSet,
     );
+    final remappedVisibleAnchor = remappedAnchor == null || _freeAnchor == null
+        ? null
+        : _VisibleAnchor(
+            remappedAnchor,
+            _freeAnchor!.messageId,
+            _freeAnchor!.offsetFromTopInset,
+          );
     final centerRecoveryAnchor =
-        topVisibleAnchor != null &&
-            _messageIdSet.contains(topVisibleAnchor.messageId)
+        topVisibleAnchor != null && _rowIdSet.contains(topVisibleAnchor.rowId)
         ? topVisibleAnchor
         : survivingVisible == null
-        ? null
-        : _captureVisibleMaintenanceAnchorForMessage(survivingVisible);
-    _setCenterMessageId(
+        ? remappedVisibleAnchor
+        : _captureVisibleMaintenanceAnchorForRow(survivingVisible);
+    _setCenterRowId(
       survivingBoundary ??
-          (survivingAnchor != null && _messageIdSet.contains(survivingAnchor)
+          (survivingAnchor != null && _rowIdSet.contains(survivingAnchor)
               ? survivingAnchor
-              : survivingVisible ?? _resolveInitialCenter()),
+              : remappedAnchor ?? survivingVisible ?? _resolveInitialCenter()),
     );
     if (centerRecoveryAnchor != null) {
       _freeAnchor = centerRecoveryAnchor;
       _centerRecoveryPending = true;
       _anchorCorrectionAttempts = 0;
     } else if (!widget.maintainVisibleAnchor ||
-        survivingAnchor == null ||
-        !_messageIdSet.contains(survivingAnchor)) {
+        (survivingAnchor == null && remappedAnchor == null)) {
       _freeAnchor = null;
       _centerRecoveryPending = false;
     }
@@ -579,22 +610,37 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   String _resolveInitialCenter() {
-    if (_messageIds.isEmpty) return '';
-    final savedId = widget.initialAnchor?.messageId;
-    if (savedId != null && _messageIdSet.contains(savedId)) {
+    if (_rowIds.isEmpty) return '';
+    final saved = widget.initialAnchor;
+    final savedId = saved == null ? null : _rowIdForAnchor(saved);
+    if (savedId != null) {
       return savedId;
     }
     // The fixed center is deliberately the oldest row in the initial window.
     // Newer rows remain chronological in the forward center sliver while
     // older pages grow into negative extents without moving visible content.
-    return _messageIds.first;
+    return _rowIds.first;
+  }
+
+  String _messageIdForRow(String rowId) =>
+      widget.messageIdByRowId[rowId] ?? rowId;
+
+  String? _firstRowIdForMessage(String messageId) {
+    return _firstRowIdByMessageId[messageId];
+  }
+
+  String? _rowIdForAnchor(ChatScrollAnchor anchor) {
+    final exact = anchor.rowId;
+    return exact != null && _rowIdSet.contains(exact)
+        ? exact
+        : _firstRowIdForMessage(anchor.messageId);
   }
 
   String? _nearestSurvivingCenter(
     List<String> previousIds,
     Set<String> nextIds,
   ) {
-    final previousIndex = previousIds.indexOf(_centerMessageId);
+    final previousIndex = previousIds.indexOf(_centerRowId);
     if (previousIndex < 0 || nextIds.isEmpty) return null;
     for (var distance = 1; distance < previousIds.length; distance += 1) {
       final newerIndex = previousIndex + distance;
@@ -613,33 +659,38 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   void _syncTimelineEntries() {
     final seen = <String>{};
     final entries = <({String id, int sourceIndex})>[];
-    for (var index = 0; index < widget.messageIds.length; index += 1) {
-      final id = widget.messageIds[index];
+    for (var index = 0; index < widget.rowIds.length; index += 1) {
+      final id = widget.rowIds[index];
       if (seen.add(id)) entries.add((id: id, sourceIndex: index));
     }
     _timelineEntries = List.unmodifiable(entries);
-    _messageIds = List.unmodifiable(entries.map((entry) => entry.id));
-    _messageIdSet = Set.unmodifiable(seen);
-    _messageIndexById = Map.unmodifiable({
+    _rowIds = List.unmodifiable(entries.map((entry) => entry.id));
+    _rowIdSet = Set.unmodifiable(seen);
+    _rowIndexById = Map.unmodifiable({
       for (var index = 0; index < entries.length; index += 1)
         entries[index].id: index,
     });
+    final firstRows = <String, String>{};
+    for (final rowId in _rowIds) {
+      firstRows.putIfAbsent(_messageIdForRow(rowId), () => rowId);
+    }
+    _firstRowIdByMessageId = Map.unmodifiable(firstRows);
   }
 
   void _syncRowKeys() {
-    _rowKeys.removeWhere((id, _) => !_messageIdSet.contains(id));
-    for (final id in _messageIds) {
+    _rowKeys.removeWhere((id, _) => !_rowIdSet.contains(id));
+    for (final id in _rowIds) {
       _rowKeys.putIfAbsent(id, GlobalKey.new);
     }
   }
 
-  void _setCenterMessageId(String messageId) {
-    _centerMessageId = messageId;
+  void _setCenterRowId(String rowId) {
+    _centerRowId = rowId;
     _refreshCenterIndex();
   }
 
   void _refreshCenterIndex() {
-    _centerIndex = _messageIndexById[_centerMessageId] ?? 0;
+    _centerIndex = _rowIndexById[_centerRowId] ?? 0;
   }
 
   RenderBox? _renderBoxFor(GlobalKey key) {
@@ -699,9 +750,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     });
   }
 
-  Rect? _rowRect(String messageId) {
-    final key = _rowKeys[messageId];
+  Rect? _rowRectForRow(String rowId) {
+    final key = _rowKeys[rowId];
     return key == null ? null : _globalRectFor(key);
+  }
+
+  Rect? _rowRectForMessage(String messageId) {
+    final rowId = _firstRowIdForMessage(messageId);
+    return rowId == null ? null : _rowRectForRow(rowId);
   }
 
   Map<String, Rect> _mountedRowRectSnapshot() {
@@ -737,7 +793,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   Rect? get _viewportRect => _globalRectFor(_viewportKey);
 
-  List<String> _visibleMessageIds([
+  List<String> _visibleRowIds([
     Iterable<String>? candidateIds,
     Map<String, Rect>? rowRects,
   ]) {
@@ -760,13 +816,26 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return List<String>.unmodifiable(visible.map((entry) => entry.id));
   }
 
+  List<String> _visibleMessageIds([
+    Iterable<String>? candidateIds,
+    Map<String, Rect>? rowRects,
+  ]) {
+    final seenMessages = <String>{};
+    return List<String>.unmodifiable(
+      _visibleRowIds(
+        candidateIds,
+        rowRects,
+      ).map(_messageIdForRow).where(seenMessages.add),
+    );
+  }
+
   bool _anyOldestLoadedRowVisible([Map<String, Rect>? rowRects]) {
     final viewport = _viewportRect;
     if (viewport == null) return false;
     final top = viewport.top + widget.topContentInset;
     final bottom = viewport.bottom;
     final rects = rowRects ?? _mountedRowRectSnapshot();
-    for (final id in _messageIds.take(_oldestRowProbeCount)) {
+    for (final id in _rowIds.take(_oldestRowProbeCount)) {
       final rect = rects[id];
       if (rect != null && rect.bottom > top && rect.top < bottom) return true;
     }
@@ -801,7 +870,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final best = _topVisibleRow();
     if (best == null) return null;
     return ChatScrollAnchor(
-      messageId: best.id,
+      messageId: _messageIdForRow(best.id),
+      rowId: best.id,
       offsetWithinMessage: best.rect.top - insetY,
       loadedCount: loadedCount,
     );
@@ -815,16 +885,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (row == null || viewport == null) return null;
     return _VisibleAnchor(
       row.id,
+      _messageIdForRow(row.id),
       row.rect.top - (viewport.top + widget.topContentInset),
     );
   }
 
-  _VisibleAnchor? _captureVisibleMaintenanceAnchorForMessage(String messageId) {
-    final rect = _rowRect(messageId);
+  _VisibleAnchor? _captureVisibleMaintenanceAnchorForRow(String rowId) {
+    final rect = _rowRectForRow(rowId);
     final viewport = _viewportRect;
     if (rect == null || viewport == null) return null;
     return _VisibleAnchor(
-      messageId,
+      rowId,
+      _messageIdForRow(rowId),
       rect.top - (viewport.top + widget.topContentInset),
     );
   }
@@ -849,7 +921,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   double? _distanceFromMessageTop(String messageId) {
     final position = _dimensionedPosition;
     if (position == null) return null;
-    final measuredTarget = _targetOffsetForMessageTop(messageId);
+    final rowId = _firstRowIdForMessage(messageId);
+    final measuredTarget = rowId == null ? null : _targetOffsetForRowTop(rowId);
     if (measuredTarget != null) {
       _cachedPinnedMessageId = messageId;
       _cachedPinnedTargetOffset = measuredTarget;
@@ -933,7 +1006,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       // A route transition can leave this mounted state between render trees.
       // Do not turn that transient measurement outage into empty geometry.
       if (!_hasUsableViewportGeometry()) return;
-      if (!_initialPositionResolved && _messageIds.isNotEmpty) {
+      if (!_initialPositionResolved && _rowIds.isNotEmpty) {
         // Re-arm asynchronous transcript settlement even when the parent
         // republishes an identity-equal message-ID list after the empty or
         // unattached fallback exhausted its bounded frame polling.
@@ -984,7 +1057,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         rowRects: rowRects,
       );
     }
-    final current = rowRects[anchor.messageId];
+    final current = rowRects[anchor.rowId];
     final viewport = _viewportRect;
     if (current == null || viewport == null) {
       if (centerRecoveryOwnedFrame &&
@@ -1062,7 +1135,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       return;
     }
     final viewport = _viewportRect;
-    final pinned = _rowRect(pinnedId);
+    final pinned = _rowRectForMessage(pinnedId);
     final sentinel = _globalRectFor(_endSentinelKey);
     if (viewport == null || pinned == null || sentinel == null) {
       if (_pinGeometryAttempts < _maxPinGeometryAttempts) {
@@ -1078,7 +1151,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if ((viewport.height - _pinSupportSpace.value).abs() > _geometryEpsilon) {
       _pinSupportSpace.value = viewport.height;
     }
-    final pinnedTarget = _targetOffsetForMessageTop(pinnedId);
+    final pinnedRowId = _firstRowIdForMessage(pinnedId);
+    final pinnedTarget = pinnedRowId == null
+        ? null
+        : _targetOffsetForRowTop(pinnedRowId);
     if (pinnedTarget != null) {
       _cachedPinnedMessageId = pinnedId;
       _cachedPinnedTargetOffset = pinnedTarget;
@@ -1103,7 +1179,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   void _restoreInitialPosition() {
     final ownerGeneration = widget.ownerGeneration;
     final saved = widget.initialAnchor;
-    if (_messageIds.isEmpty) {
+    if (_rowIds.isEmpty) {
       // The transcript can arrive asynchronously, with or without a saved
       // anchor. Keep settlement unresolved so a later message-list update can
       // restore the anchor or settle authoritatively at latest.
@@ -1129,7 +1205,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       return;
     }
     _updatePinGeometry();
-    if (saved != null && _messageIdSet.contains(saved.messageId)) {
+    if (saved != null && _rowIdForAnchor(saved) != null) {
       _settleInitialSavedAnchor(saved, ownerGeneration);
       return;
     }
@@ -1169,7 +1245,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         !_scrollController.hasClients) {
       return;
     }
-    final rect = _rowRect(saved.messageId);
+    final rowId = _rowIdForAnchor(saved);
+    final rect = rowId == null ? null : _rowRectForRow(rowId);
     final viewport = _viewportRect;
     if (rect == null || viewport == null) {
       _settleInitialLatestPosition(ownerGeneration);
@@ -1346,7 +1423,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     required Curve curve,
   }) async {
     final position = _dimensionedPosition;
-    if (_messageIds.isEmpty || position == null) return false;
+    if (_rowIds.isEmpty || position == null) return false;
     if (_programmaticNavigationActive) {
       _cancelProgrammaticNavigation();
     }
@@ -1371,7 +1448,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   Future<bool> _jumpToOldest() async {
     final position = _dimensionedPosition;
-    if (_messageIds.isEmpty || position == null) return false;
+    if (_rowIds.isEmpty || position == null) return false;
     _cancelProgrammaticNavigation();
     final generation = _navigationGeneration;
     _programmaticNavigationActive = true;
@@ -1405,7 +1482,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       if (settledPosition != null &&
           (settledPosition.pixels - settledPosition.minScrollExtent).abs() <=
               _geometryEpsilon &&
-          _rowRect(_messageIds.first) != null) {
+          _rowRectForRow(_rowIds.first) != null) {
         return true;
       }
     }
@@ -1417,7 +1494,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     required Duration duration,
     required Curve curve,
   }) async {
-    if (!_messageIdSet.contains(messageId) || _dimensionedPosition == null) {
+    final rowId = _firstRowIdForMessage(messageId);
+    if (rowId == null || _dimensionedPosition == null) {
       return false;
     }
     if (_programmaticNavigationActive) {
@@ -1426,10 +1504,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final generation = ++_navigationGeneration;
     _programmaticNavigationActive = true;
     try {
-      final target = await _seekTargetOffsetForMessageTop(
-        messageId,
-        generation,
-      );
+      final target = await _seekTargetOffsetForRowTop(rowId, generation);
       if (target == null || generation != _navigationGeneration) return false;
       if (!mounted || _dimensionedPosition == null) return false;
       await _scrollController.animateTo(
@@ -1448,10 +1523,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   Future<bool> _jumpMessageToTop(String messageId) async {
-    if (!_messageIdSet.contains(messageId) || _dimensionedPosition == null) {
+    final rowId = _firstRowIdForMessage(messageId);
+    if (rowId == null || _dimensionedPosition == null) {
       return false;
     }
-    final target = _targetOffsetForMessageTop(messageId);
+    final target = _targetOffsetForRowTop(rowId);
     _cancelProgrammaticNavigation();
     _freeAnchor = null;
     if (target != null) {
@@ -1461,18 +1537,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
     final generation = ++_navigationGeneration;
     _programmaticNavigationActive = true;
-    return _seekAndJumpMessageToTop(messageId, generation);
+    return _seekAndJumpRowToTop(rowId, generation);
   }
 
-  Future<bool> _seekAndJumpMessageToTop(
-    String messageId,
-    int generation,
-  ) async {
+  Future<bool> _seekAndJumpRowToTop(String rowId, int generation) async {
     try {
-      final target = await _seekTargetOffsetForMessageTop(
-        messageId,
-        generation,
-      );
+      final target = await _seekTargetOffsetForRowTop(rowId, generation);
       if (target == null || generation != _navigationGeneration) return false;
       if (!mounted || _dimensionedPosition == null) return false;
       _scrollController.position.jumpTo(target);
@@ -1486,12 +1556,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
   }
 
-  Future<double?> _seekTargetOffsetForMessageTop(
-    String messageId,
+  Future<double?> _seekTargetOffsetForRowTop(
+    String rowId,
     int generation,
   ) async {
     if (!mounted || generation != _navigationGeneration) return null;
-    final targetIndex = _messageIndexById[messageId];
+    final targetIndex = _rowIndexById[rowId];
     if (targetIndex == null) return null;
     final entryPosition = _dimensionedPosition;
     if (entryPosition == null) return null;
@@ -1521,10 +1591,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
     final binding = WidgetsBinding.instance;
     final initialRowRects = _mountedRowRectSnapshot();
-    final visibleIndices = _visibleMessageIds(null, initialRowRects)
-        .map((id) => _messageIndexById[id])
-        .whereType<int>()
-        .toList(growable: false);
+    final visibleIndices = _visibleRowIds(
+      null,
+      initialRowRects,
+    ).map((id) => _rowIndexById[id]).whereType<int>().toList(growable: false);
     final nearestIndex = visibleIndices.isEmpty
         ? _centerIndex
         : visibleIndices.reduce(
@@ -1540,7 +1610,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     );
     for (var attempt = 0; attempt < attemptBudget; attempt += 1) {
       if (!mounted || generation != _navigationGeneration) return null;
-      final target = _targetOffsetForMessageTop(messageId);
+      final target = _targetOffsetForRowTop(rowId);
       if (target != null) {
         clearEntryOffset();
         return target;
@@ -1551,10 +1621,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         return null;
       }
       final rowRects = _mountedRowRectSnapshot();
-      final attemptVisibleIndices = _visibleMessageIds(null, rowRects)
-          .map((id) => _messageIndexById[id])
-          .whereType<int>()
-          .toList(growable: false);
+      final attemptVisibleIndices = _visibleRowIds(
+        null,
+        rowRects,
+      ).map((id) => _rowIndexById[id]).whereType<int>().toList(growable: false);
       final direction = _seekDirectionForMessage(
         targetIndex,
         attemptVisibleIndices,
@@ -1572,7 +1642,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       if (!mounted || generation != _navigationGeneration) return null;
     }
     if (!mounted || generation != _navigationGeneration) return null;
-    final target = _targetOffsetForMessageTop(messageId);
+    final target = _targetOffsetForRowTop(rowId);
     if (target == null) {
       restoreEntryOffset();
       DebugLogger.log(
@@ -1580,7 +1650,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         scope: 'chat/timeline/viewport',
         data: {
           'targetIndex': targetIndex,
-          'messageCount': _messageIds.length,
+          'rowCount': _rowIds.length,
           'attemptBudget': attemptBudget,
         },
       );
@@ -1600,10 +1670,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return targetIndex < _centerIndex ? -1 : 1;
   }
 
-  double? _targetOffsetForMessageTop(String messageId) {
+  double? _targetOffsetForRowTop(String rowId) {
     final position = _dimensionedPosition;
     if (position == null) return null;
-    final rect = _rowRect(messageId);
+    final rect = _rowRectForRow(rowId);
     final viewport = _viewportRect;
     if (rect == null || viewport == null) return null;
     return (position.pixels +
@@ -1742,7 +1812,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   int? _olderChildIndexForKey(Key key, int centerIndex) {
     if (key is! _TimelineRowKey) return null;
-    final chronologicalIndex = _messageIndexById[key.value];
+    final chronologicalIndex = _rowIndexById[key.value];
     if (chronologicalIndex == null || chronologicalIndex >= centerIndex) {
       return null;
     }
@@ -1751,7 +1821,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   int? _centerChildIndexForKey(Key key, int centerIndex) {
     if (key is! _TimelineRowKey) return null;
-    final chronologicalIndex = _messageIndexById[key.value];
+    final chronologicalIndex = _rowIndexById[key.value];
     if (chronologicalIndex == null || chronologicalIndex < centerIndex) {
       return null;
     }
@@ -1835,7 +1905,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
             controller: _scrollController,
             center: _centerSliverKey,
             anchor: anchor,
-            semanticChildCount: _messageIds.length,
+            semanticChildCount: _rowIds.length,
             scrollCacheExtent: ScrollCacheExtent.pixels(widget.cacheExtent),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             physics: widget.physics,
@@ -1877,7 +1947,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) => _buildRow(context, centerIndex + index),
-                    childCount: _messageIds.length - centerIndex,
+                    childCount: _rowIds.length - centerIndex,
                     addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _centerChildIndexForKey(key, centerIndex),
