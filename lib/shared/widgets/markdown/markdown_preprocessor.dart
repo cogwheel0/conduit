@@ -46,7 +46,7 @@ class ConduitMarkdownPreprocessor {
   static final _standaloneBase64Image = RegExp(
     r'^([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=[ \t]*$)',
   );
-  static final _lineWithEnding = RegExp(r'[^\r\n]*(?:\r\n|\n|$)');
+  static final _lineWithEnding = RegExp(r'[^\r\n]*(?:\r\n|[\r\n]|$)');
   static final _fenceLine = RegExp(r'^[ ]{0,3}(`{3,}|~{3,})');
 
   /// Turns standalone base64 image lines into renderable Markdown images.
@@ -62,7 +62,7 @@ class ConduitMarkdownPreprocessor {
       if (wholeLine.isEmpty) continue;
       final line = wholeLine.endsWith('\r\n')
           ? wholeLine.substring(0, wholeLine.length - 2)
-          : wholeLine.endsWith('\n')
+          : wholeLine.endsWith('\n') || wholeLine.endsWith('\r')
           ? wholeLine.substring(0, wholeLine.length - 1)
           : wholeLine;
       final ending = wholeLine.substring(line.length);

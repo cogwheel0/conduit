@@ -3099,6 +3099,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final stateScopeId = version == null
           ? '$messageId|current'
           : '$messageId|version:${version.id}';
+      final hasVersionModelName =
+          versionIndex >= 0 &&
+          versionIndex < rowMetadata.versionModelNames.length;
+      final hasVersionModelIconUrl =
+          versionIndex >= 0 &&
+          versionIndex < rowMetadata.versionModelIconUrls.length;
       return assistant.AssistantMarkdownPartRow(
         document: markdownPart.document,
         partId: markdownPart.partId,
@@ -3106,13 +3112,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         sources: version?.sources ?? latestMessage.sources,
         showLeading: renderRow.showLeading,
         modelName: renderRow.showLeading
-            ? (versionIndex >= 0
+            ? (hasVersionModelName
                   ? rowMetadata.versionModelNames[versionIndex] ??
                         rowMetadata.displayModelName
                   : rowMetadata.displayModelName)
             : null,
         modelIconUrl: renderRow.showLeading
-            ? (versionIndex >= 0
+            ? (hasVersionModelIconUrl
                   ? rowMetadata.versionModelIconUrls[versionIndex]
                   : rowMetadata.modelIconUrl)
             : null,

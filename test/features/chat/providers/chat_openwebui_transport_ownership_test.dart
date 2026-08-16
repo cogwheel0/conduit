@@ -625,6 +625,18 @@ void main() {
         protectsStreamingState: true,
       ),
     ).isFalse();
+    check(
+      debugShouldRefreshPassiveSocketEvent(
+        type: 'chat:completion',
+        protectsStreamingState: true,
+      ),
+    ).isFalse();
+    check(
+      debugShouldRefreshPassiveSocketEvent(
+        type: 'chat:active',
+        protectsStreamingState: false,
+      ),
+    ).isFalse();
   });
 
   test(

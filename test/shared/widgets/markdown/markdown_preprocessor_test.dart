@@ -266,6 +266,9 @@ after''';
           '$image\r\nnext',
         ),
       ).equals('![Generated Image]($image)\r\nnext');
+      check(
+        ConduitMarkdownPreprocessor.wrapStandaloneBase64Images('$image\rnext'),
+      ).equals('![Generated Image]($image)\rnext');
     });
 
     test('leaves base64 image text inside code unchanged', () {
