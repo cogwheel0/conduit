@@ -908,7 +908,12 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
 ) {
   String? fenceCharacter;
   var fenceLength = 0;
+  int? firstRawHtmlOffset;
 
+  // Reference definitions must be detected across the whole region — one
+  // after a raw HTML block still rebinds links before it — so the scan never
+  // stops at the first raw HTML line; only its offset is recorded as the
+  // freeze cap.
   for (final line in lines) {
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
@@ -934,11 +939,15 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
       return (offset: line.start, isReferenceDefinition: true);
     }
-    if (_streamingRawHtmlBlockPattern.hasMatch(candidate)) {
-      return (offset: line.start, isReferenceDefinition: false);
+    if (firstRawHtmlOffset == null &&
+        _streamingRawHtmlBlockPattern.hasMatch(candidate)) {
+      firstRawHtmlOffset = line.start;
     }
   }
 
+  if (firstRawHtmlOffset != null) {
+    return (offset: firstRawHtmlOffset, isReferenceDefinition: false);
+  }
   return null;
 }
 

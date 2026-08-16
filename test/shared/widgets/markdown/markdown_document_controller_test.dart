@@ -129,6 +129,22 @@ void main() {
   });
 
   test(
+    'a reference definition after a raw HTML block still keeps the region '
+    'mutable',
+    () {
+      const content =
+          'See [docs][d].\n\n<div>\nraw html\n</div>\n\n[d]: https://example.com';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], isEmpty);
+      expect(split['mutableTail'], content);
+      expect(split['canIncrementallyCompile'], isFalse);
+      expect(split['fallbackReason'], 'referenceDefinitions');
+    },
+  );
+
+  test(
     'reference-definition-shaped lines inside fenced code do not disable '
     'incremental splitting',
     () {
