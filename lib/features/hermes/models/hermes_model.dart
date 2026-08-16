@@ -80,7 +80,7 @@ List<Model> sanitizeRemoteHermesModels(Iterable<Model> models) => models
 Model hermesSyntheticModel() {
   final model = Model(
     id: kHermesDefaultModelId,
-    name: 'Hermes Agent (Default)',
+    name: 'Hermes Agent',
     description: 'Your self-hosted Hermes agent',
     supportsStreaming: true,
     metadata: const {
