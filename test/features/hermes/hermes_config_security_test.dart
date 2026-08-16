@@ -130,7 +130,12 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
-      check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
+      final failedConfig = container.read(hermesConfigProvider);
+      check(failedConfig.apiKey).equals('key-for-one');
+      check(failedConfig.mode).equals(previousConfig.mode);
+      check(failedConfig.desktopAuthKind)
+          .equals(previousConfig.desktopAuthKind);
+      check(failedConfig.desktopProfile).equals(previousConfig.desktopProfile);
       check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
       check(PreferencesStore.getString(PreferenceKeys.hermesBackendMode))
           .equals(previousConfig.mode.name);
