@@ -9,9 +9,7 @@ List<ChatMessage> hermesPendingDesktopDecisionMessages(
   return <ChatMessage>[
     for (final record in pending)
       ChatMessage(
-        id:
-            'hermes-decision-${record.kind.name}-'
-            '${record.storedSessionId}-${record.requestId}',
+        id: _decisionMessageId(record),
         role: 'assistant',
         content: '',
         timestamp: record.expiresAt.subtract(HermesPendingDecisionStore.ttl),
@@ -47,3 +45,8 @@ List<ChatMessage> hermesPendingDesktopDecisionMessages(
       ),
   ];
 }
+
+String _decisionMessageId(HermesPendingDesktopDecision record) =>
+    'hermes-decision-${record.kind.name}-'
+    '${record.storedSessionId.length}:${record.storedSessionId}'
+    '${record.requestId.length}:${record.requestId}';

@@ -28,4 +28,28 @@ void main() {
     check(second.id).equals(first.id);
     check(second.timestamp).equals(first.timestamp);
   });
+
+  test('keeps variable-length decision identity components distinct', () {
+    final expiresAt = DateTime.utc(2030);
+    final messages = hermesPendingDesktopDecisionMessages([
+      HermesPendingDesktopDecision(
+        origin: 'https://hermes.example',
+        storedSessionId: 'a-b',
+        runtimeId: 'runtime-1',
+        requestId: 'c',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        expiresAt: expiresAt,
+      ),
+      HermesPendingDesktopDecision(
+        origin: 'https://hermes.example',
+        storedSessionId: 'a',
+        runtimeId: 'runtime-2',
+        requestId: 'b-c',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        expiresAt: expiresAt,
+      ),
+    ], modelId: 'hermes');
+
+    check(messages.map((message) => message.id).toSet()).length.equals(2);
+  });
 }
