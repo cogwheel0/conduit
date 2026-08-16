@@ -291,6 +291,19 @@ $image
 after
 ![Generated Image]($image)''');
     });
+
+    test('uses tab-expanded indentation for code and fence closures', () {
+      const image = 'data:image/png;base64,AAAA';
+      const input =
+          '''   \t$image
+```
+\t```
+$image
+```''';
+
+      check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
+          .equals(input);
+    });
   });
 
   group('ConduitMarkdownPreprocessor.cleanText', () {

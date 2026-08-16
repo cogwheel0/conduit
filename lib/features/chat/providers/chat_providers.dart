@@ -1221,10 +1221,21 @@ class _ChatMessageListStructure {
         ..write(_messageModelName(message) ?? '')
         ..write('\u0000')
         ..write(message.versions.length);
+      if (!message.isStreaming) {
+        buffer
+          ..write('\u0000')
+          ..write(message.content.length)
+          ..write(':')
+          ..write(message.content.hashCode);
+      }
       for (final version in message.versions) {
         buffer
           ..write('\u0000')
-          ..write(version.model ?? '');
+          ..write(version.model ?? '')
+          ..write('\u0000')
+          ..write(version.content.length)
+          ..write(':')
+          ..write(version.content.hashCode);
       }
       buffer.writeln();
     }

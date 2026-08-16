@@ -7409,9 +7409,9 @@ void main() {
         addTearDown(container.dispose);
 
         final notifier = container.read(chatMessagesProvider.notifier);
-        notifier.setMessages([
+        notifier.addMessage(
           _assistantMessage(content: 'Draft', isStreaming: true),
-        ]);
+        );
         final initialSignature = container.read(
           chatMessageStructureSignatureProvider,
         );
@@ -7437,14 +7437,15 @@ void main() {
       },
     );
 
-    test('streaming completion keeps the structure signature stable', () async {
+    test('streaming completion invalidates the structure signature', () async {
       final container = _buildContainer();
       addTearDown(container.dispose);
 
       final notifier = container.read(chatMessagesProvider.notifier);
-      notifier.setMessages([
+      notifier.addMessage(
         _assistantMessage(content: 'Final response', isStreaming: true),
-      ]);
+      );
+      check(container.read(chatMessagesProvider).single.isStreaming).isTrue();
       final initialSignature = container.read(
         chatMessageStructureSignatureProvider,
       );
@@ -7462,10 +7463,50 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      check(container.read(chatMessageStructureSignatureProvider))
-          .equals(initialSignature);
-      check(notifications).equals(0);
+      check(
+        container.read(chatMessageStructureSignatureProvider) ==
+            initialSignature,
+      ).isFalse();
+      check(notifications).equals(1);
 
+      notifier.clearMessages();
+    });
+
+    test('settled content and version updates invalidate the signature', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final version = ChatMessageVersion(
+        id: 'version-1',
+        content: 'Archived answer',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      notifier.setMessages([
+        _assistantMessage(content: 'Final answer').copyWith(versions: [version]),
+      ]);
+      var notifications = 0;
+      final subscription = container.listen<String>(
+        chatMessageStructureSignatureProvider,
+        (_, _) => notifications += 1,
+        fireImmediately: false,
+      );
+      addTearDown(subscription.close);
+
+      notifier.updateMessageById(
+        'assistant-1',
+        (current) => current.copyWith(content: 'Final answer with late words'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      notifier.updateMessageById(
+        'assistant-1',
+        (current) => current.copyWith(
+          versions: [version.copyWith(content: 'Refreshed archived answer')],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(notifications).equals(2);
       notifier.clearMessages();
     });
 

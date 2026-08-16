@@ -72,8 +72,7 @@ class ConduitMarkdownPreprocessor {
       } else if (fence != null && _closesFence(line, fence)) {
         fence = null;
       }
-      final isCode =
-          fence != null || line.startsWith('    ') || line.startsWith('\t');
+      final isCode = fence != null || _structuralIndent(line).columns >= 4;
       final rendered = isCode
           ? line
           : line.replaceAllMapped(_standaloneBase64Image, (match) {
@@ -87,8 +86,12 @@ class ConduitMarkdownPreprocessor {
   }
 
   static bool _closesFence(String line, String fence) {
-    final trimmed = line.trimLeft();
-    if (line.length - trimmed.length > 3 || !trimmed.startsWith(fence)) {
+    final indent = _structuralIndent(line);
+    if (indent.columns > 3) {
+      return false;
+    }
+    final trimmed = line.substring(indent.characters);
+    if (!trimmed.startsWith(fence)) {
       return false;
     }
     final marker = fence[0];
@@ -97,6 +100,22 @@ class ConduitMarkdownPreprocessor {
       length++;
     }
     return length >= fence.length && trimmed.substring(length).trim().isEmpty;
+  }
+
+  static ({int characters, int columns}) _structuralIndent(String line) {
+    var characters = 0;
+    var columns = 0;
+    while (characters < line.length) {
+      if (line[characters] == ' ') {
+        columns++;
+      } else if (line[characters] == '\t') {
+        columns += 4 - (columns % 4);
+      } else {
+        break;
+      }
+      characters++;
+    }
+    return (characters: characters, columns: columns);
   }
 
   static String stripAssistantPlaceholders(String content) {
