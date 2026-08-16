@@ -10,10 +10,19 @@ import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _GatedCompiler extends MarkdownCompileService {
-  _GatedCompiler() : super(workerManager: WorkerManager());
+  factory _GatedCompiler() => _GatedCompiler._(WorkerManager());
 
+  _GatedCompiler._(this.workerManager) : super(workerManager: workerManager);
+
+  final WorkerManager workerManager;
   final gates = <String, Completer<void>>{};
   final failures = <String>{};
+
+  @override
+  void dispose() {
+    super.dispose();
+    workerManager.dispose();
+  }
 
   @override
   Future<String> prepareContent(
