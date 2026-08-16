@@ -364,7 +364,9 @@ Future<bool> dispatchChatTransport({
     },
     updateMessageById: (messageId, updater) {
       if (!ownsConversation()) return;
-      messagesNotifier().updateMessageById(messageId, updater);
+      final notifier = messagesNotifier();
+      notifier.updateMessageById(messageId, updater);
+      notifier.persistSettledMessage(messageId);
     },
     modelUsesReasoning: modelUsesReasoning,
     toolsEnabled: toolsEnabled,

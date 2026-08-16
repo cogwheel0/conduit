@@ -182,6 +182,53 @@ void main() {
       },
     );
 
+    test('late settled recovery persists content and follow-ups', () async {
+      await seedChatRow('d07-late-recovery');
+      final container = buildContainer();
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('d07-late-recovery'));
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _user('u-late', 'Question'),
+        _streamingAssistant('a-late', 'Answer missing'),
+      ]);
+      notifier.finishStreaming();
+      notifier.updateMessageById(
+        'a-late',
+        (message) => message.copyWith(
+          content: 'Answer missing its final words',
+          followUps: const ['Ask another question'],
+          metadata: const <String, dynamic>{
+            'followUps': <String>['Ask another question'],
+          },
+        ),
+      );
+      notifier.persistSettledMessage('a-late');
+
+      await settleUntil(() async {
+        final rows = await db.messagesDao.getForChat('d07-late-recovery');
+        return rows.any(
+          (row) =>
+              row.id == 'a-late' &&
+              row.content == 'Answer missing its final words',
+        );
+      });
+
+      final row = (await db.messagesDao.getForChat('d07-late-recovery'))
+          .singleWhere((entry) => entry.id == 'a-late');
+      final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+      check(payload['content']).equals('Answer missing its final words');
+      check((payload['followUps'] as List).cast<String>())
+          .deepEquals(['Ask another question']);
+      final active = container.read(activeConversationProvider)!;
+      check(active.messages.last.content)
+          .equals('Answer missing its final words');
+      check(active.messages.last.followUps)
+          .deepEquals(['Ask another question']);
+    });
+
     test(
       'pause checkpoint preserves in-flight assistant streaming state',
       () async {

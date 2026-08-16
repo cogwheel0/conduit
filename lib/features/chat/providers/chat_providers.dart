@@ -2533,6 +2533,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
               },
             );
           });
+          persistSettledMessage(followUpPatch.messageId);
         }
 
         _scheduleConversationRefreshFromServer(
@@ -3402,19 +3403,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         return;
       }
 
-      ref.read(activeConversationProvider.notifier).set(refreshed);
+      final mergedMessages = _preserveFreshLocalAssistantState(
+        refreshed.messages,
+      );
+      final visibleConversation = identical(mergedMessages, refreshed.messages)
+          ? refreshed
+          : refreshed.copyWith(messages: mergedMessages);
+      ref.read(activeConversationProvider.notifier).set(visibleConversation);
 
       if (!isTemporaryChat(conversationId)) {
         try {
           ref
               .read(conversationsProvider.notifier)
               .upsertConversation(
-                refreshed.copyWith(messages: const []),
+                visibleConversation.copyWith(messages: const []),
                 trustFolderConversation:
-                    refreshed.folderId != null &&
-                    refreshed.folderId!.isNotEmpty,
+                    visibleConversation.folderId != null &&
+                    visibleConversation.folderId!.isNotEmpty,
               );
         } catch (_) {}
+      }
+
+      // The pull persists the raw server snapshot before returning. If that
+      // snapshot raced the server's final write, restore the fresher local
+      // tail/follow-ups to the local echo used when this chat is reopened.
+      if (!identical(mergedMessages, refreshed.messages)) {
+        _persistCompletedTurn();
       }
 
       DebugLogger.log(
@@ -5128,6 +5142,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     state = next;
   }
 
+  void persistSettledMessage(String messageId) {
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0 ||
+        state[index].role != 'assistant' ||
+        state[index].isStreaming) {
+      return;
+    }
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(index);
+  }
+
   Map<String, dynamic>? _metadataWithoutResponseDone(
     Map<String, dynamic>? metadata,
   ) {
@@ -6171,8 +6196,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     return null;
   }
 
-  /// Minimal history-message shape (`{id, parentId, childrenIds, role,
-  /// content, timestamp, model?}`) — explicitly a local echo.
+  /// History-message payload used by the local echo.
   ///
   /// The `parentId` written here is only a placeholder for the payload map:
   /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
@@ -6193,19 +6217,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       createdAt: timestamp,
       // Recomputed by upsertLocalEcho for new rows.
       orderIndex: 0,
-      payload: <String, dynamic>{
-        'id': message.id,
-        'parentId': resolvedParentId,
-        'childrenIds': childrenIds,
-        'role': message.role,
-        'content': message.content,
-        'timestamp': timestamp,
-        'isStreaming': message.isStreaming,
-        if (message.role == 'assistant' && !message.isStreaming) 'done': true,
-        if (message.model != null) 'model': message.model,
-        if (message.metadata != null && message.metadata!.isNotEmpty)
-          'metadata': message.metadata,
-      },
+      payload: _directPersistedMessagePayload(
+        message,
+        parentId: resolvedParentId,
+        childrenIds: childrenIds,
+        assistantTransport: null,
+      ),
     );
   }
 }
