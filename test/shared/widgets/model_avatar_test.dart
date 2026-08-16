@@ -40,5 +40,24 @@ void main() {
 
       expect(find.byType(ModelAvatar), findsOneWidget);
     });
+
+    testWidgets('renders bundled asset avatars', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: ModelAvatar(
+                size: 40,
+                imageUrl: 'asset:assets/icons/hermes_agent.png',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.byIcon(Icons.psychology), findsNothing);
+    });
   });
 }

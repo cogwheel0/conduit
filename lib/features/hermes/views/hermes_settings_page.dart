@@ -13,8 +13,11 @@ import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../controllers/hermes_connection_controller.dart';
 import '../models/hermes_capabilities.dart';
+import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_connection_service.dart';
+import 'hermes_desktop_connection_section.dart';
+import 'hermes_settings_sections.dart';
 
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
 /// URL, API key, long-term memory key, and a connection test.
@@ -80,9 +83,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     super.dispose();
   }
 
-  Future<void> _saveSettings() async {
+  Future<bool> _saveSettings() async {
     final l10n = AppLocalizations.of(context)!;
-    await _connectionController.save(
+    return _connectionController.save(
       ref.read(hermesConfigProvider),
       messages: _messages(l10n),
     );
@@ -109,6 +112,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       saved: ref.read(hermesConfigProvider),
       messages: _messages(AppLocalizations.of(context)!),
     );
+    ref.invalidate(hermesServerStatusProvider);
   }
 
   @override
@@ -118,6 +122,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final capabilities =
+        ref.watch(hermesCapabilitiesProvider).asData?.value ??
+        (config.mode == HermesBackendMode.desktopGateway
+            ? HermesCapabilities.desktopCoreOnly
+            : HermesCapabilities.enabledByDefault);
     final urlError = switch (_connectionController.validationIssue) {
       HermesConnectionValidationIssue.invalidUrl =>
         l10n.directConnectionUrlInvalid,
@@ -153,6 +162,23 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       isRequired: true,
       iosSettingsRow: PlatformInfo.isIOS,
     );
+    final desktopTokenField = AccessibleFormField(
+      enabled: !_connectionController.operation.isBusy,
+      label: 'Legacy session token',
+      hint: config.desktopCredentials?.legacyToken?.isNotEmpty == true
+          ? l10n.hermesConfiguredReplacePlaceholder
+          : 'Paste the Hermes session token',
+      obscureText: true,
+      controller: _connectionController.desktopLegacyToken,
+      keyboardType: TextInputType.visiblePassword,
+      textInputAction: TextInputAction.next,
+      autocorrect: false,
+      onChanged: (_) => _connectionController.markDesktopLegacyTokenChanged(),
+      isRequired:
+          _connectionController.desktopAuthKind ==
+          HermesDesktopAuthKind.legacyToken,
+      iosSettingsRow: PlatformInfo.isIOS,
+    );
 
     final content = <Widget>[
       if (secretsError != null)
@@ -186,6 +212,26 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
         ),
+      InsetGroupedSection(
+        title: 'Hermes connection mode',
+        flat: true,
+        padding: EdgeInsets.zero,
+        child: AdaptiveSegmentedControl(
+          key: const ValueKey<String>('hermes-backend-mode-selector'),
+          labels: const ['Responses API', 'Desktop Gateway'],
+          selectedIndex:
+              _connectionController.mode == HermesBackendMode.responsesApi
+              ? 0
+              : 1,
+          enabled: !_connectionController.operation.isBusy,
+          onValueChanged: (index) => _connectionController.setMode(
+            index == 0
+                ? HermesBackendMode.responsesApi
+                : HermesBackendMode.desktopGateway,
+          ),
+        ),
+      ),
+      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       if (!widget.isOnboarding) ...[
         InsetGroupedList(
           footer: PlatformInfo.isIOS ? l10n.hermesEnableSubtitle : null,
@@ -202,7 +248,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ),
           ],
         ),
-        if (config.enabled && _capabilities.jobs) ...[
+        if (config.enabled && capabilities.jobs) ...[
           SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
           InsetGroupedList(
             title: l10n.hermesScheduledAgentsTitle,
@@ -221,7 +267,14 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       if (PlatformInfo.isIOS)
         InsetGroupedList(
           useNativeSurface: true,
-          children: [serverUrlField, apiKeyField],
+          children: [
+            serverUrlField,
+            if (_connectionController.mode == HermesBackendMode.responsesApi)
+              apiKeyField
+            else if (_connectionController.desktopAuthKind ==
+                HermesDesktopAuthKind.legacyToken)
+              desktopTokenField,
+          ],
         )
       else
         InsetGroupedSection(
@@ -232,59 +285,76 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               serverUrlField,
-              const SizedBox(height: Spacing.md),
-              apiKeyField,
+              if (_connectionController.mode ==
+                  HermesBackendMode.responsesApi) ...[
+                const SizedBox(height: Spacing.md),
+                apiKeyField,
+              ] else if (_connectionController.desktopAuthKind ==
+                  HermesDesktopAuthKind.legacyToken) ...[
+                const SizedBox(height: Spacing.md),
+                desktopTokenField,
+              ],
             ],
           ),
         ),
-      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-      UtilityDisclosureSection(
-        key: const ValueKey<String>('hermes-memory-key-disclosure'),
-        title: l10n.hermesMemoryKeyTitle,
-        subtitle: l10n.hermesMemoryKeyShortDescription,
-        flat: !PlatformInfo.isIOS,
-        useNativeSurface: PlatformInfo.isIOS,
-        contentPadding: PlatformInfo.isIOS
-            ? EdgeInsets.zero
-            : const EdgeInsets.only(top: Spacing.md),
-        expanded: _connectionController.showMemoryKey,
-        onChanged: _connectionController.setShowMemoryKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AccessibleFormField(
-              enabled: !_connectionController.operation.isBusy,
-              label: l10n.hermesMemoryKeyFieldLabel,
-              hint: config.sessionKey == null || config.sessionKey!.isEmpty
-                  ? l10n.hermesMemoryKeyPlaceholder
-                  : l10n.hermesConfiguredReplacePlaceholder,
-              obscureText: true,
-              controller: _connectionController.sessionKey,
-              keyboardType: TextInputType.visiblePassword,
-              textInputAction: TextInputAction.done,
-              autocorrect: false,
-              onChanged: (_) => _connectionController.markSessionKeyChanged(),
-              iosSettingsRow: PlatformInfo.isIOS,
-            ),
-            Padding(
-              padding: PlatformInfo.isIOS
-                  ? const EdgeInsets.fromLTRB(
-                      Spacing.md,
-                      Spacing.xs,
-                      Spacing.md,
-                      Spacing.md,
-                    )
-                  : const EdgeInsets.only(top: Spacing.sm),
-              child: Text(
-                l10n.hermesMemoryKeyDescription,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: theme.textSecondary,
+      if (_connectionController.mode == HermesBackendMode.desktopGateway) ...[
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+        HermesDesktopConnectionSection(
+          controller: _connectionController,
+          saveSettings: _saveSettings,
+          testConnection: _testConnection,
+        ),
+      ],
+      if (_connectionController.mode == HermesBackendMode.responsesApi) ...[
+        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+        UtilityDisclosureSection(
+          key: const ValueKey<String>('hermes-memory-key-disclosure'),
+          title: l10n.hermesMemoryKeyTitle,
+          subtitle: l10n.hermesMemoryKeyShortDescription,
+          flat: !PlatformInfo.isIOS,
+          useNativeSurface: PlatformInfo.isIOS,
+          contentPadding: PlatformInfo.isIOS
+              ? EdgeInsets.zero
+              : const EdgeInsets.only(top: Spacing.md),
+          expanded: _connectionController.showMemoryKey,
+          onChanged: _connectionController.setShowMemoryKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AccessibleFormField(
+                enabled: !_connectionController.operation.isBusy,
+                label: l10n.hermesMemoryKeyFieldLabel,
+                hint: config.sessionKey == null || config.sessionKey!.isEmpty
+                    ? l10n.hermesMemoryKeyPlaceholder
+                    : l10n.hermesConfiguredReplacePlaceholder,
+                obscureText: true,
+                controller: _connectionController.sessionKey,
+                keyboardType: TextInputType.visiblePassword,
+                textInputAction: TextInputAction.done,
+                autocorrect: false,
+                onChanged: (_) => _connectionController.markSessionKeyChanged(),
+                iosSettingsRow: PlatformInfo.isIOS,
+              ),
+              Padding(
+                padding: PlatformInfo.isIOS
+                    ? const EdgeInsets.fromLTRB(
+                        Spacing.md,
+                        Spacing.xs,
+                        Spacing.md,
+                        Spacing.md,
+                      )
+                    : const EdgeInsets.only(top: Spacing.sm),
+                child: Text(
+                  l10n.hermesMemoryKeyDescription,
+                  style: AppTypography.bodySmallStyle.copyWith(
+                    color: theme.textSecondary,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
       if (!widget.isOnboarding) ...[
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         if (PlatformInfo.isIOS)
@@ -366,11 +436,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       ],
       if (config.isUsable) ...[
         const SizedBox(height: Spacing.xl),
-        _capabilitiesSection(),
+        const HermesCapabilitiesSection(),
         const SizedBox(height: Spacing.lg),
-        _toolsetsSection(),
+        const HermesToolsetsSection(),
+        if (config.mode == HermesBackendMode.desktopGateway) ...[
+          const SizedBox(height: Spacing.lg),
+          const HermesDesktopManagementSection(),
+        ],
         const SizedBox(height: Spacing.lg),
-        _serverStatusSection(),
+        const HermesServerStatusSection(),
       ],
     ];
 
@@ -439,158 +513,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           : null,
       children: content,
     );
-  }
-
-  HermesCapabilities get _capabilities =>
-      ref.watch(hermesCapabilitiesProvider).asData?.value ??
-      HermesCapabilities.enabledByDefault;
-
-  Widget _capabilitiesSection() {
-    final caps = _capabilities;
-    final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedSection(
-      title: l10n.hermesCapabilitiesTitle,
-      child: Wrap(
-        spacing: Spacing.sm,
-        runSpacing: Spacing.xs,
-        children: [
-          _capabilityChip(l10n.hermesCapabilityApproval, caps.runApproval),
-          _capabilityChip(l10n.hermesCapabilitySkills, caps.skills),
-          _capabilityChip(l10n.hermesCapabilityToolsets, caps.toolsets),
-          _capabilityChip(l10n.hermesCapabilityJobs, caps.jobs),
-          _capabilityChip(l10n.hermesCapabilitySessions, caps.sessions),
-        ],
-      ),
-    );
-  }
-
-  Widget _capabilityChip(String label, bool enabled) {
-    final theme = context.conduitTheme;
-    final color = enabled ? theme.success : theme.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm,
-        vertical: Spacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
-          const SizedBox(width: Spacing.xs),
-          Text(label, style: AppTypography.captionStyle.copyWith(color: color)),
-        ],
-      ),
-    );
-  }
-
-  Widget _toolsetsSection() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final toolsetsAsync = ref.watch(hermesToolsetsProvider);
-    return InsetGroupedSection(
-      title: l10n.hermesCapabilityToolsets,
-      child: toolsetsAsync.when(
-        data: (toolsets) {
-          if (toolsets.isEmpty) {
-            return Text(
-              l10n.hermesNoToolsets,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final toolset in toolsets)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Text(
-                    '${toolset.label}  ·  ${l10n.hermesToolCount(toolset.tools.length)}'
-                    '${toolset.enabled ? '' : ' (${l10n.disabledLabel})'}',
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textPrimary,
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-        loading: () => const SizedBox(
-          height: 18,
-          width: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        error: (_, _) => Text(
-          l10n.directConnectionUnavailableLabel,
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _serverStatusSection() {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final statusAsync = ref.watch(hermesServerStatusProvider);
-    return InsetGroupedSection(
-      title: l10n.hermesServerStatusTitle,
-      child: statusAsync.when(
-        data: (status) {
-          final entries = status.entries
-              .where(
-                (e) => e.value is num || e.value is String || e.value is bool,
-              )
-              .toList();
-          if (entries.isEmpty) {
-            return Text(
-              l10n.hermesNoServerStatus,
-              style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final entry in entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Text(
-                    '${_humanize(entry.key)}: ${entry.value}',
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textPrimary,
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-        loading: () => const SizedBox(
-          height: 18,
-          width: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        error: (_, _) => Text(
-          l10n.directConnectionUnavailableLabel,
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _humanize(String key) {
-    return key
-        .replaceAll('_', ' ')
-        .replaceFirstMapped(RegExp('^.'), (m) => m.group(0)!.toUpperCase());
   }
 
   Widget _badge(BuildContext context, IconData icon) {

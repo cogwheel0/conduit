@@ -6,11 +6,13 @@ final class HermesConnectionDraft {
     required this.config,
     required this.apiKeyChanged,
     required this.sessionKeyChanged,
+    this.desktopCredentialsChanged = false,
   });
 
   final HermesConfig config;
   final bool apiKeyChanged;
   final bool sessionKeyChanged;
+  final bool desktopCredentialsChanged;
 }
 
 enum HermesConnectionCommitStage { persistence, activation, rollback }

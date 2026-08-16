@@ -48,6 +48,15 @@ void main() {
       check(extensions).not((it) => it.contains('pdf'));
     });
 
+    test('leaves Desktop Hermes picker unrestricted', () {
+      check(
+        chatLocalFilePickerExtensions(
+          hermesSyntheticModel(),
+          desktopHermes: true,
+        ),
+      ).isNull();
+    });
+
     test('leaves the OpenWebUI picker unrestricted', () {
       const openWebUiModel = Model(id: 'gpt', name: 'GPT');
 

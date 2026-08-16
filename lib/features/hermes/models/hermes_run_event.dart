@@ -40,6 +40,10 @@ final class HermesToolProgress extends HermesRunEvent {
     required this.toolName,
     required this.done,
     this.detail,
+    this.arguments,
+    this.result,
+    this.inlineDiff,
+    this.subagent = false,
     this.failed = false,
   });
 
@@ -48,6 +52,10 @@ final class HermesToolProgress extends HermesRunEvent {
 
   /// A short human-readable description of what the tool is doing.
   final String? detail;
+  final String? arguments;
+  final String? result;
+  final String? inlineDiff;
+  final bool subagent;
 
   /// Whether the tool has finished (vs. just started / progressing).
   final bool done;
@@ -61,6 +69,7 @@ final class HermesApprovalRequested extends HermesRunEvent {
   const HermesApprovalRequested({
     required this.approvalId,
     this.summary,
+    this.choices = const <String>[],
     this.raw = const {},
   });
 
@@ -69,8 +78,26 @@ final class HermesApprovalRequested extends HermesRunEvent {
 
   /// Human-readable description of what is being approved.
   final String? summary;
+  final List<String> choices;
 
   /// The raw approval payload, preserved for forward-compatibility.
+  final Map<String, dynamic> raw;
+}
+
+enum HermesDecisionKind { clarification, sudo, secret, mcpSetup }
+
+/// A Desktop Gateway request that needs a structured user response.
+final class HermesDecisionRequested extends HermesRunEvent {
+  const HermesDecisionRequested({
+    required this.kind,
+    required this.requestId,
+    this.prompt,
+    this.raw = const {},
+  });
+
+  final HermesDecisionKind kind;
+  final String requestId;
+  final String? prompt;
   final Map<String, dynamic> raw;
 }
 
@@ -86,6 +113,13 @@ final class HermesLifecycle extends HermesRunEvent {
 /// left empty.
 final class HermesFinalOutput extends HermesRunEvent {
   const HermesFinalOutput(this.text);
+
+  final String text;
+}
+
+/// Text returned by a Desktop slash command that belongs back in the composer.
+final class HermesComposerPrefill extends HermesRunEvent {
+  const HermesComposerPrefill(this.text);
 
   final String text;
 }

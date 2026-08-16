@@ -17,9 +17,12 @@ import '../../navigation/widgets/conversation_tile.dart';
 import '../models/hermes_model.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
-import '../services/hermes_api_service.dart';
+import '../services/hermes_backend_service.dart';
+import '../services/hermes_desktop_api_service.dart';
+import '../services/hermes_decision_projection.dart';
 import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
+import '../services/hermes_pending_decision_store.dart';
 import '../services/hermes_session_provenance.dart';
 
 /// A single Hermes session row, styled to match the chat conversation tiles —
@@ -161,7 +164,7 @@ class HermesSessionTile extends ConsumerWidget {
 }
 
 ({String? endpointIdentity, String? connectionIdentity})
-_sessionConnectionIdentity(HermesApiService service, String principalId) {
+_sessionConnectionIdentity(HermesBackendService service, String principalId) {
   final endpointIdentity = HermesConfigController.connectionEndpoint(
     service.config.baseUrl,
   );
@@ -258,8 +261,12 @@ Future<void> openHermesSession(
   final trustPrincipalId = configController.documentTrustPrincipalId();
 
   List<Map<String, dynamic>> raw;
+  var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
     raw = await service.getSessionMessages(session.id);
+    if (service is HermesDesktopApiService) {
+      pendingDecisions = await service.pendingDecisionsForSession(session.id);
+    }
   } catch (error) {
     // Don't silently open an existing session with an empty transcript — that
     // reads as data loss. Surface the failure and abort the open.
@@ -312,11 +319,17 @@ Future<void> openHermesSession(
           connectionIdentity: connectionIdentity,
           sessionId: session.id,
         );
-  final messages = hermesMessagesToChatMessages(
-    raw,
-    modelId: hermesModel.id,
-    trustedLocalDocumentKeys: trustedDocuments,
-  );
+  final messages =
+      hermesMessagesToChatMessages(
+        raw,
+        modelId: hermesModel.id,
+        trustedLocalDocumentKeys: trustedDocuments,
+      )..addAll(
+        hermesPendingDesktopDecisionMessages(
+          pendingDecisions,
+          modelId: hermesModel.id,
+        ),
+      );
 
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-

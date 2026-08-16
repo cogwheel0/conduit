@@ -56,9 +56,12 @@ import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../hermes/models/hermes_chat_input.dart';
 import '../../hermes/models/hermes_capabilities.dart';
+import '../../hermes/models/hermes_config.dart';
 import '../../hermes/models/hermes_model.dart';
+import '../../hermes/controllers/hermes_busy_turn_controller.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_api_service.dart';
+import '../../hermes/services/hermes_backend_service.dart';
 import '../../hermes/services/hermes_local_document_service.dart';
 import '../../hermes/services/hermes_local_document_trust_store.dart';
 import '../../hermes/services/hermes_message_mapper.dart';
@@ -1628,7 +1631,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         openWebUiAuthSessionEpochProvider,
         (_, _) => _onOpenWebUiContextChanged(),
       );
-      ref.listen<HermesApiService?>(hermesApiServiceProvider, (_, next) {
+      ref.listen<HermesBackendService?>(hermesApiServiceProvider, (_, next) {
         // A cold recovery is authorized and routed by the concrete Hermes
         // service that started it. Retire that attempt on every owner change;
         // otherwise the old poll blocks the new service behind the same-message
@@ -2906,6 +2909,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           checkpoint,
           error: const ChatMessageError(
             content: 'Hermes recovery service is unavailable.',
+          ),
+        );
+      }
+      return;
+    }
+    if (service is! HermesApiService) {
+      if (settleUnrecoverable) {
+        _settleColdHermesCheckpoint(
+          owner,
+          checkpoint,
+          error: const ChatMessageError(
+            content: 'Hermes Desktop will reconcile this session when opened.',
           ),
         );
       }
@@ -7721,7 +7736,12 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
   final images = <String>[];
   final seenImages = <String>{};
   final documentSources = <HermesLocalDocumentSource>[];
+  final desktopFiles = <HermesInputFilePart>[];
+  final desktop =
+      (ref.read(hermesConfigProvider) as HermesConfig).mode ==
+      HermesBackendMode.desktopGateway;
   var decodedImageBytes = 0;
+  var desktopFileBytes = 0;
 
   for (final attachmentId in attachmentIds ?? const <String>[]) {
     if (attachmentId.startsWith('data:image/')) {
@@ -7763,6 +7783,35 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
     if (state == null || state.isImage == true) {
       throw const HermesAttachmentsUnsupportedException();
     }
+    if (desktop) {
+      final remaining =
+          kHermesMaxAggregateLocalDocumentBytes - desktopFileBytes;
+      final bytes = await _readBoundedHermesDesktopFile(
+        state.file,
+        maxBytes: math.min(kHermesMaxLocalDocumentBytes, remaining),
+      );
+      desktopFileBytes += bytes.length;
+      final mediaType = _hermesDesktopFileMediaType(state.fileName);
+      if (mediaType == 'application/pdf' &&
+          (bytes.length < 5 ||
+              bytes[0] != 0x25 ||
+              bytes[1] != 0x50 ||
+              bytes[2] != 0x44 ||
+              bytes[3] != 0x46 ||
+              bytes[4] != 0x2d)) {
+        throw const HermesChatInputException(
+          'This attachment is not a valid PDF document.',
+        );
+      }
+      desktopFiles.add(
+        HermesInputFilePart(
+          filename: state.fileName,
+          mediaType: mediaType,
+          base64Data: base64Encode(bytes),
+        ),
+      );
+      continue;
+    }
     documentSources.add(
       await HermesLocalDocumentSource.fromFile(
         state.file,
@@ -7771,20 +7820,27 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
     );
   }
 
-  final documentService =
-      ref.read(hermesLocalDocumentServiceProvider)
-          as HermesLocalDocumentService;
-  final documents = await documentService.prepareAll(documentSources);
+  final documentService = ref.read(
+    hermesLocalDocumentServiceProvider,
+  ) as HermesLocalDocumentService;
+  final documents = desktop
+      ? const HermesPreparedDocumentBatch(
+          documents: [],
+          totalSourceBytes: 0,
+          totalCharacters: 0,
+        )
+      : await documentService.prepareAll(documentSources);
   final promptText = documents.documents.isEmpty
       ? text
       : '$text\n\n${documents.renderForPrompt()}';
   final HermesChatInput input;
-  if (images.isEmpty) {
+  if (images.isEmpty && desktopFiles.isEmpty) {
     input = HermesChatInput.text(promptText);
   } else {
     input = HermesChatInput.multimodal(<HermesChatContentPart>[
       if (promptText.trim().isNotEmpty) HermesInputTextPart(promptText),
       for (final image in images) HermesInputImagePart(image),
+      ...desktopFiles,
     ]);
   }
 
@@ -7797,6 +7853,13 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
       },
     for (final document in documents.documents)
       _hermesLocalDocumentDescriptor(document),
+    for (final file in desktopFiles)
+      <String, dynamic>{
+        'type': 'file',
+        'source': 'hermes_desktop_file',
+        'name': file.filename,
+        'content_type': file.mediaType,
+      },
   ];
   return _PreparedHermesTurn(
     input: input,
@@ -7807,6 +7870,43 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
       documents.documents.map((document) => document.renderForPrompt()),
     ),
   );
+}
+
+Future<Uint8List> _readBoundedHermesDesktopFile(
+  File file, {
+  required int maxBytes,
+}) async {
+  if (maxBytes <= 0) {
+    throw const HermesChatInputException(
+      'Hermes files exceed the 16 MB aggregate limit.',
+    );
+  }
+  final builder = BytesBuilder(copy: false);
+  var length = 0;
+  await for (final chunk in file.openRead()) {
+    length += chunk.length;
+    if (length > maxBytes) {
+      throw const HermesChatInputException(
+        'This file exceeds the Hermes attachment size limit.',
+      );
+    }
+    builder.add(chunk);
+  }
+  return builder.takeBytes();
+}
+
+String _hermesDesktopFileMediaType(String filename) {
+  final extension = filename.toLowerCase().split('.').last;
+  return switch (extension) {
+    'pdf' => 'application/pdf',
+    'json' || 'jsonl' => 'application/json',
+    'csv' => 'text/csv',
+    'html' || 'htm' => 'text/html',
+    'xml' => 'application/xml',
+    'docx' =>
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    _ => 'application/octet-stream',
+  };
 }
 
 Map<String, dynamic> _hermesLocalDocumentDescriptor(
@@ -8262,7 +8362,7 @@ Future<void> _regenerateHermesMessage(
   required String input,
   required HermesConfigController configController,
   required int configAdmission,
-  required HermesApiService? serviceGeneration,
+  required HermesBackendService? serviceGeneration,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -8844,7 +8944,7 @@ Future<void> regenerateMessage(
   final int? hermesConfigAdmission = hermesConfigController
       ?.captureSessionActionAdmission();
   if (usesHermesAtRegenerationStart && hermesConfigAdmission == null) return;
-  final HermesApiService? hermesServiceGeneration =
+  final HermesBackendService? hermesServiceGeneration =
       usesHermesAtRegenerationStart ? ref.read(hermesApiServiceProvider) : null;
   final resolvedDirectRoute = await _resolveDirectRoute(
     ref,
@@ -11997,15 +12097,12 @@ captureHermesApprovalProjectionStateUpdater(
 }
 
 Iterable<String> _hermesIdentifierSensitiveValues(
-  HermesApiService service,
-) => <String>[
-  if ((service.config.apiKey ?? '').isNotEmpty) service.config.apiKey!,
-  if ((service.config.sessionKey ?? '').isNotEmpty) service.config.sessionKey!,
-];
+  HermesBackendService service,
+) => service.config.sensitiveValues;
 
 String? _validatedHermesHistoryMessageId(
   Object? value,
-  HermesApiService service,
+  HermesBackendService service,
 ) => validateHermesOpaqueIdentifier(
   value,
   sensitiveValues: _hermesIdentifierSensitiveValues(service),
@@ -12015,7 +12112,7 @@ String? _validatedHermesHistoryMessageId(
 );
 
 Future<void> _rememberCommittedHermesLocalDocumentPrompt({
-  required HermesApiService service,
+  required HermesBackendService service,
   required String connectionIdentity,
   required String sessionId,
   required String promptText,
@@ -12611,7 +12708,7 @@ StreamSubscription<RemapEvent> trackHermesConversationRemaps({
 }
 
 Future<void> _deleteLateHermesSessionWithinDeadline(
-  HermesApiService service,
+  HermesBackendService service,
   String sessionId, {
   required Duration deadline,
 }) async {
@@ -12639,7 +12736,7 @@ Future<void> _deleteLateHermesSessionWithinDeadline(
 }
 
 void _deleteLateHermesSessionBestEffort(
-  HermesApiService service,
+  HermesBackendService service,
   String sessionId, {
   required Duration deadline,
 }) {
@@ -12831,14 +12928,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   // Ensure a stable long-term memory key before reading the service (mutating
   // the key rebuilds hermesApiServiceProvider, so read it afterwards).
-  try {
-    await configController.ensureSessionKey();
-  } catch (error) {
-    if (!cancelled()) failPreflight(error);
-    return;
+  if (ref.read(hermesConfigProvider).mode == HermesBackendMode.responsesApi) {
+    try {
+      await configController.ensureSessionKey();
+    } catch (error) {
+      if (!cancelled()) failPreflight(error);
+      return;
+    }
   }
   if (cancelled()) return;
-  final HermesApiService? service = ref.read(hermesApiServiceProvider);
+  final HermesBackendService? service = ref.read(hermesApiServiceProvider);
   if (service == null) {
     if (!registry.complete(currentRunKey(), cancelToken: cancelToken)) return;
     ChatMessage updater(ChatMessage message) => message.copyWith(
@@ -12855,6 +12954,33 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     finishOwned();
     completeStreamingUiOwned();
     return;
+  }
+  if (service is! HermesResponsesTurnService &&
+      service is! HermesDesktopTurnService) {
+    if (!registry.complete(currentRunKey(), cancelToken: cancelToken)) return;
+    finishOwned();
+    completeStreamingUiOwned();
+    return;
+  }
+  final isDesktop = service is HermesDesktopTurnService;
+  HermesDesktopSessionOptions? desktopOptions;
+  if (service is HermesDesktopTurnService) {
+    final selected = ref.read(selectedModelProvider);
+    final metadata = selected?.metadata;
+    final usesConfiguredDefault = metadata?['hermesConfiguredDefault'] == true;
+    desktopOptions = HermesDesktopSessionOptions(
+      model: usesConfiguredDefault
+          ? null
+          : metadata?['hermesModelId']?.toString(),
+      provider: usesConfiguredDefault
+          ? null
+          : metadata?['hermesProvider']?.toString(),
+      reasoningEffort: reasoningEffort,
+      fast: hermesFastTierSelection(
+        supported: metadata?['hermesFast'] == true,
+        selected: ref.read(hermesFastTierSelectionProvider),
+      ),
+    );
   }
   final endpointIdentity = HermesConfigController.connectionEndpoint(
     service.config.baseUrl,
@@ -12893,7 +13019,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           mixedProvenance: mixedSessionProvenance,
         );
   final responseStartsNewChain =
-      responseInput != null && responsePreviousResponseId == null;
+      !isDesktop && responseInput != null && responsePreviousResponseId == null;
   if (responseStartsNewChain) {
     // The official Responses endpoint owns the session id for a new chain; it
     // does not bind to a pre-created /api/sessions row via request headers.
@@ -12905,10 +13031,13 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       final title = existingMessages.isEmpty
           ? _deriveHermesSessionTitle(input)
           : null;
-      final createdSessionId = await service.createSession(
-        title: title,
-        cancelToken: cancelToken,
-      );
+      final createdSessionId = service is HermesDesktopTurnService
+          ? await service.createDesktopSession(
+              title: title,
+              options: desktopOptions!,
+              cancelToken: cancelToken,
+            )
+          : await service.createSession(title: title, cancelToken: cancelToken);
       if (cancelled()) {
         _deleteLateHermesSessionBestEffort(
           service,
@@ -12961,7 +13090,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       ref.invalidate(hermesSessionsProvider);
     } catch (error) {
       if (cancelled()) return;
-      if (forceNewSession) {
+      if (isDesktop || forceNewSession) {
         failPreflight(error);
         return;
       }
@@ -12990,7 +13119,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   // Attachments require Responses. Once a conversation enters that response
   // chain, callers continue supplying [responseInput] for later text turns.
-  if (responseInput != null) {
+  if (responseInput != null || isDesktop) {
     final hasLocalDocumentProvenance =
         localDocumentPromptText != null && localDocumentEnvelopes.isNotEmpty;
     Set<String>? baselineServerMessageIds;
@@ -13025,17 +13154,32 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // prepared below before the known-empty history baseline is recorded.
     }
     if (cancelled()) return;
-    await dispatchHermesResponse(
-      service: service,
+    await dispatchHermesTurn(
+      startTurn: (turnCancelToken) => switch (service) {
+        HermesDesktopTurnService() => service.streamDesktopResponse(
+          responseInput ?? HermesChatInput.text(input),
+          sessionId: sessionId,
+          options: desktopOptions!,
+          cancelToken: turnCancelToken,
+        ),
+        HermesResponsesTurnService() => service.streamResponseWithReasoning(
+          responseInput ?? HermesChatInput.text(input),
+          sessionId: sessionId,
+          previousResponseId: responsePreviousResponseId,
+          conversationHistory: responseStartsNewChain ? responseHistory : null,
+          reasoningEffort: reasoningEffort,
+          cancelToken: turnCancelToken,
+        ),
+        _ => throw StateError('Hermes turn transport is unavailable.'),
+      },
+      sensitiveValues: service.config.sensitiveValues,
+      recoverResponse: service is HermesApiService
+          ? hermesResponseRecoverer(service)
+          : null,
       registry: registry,
       assistantMessageId: assistantMessageId,
       runKey: currentRunKey(),
       currentRunKey: currentRunKey,
-      input: responseInput,
-      sessionId: sessionId,
-      previousResponseId: responsePreviousResponseId,
-      conversationHistory: responseStartsNewChain ? responseHistory : null,
-      reasoningEffort: reasoningEffort,
       cancelToken: cancelToken,
       onSessionEstablished: (establishedSessionId) async {
         if (establishedSessionId == null || cancelled()) return;
@@ -13122,6 +13266,12 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       appendContent: appendProjectedContent,
       replaceContent: replaceProjectedContent,
       appendStatus: appendProjectedStatus,
+      prefillComposer: (text) {
+        if (!owner.isActive(ref)) return;
+        ref
+            .read(composerTextInsertionProvider.notifier)
+            .insert(targetId: chatComposerTextInsertionTargetId, text: text);
+      },
       updateMessage: updateProjectedMessage,
       finishStreaming: finishOwned,
       completeStreamingUi: completeStreamingUiOwned,
@@ -13139,6 +13289,11 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     existingMessages,
     inputImagesSupported: false,
   );
+
+  if (service is! HermesApiService) {
+    failPreflight(StateError('Hermes Responses API is unavailable.'));
+    return;
+  }
 
   await dispatchHermesRun(
     service: service,
@@ -15925,7 +16080,7 @@ Future<void> _sendMessageInternal(
   final int? hermesConfigAdmission = hermesConfigController
       ?.captureSessionActionAdmission();
   if (usesHermes && hermesConfigAdmission == null) return;
-  final HermesApiService? hermesServiceGeneration = usesHermes
+  final HermesBackendService? hermesServiceGeneration = usesHermes
       ? ref.read(hermesApiServiceProvider)
       : null;
   final resolvedDirectRoute = await _resolveDirectRoute(
@@ -18023,7 +18178,10 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
       }
     } catch (_) {}
 
-    if (!hadStreamingAssistant) return;
+    if (!hadStreamingAssistant) {
+      unawaited(ref.read(hermesBusyTurnControllerProvider).stopRecoveredTurn());
+      return;
+    }
 
     // Client-owned direct and Hermes completions never create an OpenWebUI
     // completion task or requestCompletion outbox operation. Do not send a

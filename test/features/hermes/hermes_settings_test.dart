@@ -60,7 +60,7 @@ void main() {
   );
 
   test('connection controller builds an origin-safe immutable draft', () {
-    const saved = HermesConfig(
+    final saved = HermesConfig(
       enabled: true,
       baseUrl: 'https://one.example/v1',
       apiKey: 'old-key',
@@ -74,6 +74,8 @@ void main() {
     controller.url.text = ' https://two.example/v1 ';
     controller.apiKey.text = 'new-key';
     controller.markApiKeyChanged();
+    controller.setMode(HermesBackendMode.desktopGateway);
+    controller.setDesktopProfile('work');
 
     final draft = controller.buildDraft(saved);
 
@@ -84,8 +86,71 @@ void main() {
     check(draft.config.baseUrl).equals('https://two.example/v1');
     check(draft.config.apiKey).equals('new-key');
     check(draft.config.sessionKey).isNull();
+    check(draft.config.desktopProfile).equals('work');
     check(draft.apiKeyChanged).isTrue();
     check(draft.sessionKeyChanged).isTrue();
+  });
+
+  test('origin change does not carry access headers to the new server', () {
+    final saved = HermesConfig(
+      enabled: true,
+      baseUrl: 'https://one.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        accessHeaders: {'CF-Access-Client-Secret': 'old-origin-secret'},
+      ),
+    );
+    final controller = HermesConnectionController(
+      initialConfig: saved,
+      gateway: _FakeHermesConnectionGateway(),
+    );
+    addTearDown(controller.dispose);
+    controller.url.text = 'https://two.example';
+    controller.markUrlChanged();
+
+    check(controller.buildDraft(saved).config.accessHeaders).isEmpty();
+
+    controller.setAccessHeaders({'X-New-Origin': 'new-origin-secret'});
+    check(controller.buildDraft(saved).config.accessHeaders)
+        .deepEquals({'X-New-Origin': 'new-origin-secret'});
+
+    controller.setAccessHeaders({
+      'CF-Access-Client-Secret': 'old-origin-secret',
+      'X-New-Origin': 'new-origin-secret',
+    });
+    check(controller.buildDraft(saved).config.accessHeaders)
+        .deepEquals({'X-New-Origin': 'new-origin-secret'});
+
+    controller.setAccessHeaders({
+      'cf-access-client-secret': 'old-origin-secret',
+      'X-New-Origin': 'new-origin-secret',
+    });
+    check(controller.buildDraft(saved).config.accessHeaders)
+        .deepEquals({'X-New-Origin': 'new-origin-secret'});
+  });
+
+  test('saved headers become the baseline for a later origin change', () async {
+    final gateway = _FakeHermesConnectionGateway();
+    var saved = HermesConfig(
+      enabled: true,
+      baseUrl: 'https://one.example',
+      mode: HermesBackendMode.desktopGateway,
+    );
+    final controller = HermesConnectionController(
+      initialConfig: saved,
+      gateway: gateway,
+    );
+    addTearDown(controller.dispose);
+    controller.setAccessHeaders({'X-One': 'one-secret'});
+    check(await controller.save(saved, messages: _messages)).isTrue();
+    saved = gateway.persistedDraft!.config;
+
+    controller.url.text = 'https://two.example';
+    controller.markUrlChanged();
+    controller.setAccessHeaders({'X-One': 'one-secret', 'X-Two': 'two-secret'});
+
+    check(controller.buildDraft(saved).config.accessHeaders)
+        .deepEquals({'X-Two': 'two-secret'});
   });
 
   test('activation failure is one typed onboarding result', () async {
@@ -233,6 +298,19 @@ void main() {
     check(controller.operation).equals(HermesConnectionOperation.idle);
     check(controller.attempt.message).equals('Saved');
   });
+
+  test(
+    'external sign-in failure is presented by the connection controller',
+    () {
+      final controller = _configuredController(_FakeHermesConnectionGateway());
+      addTearDown(controller.dispose);
+
+      controller.reportFailure('Sign-in failed');
+
+      check(controller.operation).equals(HermesConnectionOperation.idle);
+      check(controller.attempt.message).equals('Sign-in failed');
+    },
+  );
 
   test(
     'disposed onboarding cannot persist or activate after a late probe',

@@ -36,7 +36,12 @@ import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
+import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_decision_projection.dart';
+import '../../hermes/services/hermes_desktop_api_service.dart';
+import '../../hermes/services/hermes_local_document_trust_store.dart';
+import '../../hermes/services/hermes_message_mapper.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
@@ -168,8 +173,13 @@ bool shouldShowChatModelDropdown({
 }
 
 @visibleForTesting
-List<String>? chatLocalFilePickerExtensions(Model? selectedModel) =>
-    localFilePickerExtensionsForModel(selectedModel);
+List<String>? chatLocalFilePickerExtensions(
+  Model? selectedModel, {
+  bool desktopHermes = false,
+}) => localFilePickerExtensionsForModel(
+  selectedModel,
+  desktopHermes: desktopHermes,
+);
 
 @visibleForTesting
 Future<void> handleChatBackNavigation({
@@ -334,6 +344,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<Object>? _authEpochSub;
   ProviderSubscription<ApiService?>? _apiOwnerSub;
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
+  ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
+  ProviderSubscription<bool>? _hermesStreamingSub;
+  String? _pendingHermesTranscriptRefresh;
+  int _hermesTranscriptRefreshGeneration = 0;
   bool _viewportOwnerChangeScheduled = false;
   bool? _lastProfiledMessageCacheStreamingState;
   bool _explicitLatestNavigationInFlight = false;
@@ -743,6 +757,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scheduleViewportOwnerChanged();
       }
     });
+    _hermesTranscriptSub = ref.listenManual(
+      hermesDesktopTranscriptChangesProvider,
+      (_, next) => next.whenData(
+        (storedId) => unawaited(_refreshDesktopHermesTranscript(storedId)),
+      ),
+    );
+    _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
+      wasStreaming,
+      isStreaming,
+    ) {
+      if (isStreaming || wasStreaming != true) return;
+      final storedId = _pendingHermesTranscriptRefresh;
+      _pendingHermesTranscriptRefresh = null;
+      if (storedId != null) {
+        unawaited(_refreshDesktopHermesTranscript(storedId));
+      }
+    });
 
     // Initialize chat page components
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -776,6 +807,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _authEpochSub?.close();
     _apiOwnerSub?.close();
     _databaseOwnerSub?.close();
+    _hermesTranscriptSub?.close();
+    _hermesStreamingSub?.close();
+    _hermesTranscriptRefreshGeneration++;
     _markdownPrewarmTimer?.cancel();
     _screenContextRetryTimer?.cancel();
     _cancelExplicitLatestNavigation();
@@ -801,6 +835,87 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Future<void> _handleMessageSend(String text) async {
     await _sendMessage(text, includeComposerContext: true);
+  }
+
+  Future<void> _refreshDesktopHermesTranscript(String storedId) async {
+    final active = ref.read(activeConversationProvider);
+    if (active == null ||
+        !isNativeHermesConversation(active) ||
+        active.metadata['hermesSessionId'] != storedId) {
+      return;
+    }
+    if (ref.read(isChatStreamingProvider)) {
+      _pendingHermesTranscriptRefresh = storedId;
+      return;
+    }
+    final service = ref.read(hermesApiServiceProvider);
+    if (service is! HermesDesktopApiService) return;
+    final generation = ++_hermesTranscriptRefreshGeneration;
+    try {
+      final raw = await service.getSessionMessages(storedId);
+      final pending = await service.pendingDecisionsForSession(storedId);
+      if (!mounted ||
+          generation != _hermesTranscriptRefreshGeneration ||
+          !identical(ref.read(hermesApiServiceProvider), service) ||
+          ref.read(activeConversationProvider)?.id != active.id) {
+        return;
+      }
+      final selected = ref.read(selectedModelProvider);
+      final model = selected != null && isHermesModel(selected)
+          ? selected
+          : hermesSyntheticModel();
+      final endpoint = HermesConfigController.connectionEndpoint(
+        service.config.baseUrl,
+      );
+      final principal = ref
+          .read(hermesConfigProvider.notifier)
+          .documentTrustPrincipalId();
+      final connectionIdentity = endpoint == null
+          ? null
+          : HermesLocalDocumentTrustStore.connectionIdentity(
+              endpointIdentity: endpoint,
+              principalId: principal,
+            );
+      final trustedKeys = connectionIdentity == null
+          ? const <String>{}
+          : HermesLocalDocumentTrustStore.trustedDocumentKeys(
+              connectionIdentity: connectionIdentity,
+              sessionId: storedId,
+            );
+      final messages =
+          hermesMessagesToChatMessages(
+            raw,
+            modelId: model.id,
+            trustedLocalDocumentKeys: trustedKeys,
+          )..addAll(
+            hermesPendingDesktopDecisionMessages(pending, modelId: model.id),
+          );
+      final currentMessages = ref.read(chatMessagesProvider);
+      final currentAuthoritativeCount = currentMessages
+          .where(
+            (message) => message.metadata?['restoredDesktopDecision'] != true,
+          )
+          .length;
+      final candidateAuthoritativeCount = messages
+          .where(
+            (message) => message.metadata?['restoredDesktopDecision'] != true,
+          )
+          .length;
+      if (currentAuthoritativeCount > 0 &&
+          candidateAuthoritativeCount < currentAuthoritativeCount) {
+        return;
+      }
+      ref.read(chatMessagesProvider.notifier).setMessages(messages);
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(active.copyWith(messages: messages, updatedAt: DateTime.now()));
+    } catch (error) {
+      DebugLogger.warning(
+        'desktop-transcript-refresh-failed',
+        scope: 'hermes/recovery',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
   }
 
   Future<void> _handleFollowUpSend(String text) async {
@@ -1108,6 +1223,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final attachments = await fileService.pickFiles(
         allowedExtensions: chatLocalFilePickerExtensions(
           ref.read(selectedModelProvider),
+          desktopHermes:
+              ref.read(hermesConfigProvider).mode ==
+              HermesBackendMode.desktopGateway,
         ),
       );
       if (attachments.isEmpty) return;

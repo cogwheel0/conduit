@@ -25,6 +25,7 @@ import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
 import '../../direct_connections/views/ollama_model_actions.dart';
 import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../models/model_selector_layout.dart';
 import '../providers/reasoning_effort_provider.dart';
 
@@ -41,9 +42,6 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _showMore = false;
-
-  List<Model> get _selectableModels =>
-      widget.models.where((model) => !isHermesModel(model)).toList();
 
   @override
   void dispose() {
@@ -129,7 +127,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
               localDefaultModelId
         : localDefaultModelId;
     final layout = buildModelSelectorLayout(
-      models: _selectableModels,
+      models: widget.models,
       pinnedModelIds: pinnedModelIds,
       defaultModelId: defaultModelId,
       selectedModelId: ref.watch(selectedModelProvider)?.id,
@@ -140,6 +138,11 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
         .toList(growable: false);
     final l10n = AppLocalizations.of(context)!;
     final effortPolicy = ref.watch(reasoningEffortPolicyProvider);
+    final selectedModel = ref.watch(selectedModelProvider);
+    final supportsHermesFast =
+        selectedModel != null &&
+        isHermesModel(selectedModel) &&
+        selectedModel.metadata?['hermesFast'] == true;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -219,6 +222,29 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                 ref.watch(reasoningEffortProvider),
                               ),
                               onTap: _showEffortSelector,
+                            ),
+                          ],
+                          if (supportsHermesFast) ...[
+                            const SizedBox(height: Spacing.md),
+                            _ActionCard(
+                              icon: Platform.isIOS
+                                  ? CupertinoIcons.bolt
+                                  : Icons.bolt_rounded,
+                              title: 'Fast tier',
+                              subtitle:
+                                  ref.watch(hermesFastTierSelectionProvider)
+                                  ? 'On'
+                                  : 'Off',
+                              onTap: () {
+                                final enabled = ref.read(
+                                  hermesFastTierSelectionProvider,
+                                );
+                                ref
+                                    .read(
+                                      hermesFastTierSelectionProvider.notifier,
+                                    )
+                                    .set(!enabled);
+                              },
                             ),
                           ],
                           if (layout.more.isNotEmpty) ...[

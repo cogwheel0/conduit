@@ -10,9 +10,11 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../models/hermes_job.dart';
+import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 import '../utils/hermes_schedule_format.dart';
 import '../widgets/hermes_job_editor.dart';
+import '../widgets/hermes_session_tile.dart' show openHermesSession;
 
 AppLocalizations _l10n(BuildContext context) =>
     AppLocalizations.of(context) ?? AppLocalizationsEn();
@@ -167,6 +169,7 @@ class _JobCard extends ConsumerStatefulWidget {
 
 class _JobCardState extends ConsumerState<_JobCard> {
   _JobMutation? _mutation;
+  bool _historyExpanded = false;
 
   HermesJob get job => widget.job;
   bool get writable => widget.writable;
@@ -176,6 +179,9 @@ class _JobCardState extends ConsumerState<_JobCard> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    final desktop =
+        ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
+        HermesBackendMode.desktopGateway;
 
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
@@ -264,6 +270,72 @@ class _JobCardState extends ConsumerState<_JobCard> {
             ],
           ),
           const SizedBox(height: Spacing.sm),
+          if (desktop) ...[
+            Wrap(
+              spacing: Spacing.sm,
+              runSpacing: Spacing.xxs,
+              children: [
+                Text(
+                  'State: ${job.state ?? (job.enabled ? 'active' : 'paused')}',
+                  style: AppTypography.captionStyle.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+                Text(
+                  'Delivery: ${job.deliveryTarget ?? 'local'}',
+                  style: AppTypography.captionStyle.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+                if (job.lastRun != null)
+                  Text(
+                    'Last: ${_formatJobTime(context, job.lastRun!)}',
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                if (job.nextRun != null)
+                  Text(
+                    'Next: ${_formatJobTime(context, job.nextRun!)}',
+                    style: AppTypography.captionStyle.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+            if (job.lastStatus?.isNotEmpty == true)
+              Text(
+                job.lastStatus!,
+                style: AppTypography.captionStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
+              ),
+            if (job.lastError?.isNotEmpty == true)
+              Text(
+                job.lastError!,
+                style: AppTypography.captionStyle.copyWith(color: theme.error),
+              ),
+            if (job.lastDeliveryError?.isNotEmpty == true)
+              Text(
+                'Delivery: ${job.lastDeliveryError}',
+                style: AppTypography.captionStyle.copyWith(color: theme.error),
+              ),
+            const SizedBox(height: Spacing.xs),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: () =>
+                    setState(() => _historyExpanded = !_historyExpanded),
+                icon: Icon(
+                  _historyExpanded ? Icons.expand_less : Icons.history,
+                  size: 18,
+                ),
+                label: const Text('Run history'),
+              ),
+            ),
+            if (_historyExpanded) _buildRunHistory(theme),
+            const SizedBox(height: Spacing.xs),
+          ],
           if (writable)
             Row(
               children: [
@@ -295,6 +367,52 @@ class _JobCardState extends ConsumerState<_JobCard> {
         ],
       ),
     );
+  }
+
+  Widget _buildRunHistory(ConduitThemeExtension theme) {
+    final runs = ref.watch(hermesJobRunsProvider(job.id));
+    return runs.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(Spacing.sm),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, _) => Text(
+        'Could not load run history.',
+        style: AppTypography.captionStyle.copyWith(color: theme.error),
+      ),
+      data: (items) {
+        if (items.isEmpty) {
+          return Text(
+            'No runs yet.',
+            style: AppTypography.captionStyle.copyWith(
+              color: theme.textSecondary,
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (final run in items)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.chat_bubble_outline, size: 18),
+                title: Text(run.title, maxLines: 1),
+                subtitle: run.updatedAt == null
+                    ? null
+                    : Text(_formatJobTime(context, run.updatedAt!)),
+                onTap: () => openHermesSession(context, ref, run),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatJobTime(BuildContext context, DateTime value) {
+    final local = value.toLocal();
+    final material = MaterialLocalizations.of(context);
+    return '${material.formatMediumDate(local)} '
+        '${material.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
   }
 
   Future<void> _runMutation({

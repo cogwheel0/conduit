@@ -24,6 +24,22 @@ const int kHermesMaxHistoryImageUrlCharacters =
 
 final Expando<bool> _trustedLocalDocumentDescriptors = Expando<bool>();
 
+ChatStatusItem? hermesToolDetailItem(
+  String title,
+  Object? value, {
+  String Function(String)? sanitize,
+}) {
+  if (value == null) return null;
+  final raw = value is String ? value : jsonEncode(value);
+  final safe = sanitize?.call(raw) ?? _persistedHermesToolDetail(raw);
+  if (safe == null || safe.trim().isEmpty) return null;
+  return ChatStatusItem(
+    title: title,
+    snippet: safe,
+    presentation: ChatStatusItemPresentation.detail,
+  );
+}
+
 /// Whether [descriptor] was reconstructed in this process from a separately
 /// verified local provenance record. The marker is object identity, so it is
 /// neither serializable nor forgeable by persisted/server-supplied maps.
@@ -178,6 +194,10 @@ List<ChatStatusUpdate> _persistedHermesToolStarts(
         : rawCall['name'] ?? rawCall['tool_name'];
     if (rawName is! String || rawName.isEmpty) continue;
     final safeName = _persistedHermesToolName(rawName);
+    final arguments = function is Map
+        ? function['arguments']
+        : rawCall['arguments'] ?? rawCall['args'];
+    final safeArguments = _persistedHermesToolDetail(arguments);
     final statusIndex = statuses.length;
     statuses.add(
       ChatStatusUpdate(
@@ -185,6 +205,9 @@ List<ChatStatusUpdate> _persistedHermesToolStarts(
         description: safeName,
         done: false,
         occurredAt: occurredAt,
+        items: safeArguments == null
+            ? const []
+            : [hermesToolDetailItem('Arguments', safeArguments)!],
       ),
     );
     final callId = validateHermesOpaqueIdentifier(
@@ -216,6 +239,14 @@ String _persistedHermesToolAction(String raw, String safeName) {
   return 'hermes_tool_opaque';
 }
 
+String? _persistedHermesToolDetail(Object? value) {
+  if (value == null) return null;
+  final text = value is String ? value : jsonEncode(value);
+  final safe = text.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '�');
+  if (safe.trim().isEmpty) return null;
+  return String.fromCharCodes(safe.runes.take(2048));
+}
+
 void _completePersistedHermesTool(
   Map<String, dynamic> item, {
   required List<ChatMessage> messages,
@@ -230,8 +261,19 @@ void _completePersistedHermesTool(
   final message = messages[pending.messageIndex];
   if (pending.statusIndex >= message.statusHistory.length) return;
   final statuses = List<ChatStatusUpdate>.from(message.statusHistory);
+  final result = _persistedHermesToolDetail(
+    item['error'] ?? item['result_text'] ?? item['result'] ?? item['content'],
+  );
+  final inlineDiff = _persistedHermesToolDetail(item['inline_diff']);
+  final details = <ChatStatusItem>[
+    ...statuses[pending.statusIndex].items,
+    if (result != null)
+      hermesToolDetailItem(item['error'] != null ? 'Error' : 'Result', result)!,
+    if (inlineDiff != null) hermesToolDetailItem('Inline diff', inlineDiff)!,
+  ];
   statuses[pending.statusIndex] = statuses[pending.statusIndex].copyWith(
     done: true,
+    items: details,
     occurredAt:
         parseHermesTimestamp(item['created_at'] ?? item['timestamp']) ??
         statuses[pending.statusIndex].occurredAt,

@@ -18,11 +18,15 @@ class HermesApprovalCard extends StatelessWidget {
     required this.state,
     required this.onDecision,
     this.summary,
+    this.choices = const <String>[],
+    this.onChoice,
   });
 
   final HermesApprovalState state;
   final String? summary;
   final void Function(bool approved) onDecision;
+  final List<String> choices;
+  final void Function(String choice)? onChoice;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +82,28 @@ class HermesApprovalCard extends StatelessWidget {
                     ? theme.success
                     : theme.error,
               ),
+            )
+          else if (choices.isNotEmpty && onChoice != null)
+            Wrap(
+              spacing: Spacing.sm,
+              runSpacing: Spacing.sm,
+              children: [
+                for (final choice in choices)
+                  ConduitButton(
+                    text: switch (choice) {
+                      'once' => 'Allow once',
+                      'session' => 'Allow for session',
+                      'always' => 'Always allow',
+                      'deny' => l10n.hermesApprovalDenyAction,
+                      _ => choice,
+                    },
+                    isCompact: true,
+                    isSecondary: choice == 'deny',
+                    onPressed: state == HermesApprovalState.pending
+                        ? () => onChoice!(choice)
+                        : null,
+                  ),
+              ],
             )
           else
             Row(

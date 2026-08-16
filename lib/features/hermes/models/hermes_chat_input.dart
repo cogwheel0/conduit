@@ -151,3 +151,40 @@ final class HermesInputImagePart extends HermesChatContentPart {
     detail: detail == null ? null : openai.ImageDetail.fromJson(detail!),
   );
 }
+
+/// Ephemeral local file bytes used by the Desktop Gateway upload RPCs.
+/// Conduit never persists this data URL in chat metadata.
+final class HermesInputFilePart extends HermesChatContentPart {
+  HermesInputFilePart({
+    required this.filename,
+    required this.mediaType,
+    required this.base64Data,
+  }) {
+    if (filename.trim().isEmpty || filename.length > 512) {
+      throw ArgumentError.value(filename, 'filename', 'must be a safe name');
+    }
+    if (mediaType.trim().isEmpty || mediaType.length > 128) {
+      throw ArgumentError.value(mediaType, 'mediaType', 'must be a MIME type');
+    }
+    if (base64Data.isEmpty) {
+      throw ArgumentError.value(base64Data, 'base64Data', 'must not be empty');
+    }
+  }
+
+  final String filename;
+  final String mediaType;
+  final String base64Data;
+
+  bool get isPdf => mediaType == 'application/pdf';
+  String get dataUrl => 'data:$mediaType;base64,$base64Data';
+
+  @override
+  Map<String, dynamic> toJson() => toResponseContent().toJson();
+
+  @override
+  openai.InputContent toResponseContent() => openai.InputContent.fileData(
+    base64Data,
+    mediaType: mediaType,
+    filename: filename,
+  );
+}

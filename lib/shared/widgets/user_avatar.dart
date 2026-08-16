@@ -47,6 +47,25 @@ class AvatarImage extends ConsumerWidget {
       logicalHeight: size,
     );
 
+    if (url.startsWith('asset:')) {
+      final assetName = url.substring('asset:'.length);
+      if (assetName.isEmpty) return fallbackBuilder(context, size);
+      return ClipRRect(
+        borderRadius: _radius,
+        child: Image(
+          image: RasterMediaPolicy.resizeProvider(
+            AssetImage(assetName),
+            decodeTarget,
+          ),
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              fallbackBuilder(context, size),
+        ),
+      );
+    }
+
     if (url.startsWith('data:image')) {
       final content = _decodeDataImage(url);
       if (content != null) {

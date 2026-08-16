@@ -29,7 +29,9 @@ import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
+import '../../hermes/controllers/hermes_busy_turn_controller.dart';
 import '../../hermes/models/hermes_model.dart';
+import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
@@ -131,10 +133,13 @@ bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
 /// OpenWebUI performs server-backed document ingestion, while Hermes and
 /// Direct perform bounded local extraction. Direct also accepts image payloads
 /// when the selected model advertises multimodal input.
-List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
+List<String>? localFilePickerExtensionsForModel(
+  Model? selectedModel, {
+  bool desktopHermes = false,
+}) {
   if (selectedModel == null) return null;
   if (isHermesModel(selectedModel)) {
-    return kHermesLocalDocumentPickerExtensions;
+    return desktopHermes ? null : kHermesLocalDocumentPickerExtensions;
   }
   if (hasReservedDirectIdentity(selectedModel)) {
     final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
@@ -494,6 +499,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _fallbackPanelReplacedKeyboard = false;
   double _fallbackAttachmentPanelHeight = 300;
   bool _fallbackPanelWaitingForKeyboard = false;
+  bool _desktopQueueActionBusy = false;
 
   bool get _isRouteVisible =>
       !ThemedSheets.hasActiveSheet &&
@@ -732,6 +738,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {
       // Silently handle if keyboard dismissal fails
+    }
+  }
+
+  Future<void> _sendDesktopBusyMessage({required bool steer}) async {
+    if (_desktopQueueActionBusy) return;
+    final text = _controller.toWireFormat().trim();
+    if (text.isEmpty) return;
+    setState(() => _desktopQueueActionBusy = true);
+    try {
+      final accepted = await ref
+          .read(hermesBusyTurnControllerProvider)
+          .submit(
+            action: steer
+                ? HermesBusyTurnAction.steer
+                : HermesBusyTurnAction.sendNext,
+            text: text,
+            localStreaming: ref.read(isChatStreamingProvider),
+          );
+      if (!mounted || !accepted) return;
+      _controller.clearMentions();
+      _controller.clear();
+      _focusNode.requestFocus();
+    } finally {
+      if (mounted) setState(() => _desktopQueueActionBusy = false);
     }
   }
 
@@ -2754,7 +2784,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
 
     // Use dedicated streaming provider to avoid rebuilding on every message change
-    final isGenerating = ref.watch(isChatStreamingProvider);
+    final localTurnIsGenerating = ref.watch(isChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
     // Watch only upload send-state booleans so metadata/progress churn does not
@@ -2818,6 +2848,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool isHermesComposer = ref.watch(
       selectedModelProvider.select((m) => m != null && isHermesModel(m)),
     );
+    final bool isDesktopHermesComposer =
+        isHermesComposer &&
+        ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
+            HermesBackendMode.desktopGateway;
+    final desktopTurnState = ref
+        .watch(hermesDesktopTurnStateProvider)
+        .asData
+        ?.value;
+    final isGenerating =
+        localTurnIsGenerating ||
+        (isDesktopHermesComposer &&
+            desktopTurnState == HermesDesktopTurnState.running);
+    final desktopTurnControlsSupported =
+        !isDesktopHermesComposer ||
+        desktopTurnState != HermesDesktopTurnState.unsupportedGateway;
     // Watching the capabilities value makes a loading -> data transition
     // rebuild the composer. Attachment access still fails closed below.
     ref.watch(hermesCapabilitiesProvider);
@@ -3017,7 +3062,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
         quickPills.isEmpty &&
-        !_isMultiline;
+        !_isMultiline &&
+        !(isDesktopHermesComposer && isGenerating && _hasText);
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
         notesEnabled &&
@@ -3131,6 +3177,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 )
               else
                 const Spacer(),
+              if (isDesktopHermesComposer &&
+                  desktopTurnControlsSupported &&
+                  isGenerating &&
+                  _hasText) ...[
+                _buildPillButton(
+                  icon: Icons.turn_right_rounded,
+                  label: 'Steer',
+                  isActive: true,
+                  dense: true,
+                  onTap: _desktopQueueActionBusy
+                      ? null
+                      : () => unawaited(_sendDesktopBusyMessage(steer: true)),
+                ),
+                const SizedBox(width: Spacing.xs),
+                _buildPillButton(
+                  icon: Icons.queue_rounded,
+                  label: 'Send next',
+                  isActive: false,
+                  dense: true,
+                  onTap: _desktopQueueActionBusy
+                      ? null
+                      : () => unawaited(_sendDesktopBusyMessage(steer: false)),
+                ),
+              ],
               if (showCreateDraftNoteAction) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
@@ -3149,6 +3219,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 allUploadsComplete,
                 hasUploadsInProgress,
                 dense: true,
+                canStopGeneration: desktopTurnControlsSupported,
               ),
             ],
           ),
@@ -3248,6 +3319,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   allUploadsComplete,
                   hasUploadsInProgress,
                   dense: true,
+                  canStopGeneration: desktopTurnControlsSupported,
                 ),
               ],
             ),
@@ -3932,6 +4004,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool allUploadsComplete,
     bool hasUploadsInProgress, {
     bool dense = false,
+    bool canStopGeneration = true,
   }) {
     final double buttonSize = conduitScaledControlExtent(
       context,
@@ -3956,13 +4029,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Generating -> STOP variant
     if (isGenerating) {
       return AdaptiveTooltip(
-        message: AppLocalizations.of(context)!.stopGenerating,
+        message: canStopGeneration
+            ? AppLocalizations.of(context)!.stopGenerating
+            : 'Upgrade Hermes to enable safe turn controls.',
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
-          onPressed: () {
-            ConduitHaptics.lightImpact();
-            stopGeneration();
-          },
+          onPressed: canStopGeneration
+              ? () {
+                  ConduitHaptics.lightImpact();
+                  stopGeneration();
+                }
+              : null,
           size: buttonSize,
           visualSize: primaryVisualSize,
           semanticLabel: AppLocalizations.of(context)!.stopGenerating,

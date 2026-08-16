@@ -45,6 +45,7 @@ import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/models/hermes_config.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../../features/direct_connections/direct_connections.dart';
@@ -1712,13 +1713,21 @@ final refreshAuthStateProvider = Provider<void>((ref) {
 List<Model> appendHermesModelIfUsable(
   List<Model> models, {
   required bool hermesUsable,
+  bool allowSyntheticHermesModel = true,
+  List<Model> hermesModels = const [],
 }) {
   final directModels = models.where(isLocallyMintedDirectModel);
   final safeModels = sanitizeRemoteHermesModels(
     sanitizeRemoteDirectModels(models),
   );
   return hermesUsable
-      ? <Model>[...safeModels, ...directModels, hermesSyntheticModel()]
+      ? <Model>[
+          ...safeModels,
+          ...directModels,
+          ...(hermesModels.isEmpty && allowSyntheticHermesModel
+              ? <Model>[hermesSyntheticModel()]
+              : hermesModels),
+        ]
       : <Model>[...safeModels, ...directModels];
 }
 
@@ -1743,6 +1752,10 @@ class Models extends _$Models {
     final hermesUsable = ref.watch(
       hermesConfigProvider.select((config) => config.isUsable),
     );
+    final hermesConfig = ref.watch(hermesConfigProvider);
+    if (hermesUsable && hermesConfig.mode == HermesBackendMode.desktopGateway) {
+      ref.watch(hermesDesktopModelsProvider);
+    }
     final directModels = ref.watch(
       directModelDiscoveryProvider.select((value) {
         final models = value.value?.models;
@@ -2013,6 +2026,10 @@ class Models extends _$Models {
     return appendHermesModelIfUsable(
       withDirect,
       hermesUsable: ref.read(hermesConfigProvider).isUsable,
+      allowSyntheticHermesModel:
+          ref.read(hermesConfigProvider).mode == HermesBackendMode.responsesApi,
+      hermesModels:
+          ref.read(hermesDesktopModelsProvider).asData?.value ?? const [],
     );
   }
 
@@ -2101,7 +2118,10 @@ class Models extends _$Models {
       return models;
     }
 
-    final replacement = models.isNotEmpty ? models.first : null;
+    final replacement = replacementForUnavailableLocalModel(
+      models: models,
+      current: currentSelected,
+    );
     ref.read(isManualModelSelectionProvider.notifier).set(false);
     ref.read(selectedModelProvider.notifier).set(replacement);
     DebugLogger.warning(
@@ -2213,7 +2233,10 @@ class Models extends _$Models {
             );
           }
         } catch (_) {
-          final replacement = freshModels.isNotEmpty ? freshModels.first : null;
+          final replacement = replacementForUnavailableLocalModel(
+            models: freshModels,
+            current: currentSelected,
+          );
           ref.read(isManualModelSelectionProvider.notifier).set(false);
           ref.read(selectedModelProvider.notifier).set(replacement);
           DebugLogger.warning(
@@ -2318,6 +2341,18 @@ class Models extends _$Models {
       supportedParameters: ['max_tokens', 'stream'],
     ),
   ];
+}
+
+@visibleForTesting
+Model? replacementForUnavailableLocalModel({
+  required Iterable<Model> models,
+  required Model current,
+}) {
+  if (isHermesModel(current)) return models.where(isHermesModel).firstOrNull;
+  if (isLocallyMintedDirectModel(current)) {
+    return models.where(isLocallyMintedDirectModel).firstOrNull;
+  }
+  return models.firstOrNull;
 }
 
 typedef _OwnedModels = ({

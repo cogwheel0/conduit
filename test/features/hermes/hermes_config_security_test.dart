@@ -61,9 +61,8 @@ void main() {
       throwsArgumentError,
     );
 
-    check(
-      container.read(hermesConfigProvider).baseUrl,
-    ).equals('https://one.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://one.example/v1');
   });
 
   test('runtime trust principals are isolated by config controller', () async {
@@ -170,12 +169,10 @@ void main() {
     check(config.apiKey).equals('key-for-one');
     check(config.sessionKey).equals('memory-for-one');
     check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
-    check(
-      await storage.read(key: 'hermes_session_key_v1'),
-    ).equals('memory-for-one');
-    check(
-      PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
-    ).equals('https://one.example/v1');
+    check(await storage.read(key: 'hermes_session_key_v1'))
+        .equals('memory-for-one');
+    check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+        .equals('https://one.example/v1');
   });
 
   test(
@@ -221,9 +218,8 @@ void main() {
       check(recoveryWriteFailed).isTrue();
       check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
       check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
-      check(
-        await storage.read(key: 'hermes_session_key_v1'),
-      ).equals('memory-for-one');
+      check(await storage.read(key: 'hermes_session_key_v1'))
+          .equals('memory-for-one');
       final failedRuntimeConfig = container.read(hermesConfigProvider);
       check(failedRuntimeConfig.baseUrl).isEmpty();
       check(failedRuntimeConfig.apiKey).isNull();
@@ -288,9 +284,8 @@ void main() {
 
       endpointCommitGate.complete();
       await save.timeout(const Duration(seconds: 1));
-      check(
-        PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
-      ).equals('https://two.example/v1');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+          .equals('https://two.example/v1');
       check(container.read(hermesApiServiceProvider)).isNotNull();
     },
   );
@@ -319,9 +314,8 @@ void main() {
 
       // The API key has landed while the second secret is still old. A process
       // killed at this exact boundary must restart without a usable endpoint.
-      check(
-        storage.values['hermes_api_key_v1'],
-      ).equals('key-for-one-replacement');
+      check(storage.values['hermes_api_key_v1'])
+          .equals('key-for-one-replacement');
       check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
       check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
 
@@ -416,9 +410,8 @@ void main() {
         subscription: const Stream<void>.empty().listen((_) {}),
         stopRemote: (runId) {
           check(runId).equals('run-one');
-          check(
-            container.read(hermesConfigProvider).baseUrl,
-          ).equals('https://one.example/v1');
+          check(container.read(hermesConfigProvider).baseUrl)
+              .equals('https://one.example/v1');
           stopStarted.complete();
           return stopGate.future;
         },
@@ -430,9 +423,8 @@ void main() {
       await stopStarted.future;
 
       // The old client config remains alive until its owner-bound stop settles.
-      check(
-        container.read(hermesConfigProvider).baseUrl,
-      ).equals('https://one.example/v1');
+      check(container.read(hermesConfigProvider).baseUrl)
+          .equals('https://one.example/v1');
       check(container.read(hermesActiveSessionProvider)).equals('session-one');
       stopGate.complete();
       await save;
@@ -446,6 +438,62 @@ void main() {
       check(await storage.read(key: 'hermes_session_key_v1')).isNull();
     },
   );
+
+  test(
+    'origin change commits credentials entered for the new server',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final credentials = HermesDesktopCredentials(
+        legacyToken: 'token-for-two',
+        accessHeaders: {'X-New': 'secret-for-two'},
+      );
+
+      await container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            baseUrl: 'https://two.example/v1',
+            mode: HermesBackendMode.desktopGateway,
+            desktopCredentialsChanged: true,
+            desktopCredentials: credentials,
+          );
+
+      check(
+        container.read(hermesConfigProvider).desktopCredentials?.legacyToken,
+      ).equals('token-for-two');
+      expect(
+        await storage.read(key: 'hermes_desktop_credentials_v1'),
+        contains('secret-for-two'),
+      );
+    },
+  );
+
+  test('immediate unchanged save keeps hydrated Desktop credentials', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.hermesEnabled: true,
+      PreferenceKeys.hermesBaseUrl: 'https://one.example/v1',
+      PreferenceKeys.hermesBackendMode: HermesBackendMode.desktopGateway.name,
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    FlutterSecureStorage.setMockInitialValues({
+      'hermes_desktop_credentials_v1':
+          '{"legacy_token":"cold-token","access_headers":{}}',
+    });
+    const storage = FlutterSecureStorage();
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    final save = container
+        .read(hermesConfigProvider.notifier)
+        .saveConnection(baseUrl: 'https://one.example/v1');
+    await save;
+
+    check(container.read(hermesConfigProvider).desktopCredentials?.legacyToken)
+        .equals('cold-token');
+  });
 
   test(
     'same-origin endpoint change stops runs but retains credentials',
@@ -570,9 +618,8 @@ void main() {
       await save.timeout(const Duration(seconds: 1));
 
       check(admissionError).isA<StateError>();
-      check(
-        container.read(hermesConfigProvider).apiKey,
-      ).equals('key-for-one-replacement');
+      check(container.read(hermesConfigProvider).apiKey)
+          .equals('key-for-one-replacement');
       check(
         await controller.ensureSessionKey().timeout(const Duration(seconds: 1)),
       ).equals('memory-for-one');
@@ -600,14 +647,12 @@ void main() {
       await Future<void>.delayed(Duration.zero);
     }
 
-    check(
-      container.read(hermesConfigProvider).baseUrl,
-    ).equals('https://one.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://one.example/v1');
     settlement.complete();
     await save;
-    check(
-      container.read(hermesConfigProvider).baseUrl,
-    ).equals('https://two.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://two.example/v1');
   });
 
   test('disable interrupts hydrating and late session-key requests', () async {
@@ -789,9 +834,8 @@ void main() {
         throwsA(isA<StateError>()),
       );
       check(attemptedToken.isCancelled).isFalse();
-      check(
-        registry.complete(attemptedKey, cancelToken: attemptedToken),
-      ).isTrue();
+      check(registry.complete(attemptedKey, cancelToken: attemptedToken))
+          .isTrue();
 
       preferenceWriteGate.complete();
       await disable.timeout(const Duration(seconds: 1));
@@ -849,9 +893,8 @@ void main() {
     check(ensureError).isA<StateError>();
     check(tokenWasCancelled).equals(true);
     check(token.isCancelled).isTrue();
-    check(
-      container.read(hermesConfigProvider).apiKey,
-    ).equals('key-for-one-replacement');
+    check(container.read(hermesConfigProvider).apiKey)
+        .equals('key-for-one-replacement');
     check(container.read(hermesConfigProvider).sessionKey).isNull();
     check(storage.values['hermes_session_key_v1']).isNull();
     check(storage.writeCount('hermes_session_key_v1')).equals(0);
@@ -885,9 +928,8 @@ void main() {
           .setApiKey('second-replacement')
           .timeout(const Duration(seconds: 1));
 
-      check(
-        container.read(hermesConfigProvider).apiKey,
-      ).equals('second-replacement');
+      check(container.read(hermesConfigProvider).apiKey)
+          .equals('second-replacement');
       check(storage.values['hermes_api_key_v1']).equals('second-replacement');
     },
   );
@@ -931,9 +973,8 @@ void main() {
       check(config.sessionKey).equals('memory-for-one');
       check(storage.values['hermes_api_key_v1']).equals('key-for-one');
       check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
-      check(
-        PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
-      ).equals('https://one.example/v1');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+          .equals('https://one.example/v1');
       check(activeToken.isCancelled).isTrue();
     },
   );
@@ -964,9 +1005,8 @@ void main() {
 
     check(container.read(hermesSecretsErrorProvider)).isNull();
     check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
-    check(
-      container.read(hermesConfigProvider).sessionKey,
-    ).equals('memory-for-one');
+    check(container.read(hermesConfigProvider).sessionKey)
+        .equals('memory-for-one');
   });
 
   test(
@@ -1077,9 +1117,8 @@ void main() {
         cancelToken: oldToken,
       ),
     ).isFalse();
-    check(
-      registry.runIdFor(legacyHermesRunKey('message-one')),
-    ).equals('current-run');
+    check(registry.runIdFor(legacyHermesRunKey('message-one')))
+        .equals('current-run');
     check(
       registry.complete(
         legacyHermesRunKey('message-one'),
@@ -1131,9 +1170,8 @@ void main() {
             cancellationSettled: rebindSettlement.future,
             onCancelled: () {},
           );
-          check(
-            registry.rebind(fromKey, toKey, cancelToken: movingToken),
-          ).isTrue();
+          check(registry.rebind(fromKey, toKey, cancelToken: movingToken))
+              .isTrue();
           rebindSettlement.completeError(
             StateError(errorSecret),
             StackTrace.fromString(stackSecret),
@@ -1206,13 +1244,11 @@ void main() {
     controller.resumeMutationsAfterAppDataClearAbort();
     await _waitForHermesSecrets(container);
     check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
-    check(
-      container.read(hermesConfigProvider).sessionKey,
-    ).equals('memory-for-one');
+    check(container.read(hermesConfigProvider).sessionKey)
+        .equals('memory-for-one');
     await controller.saveConnection(baseUrl: 'https://two.example/v1');
-    check(
-      container.read(hermesConfigProvider).baseUrl,
-    ).equals('https://two.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://two.example/v1');
   });
 
   test(
@@ -1301,9 +1337,8 @@ void main() {
     fence.setSuppressed(false);
     container.read(hermesConfigProvider);
 
-    check(
-      container.read(hermesConfigProvider).baseUrl,
-    ).equals('https://one.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://one.example/v1');
     await expectLater(
       controller.saveConnection(baseUrl: 'https://two.example/v1'),
       throwsStateError,

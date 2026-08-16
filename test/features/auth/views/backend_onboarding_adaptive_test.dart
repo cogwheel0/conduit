@@ -147,6 +147,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(AccessibleFormField), findsNWidgets(3));
 
+      await tester.tap(find.text('Desktop Gateway'));
+      await tester.pumpAndSettle();
+      final accessHeaders = find.byKey(
+        const ValueKey<String>('hermes-access-headers-disclosure'),
+      );
+      expect(accessHeaders, findsOneWidget);
+      check(tester.widget<UtilityDisclosureSection>(accessHeaders).expanded)
+          .isFalse();
+      await tester.tap(accessHeaders);
+      await tester.pumpAndSettle();
+      check(tester.widget<UtilityDisclosureSection>(accessHeaders).expanded)
+          .isTrue();
+      expect(find.text('Header name'), findsOneWidget);
+
       final container = ProviderScope.containerOf(
         tester.element(find.byType(HermesSettingsPage)),
       );

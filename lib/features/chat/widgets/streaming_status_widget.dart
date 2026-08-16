@@ -55,7 +55,8 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
     final hasDetails =
         displayUpdates.length > 1 ||
         _collectQueries(current).isNotEmpty ||
-        _collectLinks(current).isNotEmpty;
+        _collectLinks(current).isNotEmpty ||
+        _collectDetailItems(current).isNotEmpty;
 
     return GestureDetector(
       onTap: hasDetails
@@ -290,6 +291,7 @@ class _MinimalHistoryTimeline extends StatelessWidget {
       final description = _resolveStatusDescription(update);
       final queries = _collectQueries(update);
       final links = _collectLinks(update);
+      final detailItems = _collectDetailItems(update);
 
       return Stack(
         children: [
@@ -315,6 +317,19 @@ class _MinimalHistoryTimeline extends StatelessWidget {
                 if (links.isNotEmpty) ...[
                   const SizedBox(height: Spacing.xs),
                   _MinimalSourceLinks(links: links),
+                ],
+                if (detailItems.isNotEmpty) ...[
+                  const SizedBox(height: Spacing.xs),
+                  for (final detail in detailItems)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: Spacing.xs),
+                      child: SelectableText(
+                        '${detail.title}: ${detail.snippet}',
+                        style: AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                      ),
+                    ),
                 ],
               ],
             ),
@@ -619,6 +634,13 @@ List<String> _collectQueries(ChatStatusUpdate update) {
   }
   return merged;
 }
+
+List<ChatStatusItem> _collectDetailItems(ChatStatusUpdate update) => update
+    .items
+    .where((item) => item.presentation == ChatStatusItemPresentation.detail)
+    .where((item) => item.title?.isNotEmpty == true && item.snippet != null)
+    .take(4)
+    .toList(growable: false);
 
 List<_LinkData> _collectLinks(ChatStatusUpdate update) {
   final links = <_LinkData>[];

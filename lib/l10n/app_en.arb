@@ -5357,6 +5357,8 @@
   "@hermesToolCount": {"description":"Tool count shown for a Hermes toolset.","placeholders":{"count":{"type":"int"}}},
   "hermesNoToolsets": "No toolsets reported by the server.",
   "@hermesNoToolsets": {"description":"Empty state when a Hermes server reports no toolsets."},
+  "hermesToolsetsNewSessions": "Changes apply to new Hermes sessions. Existing chats keep their current tools.",
+  "@hermesToolsetsNewSessions": {"description":"Explains that Desktop toolset changes do not reset existing chats."},
   "hermesServerStatusTitle": "Server status",
   "@hermesServerStatusTitle": {"description":"Section title above Hermes server diagnostic status."},
   "hermesNoServerStatus": "No status reported by the server.",

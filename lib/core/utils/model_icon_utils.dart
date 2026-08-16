@@ -1,5 +1,6 @@
 import '../models/model.dart';
 import '../services/api_service.dart';
+import '../../features/hermes/models/hermes_model.dart';
 
 /// Extracts the profile image URL from a model's metadata.
 ///
@@ -146,6 +147,7 @@ String? resolveModelIconUrl(ApiService? api, String? rawUrl) {
 /// `/api/v1/models/model/profile/image?id={modelId}`
 String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
   if (model == null) return null;
+  if (isHermesModel(model)) return 'asset:$kHermesModelAvatarAsset';
 
   // Check for legacy profile_image_url in metadata
   final legacyUrl = deriveModelIcon(model);

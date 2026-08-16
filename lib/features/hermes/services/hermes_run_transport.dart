@@ -10,10 +10,12 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/unicode_prefix.dart';
-import '../models/hermes_chat_input.dart';
 import '../models/hermes_run_event.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_api_service.dart';
+import 'hermes_backend_service.dart';
+import 'hermes_identifier.dart';
+import 'hermes_message_mapper.dart';
 import 'hermes_stream_parser.dart';
 
 export 'hermes_identifier.dart' show kMaxHermesOpaqueIdentifierCharacters;
@@ -21,6 +23,7 @@ export 'hermes_identifier.dart' show kMaxHermesOpaqueIdentifierCharacters;
 /// Metadata key under which Hermes approval state is stored on an assistant
 /// [ChatMessage]. The value is a map: `{state, approvalId, runId, summary}`.
 const String kHermesApprovalMeta = 'hermesApproval';
+const String kHermesDecisionMeta = 'hermesDecision';
 
 /// Transport metadata marker so the stop path can recognize a Hermes run.
 const String kHermesTransport = 'hermesRun';
@@ -52,19 +55,31 @@ const int kMaxHermesStatusRowsPerTurn = 64;
 /// normal Future completion as proof that the request was accepted: transport
 /// failures and user cancellation are deliberately converted into message
 /// state and do not escape this function as errors.
-Future<bool> dispatchHermesResponse({
-  required HermesApiService service,
+typedef HermesResponseRecoverer =
+    Future<({String text, String status})?> Function(
+      String responseId,
+      CancelToken cancelToken,
+      int maxPolls,
+      Duration pollInterval,
+    );
+
+HermesResponseRecoverer hermesResponseRecoverer(HermesApiService service) =>
+    (responseId, cancelToken, maxPolls, pollInterval) => _recoverResponseOutput(
+      service,
+      responseId,
+      cancelToken: cancelToken,
+      maxPolls: maxPolls,
+      pollInterval: pollInterval,
+    );
+
+Future<bool> dispatchHermesTurn({
+  required HermesTurnStarter startTurn,
+  required Iterable<String> sensitiveValues,
+  HermesResponseRecoverer? recoverResponse,
   required HermesRunRegistry registry,
   required String assistantMessageId,
   HermesRunKey? runKey,
   HermesRunKey Function()? currentRunKey,
-  required HermesChatInput input,
-  String? sessionId,
-  String? conversation,
-  String? previousResponseId,
-  List<Map<String, dynamic>>? conversationHistory,
-  String? instructions,
-  String? reasoningEffort,
   CancelToken? cancelToken,
   int maxRecoveryPolls = 120,
   Duration recoveryPollInterval = const Duration(seconds: 1),
@@ -73,12 +88,15 @@ Future<bool> dispatchHermesResponse({
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
+  void Function(String text)? prefillComposer,
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
-  final sensitiveProviderValues = _hermesSensitiveValues(service);
+  final sensitiveProviderValues = _boundedHermesSensitiveValues(
+    sensitiveValues,
+  );
   final statusAccumulator = _HermesStatusAccumulator(
     sensitiveValues: sensitiveProviderValues,
     appendStatus: appendStatus,
@@ -110,16 +128,7 @@ Future<bool> dispatchHermesResponse({
 
   HermesResponseStream responseStream;
   try {
-    responseStream = await service.streamResponseWithReasoning(
-      input,
-      sessionId: sessionId,
-      conversation: conversation,
-      previousResponseId: previousResponseId,
-      conversationHistory: conversationHistory,
-      instructions: instructions,
-      reasoningEffort: reasoningEffort,
-      cancelToken: responseCancelToken,
-    );
+    responseStream = await startTurn(responseCancelToken);
   } catch (error) {
     final owned = registry.complete(
       registryKey(),
@@ -130,6 +139,7 @@ Future<bool> dispatchHermesResponse({
       DebugLogger.error(
         'create-response-stream-failed',
         scope: 'hermes/transport',
+        data: {'errorType': error.runtimeType.toString()},
       );
       updateMessage(
         (message) => message.copyWith(
@@ -218,6 +228,8 @@ Future<bool> dispatchHermesResponse({
           streamedText.write(content);
         case HermesFinalOutput(:final text):
           finalOutput = text;
+        case HermesComposerPrefill(:final text):
+          prefillComposer?.call(text);
         case HermesResponseCreated(:final responseId):
           final announcedId = _validatedHermesOpaqueIdentifier(
             responseId,
@@ -251,6 +263,7 @@ Future<bool> dispatchHermesResponse({
       _handleEvent(
         event,
         runId: responseId,
+        storedSessionId: responseStream.sessionId,
         sensitiveValues: sensitiveProviderValues,
         appendContent: appendContent,
         appendStatus: statusAccumulator.appendStatus,
@@ -303,12 +316,17 @@ Future<bool> dispatchHermesResponse({
           throw streamError ??
               StateError('Hermes Responses stream ended before it started.');
         }
-        final recovered = await _recoverResponseOutput(
-          service,
+        if (recoverResponse == null) {
+          throw streamError ??
+              StateError(
+                'Hermes Desktop stream ended without a terminal event.',
+              );
+        }
+        final recovered = await recoverResponse(
           responseId!,
-          cancelToken: responseCancelToken,
-          maxPolls: maxRecoveryPolls,
-          pollInterval: recoveryPollInterval,
+          responseCancelToken,
+          maxRecoveryPolls,
+          recoveryPollInterval,
         );
         if (recovered == null) return false;
         if (recovered.text.isNotEmpty) {
@@ -530,6 +548,7 @@ Future<void> dispatchHermesRun({
           _handleEvent(
             event,
             runId: runId,
+            storedSessionId: null,
             sensitiveValues: sensitiveProviderValues,
             appendContent: appendContent,
             appendStatus: statusAccumulator.appendStatus,
@@ -1167,6 +1186,7 @@ final class _HermesReasoningStatusAccumulator {
 void _handleEvent(
   HermesRunEvent event, {
   required String? runId,
+  required String? storedSessionId,
   required Iterable<String> sensitiveValues,
   required void Function(String) appendContent,
   required void Function(ChatStatusUpdate) appendStatus,
@@ -1186,6 +1206,10 @@ void _handleEvent(
     case HermesToolProgress(
       :final toolName,
       :final detail,
+      :final arguments,
+      :final result,
+      :final inlineDiff,
+      :final subagent,
       :final done,
       :final failed,
     ):
@@ -1203,6 +1227,41 @@ void _handleEvent(
               failureDetail,
               sensitiveValues: sensitiveValues,
             );
+      final safeDetail = failed
+          ? safeFailureDetail
+          : _sanitizeHermesStatusDetail(
+              detail ?? '',
+              sensitiveValues: sensitiveValues,
+            );
+      final details = <ChatStatusItem>[
+        ?hermesToolDetailItem(
+          'Arguments',
+          arguments,
+          sanitize: (raw) => sanitizeHermesProviderErrorMessage(
+            raw,
+            sensitiveValues: sensitiveValues,
+            maxCharacters: 2048,
+          ),
+        ),
+        ?hermesToolDetailItem(
+          failed ? 'Error' : 'Result',
+          result,
+          sanitize: (raw) => sanitizeHermesProviderErrorMessage(
+            raw,
+            sensitiveValues: sensitiveValues,
+            maxCharacters: 2048,
+          ),
+        ),
+        ?hermesToolDetailItem(
+          'Inline diff',
+          inlineDiff,
+          sanitize: (raw) => sanitizeHermesProviderErrorMessage(
+            raw,
+            sensitiveValues: sensitiveValues,
+            maxCharacters: 2048,
+          ),
+        ),
+      ];
       appendStatus(
         ChatStatusUpdate(
           action: _hermesToolActionId(toolName, safeToolName),
@@ -1210,12 +1269,20 @@ void _handleEvent(
               ? safeFailureDetail != null && safeFailureDetail.isNotEmpty
                     ? '$safeToolName failed: $safeFailureDetail'
                     : '$safeToolName failed'
-              : safeToolName,
+              : safeDetail == null || safeDetail.isEmpty
+              ? safeToolName
+              : '$safeToolName · $safeDetail',
           done: done,
+          items: details,
+          query: subagent ? 'Subagent' : null,
         ),
       );
 
-    case HermesApprovalRequested(:final approvalId, :final summary):
+    case HermesApprovalRequested(
+      :final approvalId,
+      :final summary,
+      :final choices,
+    ):
       if (runId == null) break;
       final safeApprovalId = _validatedHermesOpaqueIdentifier(
         approvalId,
@@ -1223,6 +1290,10 @@ void _handleEvent(
       );
       final safeRunId = _validatedHermesOpaqueIdentifier(
         runId,
+        sensitiveValues: sensitiveValues,
+      );
+      final safeStoredSessionId = _validatedHermesOpaqueIdentifier(
+        storedSessionId,
         sensitiveValues: sensitiveValues,
       );
       if (safeApprovalId == null || safeRunId == null) {
@@ -1247,13 +1318,73 @@ void _handleEvent(
           'state': 'pending',
           'approvalId': safeApprovalId,
           'runId': safeRunId,
+          'storedSessionId': ?safeStoredSessionId,
           'summary': ?safeSummary,
+          if (choices.isNotEmpty) 'choices': choices.take(8).toList(),
         };
         return m.copyWith(metadata: meta);
       });
 
+    case HermesDecisionRequested(
+      :final kind,
+      :final requestId,
+      :final prompt,
+      :final raw,
+    ):
+      if (runId == null) break;
+      final safeRequestId = _validatedHermesOpaqueIdentifier(
+        requestId,
+        sensitiveValues: sensitiveValues,
+      );
+      final safeRuntimeId = _validatedHermesOpaqueIdentifier(
+        runId,
+        sensitiveValues: sensitiveValues,
+      );
+      if (safeRequestId == null || safeRuntimeId == null) break;
+      final safePrompt = prompt == null
+          ? null
+          : _sanitizeHermesApprovalSummary(
+              prompt,
+              sensitiveValues: sensitiveValues,
+            );
+      updateMessage((message) {
+        final metadata = Map<String, dynamic>.from(
+          message.metadata ?? const {},
+        );
+        metadata[kHermesDecisionMeta] = <String, dynamic>{
+          'state': 'pending',
+          'kind': kind.name,
+          'requestId': safeRequestId,
+          'runtimeId': safeRuntimeId,
+          'prompt': ?safePrompt,
+          if (kind == HermesDecisionKind.clarification) ...{
+            if (raw['choices'] is List)
+              'choices': _boundedHermesDecisionChoices(raw['choices']),
+            if (raw['multi_select'] == true) 'multiSelect': true,
+          },
+          if (kind == HermesDecisionKind.mcpSetup) ...{
+            'mcpServer': validateHermesBoundedString(
+              raw['server'],
+              maxCharacters: 128,
+            ),
+            'mcpAction': switch (raw['action']) {
+              'authorize' || 'enable' || 'install' => raw['action'],
+              _ => null,
+            },
+          },
+          'expiresAt': DateTime.now()
+              .add(const Duration(hours: 24))
+              .toUtc()
+              .toIso8601String(),
+        };
+        return message.copyWith(metadata: metadata);
+      });
+
     case HermesFinalOutput():
       // Captured in the stream listener (appended only if no deltas streamed).
+      break;
+
+    case HermesComposerPrefill():
       break;
 
     case HermesLifecycle():
@@ -1277,10 +1408,14 @@ void _handleEvent(
   }
 }
 
-List<String> _hermesSensitiveValues(HermesApiService service) {
+List<String> _hermesSensitiveValues(HermesBackendService service) {
+  return _boundedHermesSensitiveValues(service.config.sensitiveValues);
+}
+
+List<String> _boundedHermesSensitiveValues(Iterable<String> source) {
   final values = <String>[];
-  for (final raw in [service.config.apiKey, service.config.sessionKey]) {
-    if (raw == null || raw.isEmpty) continue;
+  for (final raw in source) {
+    if (raw.isEmpty) continue;
     // Return the original reference without trimming when it is oversized.
     // The sanitizer sees the length and fails closed before hashing/copying it.
     if (raw.length > _maxHermesProviderSecretCharacters) return [raw];
@@ -1320,6 +1455,14 @@ String? _sanitizeHermesApprovalSummary(
   );
   if (safe == 'Hermes run failed.' || safe == '[REDACTED]') return null;
   return safe;
+}
+
+List<String> _boundedHermesDecisionChoices(Object? value) {
+  if (value is! Iterable) return const <String>[];
+  return [
+    for (final item in value.take(8))
+      ?validateHermesBoundedString(item, maxCharacters: 80),
+  ];
 }
 
 String _sanitizeHermesToolName(

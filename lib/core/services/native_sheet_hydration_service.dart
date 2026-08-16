@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../features/tools/providers/tools_providers.dart';
@@ -14,8 +15,8 @@ import '../models/model.dart';
 import '../models/tool.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
-import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/hermes/models/hermes_model.dart';
 import '../utils/debug_logger.dart';
 import '../utils/model_icon_utils.dart';
 import '../utils/model_sort_utils.dart';
@@ -143,11 +144,9 @@ class NativeSheetHydrationService {
       final pinnedModelIds = allowsPinning
           ? _ref.read(effectivePinnedModelIdsProvider)
           : const <String>[];
-      // The Hermes agent has its own dedicated tab; never list it in the picker.
-      final pickerModels = models.where((m) => !isHermesModel(m)).toList();
       final orderedModels = allowsPinning
-          ? sortModelsWithPinnedOrder(pickerModels, pinnedModelIds)
-          : List<Model>.of(pickerModels, growable: false);
+          ? sortModelsWithPinnedOrder(models, pinnedModelIds)
+          : List<Model>.of(models, growable: false);
       final canTogglePinnedModels =
           allowsPinning && _ref.read(canTogglePinnedModelsProvider);
       final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
@@ -194,9 +193,28 @@ class NativeSheetHydrationService {
       final allowsCustomEffort = effortPolicy.allowsCustom;
       final effortOptions = effortPolicy.options;
 
+      Uint8List? hermesAvatarBytes;
+      if (orderedModels.any(isHermesModel)) {
+        final data = await rootBundle.load(kHermesModelAvatarAsset);
+        hermesAvatarBytes = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
+        if (!context.mounted) return null;
+      }
+
       final modelOptions = [
         ...leadingOptions,
         ...orderedModels.map((model) {
+          if (isHermesModel(model)) {
+            return NativeSheetModelOption(
+              id: model.id,
+              name: model.name,
+              subtitle: model.description,
+              avatarBytes: hermesAvatarBytes,
+              tags: model.modelTags,
+            );
+          }
           final avatarUrl = resolveModelIconUrlForModel(api, model);
           final avatarHeaders = avatarUrl == null
               ? const <String, String>{}

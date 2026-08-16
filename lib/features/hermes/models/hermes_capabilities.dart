@@ -37,6 +37,13 @@ class HermesCapabilities {
   /// The compatibility default used while loading or when discovery fails.
   static const HermesCapabilities enabledByDefault = HermesCapabilities();
 
+  static const HermesCapabilities desktopCoreOnly = HermesCapabilities(
+    skills: false,
+    toolsets: false,
+    jobs: false,
+    jobsAdmin: false,
+  );
+
   factory HermesCapabilities.fromJson(Map<String, dynamic> json) {
     return HermesCapabilities(
       runApproval: _resolve(json, const [
@@ -79,6 +86,7 @@ class HermesCapabilities {
   }
 
   static bool _resolveResponsesImageInput(Map<String, dynamic> json) {
+    if (json['desktop_uploads'] == true) return true;
     final topLevelApi = json['responses_api'];
     final topLevelStreaming = json['responses_streaming'];
     final features = json['features'];
