@@ -159,9 +159,11 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
   }
 }
 
+// A 120 px streaming cache extent evicted rows almost immediately when
+// scrolling up mid-stream; remounting a settled row runs a synchronous
+// markdown compile, so the small extent bought hitches, not savings.
 @visibleForTesting
-double debugChatMessageScrollCachePixels({required bool streaming}) =>
-    streaming ? 120.0 : 600.0;
+double debugChatMessageScrollCachePixels({required bool streaming}) => 600.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -336,6 +338,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _ChatTimelineScrollMode _timelineScrollMode =
       _ChatTimelineScrollMode.followingLatest;
   final _stableLayoutCache = _ChatListStableLayoutCache();
+  // Identity-stable transcript window, render model, and rowBuilder. The shell
+  // rebuilds far more often than the transcript changes (drag setState,
+  // keyboard insets, pin transitions); keeping these identities stable lets
+  // the viewport's sliver delegate skip rebuilding every mounted row, and lets
+  // the stable-layout cache hit its identity fast path.
+  List<ChatMessage>? _transcriptWindowSource;
+  int _transcriptWindowCount = -1;
+  List<ChatMessage> _transcriptWindowMemo = const <ChatMessage>[];
+  List<ChatMessage>? _timelineModelSource;
+  int _timelineModelGeneration = -1;
+  ChatTimelineRenderModel? _timelineModelMemo;
+  ChatTimelineRenderModel? _rowBuilderTimeline;
+  _ChatListStableLayoutMetadata? _rowBuilderLayout;
+  bool _rowBuilderSuppressHaptics = false;
+  ChatTimelineRowBuilder? _rowBuilderMemo;
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
@@ -1023,7 +1040,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _bottomAnchorController.requestBottomAnchor();
     final generation = ++_pinPositionGeneration;
     final topInset =
-        MediaQuery.of(context).padding.top +
+        MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
     _pinToTopEndSpaceExtent = math.max(
@@ -1872,10 +1889,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
   ) {
-    return latestTranscriptWindow(
-      completeMessages,
-      _renderedTranscriptCount(completeMessages, paging),
-    );
+    final count = _renderedTranscriptCount(completeMessages, paging);
+    if (!identical(_transcriptWindowSource, completeMessages) ||
+        count != _transcriptWindowCount) {
+      _transcriptWindowSource = completeMessages;
+      _transcriptWindowCount = count;
+      _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
+    }
+    return _transcriptWindowMemo;
   }
 
   bool _hasScrollableTranscriptContent() {
@@ -2563,7 +2584,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // list owns it.
     // Add padding for the floating app bar and overlaid composer skeleton.
     final topPadding =
-        MediaQuery.of(context).padding.top +
+        MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
     final bottomPadding = _messageListBottomPadding();
@@ -2614,7 +2635,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       child: Container(
         margin: const EdgeInsets.only(bottom: Spacing.md),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.82,
+          maxWidth: MediaQuery.sizeOf(context).width * 0.82,
         ),
         padding: const EdgeInsets.all(Spacing.md),
         decoration: BoxDecoration(
@@ -2650,7 +2671,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final paging = watchRef.watch(chatTranscriptPagingProvider);
 
     final topPadding =
-        MediaQuery.of(context).padding.top +
+        MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
     final bottomPadding = _messageListBottomPadding();
@@ -2666,11 +2687,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
     );
-    final timeline = ChatTimelineRenderModel.fromMessages(
-      messages,
-      duplicateReportScope:
-          '${identityHashCode(this)}:$_conversationOwnerGeneration',
-    );
+    final timeline = _resolveTimelineRenderModel(messages);
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
     _syncLayoutBottomAnchor();
 
@@ -2687,19 +2704,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final messageIds = timeline.messageIds;
-    // Reversed iteration plus map overwrite preserves the first source row for
-    // malformed duplicate IDs while keeping the indexed fast path allocation-free.
-    late final historyMessagesById = <String, ChatMessage>{
-      for (final message in timeline.historyMessages.reversed)
-        message.id: message,
-    };
-    late final layoutRowsByMessageId = <String, _ChatRowLayoutMetadata>{
-      for (final row in layoutMetadata.rows.reversed) row.messageId: row,
-    };
-    ChatMessage? historyMessageById(String messageId) =>
-        historyMessagesById[messageId];
-    _ChatRowLayoutMetadata? layoutRowByMessageId(String messageId) =>
-        layoutRowsByMessageId[messageId];
     final hideForInitialPin = debugShouldHideTranscriptForInitialPinForTesting(
       settleImmediately: _pinShouldSettleImmediately,
       positionSettled: _pinToTopPositionSettled,
@@ -2788,33 +2792,94 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
-      rowBuilder: (context, renderIndex) {
-        final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
-        if (sourceIndex == null || renderIndex >= messageIds.length) {
-          return const SizedBox.shrink();
-        }
-        final renderedMessageId = messageIds[renderIndex];
-        final tailRenderIndex = timeline.tailAssistantRenderIndex;
-        if (tailRenderIndex != null && renderIndex == tailRenderIndex) {
-          return _buildTailAssistantRow(
-            timeline: timeline,
-            layoutMetadata: layoutMetadata,
-            sourceIndex: sourceIndex,
-            layoutRowByMessageId: layoutRowByMessageId,
-            suppressStreamingHaptics: suppressAssistantStreamingHaptics,
-          );
-        }
-        return _buildHistoryRow(
+      rowBuilder: _resolveTimelineRowBuilder(
+        timeline: timeline,
+        layoutMetadata: layoutMetadata,
+        suppressStreamingHaptics: suppressAssistantStreamingHaptics,
+      ),
+    );
+  }
+
+  ChatTimelineRenderModel _resolveTimelineRenderModel(
+    List<ChatMessage> messages,
+  ) {
+    final memo = _timelineModelMemo;
+    if (memo != null &&
+        identical(_timelineModelSource, messages) &&
+        _timelineModelGeneration == _conversationOwnerGeneration) {
+      return memo;
+    }
+    _timelineModelSource = messages;
+    _timelineModelGeneration = _conversationOwnerGeneration;
+    return _timelineModelMemo = ChatTimelineRenderModel.fromMessages(
+      messages,
+      duplicateReportScope:
+          '${identityHashCode(this)}:$_conversationOwnerGeneration',
+    );
+  }
+
+  /// Returns an identity-stable rowBuilder for unchanged inputs so the
+  /// viewport's sliver delegate can skip rebuilding mounted rows on
+  /// shell-only rebuilds. Rows read live message state through their own
+  /// Consumers, so the closure only needs to change when the timeline
+  /// structure or stable layout metadata does.
+  ChatTimelineRowBuilder _resolveTimelineRowBuilder({
+    required ChatTimelineRenderModel timeline,
+    required _ChatListStableLayoutMetadata layoutMetadata,
+    required bool suppressStreamingHaptics,
+  }) {
+    final memo = _rowBuilderMemo;
+    if (memo != null &&
+        identical(_rowBuilderTimeline, timeline) &&
+        identical(_rowBuilderLayout, layoutMetadata) &&
+        _rowBuilderSuppressHaptics == suppressStreamingHaptics) {
+      return memo;
+    }
+    final messageIds = timeline.messageIds;
+    // Reversed iteration plus map overwrite preserves the first source row for
+    // malformed duplicate IDs while keeping the indexed fast path allocation-free.
+    late final historyMessagesById = <String, ChatMessage>{
+      for (final message in timeline.historyMessages.reversed)
+        message.id: message,
+    };
+    late final layoutRowsByMessageId = <String, _ChatRowLayoutMetadata>{
+      for (final row in layoutMetadata.rows.reversed) row.messageId: row,
+    };
+    ChatMessage? historyMessageById(String messageId) =>
+        historyMessagesById[messageId];
+    _ChatRowLayoutMetadata? layoutRowByMessageId(String messageId) =>
+        layoutRowsByMessageId[messageId];
+    Widget rowBuilder(BuildContext context, int renderIndex) {
+      final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
+      if (sourceIndex == null || renderIndex >= messageIds.length) {
+        return const SizedBox.shrink();
+      }
+      final renderedMessageId = messageIds[renderIndex];
+      final tailRenderIndex = timeline.tailAssistantRenderIndex;
+      if (tailRenderIndex != null && renderIndex == tailRenderIndex) {
+        return _buildTailAssistantRow(
           timeline: timeline,
           layoutMetadata: layoutMetadata,
-          requestedMessageId: renderedMessageId,
           sourceIndex: sourceIndex,
-          historyMessageById: historyMessageById,
           layoutRowByMessageId: layoutRowByMessageId,
-          suppressStreamingHaptics: suppressAssistantStreamingHaptics,
+          suppressStreamingHaptics: suppressStreamingHaptics,
         );
-      },
-    );
+      }
+      return _buildHistoryRow(
+        timeline: timeline,
+        layoutMetadata: layoutMetadata,
+        requestedMessageId: renderedMessageId,
+        sourceIndex: sourceIndex,
+        historyMessageById: historyMessageById,
+        layoutRowByMessageId: layoutRowByMessageId,
+        suppressStreamingHaptics: suppressStreamingHaptics,
+      );
+    }
+
+    _rowBuilderTimeline = timeline;
+    _rowBuilderLayout = layoutMetadata;
+    _rowBuilderSuppressHaptics = suppressStreamingHaptics;
+    return _rowBuilderMemo = rowBuilder;
   }
 
   Widget _buildTailAssistantRow({
@@ -3262,7 +3327,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Add top padding for the floating app bar and bottom padding for the
     // overlaid composer section.
     final topPadding =
-        MediaQuery.of(context).padding.top +
+        MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
     final bottomPadding = _messageListBottomPadding();

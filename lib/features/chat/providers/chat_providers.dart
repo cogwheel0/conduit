@@ -1176,59 +1176,74 @@ bool failedCompactedHermesApprovalRemainsAdoptableForTest() {
 class _ChatMessageListStructure {
   const _ChatMessageListStructure({required this.ids, required this.signature});
 
+  // ChatMessage is immutable and unchanged messages keep their identity
+  // across chatMessagesProvider emissions, so per-message signature fragments
+  // are cached by identity. This factory runs on every message-list emission;
+  // without the cache it re-derived O(messages × versions) string work each
+  // time even when nothing changed.
+  static final Expando<String> _messageSignatureCache = Expando<String>();
+
   factory _ChatMessageListStructure.fromMessages(List<ChatMessage> messages) {
     final ids = List<String>.unmodifiable(
       messages.map((message) => message.id).toList(growable: false),
     );
     final buffer = StringBuffer();
     for (final message in messages) {
-      buffer
-        ..write(message.id)
-        ..write('\u0000')
-        ..write(message.role)
-        ..write('\u0000')
-        ..write(message.model ?? '')
-        ..write('\u0000')
-        ..write(message.attachmentIds?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.files?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.embeds?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.output?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.statusHistory.length)
-        ..write('\u0000')
-        ..write(message.followUps.length)
-        ..write('\u0000')
-        ..write(message.sources.length)
-        ..write('\u0000')
-        ..write(message.codeExecutions.length)
-        ..write('\u0000')
-        ..write(message.error == null ? 0 : 1)
-        ..write('\u0000')
-        ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
-        ..write('\u0000')
-        // responseDone flips the rendered turn phase (running footer host /
-        // pin-to-top) while isStreaming is still set, so the list shell must
-        // rebuild on this transition to recompute the timeline.
-        ..write(message.metadata?['responseDone'] == true ? 1 : 0)
-        ..write('\u0000')
-        // Include the displayed model-name fallback so the structure signature
-        // changes whenever the label changes, keeping the list-shell rebuild
-        // trigger in agreement with chat_page's layout signature. Use the
-        // normalized extractor so trim/empty handling matches the displayed name.
-        ..write(_messageModelName(message) ?? '')
-        ..write('\u0000')
-        ..write(message.versions.length);
-      for (final version in message.versions) {
-        buffer
-          ..write('\u0000')
-          ..write(version.model ?? '');
-      }
-      buffer.writeln();
+      buffer.write(
+        _messageSignatureCache[message] ??= _buildMessageSignature(message),
+      );
     }
     return _ChatMessageListStructure(ids: ids, signature: buffer.toString());
+  }
+
+  static String _buildMessageSignature(ChatMessage message) {
+    final buffer = StringBuffer();
+    buffer
+      ..write(message.id)
+      ..write('\u0000')
+      ..write(message.role)
+      ..write('\u0000')
+      ..write(message.model ?? '')
+      ..write('\u0000')
+      ..write(message.attachmentIds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.files?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.embeds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.output?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.statusHistory.length)
+      ..write('\u0000')
+      ..write(message.followUps.length)
+      ..write('\u0000')
+      ..write(message.sources.length)
+      ..write('\u0000')
+      ..write(message.codeExecutions.length)
+      ..write('\u0000')
+      ..write(message.error == null ? 0 : 1)
+      ..write('\u0000')
+      ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
+      ..write('\u0000')
+      // responseDone flips the rendered turn phase (running footer host /
+      // pin-to-top) while isStreaming is still set, so the list shell must
+      // rebuild on this transition to recompute the timeline.
+      ..write(message.metadata?['responseDone'] == true ? 1 : 0)
+      ..write('\u0000')
+      // Include the displayed model-name fallback so the structure signature
+      // changes whenever the label changes, keeping the list-shell rebuild
+      // trigger in agreement with chat_page's layout signature. Use the
+      // normalized extractor so trim/empty handling matches the displayed name.
+      ..write(_messageModelName(message) ?? '')
+      ..write('\u0000')
+      ..write(message.versions.length);
+    for (final version in message.versions) {
+      buffer
+        ..write('\u0000')
+        ..write(version.model ?? '');
+    }
+    buffer.writeln();
+    return buffer.toString();
   }
 
   final List<String> ids;

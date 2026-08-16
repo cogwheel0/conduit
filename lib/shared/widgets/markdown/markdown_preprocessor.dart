@@ -315,9 +315,22 @@ class ConduitMarkdownPreprocessor {
     return buffer.toString();
   }
 
+  /// True when [input] contains a line shaped like a Markdown link reference
+  /// definition.
+  ///
+  /// This is the exact trigger for [_stripLinkReferenceDefinitions]'s global
+  /// rewrite (strip + newline collapse + trim), so the incremental streaming
+  /// preparation engine gates on the same predicate: whenever this is false,
+  /// normalization is guaranteed to have no non-local effects from reference
+  /// definitions. A bare `contains(']:')` was previously used for both, which
+  /// forced full re-preparation for any message merely mentioning `]:` (for
+  /// example inside code).
+  static bool hasLinkReferenceDefinitionLine(String input) =>
+      input.contains(']:') && _linkReferenceDefinition.hasMatch(input);
+
   /// Strips Markdown link reference definitions outside code spans.
   static String _stripLinkReferenceDefinitions(String input) {
-    if (!input.contains(']:')) return input;
+    if (!hasLinkReferenceDefinitionLine(input)) return input;
 
     final stripped = _removeMatchesOutsideCode(input, _linkReferenceDefinition);
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();

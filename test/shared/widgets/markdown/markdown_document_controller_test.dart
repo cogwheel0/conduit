@@ -106,16 +106,42 @@ void main() {
     },
   );
 
-  test('splitter keeps CommonMark raw HTML blocks fully mutable', () {
+  test('splitter keeps CommonMark raw HTML blocks mutable from their start', () {
     const content = '<pre>\nraw line\n\n**not markdown**\n</pre>\n\nTail';
 
     final split = debugSplitStreamingPreparedContentForTesting(content);
 
     expect(split['frozenPrefix'], isEmpty);
     expect(split['mutableTail'], content);
-    expect(split['canIncrementallyCompile'], isFalse);
-    expect(split['fallbackReason'], 'rawHtmlBlock');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
   });
+
+  test('splitter freezes blocks that precede a raw HTML block', () {
+    const content = 'Intro paragraph.\n\n<div>\nraw html\n</div>\n\nTail';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], 'Intro paragraph.\n\n');
+    expect(split['mutableTail'], '<div>\nraw html\n</div>\n\nTail');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
+  test(
+    'reference-definition-shaped lines inside fenced code do not disable '
+    'incremental splitting',
+    () {
+      const content = '```md\n[d]: https://example.com\n```\n\nTail';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], '```md\n[d]: https://example.com\n```\n\n');
+      expect(split['mutableTail'], 'Tail');
+      expect(split['canIncrementallyCompile'], isTrue);
+      expect(split['fallbackReason'], isNull);
+    },
+  );
 
   test('splitter keeps loose list continuations in the mutable tail', () {
     const content = '- First paragraph.\n\n  Second paragraph.';

@@ -1831,6 +1831,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  // The error heuristics are four full-content scans; the footer rebuilds far
+  // more often than the content changes, so memoize by string identity.
+  String? _errorScanContent;
+  bool _errorScanResult = false;
+
+  bool get _displayedContentLooksLikeError {
+    final content = _displayedContent;
+    if (!identical(_errorScanContent, content)) {
+      _errorScanContent = content;
+      _errorScanResult =
+          content.contains('⚠️') ||
+          content.contains('Error') ||
+          content.contains('timeout') ||
+          content.contains('retry options');
+    }
+    return _errorScanResult;
+  }
+
   List<_AssistantFooterAction> _buildFooterActions() {
     final l10n = AppLocalizations.of(context)!;
     final ttsState = ref.read(textToSpeechControllerProvider);
@@ -1839,12 +1857,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final messageId = _messageId;
     final activeError = _getActiveError();
     final hasErrorField = activeError != null;
-    final isErrorMessage =
-        hasErrorField ||
-        _displayedContent.contains('⚠️') ||
-        _displayedContent.contains('Error') ||
-        _displayedContent.contains('timeout') ||
-        _displayedContent.contains('retry options');
+    final isErrorMessage = hasErrorField || _displayedContentLooksLikeError;
 
     final isActiveMessage = ttsState.activeMessageId == messageId;
     final isSpeaking =

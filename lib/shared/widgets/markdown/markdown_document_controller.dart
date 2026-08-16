@@ -6,8 +6,9 @@ import 'compiled_markdown_document.dart';
 import 'markdown_compile_service.dart';
 import 'streaming_markdown_preparation.dart';
 
-typedef MarkdownDocumentControllerListener =
-    void Function(CompiledMarkdownDocument? document);
+typedef MarkdownDocumentControllerListener = void Function(
+  CompiledMarkdownDocument? document,
+);
 
 enum _MarkdownResolveMode { full, streamingIncremental, streamingPatch }
 
@@ -817,28 +818,29 @@ _StreamingPreparedSplit _splitStreamingPreparedContent(String preparedContent) {
     return const _StreamingPreparedSplit(frozenPrefix: '', mutableTail: '');
   }
 
-  // Reference definitions can retroactively change earlier blocks, so keep
-  // the full document mutable while they are present.
-  if (_streamingReferenceDefinitionPattern.hasMatch(preparedContent)) {
+  final lines = _splitStreamingPreparedLines(preparedContent);
+
+  // One fence-aware pass finds the first line with possible non-local effects.
+  // Reference definitions can retroactively rebind earlier links in this
+  // region, so they keep the whole region mutable — but only when they appear
+  // outside fenced code; previously a definition-shaped line (or any raw HTML
+  // block) anywhere, including inside code fences, disabled incremental
+  // compilation for the entire message on every streamed flush.
+  //
+  // Raw HTML blocks have tag-specific termination rules the scanner does not
+  // model, but they cannot affect blocks before them, so freezing is capped
+  // at the first HTML block start instead of keeping the whole document
+  // mutable.
+  final unsafe = _firstStreamingUnsafeLine(lines);
+  if (unsafe != null && unsafe.isReferenceDefinition) {
     return _StreamingPreparedSplit(
       frozenPrefix: '',
       mutableTail: preparedContent,
       fallbackReason: 'referenceDefinitions',
     );
   }
+  final freezeCap = unsafe?.offset ?? preparedContent.length;
 
-  // CommonMark raw HTML blocks have tag-specific termination rules. Until the
-  // splitter models those rules, parsing the document as one mutable segment
-  // is safer than freezing at a blank line inside the raw block.
-  if (_containsStreamingRawHtmlBlock(preparedContent)) {
-    return _StreamingPreparedSplit(
-      frozenPrefix: '',
-      mutableTail: preparedContent,
-      fallbackReason: 'rawHtmlBlock',
-    );
-  }
-
-  final lines = _splitStreamingPreparedLines(preparedContent);
   var index = 0;
   var safeBoundary = 0;
 
@@ -853,7 +855,7 @@ _StreamingPreparedSplit _splitStreamingPreparedContent(String preparedContent) {
       index,
       preparedContent.length,
     );
-    if (result == null) {
+    if (result == null || result.safeBoundary > freezeCap) {
       break;
     }
 
@@ -901,11 +903,13 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
   return lines;
 }
 
-bool _containsStreamingRawHtmlBlock(String content) {
+({int offset, bool isReferenceDefinition})? _firstStreamingUnsafeLine(
+  List<_StreamingPreparedLine> lines,
+) {
   String? fenceCharacter;
   var fenceLength = 0;
 
-  for (final line in _splitStreamingPreparedLines(content)) {
+  for (final line in lines) {
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
       continue;
@@ -927,12 +931,15 @@ bool _containsStreamingRawHtmlBlock(String content) {
       continue;
     }
 
+    if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
+      return (offset: line.start, isReferenceDefinition: true);
+    }
     if (_streamingRawHtmlBlockPattern.hasMatch(candidate)) {
-      return true;
+      return (offset: line.start, isReferenceDefinition: false);
     }
   }
 
-  return false;
+  return null;
 }
 
 bool _isStreamingFenceClose(
@@ -972,15 +979,12 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
       : _streamingFenceStartPattern.firstMatch(starterCandidate);
   if (fenceMatch != null) {
     final fence = fenceMatch.group(1)!;
-    final closingPattern = RegExp(
-      '^\\s*${RegExp.escape(fence[0])}{${fence.length},}\\s*\$',
-    );
     for (var lineIndex = index + 1; lineIndex < lines.length; lineIndex += 1) {
       final closingCandidate = _streamingBlockStarterCandidate(
         lines[lineIndex].text,
       );
       if (closingCandidate == null ||
-          !closingPattern.hasMatch(closingCandidate)) {
+          !_isStreamingFenceClose(closingCandidate, fence[0], fence.length)) {
         continue;
       }
       final nextIndex = _skipBlankStreamingLines(lines, lineIndex + 1);

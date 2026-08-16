@@ -164,6 +164,13 @@ class _StreamingMarkdownWidgetState
   final GlobalKey _markdownContentKey = GlobalKey();
   final Map<String, CompiledMarkdownDocument> _displayPartDocumentCache =
       <String, CompiledMarkdownDocument>{};
+  // buildMarkdownDisplayParts re-derives one sub-document per root block and
+  // deep-compares each against the cache — O(whole message) string work. The
+  // widget rebuilds far more often than the compiled document changes (shell
+  // rebuilds, fade frames), so memoize the split by document identity.
+  CompiledMarkdownDocument? _displayPartsSourceDocument;
+  bool _displayPartsWereStreaming = false;
+  List<MarkdownDisplayPart>? _displayPartsMemo;
   // Unique per-instance prefix used when no stateScopeId is supplied, so two
   // scope-less StreamingMarkdownWidgets on the same route don't share
   // PageStorage keys (markdown_compile_service reuses block ids across unrelated
@@ -424,6 +431,8 @@ class _StreamingMarkdownWidgetState
   @override
   void didHaveMemoryPressure() {
     _displayPartDocumentCache.clear();
+    _displayPartsSourceDocument = null;
+    _displayPartsMemo = null;
     _compileService.handleMemoryPressure();
   }
 
@@ -769,11 +778,22 @@ class _StreamingMarkdownWidgetState
   }
 
   Widget _buildMarkdownDisplayParts(CompiledMarkdownDocument document) {
-    final parts = buildMarkdownDisplayParts(
-      document,
-      isStreaming: widget.isStreaming,
-    );
-    if (parts.isEmpty) {
+    var stableParts = _displayPartsMemo;
+    if (stableParts == null ||
+        !identical(document, _displayPartsSourceDocument) ||
+        widget.isStreaming != _displayPartsWereStreaming) {
+      final parts = buildMarkdownDisplayParts(
+        document,
+        isStreaming: widget.isStreaming,
+      );
+      stableParts = parts.isEmpty
+          ? const <MarkdownDisplayPart>[]
+          : _reuseStableDisplayPartDocuments(parts);
+      _displayPartsSourceDocument = document;
+      _displayPartsWereStreaming = widget.isStreaming;
+      _displayPartsMemo = stableParts;
+    }
+    if (stableParts.isEmpty) {
       _displayPartDocumentCache.clear();
       return _buildMarkdownWithCitations(
         document: document,
@@ -783,7 +803,6 @@ class _StreamingMarkdownWidgetState
         trimLastBlockBottomPadding: true,
       );
     }
-    final stableParts = _reuseStableDisplayPartDocuments(parts);
 
     return Column(
       mainAxisSize: MainAxisSize.min,

@@ -1246,27 +1246,45 @@ class _CodeBlockBody extends StatefulWidget {
   static const largeJsonPlainPreviewLineThreshold = 60;
   static const largeJsonPlainPreviewCharThreshold = 4000;
 
+  /// Above this size, code renders unhighlighted in any language.
+  /// `highlight.parse` runs synchronously in build; on an expanded block that
+  /// is still streaming it would re-parse the whole source on every flush.
+  // ponytail: hard cap instead of incremental/off-thread highlighting; move
+  // highlighting into the compiler isolate if large code blocks matter.
+  static const largePlainRenderCharThreshold = 50000;
+
   @override
   State<_CodeBlockBody> createState() => _CodeBlockBodyState();
 }
 
 class _CodeBlockBodyState extends State<_CodeBlockBody> {
   bool _isCollapsed = true;
+  String? _linesSource;
+  List<String> _lines = const <String>[];
+
+  List<String> _splitLines() {
+    if (!identical(_linesSource, widget.code)) {
+      _linesSource = widget.code;
+      _lines = widget.code.split('\n');
+    }
+    return _lines;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final lines = widget.code.split('\n');
+    final lines = _splitLines();
     final isCollapsible = lines.length > _CodeBlockBody.collapseThreshold;
     final displayCode = (isCollapsible && _isCollapsed)
         ? lines.take(_CodeBlockBody.previewLines).join('\n')
         : widget.code;
     final hiddenCount = lines.length - _CodeBlockBody.previewLines;
     final renderPlainPreview =
-        _isCollapsed &&
-        widget.highlightLanguage == 'json' &&
-        (lines.length > _CodeBlockBody.largeJsonPlainPreviewLineThreshold ||
-            widget.code.length >
-                _CodeBlockBody.largeJsonPlainPreviewCharThreshold);
+        displayCode.length > _CodeBlockBody.largePlainRenderCharThreshold ||
+        (_isCollapsed &&
+            widget.highlightLanguage == 'json' &&
+            (lines.length > _CodeBlockBody.largeJsonPlainPreviewLineThreshold ||
+                widget.code.length >
+                    _CodeBlockBody.largeJsonPlainPreviewCharThreshold));
 
     return Column(
       mainAxisSize: MainAxisSize.min,

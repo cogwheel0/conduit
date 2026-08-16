@@ -452,9 +452,10 @@ class PreparedMarkdownText {
 
   @override
   bool operator ==(Object other) =>
-      other is PreparedMarkdownText &&
-      length == other.length &&
-      materialize() == other.materialize();
+      identical(other, this) ||
+      (other is PreparedMarkdownText &&
+          length == other.length &&
+          startsWith(other));
 
   @override
   int get hashCode => Object.hash(length, materialize());
@@ -538,7 +539,9 @@ class StreamingMarkdownPreparationEngine {
     if (commonRawPrefix < checkpoint.rawOffset ||
         checkpoint.rawOffset == 0 ||
         state.hasReferenceDefinitions ||
-        request.content.contains(']:')) {
+        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+          request.content,
+        )) {
       return null;
     }
 
@@ -661,7 +664,10 @@ class StreamingMarkdownPreparationEngine {
           ? previousPrepared.utf8Length(preparedRetainLength)
           : 0,
     );
-    final hasReferences = request.content.contains(']:');
+    final hasReferences =
+        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+          request.content,
+        );
     final checkpoint = hasReferences
         ? const _MarkdownPreparationCheckpoint.empty()
         : _advanceCheckpoint(
@@ -766,7 +772,9 @@ class StreamingMarkdownPreparationEngine {
     }
 
     final rawPrefixTail = rawTail.substring(0, localRawBoundary);
-    if (rawPrefixTail.contains(']:')) {
+    if (ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+      rawPrefixTail,
+    )) {
       return _MarkdownPreparationCheckpoint(
         rawOffset: baseRawOffset,
         preparedOffset: basePreparedOffset,
@@ -828,7 +836,10 @@ int _commonPrefixLength(String left, String right) {
 }
 
 int _lastSafeRawBoundary(String input) {
-  if (input.isEmpty || input.contains(']:')) return 0;
+  if (input.isEmpty ||
+      ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(input)) {
+    return 0;
+  }
 
   var openTicks = 0;
   var detailsDepth = 0;

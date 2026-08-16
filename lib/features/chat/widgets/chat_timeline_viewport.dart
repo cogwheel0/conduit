@@ -1859,13 +1859,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   horizontal: widget.horizontalPadding,
                 ),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
+                  delegate: _TimelineRowDelegate(
                     (context, index) =>
                         _buildRow(context, centerIndex - 1 - index),
                     childCount: centerIndex,
-                    addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _olderChildIndexForKey(key, centerIndex),
+                    rowBuilder: widget.rowBuilder,
+                    entries: _timelineEntries,
+                    centerIndex: centerIndex,
                   ),
                 ),
               ),
@@ -1875,12 +1877,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   horizontal: widget.horizontalPadding,
                 ),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
+                  delegate: _TimelineRowDelegate(
                     (context, index) => _buildRow(context, centerIndex + index),
                     childCount: _messageIds.length - centerIndex,
-                    addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _centerChildIndexForKey(key, centerIndex),
+                    rowBuilder: widget.rowBuilder,
+                    entries: _timelineEntries,
+                    centerIndex: centerIndex,
                   ),
                 ),
               ),
@@ -1966,6 +1970,33 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
           ),
       ],
     );
+  }
+}
+
+/// SliverChildBuilderDelegate whose `shouldRebuild` defaults to true, which
+/// made every shell rebuild (drag-start setState, keyboard insets, pin
+/// transitions) rebuild every mounted row. Row content is derived entirely
+/// from [rowBuilder] and [entries]; per-row Consumers pick up message-level
+/// changes on their own, so identical inputs mean no rebuild is needed.
+class _TimelineRowDelegate extends SliverChildBuilderDelegate {
+  const _TimelineRowDelegate(
+    super.builder, {
+    required super.childCount,
+    required super.findChildIndexCallback,
+    required this.rowBuilder,
+    required this.entries,
+    required this.centerIndex,
+  }) : super(addSemanticIndexes: false);
+
+  final ChatTimelineRowBuilder rowBuilder;
+  final List<({String id, int sourceIndex})> entries;
+  final int centerIndex;
+
+  @override
+  bool shouldRebuild(covariant _TimelineRowDelegate oldDelegate) {
+    return !identical(rowBuilder, oldDelegate.rowBuilder) ||
+        !identical(entries, oldDelegate.entries) ||
+        centerIndex != oldDelegate.centerIndex;
   }
 }
 
