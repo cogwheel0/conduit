@@ -20,6 +20,7 @@ class AvatarImage extends ConsumerWidget {
   final double size;
   final String? imageUrl;
   final BorderRadius? borderRadius;
+  final Color? backgroundColor;
   final AvatarWidgetBuilder fallbackBuilder;
   final AvatarWidgetBuilder? placeholderBuilder;
 
@@ -29,6 +30,7 @@ class AvatarImage extends ConsumerWidget {
     required this.fallbackBuilder,
     this.imageUrl,
     this.borderRadius,
+    this.backgroundColor,
     this.placeholderBuilder,
   });
 
@@ -52,16 +54,19 @@ class AvatarImage extends ConsumerWidget {
       if (assetName.isEmpty) return fallbackBuilder(context, size);
       return ClipRRect(
         borderRadius: _radius,
-        child: Image(
-          image: RasterMediaPolicy.resizeProvider(
-            AssetImage(assetName),
-            decodeTarget,
+        child: ColoredBox(
+          color: backgroundColor ?? Colors.transparent,
+          child: Image(
+            image: RasterMediaPolicy.resizeProvider(
+              AssetImage(assetName),
+              decodeTarget,
+            ),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                fallbackBuilder(context, size),
           ),
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) =>
-              fallbackBuilder(context, size),
         ),
       );
     }
