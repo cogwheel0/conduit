@@ -4752,6 +4752,72 @@ void main() {
       },
     );
 
+    test('Hermes file regeneration leaves a failed assistant bubble', () async {
+      final user = ChatMessage(
+        id: 'user-file',
+        role: 'user',
+        content: 'inspect this',
+        timestamp: DateTime(2024, 1, 1),
+        files: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'source': 'hermes_desktop_file',
+            'name': 'archive.zip',
+          },
+        ],
+      );
+      final previousAssistant = _assistantMessage(
+        id: 'assistant-file',
+        content: 'previous answer',
+      );
+      final conversation = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes-file-session',
+          title: 'Hermes file session',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          messages: <ChatMessage>[user, previousAssistant],
+          metadata: const <String, dynamic>{
+            'backend': 'hermes',
+            'hermesSessionId': 'file-session',
+          },
+        ),
+      );
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          selectedModelProvider.overrideWithValue(hermesSyntheticModel()),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(_BranchingHermesApi()),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(activeConversationProvider.notifier).set(conversation);
+      container
+          .read(chatMessagesProvider.notifier)
+          .setMessages(conversation.messages);
+
+      await expectLater(
+        regenerateMessage(container, user.content, null),
+        throwsA(isA<HermesAttachmentsUnsupportedException>()),
+      );
+
+      final failed = container.read(chatMessagesProvider).last;
+      check(failed.id).equals(previousAssistant.id);
+      check(failed.isStreaming).isFalse();
+      check(failed.error?.content ?? '').contains('cannot be regenerated');
+      check(failed.versions).single
+          .has((version) => version.content, 'content')
+          .equals(previousAssistant.content);
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
     test('Hermes regeneration cannot mutate a chat switched during capability lookup', () async {
       final service = _ResponsesHermesApi();
       final capabilities = Completer<HermesCapabilities>();

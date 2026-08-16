@@ -5406,6 +5406,9 @@
   "hermesFastTier": "Fast tier",
   "hermesFastTierOn": "On",
   "hermesFastTierOff": "Off",
+  "hermesTurnSteer": "Steer",
+  "hermesTurnSendNext": "Send next",
+  "hermesTurnControlsUnsupported": "Upgrade Hermes to enable safe turn controls.",
   "sidebarHermesTab": "Hermes",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."

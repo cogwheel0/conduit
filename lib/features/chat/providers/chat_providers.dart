@@ -8410,10 +8410,43 @@ Future<void> _regenerateHermesMessage(
       null;
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
+  final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
+  final notifier = ref.read(chatMessagesProvider.notifier);
+  ChatMessage assistantMessage({
+    required bool isStreaming,
+    ChatMessageError? error,
+  }) => ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: isStreaming,
+    error: error,
+    versions: previousAssistant == null
+        ? const <ChatMessageVersion>[]
+        : _buildReplayVersions(previousAssistant),
+    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
+  );
+  void installAssistant(ChatMessage message) {
+    if (previousAssistant == null) {
+      notifier.addMessage(message);
+    } else {
+      notifier.updateLastMessageWithFunction((_) => message);
+    }
+  }
+
   if (replayedFiles.any((file) => file['source'] == 'hermes_desktop_file')) {
-    throw const HermesAttachmentsUnsupportedException(
+    const error = HermesAttachmentsUnsupportedException(
       'Desktop file attachments cannot be regenerated. Send the file again.',
     );
+    installAssistant(
+      assistantMessage(
+        isStreaming: false,
+        error: ChatMessageError(content: chatErrorContentForException(error)),
+      ),
+    );
+    throw error;
   }
   final useResponses =
       previousAssistant?.metadata?['hermesTransportMode'] ==
@@ -8433,25 +8466,8 @@ Future<void> _regenerateHermesMessage(
   // Historical regeneration leaves the selected assistant at the tail. Reuse
   // that message rather than retaining an archived record plus a second
   // placeholder; its previous content remains available through [versions].
-  final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
-  var assistant = ChatMessage(
-    id: assistantMessageId,
-    role: 'assistant',
-    content: '',
-    timestamp: DateTime.now(),
-    model: selectedModel.id,
-    isStreaming: true,
-    versions: previousAssistant == null
-        ? const <ChatMessageVersion>[]
-        : _buildReplayVersions(previousAssistant),
-    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
-  );
-  final notifier = ref.read(chatMessagesProvider.notifier);
-  if (previousAssistant == null) {
-    notifier.addMessage(assistant);
-  } else {
-    notifier.updateLastMessageWithFunction((_) => assistant);
-  }
+  final assistant = assistantMessage(isStreaming: true);
+  installAssistant(assistant);
   await _dispatchHermesRunFromChat(
     ref,
     assistantMessageId: assistantMessageId,

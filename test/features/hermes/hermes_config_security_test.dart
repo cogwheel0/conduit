@@ -100,6 +100,7 @@ void main() {
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
       final controller = container.read(hermesConfigProvider.notifier);
+      final previousConfig = container.read(hermesConfigProvider);
       final previousPrincipal = controller.documentTrustPrincipalId();
       await _waitUntil(
         () =>
@@ -120,6 +121,9 @@ void main() {
       await expectLater(
         controller.saveConnection(
           baseUrl: 'https://one.example/v1',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+          desktopProfile: 'replacement-profile',
           apiKeyChanged: true,
           apiKey: 'replacement-key',
         ),
@@ -128,6 +132,12 @@ void main() {
 
       check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
       check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBackendMode))
+          .equals(previousConfig.mode.name);
+      check(PreferencesStore.getString(PreferenceKeys.hermesDesktopAuthKind))
+          .equals(previousConfig.desktopAuthKind.name);
+      check(PreferencesStore.getString(PreferenceKeys.hermesDesktopProfile))
+          .equals(previousConfig.desktopProfile);
       check(
         PreferencesStore.getString(
           PreferenceKeys.hermesLocalDocumentTrustPrincipal,

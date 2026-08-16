@@ -581,6 +581,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
                 PreferenceKeys.hermesBaseUrl,
                 previousBaseUrl,
               );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesBackendMode,
+                state.mode.name,
+              );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesDesktopAuthKind,
+                state.desktopAuthKind.name,
+              );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesDesktopProfile,
+                state.desktopProfile,
+              );
+              _runtimeDocumentTrustPrincipalId = previousDocumentTrustPrincipal;
             } catch (_) {
               await _quarantineUncertainCredentialMutation(
                 clearApiKey: writeApiKey,

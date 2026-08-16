@@ -35,7 +35,7 @@ void main() {
       HermesPendingDesktopDecision(
         origin: 'https://hermes.example',
         storedSessionId: 'a-b',
-        runtimeId: 'runtime-1',
+        runtimeId: 'runtime',
         requestId: 'c',
         kind: HermesPendingDesktopDecisionKind.clarification,
         expiresAt: expiresAt,
@@ -43,11 +43,31 @@ void main() {
       HermesPendingDesktopDecision(
         origin: 'https://hermes.example',
         storedSessionId: 'a',
-        runtimeId: 'runtime-2',
+        runtimeId: 'runtime',
         requestId: 'b-c',
         kind: HermesPendingDesktopDecisionKind.clarification,
         expiresAt: expiresAt,
       ),
+    ], modelId: 'hermes');
+
+    check(messages.map((message) => message.id).toSet()).length.equals(2);
+  });
+
+  test('scopes restored decision IDs to the gateway origin', () {
+    final expiresAt = DateTime.utc(2030);
+    final messages = hermesPendingDesktopDecisionMessages([
+      for (final origin in [
+        'https://one.hermes.example',
+        'https://two.hermes.example',
+      ])
+        HermesPendingDesktopDecision(
+          origin: origin,
+          storedSessionId: 'stored',
+          runtimeId: 'runtime',
+          requestId: 'request',
+          kind: HermesPendingDesktopDecisionKind.clarification,
+          expiresAt: expiresAt,
+        ),
     ], modelId: 'hermes');
 
     check(messages.map((message) => message.id).toSet()).length.equals(2);

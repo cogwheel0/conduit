@@ -742,7 +742,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _sendDesktopBusyMessage({required bool steer}) async {
-    if (!widget.enabled || _desktopQueueActionBusy) return;
+    if (!widget.enabled || _isRecording || _desktopQueueActionBusy) return;
     final text = _controller.toWireFormat().trim();
     if (text.isEmpty) return;
     setState(() => _desktopQueueActionBusy = true);
@@ -3117,6 +3117,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   sendOnEnter: sendOnEnter,
                   voiceAvailable: voiceAvailable,
                   isGenerating: isGenerating,
+                  desktopTurnRunning:
+                      isDesktopHermesComposer &&
+                      desktopTurnState == HermesDesktopTurnState.running,
                   allUploadsComplete: allUploadsComplete,
                   placeholderBase: placeholderBase,
                   placeholderFocused: placeholderFocused,
@@ -3180,26 +3183,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 const Spacer(),
               if (isDesktopHermesComposer &&
                   desktopTurnControlsSupported &&
-                  isGenerating &&
+                  desktopTurnState == HermesDesktopTurnState.running &&
                   _hasText) ...[
                 _buildPillButton(
                   icon: Icons.turn_right_rounded,
-                  label: 'Steer',
+                  label: l10n.hermesTurnSteer,
                   isActive: true,
                   dense: true,
-                  onTap: _desktopQueueActionBusy
-                      ? null
-                      : () => unawaited(_sendDesktopBusyMessage(steer: true)),
+                  onTap:
+                      widget.enabled &&
+                          !_isRecording &&
+                          !_desktopQueueActionBusy
+                      ? () => unawaited(_sendDesktopBusyMessage(steer: true))
+                      : null,
                 ),
                 const SizedBox(width: Spacing.xs),
                 _buildPillButton(
                   icon: Icons.queue_rounded,
-                  label: 'Send next',
+                  label: l10n.hermesTurnSendNext,
                   isActive: false,
                   dense: true,
-                  onTap: _desktopQueueActionBusy
-                      ? null
-                      : () => unawaited(_sendDesktopBusyMessage(steer: false)),
+                  onTap:
+                      widget.enabled &&
+                          !_isRecording &&
+                          !_desktopQueueActionBusy
+                      ? () => unawaited(_sendDesktopBusyMessage(steer: false))
+                      : null,
                 ),
               ],
               if (showCreateDraftNoteAction) ...[
@@ -3287,6 +3296,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     sendOnEnter: sendOnEnter,
                     voiceAvailable: voiceAvailable,
                     isGenerating: isGenerating,
+                    desktopTurnRunning:
+                        isDesktopHermesComposer &&
+                        desktopTurnState == HermesDesktopTurnState.running,
                     allUploadsComplete: allUploadsComplete,
                     placeholderBase: placeholderBase,
                     placeholderFocused: placeholderFocused,
@@ -3509,6 +3521,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool sendOnEnter,
     required bool voiceAvailable,
     required bool isGenerating,
+    required bool desktopTurnRunning,
     required bool allUploadsComplete,
     required Color placeholderBase,
     required Color placeholderFocused,
@@ -3565,7 +3578,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   _confirmPromptSelection();
                   return null;
                 }
-                _sendMessage();
+                if (desktopTurnRunning) {
+                  unawaited(_sendDesktopBusyMessage(steer: false));
+                } else {
+                  _sendMessage();
+                }
                 return null;
               },
             ),
@@ -4029,10 +4046,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Generating -> STOP variant
     if (isGenerating) {
+      final stopLabel = canStopGeneration
+          ? AppLocalizations.of(context)!.stopGenerating
+          : AppLocalizations.of(context)!.hermesTurnControlsUnsupported;
       return AdaptiveTooltip(
-        message: canStopGeneration
-            ? AppLocalizations.of(context)!.stopGenerating
-            : 'Upgrade Hermes to enable safe turn controls.',
+        message: stopLabel,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
           onPressed: canStopGeneration
@@ -4043,7 +4061,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               : null,
           size: buttonSize,
           visualSize: primaryVisualSize,
-          semanticLabel: AppLocalizations.of(context)!.stopGenerating,
+          semanticLabel: stopLabel,
           iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: 'stop.fill',

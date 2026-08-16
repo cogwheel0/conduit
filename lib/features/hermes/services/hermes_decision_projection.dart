@@ -48,5 +48,6 @@ List<ChatMessage> hermesPendingDesktopDecisionMessages(
 
 String _decisionMessageId(HermesPendingDesktopDecision record) =>
     'hermes-decision-${record.kind.name}-'
+    '${record.origin.length}:${record.origin}'
     '${record.storedSessionId.length}:${record.storedSessionId}'
     '${record.requestId.length}:${record.requestId}';

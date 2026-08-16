@@ -57,6 +57,8 @@ final class HermesDashboardCookieStore {
     final retained = identities
         .where((identity) => retainedNames.any(identity.startsWith))
         .toSet();
+    // The cap keeps the suffix, so put persisted identities first and the
+    // current dashboard identities last.
     final merged = {
       ...?registry[key],
       ...identities.where((identity) => !retained.contains(identity)),
