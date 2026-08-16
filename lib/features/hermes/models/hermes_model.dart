@@ -80,10 +80,14 @@ List<Model> sanitizeRemoteHermesModels(Iterable<Model> models) => models
 Model hermesSyntheticModel() {
   final model = Model(
     id: kHermesDefaultModelId,
-    name: 'Hermes Agent',
+    name: 'Hermes Agent (Default)',
     description: 'Your self-hosted Hermes agent',
     supportsStreaming: true,
-    metadata: const {'backend': 'hermes', 'hermesModelId': 'default'},
+    metadata: const {
+      'backend': 'hermes',
+      'hermesModelId': 'default',
+      'hermesConfiguredDefault': true,
+    },
   );
   _locallyMintedHermesModels[model] = true;
   return model;
@@ -110,7 +114,7 @@ Model hermesDesktopModel({
       'backend': 'hermes',
       'hermesModelId': modelId,
       'hermesProvider': provider,
-      'hermesConfiguredDefault': true,
+      'hermesConfiguredDefault': false,
       'hermesFast': supportsFast,
       'hermesReasoning': supportsReasoning,
     },

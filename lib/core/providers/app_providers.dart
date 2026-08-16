@@ -1724,9 +1724,8 @@ List<Model> appendHermesModelIfUsable(
       ? <Model>[
           ...safeModels,
           ...directModels,
-          ...(hermesModels.isEmpty && allowSyntheticHermesModel
-              ? <Model>[hermesSyntheticModel()]
-              : hermesModels),
+          if (allowSyntheticHermesModel) hermesSyntheticModel(),
+          ...hermesModels,
         ]
       : <Model>[...safeModels, ...directModels];
 }
@@ -1756,7 +1755,16 @@ class Models extends _$Models {
       hermesConfigProvider.select((config) => config.mode),
     );
     if (hermesUsable && hermesMode == HermesBackendMode.desktopGateway) {
-      ref.watch(hermesDesktopModelsProvider);
+      try {
+        await ref.watch(hermesDesktopModelsProvider.future);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'desktop-discovery-failed',
+          scope: 'models/hermes',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
     final directModels = ref.watch(
       directModelDiscoveryProvider.select((value) {
@@ -2028,8 +2036,7 @@ class Models extends _$Models {
     return appendHermesModelIfUsable(
       withDirect,
       hermesUsable: ref.read(hermesConfigProvider).isUsable,
-      allowSyntheticHermesModel:
-          ref.read(hermesConfigProvider).mode == HermesBackendMode.responsesApi,
+      allowSyntheticHermesModel: true,
       hermesModels:
           ref.read(hermesDesktopModelsProvider).asData?.value ?? const [],
     );

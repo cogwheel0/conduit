@@ -93,7 +93,7 @@ void main() {
         .equals((model: 'gpt-5.6-sol', provider: 'azure-foundry'));
   });
 
-  test('surfaces only the configured Hermes model', () {
+  test('surfaces models from configured Hermes providers', () {
     final models = parseHermesDesktopConfiguredModels({
       'model': 'gpt-5.6-sol',
       'provider': 'azure-foundry',
@@ -114,13 +114,15 @@ void main() {
       ],
     });
 
-    check(models).length.equals(1);
-    check(models.single).deepEquals({
-      'id': 'gpt-5.6-sol',
-      'name': 'gpt-5.6-sol',
-      'provider': 'azure-foundry',
-      'capabilities': {'fast': true, 'reasoning': true},
-    });
+    check(models).deepEquals([
+      {'id': 'gpt-5.4', 'name': 'gpt-5.4', 'provider': 'copilot'},
+      {
+        'id': 'gpt-5.6-sol',
+        'name': 'gpt-5.6-sol',
+        'provider': 'azure-foundry',
+        'capabilities': {'fast': true, 'reasoning': true},
+      },
+    ]);
   });
 
   test('loads the complete compacted Desktop transcript in pages', () async {

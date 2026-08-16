@@ -8,7 +8,10 @@ final class _HermesDesktopAdministration {
   Future<List<HermesDesktopModelOption>> configuredModels() async {
     await _owner._ensureConnected();
     final result = _owner._object(
-      await _owner._rpc.request<Object?>('model.options'),
+      await _owner._rpc.request<Object?>(
+        'model.options',
+        params: const {'explicit_only': true},
+      ),
     );
     return parseHermesDesktopConfiguredModels(result)
         .map(HermesDesktopModelOption.fromJson)

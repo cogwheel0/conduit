@@ -186,6 +186,12 @@ const _incompleteHermes = HermesConfig(
   baseUrl: 'https://hermes.example/v1',
 );
 
+const _usableDesktopHermes = HermesConfig(
+  enabled: true,
+  baseUrl: 'https://hermes.example',
+  mode: HermesBackendMode.desktopGateway,
+);
+
 void main() {
   group('Hermes model surfacing without an OWUI server', () {
     test('synthetic model requires a usable Hermes connection', () {
@@ -206,33 +212,59 @@ void main() {
       check(usable.any(isHermesModel)).isTrue();
     });
 
-    test('Desktop discovery replaces the synthetic model with Hermes', () {
+    test('Desktop discovery keeps the default and discovered models', () {
       final configured = hermesDesktopModel(
         modelId: 'gpt-5.6-sol',
         name: 'gpt-5.6-sol',
         provider: 'azure-foundry',
       );
 
-      final replacement = replacementForUnavailableLocalModel(
-        models: [
-          const Model(id: 'owui-model', name: 'OpenWebUI model'),
-          configured,
-        ],
-        current: hermesSyntheticModel(),
+      final models = appendHermesModelIfUsable(
+        const [Model(id: 'owui-model', name: 'OpenWebUI model')],
+        hermesUsable: true,
+        hermesModels: [configured],
       );
 
-      check(replacement).identicalTo(configured);
-      check(configured.metadata?['hermesConfiguredDefault']).equals(true);
+      check(models.where(isHermesModel)).length.equals(2);
+      check(models[1].name).equals('Hermes Agent (Default)');
+      check(models[1].metadata?['hermesConfiguredDefault']).equals(true);
+      check(models[2]).identicalTo(configured);
+      check(configured.metadata?['hermesConfiguredDefault']).equals(false);
     });
 
-    test('Desktop never invents a model when discovery is empty', () {
-      final models = appendHermesModelIfUsable(
-        const [],
-        hermesUsable: true,
-        allowSyntheticHermesModel: false,
-      );
+    test('Desktop keeps the default when discovery is empty', () {
+      final models = appendHermesModelIfUsable(const [], hermesUsable: true);
 
-      check(models).isEmpty();
+      check(models).length.equals(1);
+      check(models.single.name).equals('Hermes Agent (Default)');
+    });
+
+    test('modelsProvider includes Desktop default and discovery', () async {
+      final discovered = hermesDesktopModel(
+        modelId: 'gpt-5.6-sol',
+        name: 'gpt-5.6-sol',
+        provider: 'azure-foundry',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final models = await container.read(modelsProvider.future);
+
+      check(models).length.equals(2);
+      check(models.first.name).equals('Hermes Agent (Default)');
+      check(models.last).identicalTo(discovered);
     });
 
     test('fast tier stays distinct from model capability', () {

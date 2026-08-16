@@ -55,49 +55,59 @@ typedef HermesDesktopCredentialsWriter = Future<void> Function(
   return (model: safeModel, provider: safeProvider);
 }
 
-/// Returns the profile's configured model, not every model advertised by
-/// authenticated or virtual provider catalogs.
+/// Returns models discovered from explicitly configured providers in a
+/// `model.options` response.
 List<Map<String, dynamic>> parseHermesDesktopConfiguredModels(
   Map<String, dynamic> result,
 ) {
-  final model = result['model'];
-  final provider = result['provider'];
-  if (model is! String ||
-      model.trim().isEmpty ||
-      provider is! String ||
-      provider.trim().isEmpty) {
-    return const [];
+  final models = <Map<String, dynamic>>[];
+  final seen = <String>{};
+
+  void addModel(Object? rawModel, String provider, Object? capabilities) {
+    if (models.length >= 1000 || provider.isEmpty) return;
+    final model = rawModel is Map
+        ? (rawModel['id'] ?? rawModel['name'])?.toString().trim()
+        : rawModel?.toString().trim();
+    if (model == null || model.isEmpty || !seen.add('$provider\u0000$model')) {
+      return;
+    }
+    models.add({
+      'id': model,
+      'name': rawModel is Map ? (rawModel['name'] ?? model).toString() : model,
+      'provider': provider,
+      if (capabilities is Map)
+        'capabilities': Map<String, dynamic>.from(capabilities),
+    });
   }
-  final providerId = provider.trim();
-  Map<String, dynamic>? capabilities;
+
   final providers = result['providers'];
   if (providers is List) {
     for (final raw in providers.take(1000)) {
       if (raw is! Map) continue;
       final row = Map<String, dynamic>.from(raw);
-      if (row['id'] != providerId &&
-          row['slug'] != providerId &&
-          row['name'] != providerId) {
-        continue;
+      if (row['authenticated'] == false) continue;
+      final provider = (row['slug'] ?? row['id'] ?? row['name'])
+          ?.toString()
+          .trim();
+      if (provider == null || provider.isEmpty) continue;
+      final providerModels = row['models'];
+      if (providerModels is! List) continue;
+      final capabilities = row['capabilities'];
+      for (final model in providerModels) {
+        final modelId = model is Map
+            ? (model['id'] ?? model['name'])?.toString()
+            : model?.toString();
+        addModel(
+          model,
+          provider,
+          capabilities is Map ? capabilities[modelId] : null,
+        );
+        if (models.length >= 1000) break;
       }
-      final allCapabilities = row['capabilities'];
-      final selectedCapabilities = allCapabilities is Map
-          ? allCapabilities[model]
-          : null;
-      if (selectedCapabilities is Map) {
-        capabilities = Map<String, dynamic>.from(selectedCapabilities);
-      }
-      break;
     }
   }
-  return [
-    {
-      'id': model.trim(),
-      'name': model.trim(),
-      'provider': providerId,
-      'capabilities': ?capabilities,
-    },
-  ];
+
+  return models;
 }
 
 @visibleForTesting
