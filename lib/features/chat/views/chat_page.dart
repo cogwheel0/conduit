@@ -889,6 +889,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ref.read(activeConversationProvider)?.id != active.id) {
         return;
       }
+      if (ref.read(isChatStreamingProvider)) {
+        _pendingHermesTranscriptRefresh = storedId;
+        return;
+      }
       final selected = ref.read(selectedModelProvider);
       final model = selected != null && isHermesModel(selected)
           ? selected

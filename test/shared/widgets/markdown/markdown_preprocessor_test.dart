@@ -267,6 +267,27 @@ after''';
         ),
       ).equals('![Generated Image]($image)\r\nnext');
     });
+
+    test('leaves base64 image text inside code unchanged', () {
+      const image = 'data:image/png;base64,AAAA';
+      const input =
+          '''before
+```text
+$image
+```
+    $image
+after
+$image''';
+
+      check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
+          .equals('''before
+```text
+$image
+```
+    $image
+after
+![Generated Image]($image)''');
+    });
   });
 
   group('ConduitMarkdownPreprocessor.cleanText', () {

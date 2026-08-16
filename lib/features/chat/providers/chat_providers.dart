@@ -1511,6 +1511,31 @@ Duration debugRemoteTaskPollDelayForTesting({
       : const Duration(seconds: 5);
 }
 
+@visibleForTesting
+bool debugShouldRefreshPassiveSocketEvent({
+  required String type,
+  required bool protectsStreamingState,
+  bool isDone = false,
+}) {
+  if (protectsStreamingState && !(type == 'chat:completion' && isDone)) {
+    return false;
+  }
+  return const {
+    'message',
+    'replace',
+    'chat:message',
+    'chat:message:delta',
+    'chat:message:error',
+    'chat:message:files',
+    'chat:message:embeds',
+    'chat:message:follow_ups',
+    'chat:completion',
+    'chat:completed',
+    'chat:title',
+    'chat:tags',
+  }.contains(type);
+}
+
 // Chat messages notifier class
 class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     with WidgetsBindingObserver {
@@ -2455,10 +2480,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
           return;
         }
-        if (!_shouldRefreshFromPassiveSocketEvent(
-          event,
-          localSessionId: socket.sessionId,
-        )) {
+        if (!_shouldRefreshFromPassiveSocketEvent(event)) {
           return;
         }
 
@@ -3218,45 +3240,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     _passiveConversationOwner = null;
   }
 
-  bool _shouldRefreshFromPassiveSocketEvent(
-    Map<String, dynamic> event, {
-    String? localSessionId,
-  }) {
-    if (_shouldProtectLocalStreamingState) {
-      return false;
-    }
-
+  bool _shouldRefreshFromPassiveSocketEvent(Map<String, dynamic> event) {
     final type = _extractSocketEventType(event);
-    if (type.isEmpty) {
-      return false;
-    }
-
-    const refreshingTypes = {
-      'message',
-      'replace',
-      'chat:message',
-      'chat:message:delta',
-      'chat:message:error',
-      'chat:message:files',
-      'chat:message:embeds',
-      'chat:message:follow_ups',
-      'chat:completed',
-      'chat:title',
-      'chat:tags',
-    };
-
-    if (!refreshingTypes.contains(type)) {
-      return false;
-    }
-
-    final incomingSessionId = _extractSocketEventSessionId(event);
-    if (localSessionId != null &&
-        incomingSessionId != null &&
-        localSessionId == incomingSessionId) {
-      return false;
-    }
-
-    return true;
+    final eventData = event['data'];
+    final payload = eventData is Map ? eventData['data'] : null;
+    return debugShouldRefreshPassiveSocketEvent(
+      type: type,
+      protectsStreamingState: _shouldProtectLocalStreamingState,
+      isDone: payload is Map && payload['done'] == true,
+    );
   }
 
   String _extractSocketEventType(Map<String, dynamic> event) {
@@ -3273,24 +3265,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
 
     return candidate ?? 'socket';
-  }
-
-  String? _extractSocketEventSessionId(Map<String, dynamic> event) {
-    String? candidate = event['session_id']?.toString();
-
-    final data = event['data'];
-    if (candidate == null && data is Map) {
-      candidate =
-          data['session_id']?.toString() ?? data['sessionId']?.toString();
-
-      final inner = data['data'];
-      if (candidate == null && inner is Map) {
-        candidate =
-            inner['session_id']?.toString() ?? inner['sessionId']?.toString();
-      }
-    }
-
-    return candidate;
   }
 
   void _scheduleConversationRefreshFromServer(

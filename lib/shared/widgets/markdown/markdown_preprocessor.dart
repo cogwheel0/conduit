@@ -44,9 +44,10 @@ class ConduitMarkdownPreprocessor {
   );
   static final _multipleNewlines = RegExp(r'\n{3,}');
   static final _standaloneBase64Image = RegExp(
-    r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\r?\n|$))',
-    multiLine: true,
+    r'^([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=[ \t]*$)',
   );
+  static final _lineWithEnding = RegExp(r'[^\r\n]*(?:\r\n|\n|$)');
+  static final _fenceLine = RegExp(r'^[ ]{0,3}(`{3,}|~{3,})');
 
   /// Turns standalone base64 image lines into renderable Markdown images.
   static String prepareAssistantContent(String content) =>
@@ -54,12 +55,48 @@ class ConduitMarkdownPreprocessor {
 
   static String wrapStandaloneBase64Images(String content) {
     if (!content.contains('data:image/')) return content;
-    return content.replaceAllMapped(_standaloneBase64Image, (match) {
-      final linePrefix = match.group(1) ?? '';
-      final indentation = match.group(2) ?? '';
-      final imageData = match.group(3)!;
-      return '$linePrefix$indentation![Generated Image]($imageData)';
-    });
+    final output = StringBuffer();
+    String? fence;
+    for (final lineMatch in _lineWithEnding.allMatches(content)) {
+      final wholeLine = lineMatch[0]!;
+      if (wholeLine.isEmpty) continue;
+      final line = wholeLine.endsWith('\r\n')
+          ? wholeLine.substring(0, wholeLine.length - 2)
+          : wholeLine.endsWith('\n')
+          ? wholeLine.substring(0, wholeLine.length - 1)
+          : wholeLine;
+      final ending = wholeLine.substring(line.length);
+      final fenceMatch = _fenceLine.firstMatch(line);
+      if (fence == null && fenceMatch != null) {
+        fence = fenceMatch[1]!;
+      } else if (fence != null && _closesFence(line, fence)) {
+        fence = null;
+      }
+      final isCode =
+          fence != null || line.startsWith('    ') || line.startsWith('\t');
+      final rendered = isCode
+          ? line
+          : line.replaceAllMapped(_standaloneBase64Image, (match) {
+              final indentation = match.group(1) ?? '';
+              final imageData = match.group(2)!;
+              return '$indentation![Generated Image]($imageData)';
+            });
+      output.write('$rendered$ending');
+    }
+    return output.toString();
+  }
+
+  static bool _closesFence(String line, String fence) {
+    final trimmed = line.trimLeft();
+    if (line.length - trimmed.length > 3 || !trimmed.startsWith(fence)) {
+      return false;
+    }
+    final marker = fence[0];
+    var length = 0;
+    while (length < trimmed.length && trimmed[length] == marker) {
+      length++;
+    }
+    return length >= fence.length && trimmed.substring(length).trim().isEmpty;
   }
 
   static String stripAssistantPlaceholders(String content) {

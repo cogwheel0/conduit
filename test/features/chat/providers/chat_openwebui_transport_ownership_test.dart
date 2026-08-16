@@ -605,6 +605,28 @@ void main() {
     await db.close();
   });
 
+  test('passive sync reconciles terminal content and late follow-ups', () {
+    check(
+      debugShouldRefreshPassiveSocketEvent(
+        type: 'chat:completion',
+        protectsStreamingState: true,
+        isDone: true,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRefreshPassiveSocketEvent(
+        type: 'chat:message:follow_ups',
+        protectsStreamingState: false,
+      ),
+    ).isTrue();
+    check(
+      debugShouldRefreshPassiveSocketEvent(
+        type: 'chat:message:delta',
+        protectsStreamingState: true,
+      ),
+    ).isFalse();
+  });
+
   test(
     'Open WebUI direct send uses the server pipeline and upstream wire model',
     () async {
