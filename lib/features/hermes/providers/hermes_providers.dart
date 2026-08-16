@@ -593,6 +593,15 @@ class HermesConfigController extends Notifier<HermesConfig> {
                 PreferenceKeys.hermesDesktopProfile,
                 state.desktopProfile,
               );
+              if (PreferencesStore.getString(
+                    PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+                  ) !=
+                  previousDocumentTrustPrincipal) {
+                await PreferencesStore.putChecked(
+                  PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+                  previousDocumentTrustPrincipal,
+                );
+              }
               _runtimeDocumentTrustPrincipalId = previousDocumentTrustPrincipal;
             } catch (_) {
               await _quarantineUncertainCredentialMutation(
