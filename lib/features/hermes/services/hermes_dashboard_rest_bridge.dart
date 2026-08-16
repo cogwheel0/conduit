@@ -17,6 +17,7 @@ final class HermesDashboardRestBridge {
   final Future<Set<String>> _cookieBaseline;
   HeadlessInAppWebView? _webView;
   InAppWebViewController? _controller;
+  Future<InAppWebViewController>? _ready;
   Future<void> _tail = Future<void>.value();
 
   Future<({int status, String body})> request(
@@ -28,8 +29,9 @@ final class HermesDashboardRestBridge {
     _tail = _tail.then((_) async {
       try {
         final controller = await _ensureReady();
-        final result = await controller.callAsyncJavaScript(
-          functionBody: '''
+        final result = await controller
+            .callAsyncJavaScript(
+              functionBody: '''
             const response = await fetch(url, {
               method,
               headers,
@@ -39,20 +41,32 @@ final class HermesDashboardRestBridge {
             });
             const size = Number(response.headers.get('content-length') || 0);
             if (size > 4194304) throw new Error('response-too-large');
-            const text = await response.text();
-            if (text.length > 2097152) throw new Error('response-too-large');
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            let text = '';
+            while (reader) {
+              const chunk = await reader.read();
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > 4194304) throw new Error('response-too-large');
+              text += decoder.decode(chunk.value, {stream: true});
+              if (text.length > 2097152) throw new Error('response-too-large');
+            }
+            text += decoder.decode();
             return {status: response.status, body: text};
           ''',
-          arguments: {
-            'url': uri.toString(),
-            'method': method,
-            'headers': {
-              ...config.accessHeaders,
-              if (body != null) 'Content-Type': 'application/json',
-            },
-            'bodyValue': body,
-          },
-        );
+              arguments: {
+                'url': uri.toString(),
+                'method': method,
+                'headers': {
+                  ...config.accessHeaders,
+                  if (body != null) 'Content-Type': 'application/json',
+                },
+                'bodyValue': body,
+              },
+            )
+            .timeout(const Duration(seconds: 30));
         if (result?.error != null || result?.value is! Map) {
           throw StateError('Hermes dashboard request failed.');
         }
@@ -78,10 +92,11 @@ final class HermesDashboardRestBridge {
   }
 
   Future<InAppWebViewController> _ensureReady() async {
-    final current = _controller;
+    final current = _ready;
     if (current != null) return current;
     await _cookieBaseline;
     final ready = Completer<InAppWebViewController>();
+    _ready = ready.future.timeout(const Duration(seconds: 15));
     late final HeadlessInAppWebView webView;
     webView = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(
@@ -102,8 +117,16 @@ final class HermesDashboardRestBridge {
       },
     );
     _webView = webView;
-    await webView.run();
-    return ready.future.timeout(const Duration(seconds: 15));
+    try {
+      await webView.run();
+      return await _ready!;
+    } catch (_) {
+      await webView.dispose();
+      _webView = null;
+      _controller = null;
+      _ready = null;
+      rethrow;
+    }
   }
 
   bool _isExactOrigin(Uri uri) =>
@@ -112,8 +135,17 @@ final class HermesDashboardRestBridge {
       uri.port == _root.port;
 
   Future<void> reload() async {
-    await _controller?.reload();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    final controller = _controller;
+    if (controller == null) return;
+    await controller.reload();
+    await Future<void>(() async {
+      while (await controller.evaluateJavascript(
+            source: 'document.readyState',
+          ) !=
+          'complete') {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }).timeout(const Duration(seconds: 15));
   }
 
   Future<void> close() async {
@@ -121,5 +153,6 @@ final class HermesDashboardRestBridge {
     await _webView?.dispose();
     _webView = null;
     _controller = null;
+    _ready = null;
   }
 }

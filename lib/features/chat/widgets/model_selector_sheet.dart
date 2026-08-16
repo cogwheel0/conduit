@@ -230,11 +230,11 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                               icon: Platform.isIOS
                                   ? CupertinoIcons.bolt
                                   : Icons.bolt_rounded,
-                              title: 'Fast tier',
+                              title: l10n.hermesFastTier,
                               subtitle:
                                   ref.watch(hermesFastTierSelectionProvider)
-                                  ? 'On'
-                                  : 'Off',
+                                  ? l10n.hermesFastTierOn
+                                  : l10n.hermesFastTierOff,
                               onTap: () {
                                 final enabled = ref.read(
                                   hermesFastTierSelectionProvider,

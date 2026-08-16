@@ -253,9 +253,11 @@ final class HermesPendingDecisionStore {
     required String origin,
     required String storedSessionId,
   }) async {
-    await _writes;
-    final records = _read();
-    await _serialize(() => _write(records));
+    var records = const <HermesPendingDesktopDecision>[];
+    await _serialize(() async {
+      records = _read();
+      await _write(records);
+    });
     return List.unmodifiable(
       records.where(
         (record) =>

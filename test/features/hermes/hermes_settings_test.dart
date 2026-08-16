@@ -60,7 +60,7 @@ void main() {
   );
 
   test('connection controller builds an origin-safe immutable draft', () {
-    final saved = HermesConfig(
+    const saved = HermesConfig(
       enabled: true,
       baseUrl: 'https://one.example/v1',
       apiKey: 'old-key',
@@ -123,6 +123,13 @@ void main() {
 
     controller.setAccessHeaders({
       'cf-access-client-secret': 'old-origin-secret',
+      'X-New-Origin': 'new-origin-secret',
+    });
+    check(controller.buildDraft(saved).config.accessHeaders)
+        .deepEquals({'X-New-Origin': 'new-origin-secret'});
+
+    controller.setAccessHeaders({
+      'X-Renamed': 'old-origin-secret',
       'X-New-Origin': 'new-origin-secret',
     });
     check(controller.buildDraft(saved).config.accessHeaders)

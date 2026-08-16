@@ -38,7 +38,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     var activeRuntimeId = binding.runtimeId;
     var promptAcknowledged = false;
     var disconnectReconciliationRunning = false;
-    final eventsBeforePromptAcknowledgement = <HermesDesktopEvent>[];
+    final eventsBeforePromptAcknowledgement = Queue<HermesDesktopEvent>();
     late final StreamSubscription<HermesDesktopEvent> subscription;
     late final StreamSubscription<void> disconnectSubscription;
 
@@ -73,7 +73,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         return;
       }
       if (!promptAcknowledged) {
-        eventsBeforePromptAcknowledgement.add(event);
+        eventsBeforePromptAcknowledgement.addLast(event);
+        if (eventsBeforePromptAcknowledgement.length > 4096) {
+          eventsBeforePromptAcknowledgement.removeFirst();
+        }
         return;
       }
       final payload = event.payload;

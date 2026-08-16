@@ -266,7 +266,8 @@ final class HermesDesktopRpcClient {
         return;
       }
       if (source.length > kMaxHermesDesktopFrameCharacters ||
-          utf8.encode(source).length > kMaxHermesDesktopFrameBytes) {
+          (source.length * 3 > kMaxHermesDesktopFrameBytes &&
+              utf8.encode(source).length > kMaxHermesDesktopFrameBytes)) {
         throw const FormatException('Hermes gateway frame is too large.');
       }
       validateHermesJsonSource(source);

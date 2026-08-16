@@ -29,7 +29,9 @@ void main() {
       storedSessionId: 'stored-1',
     );
     check(records).length.equals(1);
-    check(records.single.prompt ?? '').not((it) => it.contains('top-secret'));
+    check(records.single.prompt).isNotNull();
+    check(records.single.prompt!).not((it) => it.contains('top-secret'));
+    check(records.single.prompt!.length).isLessOrEqual(512);
     final stored = PreferencesStore.getStringList(
       PreferenceKeys.hermesPendingDesktopDecisions,
     )!.single;
@@ -60,14 +62,20 @@ void main() {
       runtimeId: 'runtime-1',
       requestId: 'request-1',
     );
+    final remaining = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(remaining).length.equals(1);
+    check(remaining.single.requestId).equals('request-2');
+
+    await HermesPendingDecisionStore.clearOrigin('https://hermes.example:443');
     check(
       await HermesPendingDecisionStore.forSession(
         origin: 'https://hermes.example:443',
         storedSessionId: 'stored-1',
       ),
-    ).length.equals(1);
-
-    await HermesPendingDecisionStore.clearOrigin('https://hermes.example:443');
+    ).isEmpty();
     check(
       await HermesPendingDecisionStore.forSession(
         origin: 'https://other.example:443',

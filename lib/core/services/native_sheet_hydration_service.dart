@@ -195,11 +195,18 @@ class NativeSheetHydrationService {
 
       Uint8List? hermesAvatarBytes;
       if (orderedModels.any(isHermesModel)) {
-        final data = await rootBundle.load(kHermesModelAvatarAsset);
-        hermesAvatarBytes = data.buffer.asUint8List(
-          data.offsetInBytes,
-          data.lengthInBytes,
-        );
+        try {
+          final data = await rootBundle.load(kHermesModelAvatarAsset);
+          hermesAvatarBytes = data.buffer.asUint8List(
+            data.offsetInBytes,
+            data.lengthInBytes,
+          );
+        } catch (_) {
+          DebugLogger.warning(
+            'hermes-model-avatar-load-failed',
+            scope: 'native-sheet/models',
+          );
+        }
         if (!context.mounted) return null;
       }
 

@@ -81,7 +81,17 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         mode: LaunchMode.externalApplication,
       );
       if (!launched) throw StateError('Could not open Hermes sign-in.');
-      final request = await server.first.timeout(const Duration(minutes: 5));
+      final request = await (() async {
+        await for (final candidate in server) {
+          final matches =
+              candidate.uri.path == '/callback' &&
+              candidate.uri.queryParameters['state'] == state;
+          if (matches) return candidate;
+          candidate.response.statusCode = 404;
+          await candidate.response.close();
+        }
+        throw StateError('Hermes sign-in callback closed.');
+      })().timeout(const Duration(minutes: 5));
       final code = request.uri.queryParameters['code'];
       final returnedState = request.uri.queryParameters['state'];
       request.response
@@ -117,17 +127,27 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     final expirySeconds = rawExpiry is num
         ? rawExpiry.toInt()
         : int.tryParse(rawExpiry?.toString() ?? '');
-    if (access.isEmpty || refresh.isEmpty || expirySeconds == null) {
+    if (access.isEmpty ||
+        refresh.isEmpty ||
+        expirySeconds == null ||
+        expirySeconds <= 0) {
       throw const FormatException('Invalid Hermes token set.');
     }
-    return HermesDesktopTokenSet(
-      accessToken: access,
-      refreshToken: refresh,
-      expiresAt: DateTime.fromMillisecondsSinceEpoch(
-        expirySeconds * 1000,
-        isUtc: true,
-      ),
-    );
+    final expiryMilliseconds = expirySeconds > 100000000000
+        ? expirySeconds
+        : expirySeconds * 1000;
+    try {
+      return HermesDesktopTokenSet(
+        accessToken: access,
+        refreshToken: refresh,
+        expiresAt: DateTime.fromMillisecondsSinceEpoch(
+          expiryMilliseconds,
+          isUtc: true,
+        ),
+      );
+    } on ArgumentError {
+      throw const FormatException('Invalid Hermes token set.');
+    }
   }
 
   Future<void> _saveTokens(HermesDesktopTokenSet? tokens) async {
@@ -249,14 +269,19 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       }
       validateHermesJsonSource(source);
       return jsonDecode(source);
-    } on DioException catch (error) {
+    } on DioException catch (error, stackTrace) {
       final status = error.response?.statusCode;
       if (authenticated && status == 401) {
         if (config.desktopAuthKind == HermesDesktopAuthKind.nativePkce) {
           final previous = _nativeTokens;
-          final refreshed = nativeRetry == 0
-              ? await _validNativeTokens(forceRefresh: true)
-              : null;
+          HermesDesktopTokenSet? refreshed;
+          if (nativeRetry == 0) {
+            try {
+              refreshed = await _validNativeTokens(forceRefresh: true);
+            } catch (_) {
+              Error.throwWithStackTrace(error, stackTrace);
+            }
+          }
           if (nativeRetry == 0 &&
               hermesNativeRefreshAllowsRetry(previous, refreshed)) {
             return _requestJson(

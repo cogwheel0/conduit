@@ -1,7 +1,10 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/utility_components.dart';
@@ -9,7 +12,6 @@ import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_desktop_api_service.dart';
-import 'hermes_mcp_page.dart';
 
 class HermesCapabilitiesSection extends ConsumerWidget {
   const HermesCapabilitiesSection({super.key});
@@ -93,10 +95,19 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
       if (service is! HermesDesktopApiService) return;
       await service.configureTools([name], enabled: enabled);
       ref.invalidate(hermesToolsetsProvider);
-    } catch (_) {
+    } catch (error) {
+      DebugLogger.warning(
+        'toolset-update-failed',
+        scope: 'hermes/settings',
+        data: {'errorType': error.runtimeType.toString()},
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hermes toolset update failed.')),
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.hermesToolsetUpdateFailed,
+            ),
+          ),
         );
       }
     } finally {
@@ -184,11 +195,18 @@ class _HermesDesktopManagementSectionState
     setState(() => _pending = true);
     try {
       await action();
-    } catch (_) {
+    } catch (error) {
+      DebugLogger.warning(
+        'desktop-action-failed',
+        scope: 'hermes/settings',
+        data: {'errorType': error.runtimeType.toString()},
+      );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Hermes action failed.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.hermesActionFailed),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _pending = false);
@@ -197,15 +215,16 @@ class _HermesDesktopManagementSectionState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final skills =
         ref.watch(hermesInstalledSkillsProvider).asData?.value ?? const [];
     return InsetGroupedList(
-      title: 'Desktop Gateway',
+      title: l10n.hermesDesktopGateway,
       children: [
         UtilityRow(
-          title: 'Reload skills',
+          title: l10n.hermesReloadSkills,
           subtitle: skills.isEmpty
-              ? 'No installed skills'
+              ? l10n.hermesNoInstalledSkills
               : skills.map((skill) => '/${skill['name']}').join(', '),
           leading: const _SettingsBadge(Icons.refresh),
           onTap: _pending
@@ -219,14 +238,13 @@ class _HermesDesktopManagementSectionState
                 }),
         ),
         UtilityRow(
-          title: 'MCP servers',
+          title: l10n.hermesMcpServers,
           leading: const _SettingsBadge(Icons.hub_outlined),
           showChevron: true,
-          onTap: () => Navigator.of(context)
-              .push(MaterialPageRoute(builder: (_) => const HermesMcpPage())),
+          onTap: () => context.pushNamed(RouteNames.hermesMcp),
         ),
         UtilityRow(
-          title: 'Sign out of Hermes',
+          title: l10n.hermesSignOut,
           leading: const _SettingsBadge(Icons.logout),
           onTap: _pending
               ? null

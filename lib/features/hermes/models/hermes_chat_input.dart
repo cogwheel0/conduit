@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:openai_dart/openai_dart.dart' as openai;
 
 const int kHermesMaxInlineImages = 4;
@@ -163,11 +165,18 @@ final class HermesInputFilePart extends HermesChatContentPart {
     if (filename.trim().isEmpty || filename.length > 512) {
       throw ArgumentError.value(filename, 'filename', 'must be a safe name');
     }
-    if (mediaType.trim().isEmpty || mediaType.length > 128) {
+    if (mediaType.length > 128 ||
+        !RegExp(r'^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$')
+            .hasMatch(mediaType)) {
       throw ArgumentError.value(mediaType, 'mediaType', 'must be a MIME type');
     }
     if (base64Data.isEmpty) {
       throw ArgumentError.value(base64Data, 'base64Data', 'must not be empty');
+    }
+    try {
+      base64Decode(base64Data);
+    } on FormatException {
+      throw ArgumentError.value(base64Data, 'base64Data', 'must be Base64');
     }
   }
 

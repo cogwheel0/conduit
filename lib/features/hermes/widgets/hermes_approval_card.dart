@@ -91,9 +91,9 @@ class HermesApprovalCard extends StatelessWidget {
                 for (final choice in choices)
                   ConduitButton(
                     text: switch (choice) {
-                      'once' => 'Allow once',
-                      'session' => 'Allow for session',
-                      'always' => 'Always allow',
+                      'once' => l10n.hermesApprovalAllowOnce,
+                      'session' => l10n.hermesApprovalAllowSession,
+                      'always' => l10n.hermesApprovalAlwaysAllow,
                       'deny' => l10n.hermesApprovalDenyAction,
                       _ => choice,
                     },

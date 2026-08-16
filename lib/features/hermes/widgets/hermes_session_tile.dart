@@ -264,9 +264,6 @@ Future<void> openHermesSession(
   var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
     raw = await service.getSessionMessages(session.id);
-    if (service is HermesDesktopApiService) {
-      pendingDecisions = await service.pendingDecisionsForSession(session.id);
-    }
   } catch (error) {
     // Don't silently open an existing session with an empty transcript — that
     // reads as data loss. Surface the failure and abort the open.
@@ -283,6 +280,13 @@ Future<void> openHermesSession(
       );
     }
     return;
+  }
+  if (service is HermesDesktopApiService) {
+    try {
+      pendingDecisions = await service.pendingDecisionsForSession(session.id);
+    } catch (_) {
+      // Pending presentation is recoverable; the transcript is still useful.
+    }
   }
 
   var hermesModel = hermesSyntheticModel();

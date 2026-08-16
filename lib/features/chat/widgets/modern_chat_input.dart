@@ -742,7 +742,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _sendDesktopBusyMessage({required bool steer}) async {
-    if (_desktopQueueActionBusy) return;
+    if (!widget.enabled || _desktopQueueActionBusy) return;
     final text = _controller.toWireFormat().trim();
     if (text.isEmpty) return;
     setState(() => _desktopQueueActionBusy = true);

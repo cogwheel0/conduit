@@ -211,6 +211,7 @@ abstract class ChatStatusItem with _$ChatStatusItem {
     String? title,
     String? link,
     String? snippet,
+    @JsonKey(unknownEnumValue: JsonKey.nullForUndefinedEnumValue)
     ChatStatusItemPresentation? presentation,
     Map<String, dynamic>? metadata,
   }) = _ChatStatusItem;

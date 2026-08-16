@@ -1752,8 +1752,10 @@ class Models extends _$Models {
     final hermesUsable = ref.watch(
       hermesConfigProvider.select((config) => config.isUsable),
     );
-    final hermesConfig = ref.watch(hermesConfigProvider);
-    if (hermesUsable && hermesConfig.mode == HermesBackendMode.desktopGateway) {
+    final hermesMode = ref.watch(
+      hermesConfigProvider.select((config) => config.mode),
+    );
+    if (hermesUsable && hermesMode == HermesBackendMode.desktopGateway) {
       ref.watch(hermesDesktopModelsProvider);
     }
     final directModels = ref.watch(

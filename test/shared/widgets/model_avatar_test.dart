@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/shared/widgets/model_avatar.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,7 +57,10 @@ void main() {
       );
 
       await tester.pump();
-      expect(find.byType(Image), findsOneWidget);
+      final provider = tester.widget<Image>(find.byType(Image)).image;
+      check(provider).isA<ResizeImage>();
+      check((provider as ResizeImage).imageProvider)
+          .equals(const AssetImage('assets/icons/hermes_agent.png'));
       expect(find.byIcon(Icons.psychology), findsNothing);
     });
   });

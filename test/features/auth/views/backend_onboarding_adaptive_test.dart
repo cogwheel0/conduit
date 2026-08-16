@@ -34,44 +34,47 @@ void main() {
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
-    final harness = AdaptiveAuthHarness(
-      server: _testServer,
-      platform: TargetPlatform.iOS,
-    );
-    addTearDown(harness.dispose);
+    try {
+      final harness = AdaptiveAuthHarness(
+        server: _testServer,
+        platform: TargetPlatform.iOS,
+      );
+      addTearDown(harness.dispose);
 
-    await tester.pumpWidget(
-      harness.build(initialLocation: Routes.backendChooser),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.backendChooser),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Choose how to connect'), findsOneWidget);
-    expect(find.text('Open WebUI'), findsOneWidget);
-    expect(find.text('Connect directly'), findsOneWidget);
-    expect(find.text('Hermes Agent'), findsOneWidget);
-    expect(find.byIcon(CupertinoIcons.link), findsOneWidget);
-    expect(find.byIcon(Icons.hub), findsNothing);
-    expect(find.byType(Image), findsNWidgets(2));
-    expect(
-      find.image(const AssetImage('assets/icons/open_webui.png')),
-      findsOneWidget,
-    );
-    expect(
-      find.image(const AssetImage('assets/icons/hermes_agent.png')),
-      findsOneWidget,
-    );
-    final openWebUiSemantics = tester.getSemantics(
-      find.bySemanticsLabel(
-        'Open WebUI. Sign in to your server for synced chats, notes, and more.',
-      ),
-    );
-    expect(
-      openWebUiSemantics.getSemanticsData().hasAction(ui.SemanticsAction.tap),
-      isTrue,
-    );
+      expect(find.text('Choose how to connect'), findsOneWidget);
+      expect(find.text('Open WebUI'), findsOneWidget);
+      expect(find.text('Connect directly'), findsOneWidget);
+      expect(find.text('Hermes Agent'), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.link), findsOneWidget);
+      expect(find.byIcon(Icons.hub), findsNothing);
+      expect(find.byType(Image), findsNWidgets(2));
+      expect(
+        find.image(const AssetImage('assets/icons/open_webui.png')),
+        findsOneWidget,
+      );
+      expect(
+        find.image(const AssetImage('assets/icons/hermes_agent.png')),
+        findsOneWidget,
+      );
+      final openWebUiSemantics = tester.getSemantics(
+        find.bySemanticsLabel(
+          'Open WebUI. Sign in to your server for synced chats, notes, and more.',
+        ),
+      );
+      expect(
+        openWebUiSemantics.getSemanticsData().hasAction(ui.SemanticsAction.tap),
+        isTrue,
+      );
 
-    semantics.dispose();
-    await harness.unmount(tester);
+      await harness.unmount(tester);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('backend chooser reflows and scrolls with accessibility text', (

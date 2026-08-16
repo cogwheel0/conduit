@@ -1,5 +1,7 @@
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/widgets/hermes_decision_card.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -10,7 +12,8 @@ void main() {
   testWidgets('renders its response field in a Cupertino tree', (tester) async {
     await tester.pumpWidget(
       CupertinoApp(
-        localizationsDelegates: const [DefaultMaterialLocalizations.delegate],
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Theme(
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
@@ -31,7 +34,8 @@ void main() {
     final answers = <String>[];
     await tester.pumpWidget(
       CupertinoApp(
-        localizationsDelegates: const [DefaultMaterialLocalizations.delegate],
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Theme(
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
@@ -57,7 +61,8 @@ void main() {
   testWidgets('keeps the answer when submission fails', (tester) async {
     await tester.pumpWidget(
       CupertinoApp(
-        localizationsDelegates: const [DefaultMaterialLocalizations.delegate],
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Theme(
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
@@ -78,7 +83,8 @@ void main() {
     String? answer;
     await tester.pumpWidget(
       CupertinoApp(
-        localizationsDelegates: const [DefaultMaterialLocalizations.delegate],
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Theme(
           data: AppTheme.light(TweakcnThemes.t3Chat),
           child: HermesDecisionCard(
@@ -95,7 +101,9 @@ void main() {
     );
 
     await tester.tap(find.text('alpha'));
+    await tester.pump();
     await tester.tap(find.text('beta'));
+    await tester.pump();
     await tester.tap(find.text('Send response'));
     await tester.pump();
     expect(answer, '["alpha","beta"]');

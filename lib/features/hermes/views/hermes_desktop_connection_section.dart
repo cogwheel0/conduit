@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/utils/debug_logger.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -119,11 +120,13 @@ class _HermesDesktopConnectionSectionState
     if (_profilesLoading && !force) return;
     final draft = _controller.buildDraft(ref.read(hermesConfigProvider));
     if (HermesConfig.connectionOrigin(draft.config.baseUrl) == null) {
+      if (!mounted) return;
       setState(() => _profilesError = 'Enter the Hermes server URL first.');
       return;
     }
     final identity = _authDraftIdentity(draft.config);
     final epoch = ++_profileEpoch;
+    if (!mounted) return;
     setState(() {
       _profilesLoading = true;
       _profilesError = null;
@@ -284,6 +287,7 @@ class _HermesDesktopConnectionSectionState
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final gatewayStopped =
         ref
             .watch(hermesServerStatusProvider)
@@ -294,14 +298,14 @@ class _HermesDesktopConnectionSectionState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (gatewayStopped) ...[
-          const UtilityStatusBanner(
-            message: 'The Hermes dashboard is online, but Desktop Gateway is stopped. Start the gateway on the Hermes server, then test again.',
+          UtilityStatusBanner(
+            message: l10n.hermesGatewayStopped,
             tone: UtilityStatusTone.warning,
           ),
           SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         ],
         InsetGroupedSection(
-          title: 'Hermes profile',
+          title: l10n.hermesProfile,
           footer: _profilesError,
           flat: !PlatformInfo.isIOS,
           child: Column(
@@ -320,12 +324,12 @@ class _HermesDesktopConnectionSectionState
                 onChanged: _controller.operation.isBusy
                     ? null
                     : _controller.setDesktopProfile,
-                decoration: const InputDecoration(labelText: 'Profile'),
-                nativeTitle: 'Hermes profile',
+                decoration: InputDecoration(labelText: l10n.hermesProfileLabel),
+                nativeTitle: l10n.hermesProfile,
               ),
               const SizedBox(height: Spacing.sm),
               ConduitButton(
-                text: 'Refresh profiles',
+                text: l10n.hermesRefreshProfiles,
                 isSecondary: true,
                 isLoading: _profilesLoading,
                 onPressed: _profilesLoading ? null : _loadProfiles,
@@ -335,11 +339,11 @@ class _HermesDesktopConnectionSectionState
         ),
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         InsetGroupedSection(
-          title: 'Desktop authentication',
+          title: l10n.hermesDesktopAuthentication,
           footer:
               _controller.desktopAuthKind ==
                   HermesDesktopAuthKind.dashboardCookie
-              ? 'Open the Hermes dashboard in the sign-in window, then return here to test the connection.'
+              ? l10n.hermesDashboardAuthHelp
               : null,
           flat: !PlatformInfo.isIOS,
           child: Column(
@@ -347,7 +351,11 @@ class _HermesDesktopConnectionSectionState
             children: [
               AdaptiveSegmentedControl(
                 key: const ValueKey<String>('hermes-desktop-auth-selector'),
-                labels: const ['Legacy', 'Native', 'Dashboard'],
+                labels: [
+                  l10n.hermesAuthLegacy,
+                  l10n.hermesAuthNative,
+                  l10n.hermesAuthDashboard,
+                ],
                 selectedIndex: _controller.desktopAuthKind.index,
                 enabled: !_controller.operation.isBusy,
                 onValueChanged: (index) => _controller.setDesktopAuthKind(
@@ -359,7 +367,7 @@ class _HermesDesktopConnectionSectionState
                 const SizedBox(height: Spacing.md),
                 ConduitButton(
                   key: const ValueKey<String>('hermes-native-sign-in'),
-                  text: 'Sign in with Hermes',
+                  text: l10n.hermesNativeSignIn,
                   isSecondary: true,
                   isFullWidth: true,
                   onPressed: _controller.operation.isBusy
@@ -372,7 +380,7 @@ class _HermesDesktopConnectionSectionState
                 const SizedBox(height: Spacing.md),
                 ConduitButton(
                   key: const ValueKey<String>('hermes-dashboard-sign-in'),
-                  text: 'Open dashboard sign in',
+                  text: l10n.hermesDashboardSignIn,
                   isSecondary: true,
                   isFullWidth: true,
                   onPressed: _controller.operation.isBusy
@@ -386,8 +394,8 @@ class _HermesDesktopConnectionSectionState
         const SizedBox(height: Spacing.lg),
         UtilityDisclosureSection(
           key: const ValueKey<String>('hermes-access-headers-disclosure'),
-          title: 'Gateway access headers',
-          subtitle: 'Optional headers for a protected Hermes dashboard.',
+          title: l10n.hermesGatewayAccessHeaders,
+          subtitle: l10n.hermesGatewayAccessHeadersHelp,
           leading: Icon(
             context.usesCupertinoChrome
                 ? CupertinoIcons.gear_alt

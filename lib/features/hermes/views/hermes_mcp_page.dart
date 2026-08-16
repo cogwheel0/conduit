@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/utils/debug_logger.dart';
 import '../models/hermes_mcp.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_desktop_api_service.dart';
@@ -17,6 +18,7 @@ final class HermesMcpPage extends ConsumerStatefulWidget {
 final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   late Future<List<HermesMcpServer>> _servers = _load();
   final Map<String, HermesMcpTestResult> _testResults = {};
+  final Set<String> _oauthPending = {};
 
   HermesDesktopApiService get _service {
     final service = ref.read(hermesApiServiceProvider);
@@ -26,7 +28,18 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     return service;
   }
 
-  Future<List<HermesMcpServer>> _load() => _service.mcpServers();
+  Future<List<HermesMcpServer>> _load() async {
+    try {
+      return await _service.mcpServers();
+    } catch (error) {
+      DebugLogger.warning(
+        'mcp-load-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      rethrow;
+    }
+  }
 
   void _refresh() {
     if (mounted) setState(() => _servers = _load());
@@ -35,7 +48,12 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   Future<void> _run(Future<void> Function() action) async {
     try {
       await action();
-    } catch (_) {
+    } catch (error) {
+      DebugLogger.warning(
+        'mcp-action-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Hermes MCP action failed.')),
@@ -207,7 +225,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   Future<void> _oauth(String name) async {
-    if (await _service.authenticateMcpServer(name) && mounted) _refresh();
+    if (mounted) setState(() => _oauthPending.add(name));
+    try {
+      if (!await _service.authenticateMcpServer(name)) {
+        throw StateError('MCP authentication failed.');
+      }
+      _refresh();
+    } finally {
+      if (mounted) setState(() => _oauthPending.remove(name));
+    }
   }
 
   Future<void> _remove(String name) async {
@@ -247,92 +273,107 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Hermes MCP'),
-      actions: [
-        IconButton(
-          tooltip: 'Add from catalog',
-          onPressed: () => unawaited(_run(_addPreset)),
-          icon: const Icon(Icons.auto_awesome_outlined),
-        ),
-        IconButton(
-          onPressed: () => unawaited(_run(_add)),
-          icon: const Icon(Icons.add),
-        ),
-      ],
-    ),
-    body: FutureBuilder<List<HermesMcpServer>>(
-      future: _servers,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          if (snapshot.hasError) {
-            return Center(child: Text(snapshot.error.toString()));
+  Widget build(BuildContext context) {
+    final connectedService = ref.watch(hermesApiServiceProvider);
+    final supportsCredentialUpdate =
+        connectedService is HermesDesktopApiService &&
+        connectedService.supportsMcpCredentialUpdate;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Hermes MCP'),
+        actions: [
+          IconButton(
+            tooltip: 'Add from catalog',
+            onPressed: () => unawaited(_run(_addPreset)),
+            icon: const Icon(Icons.auto_awesome_outlined),
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<HermesMcpServer>>(
+        future: _servers,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            if (snapshot.hasError) {
+              return const Center(child: Text('Could not load MCP servers.'));
+            }
+            return const Center(child: CircularProgressIndicator.adaptive());
           }
-          return const Center(child: CircularProgressIndicator.adaptive());
-        }
-        final servers = snapshot.data!;
-        if (servers.isEmpty) {
-          return const Center(child: Text('No MCP servers configured.'));
-        }
-        return ListView(
-          children: [
-            for (final server in servers)
-              ListTile(
-                title: Text(server.name),
-                subtitle: Text(_serverSubtitle(server)),
-                trailing: PopupMenuButton<String>(
-                  onSelected: (action) {
-                    final name = server.name;
-                    if (action == 'test') {
-                      unawaited(_run(() => _test(name)));
-                    }
-                    if (action == 'oauth') {
-                      unawaited(_run(() => _oauth(name)));
-                    }
-                    if (action == 'key') {
-                      unawaited(_run(() => _setApiKey(name)));
-                    }
-                    if (action == 'enable') {
-                      unawaited(_run(() => _setEnabled(server, true)));
-                    }
-                    if (action == 'disable') {
-                      unawaited(_run(() => _setEnabled(server, false)));
-                    }
-                    if (action == 'remove') {
-                      unawaited(_run(() => _remove(name)));
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'test', child: Text('Test')),
-                    const PopupMenuItem(
-                      value: 'oauth',
-                      child: Text('Authenticate'),
-                    ),
-                    if (_service.supportsMcpCredentialUpdate)
-                      const PopupMenuItem(
-                        value: 'key',
-                        child: Text('Set API key'),
-                      ),
-                    const PopupMenuItem(
-                      value: 'enable',
-                      child: Text('Enable tools'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'disable',
-                      child: Text('Disable tools'),
-                    ),
-                    const PopupMenuItem(value: 'remove', child: Text('Remove')),
-                  ],
+          final servers = snapshot.data!;
+          if (servers.isEmpty) {
+            return const Center(child: Text('No MCP servers configured.'));
+          }
+          return ListView(
+            children: [
+              for (final server in servers)
+                ListTile(
+                  title: Text(server.name),
+                  subtitle: Text(
+                    _serverSubtitle(server),
+                    maxLines: 5,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  isThreeLine: true,
+                  trailing: _oauthPending.contains(server.name)
+                      ? const CircularProgressIndicator.adaptive()
+                      : PopupMenuButton<String>(
+                          onSelected: (action) {
+                            final name = server.name;
+                            if (action == 'test') {
+                              unawaited(_run(() => _test(name)));
+                            }
+                            if (action == 'oauth') {
+                              unawaited(_run(() => _oauth(name)));
+                            }
+                            if (action == 'key') {
+                              unawaited(_run(() => _setApiKey(name)));
+                            }
+                            if (action == 'enable') {
+                              unawaited(_run(() => _setEnabled(server, true)));
+                            }
+                            if (action == 'disable') {
+                              unawaited(_run(() => _setEnabled(server, false)));
+                            }
+                            if (action == 'remove') {
+                              unawaited(_run(() => _remove(name)));
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'test',
+                              child: Text('Test'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'oauth',
+                              child: Text('Authenticate'),
+                            ),
+                            if (supportsCredentialUpdate)
+                              const PopupMenuItem(
+                                value: 'key',
+                                child: Text('Set API key'),
+                              ),
+                            const PopupMenuItem(
+                              value: 'enable',
+                              child: Text('Enable tools'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'disable',
+                              child: Text('Disable tools'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Text('Remove'),
+                            ),
+                          ],
+                        ),
                 ),
-              ),
-          ],
-        );
-      },
-    ),
-    floatingActionButton: FloatingActionButton(
-      onPressed: () => unawaited(_run(_add)),
-      child: const Icon(Icons.add),
-    ),
-  );
+            ],
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => unawaited(_run(_add)),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
 }

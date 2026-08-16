@@ -85,6 +85,7 @@ class HermesCapabilities {
     return true;
   }
 
+  /// Accepts either the Responses image contract or Desktop upload contract.
   static bool _resolveResponsesImageInput(Map<String, dynamic> json) {
     if (json['desktop_uploads'] == true) return true;
     final topLevelApi = json['responses_api'];

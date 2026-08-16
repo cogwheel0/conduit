@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/webview_cookie_helper.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
@@ -18,29 +19,25 @@ void main() {
     );
     final openWebUi = WebViewCookieHelper.cookieIdentityParts(name: 'token');
 
-    expect(
+    check(
       hermesDashboardCookieIdentityDelta(
         current: {hermes, openWebUi},
         baseline: {hermes, openWebUi},
         retainedNames: const {'hermes_session_at'},
       ),
-      {hermes},
-    );
+    ).deepEquals({hermes});
   });
 
   test('exact-host cleanup preserves shared parent-domain cookies', () {
-    expect(webViewCookieBelongsToExactHost(null, 'hermes.example.com'), isTrue);
-    expect(
+    check(webViewCookieBelongsToExactHost(null, 'hermes.example.com')).isTrue();
+    check(
       webViewCookieBelongsToExactHost(
         'hermes.example.com',
         'hermes.example.com',
       ),
-      isTrue,
-    );
-    expect(
-      webViewCookieBelongsToExactHost('.example.com', 'hermes.example.com'),
-      isFalse,
-    );
+    ).isTrue();
+    check(webViewCookieBelongsToExactHost('.example.com', 'hermes.example.com'))
+        .isFalse();
   });
 
   test('apple website data clear set targets storage without cookies', () {

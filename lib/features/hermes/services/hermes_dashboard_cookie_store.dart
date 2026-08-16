@@ -29,7 +29,9 @@ final class HermesDashboardCookieStore {
   static final Map<String, int> _generations = {};
 
   static int begin(String origin) {
-    final key = _originKey(Uri.parse(origin));
+    final uri = Uri.tryParse(origin);
+    if (uri == null || uri.host.isEmpty) return 0;
+    final key = _originKey(uri);
     return _generations[key] = (_generations[key] ?? 0) + 1;
   }
 
@@ -52,16 +54,16 @@ final class HermesDashboardCookieStore {
       retainedNames: retainedNames,
     );
     final registry = _registry();
-    registry[key] = {
-      ...?registry[key],
-      ...identities,
-    }.take(64).toList(growable: false);
+    final merged = {...?registry[key], ...identities}.toList();
+    registry[key] = merged.length <= 64
+        ? merged
+        : merged.sublist(merged.length - 64);
     await _write(registry);
   });
 
   static Future<bool> clear(String origin) async {
     final uri = Uri.tryParse(origin);
-    if (uri == null || uri.host.isEmpty) return false;
+    if (uri == null || uri.host.isEmpty) return true;
     final key = _originKey(uri);
     _generations[key] = (_generations[key] ?? 0) + 1;
     return WebViewCookieHelper.runSerializedDataOperation(() async {

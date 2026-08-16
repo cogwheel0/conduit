@@ -142,27 +142,46 @@ final class HermesDashboardWebViewPolicy {
         !isExact(target)) {
       return null;
     }
-    final cookies = await CookieManager.instance().getCookies(url: request.url);
-    final response = await _resourceClient.get<List<int>>(
-      target.toString(),
-      options: Options(
-        responseType: ResponseType.bytes,
-        headers: {
-          ...sameOriginHeaders(request.headers),
-          if (cookies.isNotEmpty)
-            'Cookie': cookies
-                .map((cookie) => '${cookie.name}=${cookie.value}')
-                .join('; '),
-        },
-      ),
-    );
+    late final Response<List<int>> response;
+    try {
+      final cookies = await CookieManager.instance().getCookies(
+        url: request.url,
+      );
+      response = await _resourceClient.get<List<int>>(
+        target.toString(),
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: {
+            ...sameOriginHeaders(request.headers),
+            if (cookies.isNotEmpty)
+              'Cookie': cookies
+                  .map((cookie) => '${cookie.name}=${cookie.value}')
+                  .join('; '),
+          },
+        ),
+      );
+    } catch (_) {
+      return WebResourceResponse(
+        data: Uint8List(0),
+        contentType: 'text/plain',
+        contentEncoding: 'utf-8',
+        statusCode: 502,
+        reasonPhrase: 'Bad Gateway',
+      );
+    }
     final status = response.statusCode ?? 500;
     if (status >= 300 && status < 400) return null;
     final contentType = response.headers.value(Headers.contentTypeHeader);
+    final charset = contentType == null
+        ? null
+        : RegExp(
+            r'charset=([^;\s]+)',
+            caseSensitive: false,
+          ).firstMatch(contentType)?.group(1);
     return WebResourceResponse(
       data: Uint8List.fromList(response.data ?? const []),
       contentType: contentType?.split(';').first ?? 'application/octet-stream',
-      contentEncoding: 'utf-8',
+      contentEncoding: charset,
       statusCode: status,
       reasonPhrase: status < 400 ? 'OK' : 'Error',
       headers: {

@@ -49,6 +49,7 @@ void main() {
   test('preserves MCP state and discovered inventory', () {
     final server = HermesMcpServer.fromJson({
       'name': 'docs',
+      'url': 'https://user:secret@example.com/mcp?token=secret',
       'enabled': false,
       'auth': 'oauth',
       'tools': [
@@ -67,7 +68,9 @@ void main() {
     check(server.enabled).isFalse();
     check(server.auth).equals('oauth');
     check(server.tools).deepEquals(['search']);
+    check(server.description).equals('https://example.com/mcp');
     check(probe.toolNames).deepEquals(['search']);
+    check(probe.tools).equals(1);
     check(probe.resources).equals(3);
     check(probe.prompts).equals(2);
   });

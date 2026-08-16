@@ -1312,6 +1312,7 @@ void _handleEvent(
               summary,
               sensitiveValues: sensitiveValues,
             );
+      final safeChoices = _boundedHermesDecisionChoices(choices);
       updateMessage((m) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta[kHermesApprovalMeta] = {
@@ -1320,7 +1321,7 @@ void _handleEvent(
           'runId': safeRunId,
           'storedSessionId': ?safeStoredSessionId,
           'summary': ?safeSummary,
-          if (choices.isNotEmpty) 'choices': choices.take(8).toList(),
+          if (safeChoices.isNotEmpty) 'choices': safeChoices,
         };
         return m.copyWith(metadata: meta);
       });

@@ -43,21 +43,18 @@ void main() {
         ],
       },
     ]);
-    final sdkInput = check(
-      input.toResponseInput(),
-    ).isA<openai.ResponseInputItems>();
+    final sdkInput = check(input.toResponseInput())
+        .isA<openai.ResponseInputItems>();
     sdkInput.has((value) => value.items, 'items').length.equals(1);
-    check(
-      input.toResponseInput().toJson() as List<Object?>,
-    ).deepEquals(input.toResponsesJson() as List<Object?>);
+    check(input.toResponseInput().toJson() as List<Object?>)
+        .deepEquals(input.toResponsesJson() as List<Object?>);
   });
 
   test('rejects empty turns and unsupported image references', () {
     check(() => HermesChatInput.text('  ')).throws<ArgumentError>();
     check(() => HermesChatInput.multimodal(const [])).throws<ArgumentError>();
-    check(
-      () => HermesInputImagePart('/private/device/photo.jpg'),
-    ).throws<ArgumentError>();
+    check(() => HermesInputImagePart('/private/device/photo.jpg'))
+        .throws<ArgumentError>();
     check(
       () => HermesInputImagePart(
         'https://example.com/image.png',

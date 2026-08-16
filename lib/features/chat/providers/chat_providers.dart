@@ -7899,6 +7899,8 @@ String _hermesDesktopFileMediaType(String filename) {
   final extension = filename.toLowerCase().split('.').last;
   return switch (extension) {
     'pdf' => 'application/pdf',
+    'txt' => 'text/plain',
+    'md' || 'markdown' => 'text/markdown',
     'json' || 'jsonl' => 'application/json',
     'csv' => 'text/csv',
     'html' || 'htm' => 'text/html',
@@ -8403,6 +8405,11 @@ Future<void> _regenerateHermesMessage(
       null;
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
+  if (replayedFiles.any((file) => file['source'] == 'hermes_desktop_file')) {
+    throw const HermesAttachmentsUnsupportedException(
+      'Desktop file attachments cannot be regenerated. Send the file again.',
+    );
+  }
   final useResponses =
       previousAssistant?.metadata?['hermesTransportMode'] ==
           kHermesResponsesMode ||

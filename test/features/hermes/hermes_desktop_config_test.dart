@@ -68,6 +68,12 @@ void main() {
     check(after.baseUrl).equals(before.baseUrl);
     check(after.desktopCredentials!.accessHeaders)
         .deepEquals(before.desktopCredentials!.accessHeaders);
+    check(after.desktopCredentials!.nativeTokens!.accessToken)
+        .equals('new-access');
+    check(after.desktopCredentials!.nativeTokens!.refreshToken)
+        .equals('new-refresh');
+    check(after.desktopCredentials!.nativeTokens!.expiresAt)
+        .equals(DateTime.utc(2027));
   });
 
   test('existing Hermes config remains on Responses API', () {
@@ -122,6 +128,8 @@ void main() {
       HermesConfig.validateAccessHeaders({'X-Access': 'safe\nInjected: yes'}) ??
           '',
     ).contains('invalid');
+    check(HermesConfig.validateAccessHeaders({' X-Access': 'secret'}) ?? '')
+        .contains('invalid');
   });
 
   test('Desktop credential document round-trips all origin-bound secrets', () {

@@ -167,9 +167,11 @@ final class HermesConnectionController extends ChangeNotifier {
       for (final entry in _initialAccessHeaders.entries)
         entry.key.toLowerCase(): entry.value,
     };
+    final initialHeaderValues = _initialAccessHeaders.values.toSet();
     final newOriginHeaders = <String, String>{
       for (final entry in _accessHeaders.entries)
-        if (initialHeadersByName[entry.key.toLowerCase()] != entry.value)
+        if (initialHeadersByName[entry.key.toLowerCase()] != entry.value &&
+            !initialHeaderValues.contains(entry.value))
           entry.key: entry.value,
     };
     final nextDesktop = originChanged

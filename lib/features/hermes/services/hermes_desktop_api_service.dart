@@ -166,6 +166,9 @@ final class HermesDesktopApiService
     HermesDesktopRpcClient? rpc,
     this.onCredentialsChanged,
   }) : _nativeTokens = config.desktopCredentials?.nativeTokens,
+       _origin =
+           HermesConfig.connectionOrigin(config.baseUrl) ??
+           (throw const FormatException('Invalid Hermes Desktop URL.')),
        _root = _normalizeDesktopRoot(config.baseUrl),
        _dio =
            dio ??
@@ -180,9 +183,9 @@ final class HermesDesktopApiService
        _rpc = rpc ?? HermesDesktopRpcClient() {
     _administration = _HermesDesktopAdministration(this);
     _rpc.setDefaultParams({'profile': config.desktopProfile});
-    WidgetsBinding.instance.addObserver(this);
   }
 
+  final String _origin;
   final Uri _root;
   @override
   final HermesConfig config;
@@ -213,20 +216,34 @@ final class HermesDesktopApiService
   bool _authoritativeRunning = true;
   bool _supportsMcpRpcLifecycle = true;
   bool _reconciliationStale = false;
+  bool _observingLifecycle = false;
   int _desktopContract = 0;
 
-  Stream<HermesDesktopTurnState> get turnStates => _turnStates.stream;
-  Stream<HermesDesktopTurnState> turnStatesFor(String storedId) async* {
-    yield turnStateFor(storedId);
-    await for (final changedId in _sessionTurnStateChanges.stream) {
-      final binding = _bindings[storedId];
-      if (changedId == storedId ||
-          changedId == binding?.storedId ||
-          changedId == binding?.runtimeId) {
-        yield turnStateFor(storedId);
-      }
-    }
+  void startLifecycleObservation() {
+    if (_closed || _observingLifecycle) return;
+    WidgetsBinding.instance.addObserver(this);
+    _observingLifecycle = true;
   }
+
+  Stream<HermesDesktopTurnState> get turnStates => _turnStates.stream;
+  Stream<HermesDesktopTurnState> turnStatesFor(String storedId) =>
+      Stream<HermesDesktopTurnState>.multi((controller) {
+        final subscription = _sessionTurnStateChanges.stream.listen(
+          (changedId) {
+            final binding = _bindings[storedId];
+            if (changedId == storedId ||
+                changedId == binding?.storedId ||
+                changedId == binding?.runtimeId) {
+              controller.add(turnStateFor(storedId));
+            }
+          },
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+        controller
+          ..add(turnStateFor(storedId))
+          ..onCancel = subscription.cancel;
+      });
 
   HermesDesktopTurnState turnStateFor(String storedId) {
     if (!_authoritativeRunning) {
@@ -241,21 +258,26 @@ final class HermesDesktopApiService
 
   Stream<String> get transcriptChanges => _transcriptChanges.stream;
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
+  Stream<int> desktopContracts() => Stream<int>.multi((controller) {
+    final subscription = _desktopContractChanges.stream.listen(
+      controller.add,
+      onError: controller.addError,
+      onDone: controller.close,
+    );
+    controller
+      ..add(_desktopContract)
+      ..onCancel = subscription.cancel;
+  });
   int get desktopContract => _desktopContract;
   bool get supportsAuthoritativeRunning => _authoritativeRunning;
   bool get supportsMcpCredentialUpdate => _supportsMcpRpcLifecycle;
   HermesDesktopRpcClient get rpc => _rpc;
-  String get _origin => HermesConfig.connectionOrigin(config.baseUrl)!;
-
   static Uri _normalizeDesktopRoot(String value) {
-    var normalized = value.trim();
-    while (normalized.endsWith('/')) {
-      normalized = normalized.substring(0, normalized.length - 1);
+    final endpoint = HermesConfig.connectionEndpoint(value);
+    if (endpoint == null) {
+      throw const FormatException('Invalid Hermes Desktop URL.');
     }
-    if (normalized.endsWith('/v1')) {
-      normalized = normalized.substring(0, normalized.length - 3);
-    }
-    return Uri.parse(normalized);
+    return Uri.parse(endpoint);
   }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
@@ -500,7 +522,7 @@ final class HermesDesktopApiService
   void close() {
     if (_closed) return;
     _closed = true;
-    WidgetsBinding.instance.removeObserver(this);
+    if (_observingLifecycle) WidgetsBinding.instance.removeObserver(this);
     _dio.close(force: true);
     unawaited(_dashboardBridge?.close());
     unawaited(_stateSubscription?.cancel());
@@ -510,6 +532,12 @@ final class HermesDesktopApiService
     unawaited(_transcriptChanges.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();
+    _bindings.clear();
+    _bindingSocketGenerations.clear();
+    _freshSessionIds.clear();
+    _lastTranscripts.clear();
+    _appliedSessionOptions.clear();
+    _sessionTurnStates.clear();
   }
 
   void _emitTurnState(HermesDesktopTurnState state) {

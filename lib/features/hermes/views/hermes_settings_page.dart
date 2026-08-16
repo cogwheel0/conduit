@@ -164,10 +164,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     );
     final desktopTokenField = AccessibleFormField(
       enabled: !_connectionController.operation.isBusy,
-      label: 'Legacy session token',
+      label: l10n.hermesLegacySessionToken,
       hint: config.desktopCredentials?.legacyToken?.isNotEmpty == true
           ? l10n.hermesConfiguredReplacePlaceholder
-          : 'Paste the Hermes session token',
+          : l10n.hermesLegacySessionTokenHint,
       obscureText: true,
       controller: _connectionController.desktopLegacyToken,
       keyboardType: TextInputType.visiblePassword,

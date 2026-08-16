@@ -233,6 +233,7 @@ class HermesConfig {
     final seen = <String>{};
     for (final entry in headers.entries) {
       final name = entry.key.trim();
+      if (name != entry.key) return 'A header name is invalid.';
       final lower = name.toLowerCase();
       if (!RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(name)) {
         return 'A header name is invalid.';

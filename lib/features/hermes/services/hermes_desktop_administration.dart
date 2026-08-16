@@ -36,7 +36,10 @@ final class _HermesDesktopAdministration {
         .take(256)
         .map<Map<String, dynamic>>((row) {
           final map = row is Map ? Map<String, dynamic>.from(row) : null;
-          final name = (map?['name'] ?? row).toString().replaceFirst('/', '');
+          final name = (map?['name'] ?? row).toString().replaceFirst(
+            RegExp(r'^/'),
+            '',
+          );
           return {
             'name': name,
             'description':
@@ -63,7 +66,7 @@ final class _HermesDesktopAdministration {
         .map<Map<String, dynamic>>((row) {
           if (row is List && row.isNotEmpty) {
             return {
-              'name': row.first.toString().replaceFirst('/', ''),
+              'name': row.first.toString().replaceFirst(RegExp(r'^/'), ''),
               'description': row.length > 1 ? row[1].toString() : '',
             };
           }
@@ -159,6 +162,13 @@ final class _HermesDesktopAdministration {
   }
 
   Future<bool> authenticateMcpServer(String name) async {
+    final result = await _completeMcpOAuth(name);
+    if (result == null) return false;
+    await reloadMcp();
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> _completeMcpOAuth(String name) async {
     final started = await mcpRequest(
       'mcp.servers.oauth.start',
       params: {'name': name},
@@ -168,21 +178,22 @@ final class _HermesDesktopAdministration {
     if (flowId == null ||
         authUrl == null ||
         !await launchUrl(authUrl, mode: LaunchMode.externalApplication)) {
-      return false;
+      return null;
     }
     for (var attempt = 0; attempt < 60; attempt++) {
       await Future<void>.delayed(const Duration(seconds: 2));
       final status = (await mcpRequest(
         'mcp.servers.oauth.poll',
         params: {'name': name, 'session_id': flowId},
-      ))['status']?.toString();
-      if (const {'approved', 'authorized', 'complete'}.contains(status)) {
-        await reloadMcp();
-        return true;
+      ));
+      if (_owner._closed) return null;
+      final state = status['status']?.toString();
+      if (const {'approved', 'authorized', 'complete'}.contains(state)) {
+        return status;
       }
-      if (const {'error', 'failed', 'expired'}.contains(status)) return false;
+      if (const {'error', 'failed', 'expired'}.contains(state)) return null;
     }
-    return false;
+    return null;
   }
 
   Future<Map<String, dynamic>> mcpRequest(
@@ -317,26 +328,29 @@ final class _HermesDesktopAdministration {
         return true;
       } on HermesDesktopRpcException catch (error) {
         if (error.code == -32601) return false;
-        rethrow;
+        return false;
       } on DioException catch (error) {
         if (error.response?.statusCode == 404) return false;
-        rethrow;
+        return false;
+      } catch (_) {
+        return false;
       }
     }
 
     await _owner._ensureConnected();
-    final skills = await supported(
-      () => _owner._rpc.request<Object?>(
-        'skills.manage',
-        params: const {'action': 'list'},
+    final support = await Future.wait<bool>([
+      supported(
+        () => _owner._rpc.request<Object?>(
+          'skills.manage',
+          params: const {'action': 'list'},
+        ),
       ),
-    );
-    final toolsets = await supported(
-      () => _owner._rpc.request<Object?>('tools.list'),
-    );
-    final jobs = await supported(
-      () => _owner._requestJson('GET', '/api/cron/jobs', query: {'limit': 1}),
-    );
+      supported(() => _owner._rpc.request<Object?>('tools.list')),
+      supported(
+        () => _owner._requestJson('GET', '/api/cron/jobs', query: {'limit': 1}),
+      ),
+    ]);
+    final [skills, toolsets, jobs] = support;
     return {
       'run_approval': true,
       'skills': skills,
@@ -435,42 +449,7 @@ final class _HermesDesktopAdministration {
             await setMcpServerEnabled(safeServer, true);
             outcome = {'server': safeServer, 'status': 'enabled'};
           case 'authorize':
-            final started = await mcpRequest(
-              'mcp.servers.oauth.start',
-              params: {'name': safeServer},
-            );
-            final flowId = validateHermesOpaqueIdentifier(
-              started['session_id'],
-            );
-            final authUrl = parseHermesOAuthUrl(started['auth_url']);
-            if (flowId == null ||
-                authUrl == null ||
-                !await launchUrl(
-                  authUrl,
-                  mode: LaunchMode.externalApplication,
-                )) {
-              throw StateError('MCP authorization could not start.');
-            }
-            Map<String, dynamic>? approvedResult;
-            for (var attempt = 0; attempt < 60; attempt++) {
-              await Future<void>.delayed(const Duration(seconds: 2));
-              final polled = await mcpRequest(
-                'mcp.servers.oauth.poll',
-                params: {'name': safeServer, 'session_id': flowId},
-              );
-              final status = polled['status']?.toString();
-              if (const {
-                'approved',
-                'authorized',
-                'complete',
-              }.contains(status)) {
-                approvedResult = polled;
-                break;
-              }
-              if (const {'error', 'failed', 'expired'}.contains(status)) {
-                throw StateError('MCP authorization failed.');
-              }
-            }
+            final approvedResult = await _completeMcpOAuth(safeServer);
             if (approvedResult == null) {
               throw TimeoutException('MCP authorization timed out.');
             }
@@ -485,7 +464,12 @@ final class _HermesDesktopAdministration {
             };
         }
         await reloadMcp(runtimeId: runtimeId);
-      } catch (_) {
+      } catch (error) {
+        DebugLogger.warning(
+          'mcp-setup-failed',
+          scope: 'hermes/mcp',
+          data: {'errorType': error.runtimeType.toString()},
+        );
         outcome = {
           'server': safeServer,
           'status': 'error',

@@ -908,7 +908,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref.read(chatMessagesProvider.notifier).setMessages(messages);
       ref
           .read(activeConversationProvider.notifier)
-          .set(active.copyWith(messages: messages, updatedAt: DateTime.now()));
+          .set(
+            inheritNativeHermesConversationProvenance(
+              active,
+              active.copyWith(messages: messages, updatedAt: DateTime.now()),
+            ),
+          );
     } catch (error) {
       DebugLogger.warning(
         'desktop-transcript-refresh-failed',

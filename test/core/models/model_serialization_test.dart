@@ -126,11 +126,11 @@ void main() {
       });
 
       check(model.capabilities?['reasoning_effort']).equals(true);
-      check(
-        model.capabilities?['reasoning'],
-      ).isA<Map<String, dynamic>>().deepEquals(<String, dynamic>{
-        'supported_efforts': ['low', 'vendor_ultra'],
-      });
+      check(model.capabilities?['reasoning'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(<String, dynamic>{
+            'supported_efforts': ['low', 'vendor_ultra'],
+          });
       check(model.supportsReasoningEffort).isTrue();
     });
 
@@ -209,14 +209,12 @@ void main() {
         },
       });
 
-      check(
-        model.modelTags,
-      ).deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
+      check(model.modelTags)
+          .deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
 
       final restored = Model.fromJson(model.toJson());
-      check(
-        restored.modelTags,
-      ).deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
+      check(restored.modelTags)
+          .deepEquals(['tools', 'coding', 'Reasoning', 'fast']);
     });
   });
 
@@ -401,9 +399,8 @@ void main() {
       check(kb.id).equals('kb1');
       check(kb.name).equals('Docs');
       check(kb.itemCount).equals(5);
-      check(
-        kb.createdAt,
-      ).equals(DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000));
+      check(kb.createdAt)
+          .equals(DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000));
     });
 
     test('fromJson with camelCase (createdAt as string)', () {
@@ -905,9 +902,8 @@ void main() {
 
       check(messages).isA<List<dynamic>>();
       check((messages as List).single).isA<Map<String, dynamic>>();
-      check(
-        (messages.single as Map<String, dynamic>)['content'],
-      ).equals('hello');
+      check((messages.single as Map<String, dynamic>)['content'])
+          .equals('hello');
     });
 
     test(
@@ -977,16 +973,14 @@ void main() {
                 as Map<String, dynamic>;
 
         check(messageJson['statusHistory']).isA<List<dynamic>>();
-        check(
-          (messageJson['statusHistory'] as List<dynamic>).single,
-        ).isA<Map<String, dynamic>>();
+        check((messageJson['statusHistory'] as List<dynamic>).single)
+            .isA<Map<String, dynamic>>();
         check(messageJson['codeExecutions']).isA<List<dynamic>>();
         final codeExecutionJson =
             (messageJson['codeExecutions'] as List<dynamic>).single;
         check(codeExecutionJson).isA<Map<String, dynamic>>();
-        check(
-          (codeExecutionJson as Map<String, dynamic>)['result'],
-        ).isA<Map<String, dynamic>>();
+        check((codeExecutionJson as Map<String, dynamic>)['result'])
+            .isA<Map<String, dynamic>>();
         final versionJson = (messageJson['versions'] as List<dynamic>).single;
         check(versionJson).isA<Map<String, dynamic>>();
         check(
@@ -998,20 +992,27 @@ void main() {
         final restored = Conversation.fromJson(normalized);
         final restoredMessage = restored.messages.single;
 
-        check(
-          restoredMessage.statusHistory.single.description,
-        ).equals('Searching docs');
-        check(
-          restoredMessage.statusHistory.single.items.single.title,
-        ).equals('Result title');
+        check(restoredMessage.statusHistory.single.description)
+            .equals('Searching docs');
+        check(restoredMessage.statusHistory.single.items.single.title)
+            .equals('Result title');
         check(restoredMessage.codeExecutions.single.result?.output).equals('1');
-        check(
-          restoredMessage.codeExecutions.single.result?.files.single.name,
-        ).equals('plot.png');
+        check(restoredMessage.codeExecutions.single.result?.files.single.name)
+            .equals('plot.png');
         check(
           restoredMessage.versions.single.codeExecutions.single.result?.output,
         ).equals('2');
       },
     );
+
+    test('unknown status presentation preserves the status item', () {
+      final item = ChatStatusItem.fromJson(<String, dynamic>{
+        'title': 'Still useful',
+        'presentation': 'future-style',
+      });
+
+      check(item.title).equals('Still useful');
+      check(item.presentation).isNull();
+    });
   });
 }

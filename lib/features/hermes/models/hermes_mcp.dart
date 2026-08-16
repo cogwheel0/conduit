@@ -1,3 +1,5 @@
+import '../services/hermes_identifier.dart';
+
 final class HermesMcpServer {
   const HermesMcpServer({
     required this.name,
@@ -9,23 +11,16 @@ final class HermesMcpServer {
 
   factory HermesMcpServer.fromJson(Map<dynamic, dynamic> json) =>
       HermesMcpServer(
-        name: json['name']?.toString() ?? '',
-        description:
-            json['url']?.toString() ??
-            json['command']?.toString() ??
-            json['transport']?.toString() ??
-            '',
+        name:
+            validateHermesBoundedString(json['name'], maxCharacters: 128) ?? '',
+        description: _mcpServerDescription(json),
         enabled: json['enabled'] != false,
-        auth: json['auth']?.toString(),
-        tools: json['tools'] is List
-            ? (json['tools'] as List)
-                  .map((tool) => tool is Map ? tool['name'] : tool)
-                  .whereType<Object>()
-                  .map((tool) => tool.toString())
-                  .where((tool) => tool.isNotEmpty)
-                  .take(100)
-                  .toList(growable: false)
-            : const [],
+        auth: validateHermesBoundedString(
+          json['auth'],
+          maxCharacters: 64,
+          allowEmpty: true,
+        ),
+        tools: _mcpToolNames(json['tools']),
       );
 
   final String name;
@@ -64,23 +59,17 @@ final class HermesMcpTestResult {
     this.toolNames = const [],
   });
 
-  factory HermesMcpTestResult.fromJson(Map<String, dynamic> json) =>
-      HermesMcpTestResult(
-        ok: json['ok'] == true,
-        tools: json['tools'] is List ? (json['tools'] as List).length : 0,
-        resources: (json['resources'] as num?)?.toInt() ?? 0,
-        prompts: (json['prompts'] as num?)?.toInt() ?? 0,
-        error: json['error']?.toString(),
-        toolNames: json['tools'] is List
-            ? (json['tools'] as List)
-                  .map((tool) => tool is Map ? tool['name'] : tool)
-                  .whereType<Object>()
-                  .map((tool) => tool.toString())
-                  .where((tool) => tool.isNotEmpty)
-                  .take(100)
-                  .toList(growable: false)
-            : const [],
-      );
+  factory HermesMcpTestResult.fromJson(Map<String, dynamic> json) {
+    final toolNames = _mcpToolNames(json['tools']);
+    return HermesMcpTestResult(
+      ok: json['ok'] == true,
+      tools: toolNames.length,
+      resources: (json['resources'] as num?)?.toInt() ?? 0,
+      prompts: (json['prompts'] as num?)?.toInt() ?? 0,
+      error: json['error']?.toString(),
+      toolNames: toolNames,
+    );
+  }
 
   final bool ok;
   final int tools;
@@ -88,4 +77,31 @@ final class HermesMcpTestResult {
   final int prompts;
   final String? error;
   final List<String> toolNames;
+}
+
+List<String> _mcpToolNames(Object? value) => value is List
+    ? value
+          .map((tool) => tool is Map ? tool['name'] : tool)
+          .map((tool) => validateHermesBoundedString(tool, maxCharacters: 128))
+          .whereType<String>()
+          .take(100)
+          .toList(growable: false)
+    : const [];
+
+String _mcpServerDescription(Map<dynamic, dynamic> json) {
+  final rawUrl = validateHermesBoundedString(json['url'], maxCharacters: 512);
+  final uri = rawUrl == null ? null : Uri.tryParse(rawUrl);
+  if (uri != null && uri.host.isNotEmpty) {
+    return Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path,
+    ).toString();
+  }
+  return validateHermesBoundedString(
+        json['command'] ?? json['transport'],
+        maxCharacters: 256,
+      ) ??
+      '';
 }

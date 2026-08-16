@@ -167,7 +167,12 @@ final class _HermesDashboardAuthPageState
                 },
                 onWebViewCreated: (controller) => _controller = controller,
                 onLoadStart: (_, _) {
-                  if (mounted) setState(() => _loading = true);
+                  if (mounted) {
+                    setState(() {
+                      _loading = true;
+                      _error = null;
+                    });
+                  }
                 },
                 onLoadStop: (controller, url) async {
                   if (!mounted) return;

@@ -97,6 +97,31 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
             isStreaming: isStreaming,
           ),
       ];
+      final detailSheets = <NativeSheetDetailConfig>[
+        for (var index = 0; index < updates.length; index++)
+          if (_collectDetailItems(updates[index]).isNotEmpty)
+            NativeSheetDetailConfig(
+              id: 'status-update-$index',
+              title: _resolveStatusDescription(updates[index]),
+              items: [
+                for (
+                  var itemIndex = 0;
+                  itemIndex < _collectDetailItems(updates[index]).length;
+                  itemIndex++
+                )
+                  NativeSheetItemConfig(
+                    id: 'status-update-$index-detail-$itemIndex',
+                    title: _collectDetailItems(
+                      updates[index],
+                    )[itemIndex].title!,
+                    value: _collectDetailItems(
+                      updates[index],
+                    )[itemIndex].snippet!,
+                    kind: NativeSheetItemKind.readOnlyText,
+                  ),
+              ],
+            ),
+      ];
       try {
         await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
@@ -104,6 +129,7 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
             title: title,
             items: items,
           ),
+          detailSheets: detailSheets,
           rethrowErrors: true,
         );
         return;

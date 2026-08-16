@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../models/hermes_run_event.dart';
@@ -40,13 +41,6 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
       widget.kind == HermesDecisionKind.sudo ||
       widget.kind == HermesDecisionKind.secret;
 
-  String get _title => switch (widget.kind) {
-    HermesDecisionKind.clarification => 'Hermes needs clarification',
-    HermesDecisionKind.sudo => 'Hermes needs sudo access',
-    HermesDecisionKind.secret => 'Hermes needs a secret',
-    HermesDecisionKind.mcpSetup => 'Hermes needs MCP setup',
-  };
-
   @override
   void dispose() {
     _controller.dispose();
@@ -69,6 +63,13 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final title = switch (widget.kind) {
+      HermesDecisionKind.clarification => l10n.hermesClarificationTitle,
+      HermesDecisionKind.sudo => l10n.hermesSudoTitle,
+      HermesDecisionKind.secret => l10n.hermesSecretTitle,
+      HermesDecisionKind.mcpSetup => l10n.hermesMcpSetupTitle,
+    };
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -83,7 +84,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _title,
+              title,
               style: AppTypography.standard.copyWith(
                 fontWeight: FontWeight.w600,
                 color: theme.textPrimary,
@@ -100,7 +101,10 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
             ],
             const SizedBox(height: Spacing.sm),
             if (_resolved)
-              Text('Response sent', style: TextStyle(color: theme.success))
+              Text(
+                l10n.hermesResponseSent,
+                style: TextStyle(color: theme.success),
+              )
             else ...[
               if (widget.kind == HermesDecisionKind.mcpSetup) ...[
                 Text(
@@ -113,13 +117,13 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
                 Row(
                   children: [
                     ConduitButton(
-                      text: 'Not now',
+                      text: l10n.hermesNotNow,
                       isCompact: true,
                       onPressed: _submitting ? null : () => _submit('decline'),
                     ),
                     const SizedBox(width: Spacing.sm),
                     ConduitButton(
-                      text: 'Set up',
+                      text: l10n.hermesSetUp,
                       isCompact: true,
                       isLoading: _submitting,
                       onPressed: _submitting ? null : () => _submit('approve'),
@@ -158,14 +162,17 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
                   obscureText: _sensitive,
                   enableSuggestions: !_sensitive,
                   autocorrect: !_sensitive,
+                  enableIMEPersonalizedLearning: !_sensitive,
                   decoration: InputDecoration(
-                    labelText: _sensitive ? 'Sensitive response' : 'Response',
+                    labelText: _sensitive
+                        ? l10n.hermesSensitiveResponse
+                        : l10n.hermesResponse,
                   ),
                   onSubmitted: (_) => _submit(),
                 ),
                 const SizedBox(height: Spacing.sm),
                 ConduitButton(
-                  text: 'Send response',
+                  text: l10n.hermesSendResponse,
                   isCompact: true,
                   isLoading: _submitting,
                   onPressed: _submitting

@@ -1,5 +1,3 @@
-import 'package:uuid/uuid.dart';
-
 import '../../../core/models/chat_message.dart';
 import 'hermes_pending_decision_store.dart';
 import 'hermes_run_transport.dart';
@@ -8,14 +6,15 @@ List<ChatMessage> hermesPendingDesktopDecisionMessages(
   List<HermesPendingDesktopDecision> pending, {
   required String modelId,
 }) {
-  const uuid = Uuid();
   return <ChatMessage>[
     for (final record in pending)
       ChatMessage(
-        id: uuid.v4(),
+        id:
+            'hermes-decision-${record.kind.name}-'
+            '${record.storedSessionId}-${record.requestId}',
         role: 'assistant',
         content: '',
-        timestamp: DateTime.now(),
+        timestamp: record.expiresAt.subtract(HermesPendingDecisionStore.ttl),
         model: modelId,
         metadata: <String, dynamic>{
           'transport': kHermesTransport,

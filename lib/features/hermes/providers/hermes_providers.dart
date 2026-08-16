@@ -155,9 +155,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
       final apiKey = await _secure.getHermesApiKey();
       final sessionKey = await _secure.getHermesSessionKey();
       final desktopPayload = await _secure.getHermesDesktopCredentials();
-      final desktopCredentials = desktopPayload == null
-          ? null
-          : HermesDesktopCredentials.fromJson(jsonDecode(desktopPayload));
+      HermesDesktopCredentials? desktopCredentials;
+      if (desktopPayload != null) {
+        try {
+          desktopCredentials = HermesDesktopCredentials.fromJson(
+            jsonDecode(desktopPayload),
+          );
+        } on FormatException {
+          DebugLogger.warning(
+            'desktop-credentials-decode-failed',
+            scope: 'hermes/config',
+          );
+        }
+      }
       if (epoch != _secretLoadEpoch || _mutationsBlocked || !ref.mounted) {
         return;
       }
@@ -1229,12 +1239,25 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
   if (!config.isUsable) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
-    service = HermesDesktopApiService(
+    final desktopService = HermesDesktopApiService(
       config: config,
-      onCredentialsChanged: (credentials) => ref
-          .read(hermesConfigProvider.notifier)
-          .setDesktopNativeTokens(credentials.nativeTokens),
+      onCredentialsChanged: (credentials) async {
+        try {
+          if (!ref.mounted) return;
+          await ref
+              .read(hermesConfigProvider.notifier)
+              .setDesktopNativeTokens(credentials.nativeTokens);
+        } catch (error) {
+          DebugLogger.error(
+            'desktop-token-rotation-persist-failed',
+            scope: 'hermes/config',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+        }
+      },
     );
+    desktopService.startLifecycleObservation();
+    service = desktopService;
   } else {
     service = HermesApiService(config: config);
   }
@@ -1261,9 +1284,6 @@ final hermesDesktopTurnStateProvider =
         yield HermesDesktopTurnState.idle;
         return;
       }
-      yield service.supportsAuthoritativeRunning
-          ? service.turnStateFor(storedId)
-          : HermesDesktopTurnState.unsupportedGateway;
       yield* service.turnStatesFor(storedId);
     });
 
@@ -1647,11 +1667,11 @@ final hermesCapabilitiesProvider = FutureProvider<HermesCapabilities>((
   }
 });
 
-final hermesDesktopContractProvider = StreamProvider<int>((ref) async* {
+final hermesDesktopContractProvider = StreamProvider<int>((ref) {
   final service = ref.watch(hermesApiServiceProvider);
-  if (service is! HermesDesktopApiService) return;
-  yield service.desktopContract;
-  yield* service.desktopContractChanges;
+  return service is HermesDesktopApiService
+      ? service.desktopContracts()
+      : const Stream<int>.empty();
 });
 
 /// Synchronous best-effort view of capabilities for gating UI (optimistic

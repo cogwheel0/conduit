@@ -276,27 +276,27 @@ class _JobCardState extends ConsumerState<_JobCard> {
               runSpacing: Spacing.xxs,
               children: [
                 Text(
-                  'State: ${job.state ?? (job.enabled ? 'active' : 'paused')}',
+                  '${l10n.hermesJobStateLabel}: ${job.state ?? (job.enabled ? 'active' : 'paused')}',
                   style: AppTypography.captionStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 ),
                 Text(
-                  'Delivery: ${job.deliveryTarget ?? 'local'}',
+                  '${l10n.hermesJobDeliveryLabel}: ${job.deliveryTarget ?? 'local'}',
                   style: AppTypography.captionStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 ),
                 if (job.lastRun != null)
                   Text(
-                    'Last: ${_formatJobTime(context, job.lastRun!)}',
+                    '${l10n.hermesJobLastLabel}: ${_formatJobTime(context, job.lastRun!)}',
                     style: AppTypography.captionStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
                 if (job.nextRun != null)
                   Text(
-                    'Next: ${_formatJobTime(context, job.nextRun!)}',
+                    '${l10n.hermesJobNextLabel}: ${_formatJobTime(context, job.nextRun!)}',
                     style: AppTypography.captionStyle.copyWith(
                       color: theme.textSecondary,
                     ),
@@ -330,7 +330,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   _historyExpanded ? Icons.expand_less : Icons.history,
                   size: 18,
                 ),
-                label: const Text('Run history'),
+                label: Text(l10n.hermesJobRunHistory),
               ),
             ),
             if (_historyExpanded) _buildRunHistory(theme),
