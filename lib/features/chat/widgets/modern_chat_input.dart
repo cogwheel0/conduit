@@ -757,6 +757,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             localStreaming: ref.read(isChatStreamingProvider),
           );
       if (!mounted || !accepted) return;
+      if (_controller.toWireFormat().trim() != text) return;
       _controller.clearMentions();
       _controller.clear();
       _focusNode.requestFocus();

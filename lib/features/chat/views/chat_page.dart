@@ -42,6 +42,7 @@ import '../../hermes/services/hermes_decision_projection.dart';
 import '../../hermes/services/hermes_desktop_api_service.dart';
 import '../../hermes/services/hermes_local_document_trust_store.dart';
 import '../../hermes/services/hermes_message_mapper.dart';
+import '../../hermes/services/hermes_pending_decision_store.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
@@ -853,7 +854,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final generation = ++_hermesTranscriptRefreshGeneration;
     try {
       final raw = await service.getSessionMessages(storedId);
-      final pending = await service.pendingDecisionsForSession(storedId);
+      List<HermesPendingDesktopDecision> pending;
+      try {
+        pending = await service.pendingDecisionsForSession(storedId);
+      } catch (error) {
+        DebugLogger.warning(
+          'pending-decisions-refresh-failed',
+          scope: 'hermes/transcript',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        pending = const [];
+      }
       if (!mounted ||
           generation != _hermesTranscriptRefreshGeneration ||
           !identical(ref.read(hermesApiServiceProvider), service) ||

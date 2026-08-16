@@ -50,11 +50,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           state != HermesDesktopTurnState.unsupportedGateway;
     }
 
-    void finish({String? error}) {
+    void finish({String? error, bool authoritativeIdle = false}) {
       if (terminal) return;
       terminal = true;
       _eventBuffer.deactivate(activeRuntimeId);
-      if (promptAcknowledged && hasAuthoritativeState()) {
+      if (authoritativeIdle && promptAcknowledged && hasAuthoritativeState()) {
         _applyAuthoritativeRunning(
           false,
           storedId: binding.storedId,
@@ -227,7 +227,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               runtimeId: binding.runtimeId,
             );
           } else if (!running && promptAcknowledged) {
-            finish();
+            finish(authoritativeIdle: true);
           }
         case 'error':
           if (promptAcknowledged) {
@@ -261,7 +261,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             _emitTranscriptChange(storedId);
           }
           if (reconciled.running == true) return;
-          finish();
+          finish(authoritativeIdle: true);
           _emitTranscriptChange(storedId);
         } catch (error) {
           if (!terminal) finish(error: error.toString());
@@ -396,7 +396,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               );
             }
             if (reconciled.running != true) {
-              finish();
+              finish(authoritativeIdle: true);
               _emitTranscriptChange(storedId);
             } else {
               _applyAuthoritativeRunning(

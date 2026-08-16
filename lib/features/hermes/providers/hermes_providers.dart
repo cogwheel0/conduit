@@ -295,6 +295,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
       await _persistDesktopCredentials(null);
       state = _withState(desktopCredentials: null);
       ref.read(hermesActiveSessionProvider.notifier).set(null);
+      final activeConversation = ref.read(activeConversationProvider);
+      if (isNativeHermesConversation(activeConversation)) {
+        ref.read(activeConversationProvider.notifier).clear();
+      }
       ref.read(hermesConnectionGenerationProvider.notifier).bump();
     });
   });
@@ -389,27 +393,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
         sessionKey: writeSessionKey,
         desktop: writeDesktopCredentials,
       );
+      final nextDocumentTrustPrincipal = endpointChanged || identityChanged
+          ? const Uuid().v4()
+          : null;
+      final previousDocumentTrustPrincipal = documentTrustPrincipalId();
 
       Future<void> commitConnectionMutation() async {
-        if (endpointChanged || identityChanged) {
-          // This random, non-secret epoch scopes local document provenance to
-          // one configured principal without persisting a credential verifier.
-          // Rotate before credential mutation so any later failure is
-          // fail-closed. Run admission is already blocked at this point.
-          try {
-            await _pendingDocumentTrustPrincipalWrite;
-          } catch (_) {
-            // A fresh rotation below replaces a failed lazy initialization.
-          }
-          final nextPrincipalId = const Uuid().v4();
-          await PreferencesStore.putChecked(
-            PreferenceKeys.hermesLocalDocumentTrustPrincipal,
-            nextPrincipalId,
-          );
-          _runtimeDocumentTrustPrincipalId = nextPrincipalId;
-          _pendingDocumentTrustPrincipalWrite = null;
-        }
-
         // Secure storage and SharedPreferences cannot participate in one
         // transaction. Remove the endpoint before changing credential identity
         // so a process kill between secret writes can restart only into a
@@ -566,6 +555,45 @@ class HermesConfigController extends Notifier<HermesConfig> {
           Error.throwWithStackTrace(error, stackTrace);
         }
 
+        if (nextDocumentTrustPrincipal != null) {
+          try {
+            await _pendingDocumentTrustPrincipalWrite;
+          } catch (_) {
+            // The replacement below supersedes a failed lazy initialization.
+          }
+          try {
+            await PreferencesStore.putChecked(
+              PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+              nextDocumentTrustPrincipal,
+            );
+          } catch (error, stackTrace) {
+            try {
+              await _persistSecretsAtomically(
+                previous: _HermesCredentialSnapshot(
+                  apiKey: nextApiKey,
+                  sessionKey: nextSessionKey,
+                  desktop: committedDesktopCredentials,
+                ),
+                next: previousCredentials,
+                writes: credentialWrites,
+              );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesBaseUrl,
+                previousBaseUrl,
+              );
+            } catch (_) {
+              await _quarantineUncertainCredentialMutation(
+                clearApiKey: writeApiKey,
+                clearSessionKey: writeSessionKey,
+                clearDesktopCredentials: writeDesktopCredentials,
+              );
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          }
+          _runtimeDocumentTrustPrincipalId = nextDocumentTrustPrincipal;
+          _pendingDocumentTrustPrincipalWrite = null;
+        }
+
         if (originChanged && previousBaseUrl.trim().isNotEmpty) {
           final cleared = await HermesDashboardCookieStore.clear(
             previousBaseUrl,
@@ -597,6 +625,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
                 PreferenceKeys.hermesDesktopProfile,
                 state.desktopProfile,
               );
+              if (nextDocumentTrustPrincipal != null) {
+                await PreferencesStore.putChecked(
+                  PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+                  previousDocumentTrustPrincipal,
+                );
+                _runtimeDocumentTrustPrincipalId =
+                    previousDocumentTrustPrincipal;
+              }
             } catch (rollbackError) {
               DebugLogger.error(
                 'cookie-cleanup-rollback-failed',

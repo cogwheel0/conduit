@@ -1341,7 +1341,16 @@ void _handleEvent(
         runId,
         sensitiveValues: sensitiveValues,
       );
-      if (safeRequestId == null || safeRuntimeId == null) break;
+      if (safeRequestId == null || safeRuntimeId == null) {
+        updateMessage(
+          (message) => message.copyWith(
+            error: const ChatMessageError(
+              content: 'Hermes sent an invalid decision request.',
+            ),
+          ),
+        );
+        break;
+      }
       final safePrompt = prompt == null
           ? null
           : _sanitizeHermesApprovalSummary(

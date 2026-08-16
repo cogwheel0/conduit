@@ -112,6 +112,15 @@ final class HermesDashboardWebViewPolicy {
           '<base href="' + target.href.replace(/"/g, '&quot;') + '">',
           html
         ], {type: 'text/html'});
+      } else if (tag === 'LINK') {
+        const css = (await response.text()).replace(
+          /url\\(\\s*(['"]?)(?!data:|blob:|https?:|\\/\\/|#)([^'"\\)]+)\\1\\s*\\)/gi,
+          (_, quote, value) => 'url(' + quote + new URL(value, target.href).href + quote + ')'
+        ).replace(
+          /@import\\s+(['"])(?!data:|blob:|https?:|\\/\\/)([^'"]+)\\1/gi,
+          (_, quote, value) => '@import ' + quote + new URL(value, target.href).href + quote
+        );
+        blob = new Blob([css], {type: 'text/css'});
       } else {
         blob = await response.blob();
       }

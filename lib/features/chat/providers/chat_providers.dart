@@ -7790,6 +7790,11 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
         state.file,
         maxBytes: math.min(kHermesMaxLocalDocumentBytes, remaining),
       );
+      if (bytes.isEmpty) {
+        throw const HermesChatInputException(
+          'Hermes attachments cannot be empty.',
+        );
+      }
       desktopFileBytes += bytes.length;
       final mediaType = _hermesDesktopFileMediaType(state.fileName);
       if (mediaType == 'application/pdf' &&

@@ -57,7 +57,7 @@ class _HermesDesktopConnectionSectionState
   void initState() {
     super.initState();
     _showAccessHeaders = _controller.accessHeaders.isNotEmpty;
-    _lastOrigin = HermesConfig.connectionOrigin(_controller.url.text);
+    _lastOrigin = HermesConfig.connectionEndpoint(_controller.url.text);
     _lastProfileIdentity = _authDraftIdentity(
       _controller.buildDraft(ref.read(hermesConfigProvider)).config,
     );
@@ -77,7 +77,7 @@ class _HermesDesktopConnectionSectionState
   }
 
   void _handleDraftChanged() {
-    final origin = HermesConfig.connectionOrigin(_controller.url.text);
+    final origin = HermesConfig.connectionEndpoint(_controller.url.text);
     if (origin != _lastOrigin) {
       _lastOrigin = origin;
       _recommendationEpoch++;
@@ -110,7 +110,7 @@ class _HermesDesktopConnectionSectionState
             config.desktopCredentials?.legacyToken,
           )
         : 0;
-    return '${HermesConfig.connectionOrigin(config.baseUrl)}\u0000'
+    return '${HermesConfig.connectionEndpoint(config.baseUrl)}\u0000'
         '${config.desktopAuthKind.name}\u0000'
         '$legacyMarker\u0000'
         '${headers.map((entry) => '${entry.key.toLowerCase()}=${entry.value}').join('\u0000')}';

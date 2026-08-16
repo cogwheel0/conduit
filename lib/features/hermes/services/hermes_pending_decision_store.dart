@@ -67,7 +67,7 @@ final class HermesPendingDesktopDecision {
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
-    if (source.length > 4096) return null;
+    if (source.length > 8192) return null;
     try {
       final value = jsonDecode(source);
       if (value is! Map) return null;
@@ -161,7 +161,10 @@ final class HermesPendingDecisionStore {
     for (final candidate in records) {
       if (candidate.identity == identity) previous = candidate;
     }
-    final sanitizedChoices = _sanitizeChoices(choices);
+    final sanitizedChoices = _sanitizeChoices(choices)
+        .map((choice) => _sanitizePrompt(choice, sensitiveValues))
+        .whereType<String>()
+        .toList(growable: false);
     final record = HermesPendingDesktopDecision(
       origin: origin,
       storedSessionId: stored,

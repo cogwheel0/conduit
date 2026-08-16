@@ -601,11 +601,10 @@ void main() {
       );
       await storage.writeStarted.future.timeout(const Duration(seconds: 1));
 
-      // The provenance principal has rotated, but the old in-memory service is
-      // still visible until the secure write commits. No send may cross this
-      // mixed-identity window.
+      // The provenance principal is committed only after the secure write, and
+      // no send may cross this mixed-identity window.
       final rotatedPrincipal = controller.documentTrustPrincipalId();
-      check(rotatedPrincipal == previousPrincipal).isFalse();
+      check(rotatedPrincipal).equals(previousPrincipal);
       check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
       Object? admissionError;
       try {

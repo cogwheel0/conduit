@@ -54,7 +54,14 @@ final class HermesDashboardCookieStore {
       retainedNames: retainedNames,
     );
     final registry = _registry();
-    final merged = {...?registry[key], ...identities}.toList();
+    final retained = identities
+        .where((identity) => retainedNames.any(identity.startsWith))
+        .toSet();
+    final merged = {
+      ...?registry[key],
+      ...identities.where((identity) => !retained.contains(identity)),
+      ...retained,
+    }.toList();
     registry[key] = merged.length <= 64
         ? merged
         : merged.sublist(merged.length - 64);

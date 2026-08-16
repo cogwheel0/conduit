@@ -16,9 +16,15 @@ final class HermesMcpPage extends ConsumerStatefulWidget {
 }
 
 final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
-  late Future<List<HermesMcpServer>> _servers = _load();
+  late Future<List<HermesMcpServer>> _servers;
   final Map<String, HermesMcpTestResult> _testResults = {};
   final Set<String> _oauthPending = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _servers = _load();
+  }
 
   HermesDesktopApiService get _service {
     final service = ref.read(hermesApiServiceProvider);

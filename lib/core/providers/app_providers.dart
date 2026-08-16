@@ -2350,9 +2350,12 @@ Model? replacementForUnavailableLocalModel({
   required Iterable<Model> models,
   required Model current,
 }) {
-  if (isHermesModel(current)) return models.where(isHermesModel).firstOrNull;
+  if (isHermesModel(current)) {
+    return models.where(isHermesModel).firstOrNull ?? models.firstOrNull;
+  }
   if (isLocallyMintedDirectModel(current)) {
-    return models.where(isLocallyMintedDirectModel).firstOrNull;
+    return models.where(isLocallyMintedDirectModel).firstOrNull ??
+        models.firstOrNull;
   }
   return models.firstOrNull;
 }
