@@ -643,6 +643,18 @@ void main() {
         protectsStreamingState: true,
       ),
     ).isFalse();
+    final patch = debugPassiveFollowUps({
+      'message_id': 'assistant-a',
+      'data': {
+        'type': 'chat:message:follow_ups',
+        'data': {
+          'follow_ups': [' Continue ', '', 'Explain more'],
+        },
+      },
+    });
+    check(patch).isNotNull();
+    check(patch!.messageId).equals('assistant-a');
+    check(patch.followUps).deepEquals(['Continue', 'Explain more']);
   });
 
   test(

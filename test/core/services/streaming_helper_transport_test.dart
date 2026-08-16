@@ -2435,6 +2435,68 @@ void main() {
       expect(log.messages.last.metadata?['responseDone'], isTrue);
     });
 
+    test('taskSocket done recovers the persisted tail and follow-ups', () async {
+      final now = DateTime.now();
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Visible response missing',
+            timestamp: now,
+            isStreaming: true,
+          ),
+        ],
+      );
+      final registrar = FakeSocketInjector();
+      var snapshotPulls = 0;
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        pullChatSnapshot: (_) async {
+          snapshotPulls += 1;
+          return Conversation(
+            id: 'conv-1',
+            title: 'Recovered',
+            createdAt: now,
+            updatedAt: now,
+            messages: [
+              ChatMessage(
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Visible response missing its final words.',
+                timestamp: now,
+                followUps: const ['Continue'],
+                metadata: const {'responseDone': true},
+              ),
+            ],
+          );
+        },
+      );
+
+      registrar.emitChatEvent(
+        'chat:completion',
+        const {'done': true},
+        messageId: 'msg-1',
+      );
+      for (var index = 0; index < 20; index += 1) {
+        await pumpMicrotasks();
+      }
+
+      check(snapshotPulls).equals(1);
+      check(log.finishCount).equals(1);
+      check(log.messages.last.content)
+          .equals('Visible response missing its final words.');
+      check(log.messages.last.followUps).deepEquals(['Continue']);
+    });
+
     test(
       'taskSocket terminal finish_reason recovers when done is missed',
       () async {

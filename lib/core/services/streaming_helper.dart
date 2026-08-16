@@ -2068,8 +2068,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final recoveredStreamingState =
               !authoritativeTerminal &&
               (preserveActiveLocalStream || assistant.isStreaming);
+          final recoveredContent =
+              assistant.content.isEmpty ||
+                  (current.content.length > assistant.content.length &&
+                      current.content.startsWith(assistant.content))
+              ? current.content
+              : assistant.content;
           return _AssistantServerPatch(
-            content: recoverAuthoritativeState ? assistant.content : null,
+            content: recoverAuthoritativeState ? recoveredContent : null,
             followUps: nextFollowUps,
             statusHistory: nextStatusHistory,
             sources: nextSources,
@@ -2714,7 +2720,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return chatCompletedSyncFuture ??= sendChatCompletedAndSync();
   }
 
-  void schedulePostCompletionSnapshotRefresh() {
+  void schedulePostCompletionSnapshotRefresh({
+    bool recoverAuthoritativeState = false,
+  }) {
     if (postCompletionSnapshotRefreshScheduled ||
         isTemporaryChat(activeConversationId)) {
       return;
@@ -2722,7 +2730,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     postCompletionSnapshotRefreshScheduled = true;
     unawaited(
       ensureChatCompletedSynced()
-          .then((_) => refreshConversationSnapshot())
+          .then(
+            (_) => refreshConversationSnapshot(
+              recoverAuthoritativeState: recoverAuthoritativeState,
+            ),
+          )
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
               'post-completion-refresh-failed',
@@ -2904,7 +2916,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     if (completionDoneHandled) {
       if (refreshSnapshotAfterCompleted) {
-        schedulePostCompletionSnapshotRefresh();
+        schedulePostCompletionSnapshotRefresh(
+          recoverAuthoritativeState:
+              session.transport == ChatCompletionTransport.taskSocket,
+        );
       }
       return;
     }
@@ -2918,7 +2933,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (!isTemporaryChat(activeConversationId)) {
         final completed = ensureChatCompletedSynced();
         if (refreshSnapshotAfterCompleted) {
-          schedulePostCompletionSnapshotRefresh();
+          schedulePostCompletionSnapshotRefresh(
+            recoverAuthoritativeState:
+                session.transport == ChatCompletionTransport.taskSocket,
+          );
         } else {
           unawaited(completed);
         }
@@ -3171,6 +3189,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   ? payload['title'] as String
                   : null,
               allowEmptyContentRecovery: true,
+              refreshSnapshotAfterCompleted:
+                  session.transport == ChatCompletionTransport.taskSocket,
             );
           }
         }

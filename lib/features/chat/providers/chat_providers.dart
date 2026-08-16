@@ -1547,6 +1547,32 @@ bool debugShouldRefreshPassiveSocketEvent({
   }.contains(type);
 }
 
+@visibleForTesting
+({String messageId, List<String> followUps})? debugPassiveFollowUps(
+  Map<String, dynamic> event,
+) {
+  final envelope = event['data'];
+  if (envelope is! Map || envelope['type'] != 'chat:message:follow_ups') {
+    return null;
+  }
+  final payload = envelope['data'];
+  if (payload is! Map) return null;
+  final messageId =
+      event['message_id']?.toString() ??
+      event['messageId']?.toString() ??
+      envelope['message_id']?.toString() ??
+      envelope['messageId']?.toString() ??
+      payload['message_id']?.toString() ??
+      payload['messageId']?.toString();
+  final raw = payload['follow_ups'] ?? payload['followUps'];
+  if (messageId == null || raw is! Iterable) return null;
+  final followUps = raw
+      .map((value) => value?.toString().trim() ?? '')
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+  return (messageId: messageId, followUps: followUps);
+}
+
 // Chat messages notifier class
 class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     with WidgetsBindingObserver {
@@ -2493,6 +2519,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         }
         if (!_shouldRefreshFromPassiveSocketEvent(event)) {
           return;
+        }
+
+        final followUpPatch = debugPassiveFollowUps(event);
+        if (followUpPatch != null) {
+          updateMessageById(followUpPatch.messageId, (message) {
+            if (message.role != 'assistant') return message;
+            return message.copyWith(
+              followUps: followUpPatch.followUps,
+              metadata: <String, dynamic>{
+                ...?message.metadata,
+                'followUps': followUpPatch.followUps,
+              },
+            );
+          });
         }
 
         _scheduleConversationRefreshFromServer(
