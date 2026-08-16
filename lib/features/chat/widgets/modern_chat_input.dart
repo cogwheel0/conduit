@@ -3229,7 +3229,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 allUploadsComplete,
                 hasUploadsInProgress,
                 dense: true,
-                canStopGeneration: desktopTurnControlsSupported,
               ),
             ],
           ),
@@ -3332,7 +3331,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   allUploadsComplete,
                   hasUploadsInProgress,
                   dense: true,
-                  canStopGeneration: desktopTurnControlsSupported,
                 ),
               ],
             ),
@@ -4022,7 +4020,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool allUploadsComplete,
     bool hasUploadsInProgress, {
     bool dense = false,
-    bool canStopGeneration = true,
   }) {
     final double buttonSize = conduitScaledControlExtent(
       context,
@@ -4046,19 +4043,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Generating -> STOP variant
     if (isGenerating) {
-      final stopLabel = canStopGeneration
-          ? AppLocalizations.of(context)!.stopGenerating
-          : AppLocalizations.of(context)!.hermesTurnControlsUnsupported;
+      final stopLabel = AppLocalizations.of(context)!.stopGenerating;
       return AdaptiveTooltip(
         message: stopLabel,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
-          onPressed: canStopGeneration
-              ? () {
-                  ConduitHaptics.lightImpact();
-                  stopGeneration();
-                }
-              : null,
+          onPressed: () {
+            ConduitHaptics.lightImpact();
+            stopGeneration();
+          },
           size: buttonSize,
           visualSize: primaryVisualSize,
           semanticLabel: stopLabel,
