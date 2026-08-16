@@ -5359,6 +5359,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
             avatarData: model.avatarData,
             avatarHeaders: model.avatarHeaders,
             sfSymbol: model.sfSymbol,
+            usesTemplateImage: model.id.hasPrefix("hermes:agent:"),
             avatarCacheIdentifier: avatarCacheIdentifier
         )
 
@@ -6474,6 +6475,7 @@ private final class NativeModelAvatarView: UIView {
         avatarData: Data?,
         avatarHeaders: [String: String],
         sfSymbol: String?,
+        usesTemplateImage: Bool = false,
         avatarCacheIdentifier: String? = nil
     ) {
         imageLoadToken?.cancel()
@@ -6510,7 +6512,13 @@ private final class NativeModelAvatarView: UIView {
                 targetPixelSize: 96
             ) { [weak self] image in
                 guard let self, self.imageGeneration == generation else { return }
-                self.imageView.image = image
+                self.imageView.image = usesTemplateImage
+                    ? image.withRenderingMode(.alwaysTemplate)
+                    : image
+                self.imageView.tintColor = usesTemplateImage
+                    ? NativeSheetTheme.shared.foreground
+                    : nil
+                self.imageView.contentMode = usesTemplateImage ? .scaleAspectFit : .scaleAspectFill
                 self.imageView.isHidden = false
                 self.initialsLabel.isHidden = true
                 self.symbolView.isHidden = true

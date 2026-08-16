@@ -267,6 +267,38 @@ void main() {
       check(models.last).identicalTo(discovered);
     });
 
+    test('switching to Responses removes cached Desktop models', () async {
+      final discovered = hermesDesktopModel(
+        modelId: 'gpt-5.6-sol',
+        name: 'gpt-5.6-sol',
+        provider: 'azure-foundry',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _MutableHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(await container.read(modelsProvider.future)).length.equals(2);
+
+      (container.read(
+        hermesConfigProvider.notifier,
+      ) as _MutableHermesConfigController).setConfig(_usableHermes);
+      final responsesModels = await container.read(modelsProvider.future);
+
+      check(responsesModels).length.equals(1);
+      check(responsesModels.single.id).equals(kHermesDefaultModelId);
+    });
+
     test('fast tier stays distinct from model capability', () {
       check(hermesFastTierSelection(supported: true, selected: false))
           .equals(false);

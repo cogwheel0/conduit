@@ -2033,12 +2033,14 @@ class Models extends _$Models {
           const <Model>[],
       registry: ref.read(directModelRegistryProvider),
     );
+    final hermesConfig = ref.read(hermesConfigProvider);
     return appendHermesModelIfUsable(
       withDirect,
-      hermesUsable: ref.read(hermesConfigProvider).isUsable,
+      hermesUsable: hermesConfig.isUsable,
       allowSyntheticHermesModel: true,
-      hermesModels:
-          ref.read(hermesDesktopModelsProvider).asData?.value ?? const [],
+      hermesModels: hermesConfig.mode == HermesBackendMode.desktopGateway
+          ? ref.read(hermesDesktopModelsProvider).asData?.value ?? const []
+          : const [],
     );
   }
 
