@@ -37,7 +37,9 @@ class ModelAvatar extends StatelessWidget {
     return AvatarImage(
       size: size,
       imageUrl: imageUrl,
-      backgroundColor: imageUrl?.trim().startsWith('asset:') == true
+      tintColor:
+          imageUrl?.trim().startsWith('asset:') == true &&
+              Theme.of(context).brightness == Brightness.dark
           ? Colors.white
           : null,
       borderRadius: BorderRadius.circular(AppBorderRadius.small),

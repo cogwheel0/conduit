@@ -61,16 +61,31 @@ void main() {
       check(provider).isA<ResizeImage>();
       check((provider as ResizeImage).imageProvider)
           .equals(const AssetImage('assets/icons/hermes_agent.png'));
-      expect(
-        find.descendant(
-          of: find.byType(ModelAvatar),
-          matching: find.byWidgetPredicate(
-            (widget) => widget is ColoredBox && widget.color == Colors.white,
+      check(tester.widget<Image>(find.byType(Image)).color).isNull();
+      expect(find.byIcon(Icons.psychology), findsNothing);
+    });
+
+    testWidgets('tints bundled asset avatars white in dark mode', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            themeMode: ThemeMode.dark,
+            darkTheme: ThemeData.dark(),
+            home: const Scaffold(
+              body: ModelAvatar(
+                size: 40,
+                imageUrl: 'asset:assets/icons/hermes_agent.png',
+              ),
+            ),
           ),
         ),
-        findsOneWidget,
       );
-      expect(find.byIcon(Icons.psychology), findsNothing);
+
+      await tester.pump();
+      check(tester.widget<Image>(find.byType(Image)).color)
+          .equals(Colors.white);
     });
   });
 }
