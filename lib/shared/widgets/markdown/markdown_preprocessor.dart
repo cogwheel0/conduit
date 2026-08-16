@@ -47,7 +47,8 @@ class ConduitMarkdownPreprocessor {
     r'^([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=[ \t]*$)',
   );
   static final _lineWithEnding = RegExp(r'[^\r\n]*(?:\r\n|[\r\n]|$)');
-  static final _fenceLine = RegExp(r'^[ ]{0,3}(`{3,}|~{3,})');
+  static final _fenceLine = RegExp(r'^[ ]{0,3}(`{3,}|~{3,})(.*)$');
+  static final _blockListMarker = RegExp(r'^(?:[-+*]|\d{1,9}[.)])([ \t]+)');
 
   /// Turns standalone base64 image lines into renderable Markdown images.
   static String prepareAssistantContent(String content) =>
@@ -57,6 +58,7 @@ class ConduitMarkdownPreprocessor {
     if (!content.contains('data:image/')) return content;
     final output = StringBuffer();
     String? fence;
+    final listContentIndents = <int>[];
     for (final lineMatch in _lineWithEnding.allMatches(content)) {
       final wholeLine = lineMatch[0]!;
       if (wholeLine.isEmpty) continue;
@@ -66,13 +68,33 @@ class ConduitMarkdownPreprocessor {
           ? wholeLine.substring(0, wholeLine.length - 1)
           : wholeLine;
       final ending = wholeLine.substring(line.length);
+      final indent = _structuralIndent(line);
+      final listMatch = _blockListMarker.firstMatch(
+        line.substring(indent.characters),
+      );
+      if (line.trim().isNotEmpty) {
+        while (listContentIndents.isNotEmpty &&
+            indent.columns < listContentIndents.last) {
+          listContentIndents.removeLast();
+        }
+        if (listMatch != null) {
+          listContentIndents.add(
+            _columnsThrough(line, indent.characters + listMatch.end),
+          );
+        }
+      }
       final fenceMatch = _fenceLine.firstMatch(line);
-      if (fence == null && fenceMatch != null) {
+      if (fence == null &&
+          fenceMatch != null &&
+          (fenceMatch[1]!.startsWith('~') || !fenceMatch[2]!.contains('`'))) {
         fence = fenceMatch[1]!;
       } else if (fence != null && _closesFence(line, fence)) {
         fence = null;
       }
-      final isCode = fence != null || _structuralIndent(line).columns >= 4;
+      final containerIndent = listContentIndents.isEmpty
+          ? 0
+          : listContentIndents.last;
+      final isCode = fence != null || indent.columns - containerIndent >= 4;
       final rendered = isCode
           ? line
           : line.replaceAllMapped(_standaloneBase64Image, (match) {
@@ -116,6 +138,14 @@ class ConduitMarkdownPreprocessor {
       characters++;
     }
     return (characters: characters, columns: columns);
+  }
+
+  static int _columnsThrough(String line, int end) {
+    var columns = 0;
+    for (var index = 0; index < end; index++) {
+      columns += line[index] == '\t' ? 4 - (columns % 4) : 1;
+    }
+    return columns;
   }
 
   static String stripAssistantPlaceholders(String content) {

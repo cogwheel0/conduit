@@ -304,6 +304,29 @@ $image
       check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
           .equals(input);
     });
+
+    test('uses container-relative indentation inside lists', () {
+      const image = 'data:image/png;base64,AAAA';
+      const input =
+          '''- caption
+    $image
+      $image''';
+
+      check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
+          .equals('''- caption
+    ![Generated Image]($image)
+      $image''');
+    });
+
+    test('rejects backticks in a backtick fence info string', () {
+      const image = 'data:image/png;base64,AAAA';
+      const input = '''```dart`invalid
+$image''';
+
+      check(ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(input))
+          .equals('''```dart`invalid
+![Generated Image]($image)''');
+    });
   });
 
   group('ConduitMarkdownPreprocessor.cleanText', () {
