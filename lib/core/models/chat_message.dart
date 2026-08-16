@@ -211,12 +211,16 @@ abstract class ChatStatusItem with _$ChatStatusItem {
     String? title,
     String? link,
     String? snippet,
+    @JsonKey(unknownEnumValue: JsonKey.nullForUndefinedEnumValue)
+    ChatStatusItemPresentation? presentation,
     Map<String, dynamic>? metadata,
   }) = _ChatStatusItem;
 
   factory ChatStatusItem.fromJson(Map<String, dynamic> json) =>
       _$ChatStatusItemFromJson(json);
 }
+
+enum ChatStatusItemPresentation { detail }
 
 @freezed
 abstract class ChatCodeExecution with _$ChatCodeExecution {

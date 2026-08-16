@@ -44,7 +44,7 @@ class ConduitMarkdownPreprocessor {
   );
   static final _multipleNewlines = RegExp(r'\n{3,}');
   static final _standaloneBase64Image = RegExp(
-    r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\n|$))',
+    r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\r?\n|$))',
     multiLine: true,
   );
 

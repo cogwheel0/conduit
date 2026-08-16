@@ -257,6 +257,18 @@ after''';
     });
   });
 
+  group('ConduitMarkdownPreprocessor.wrapStandaloneBase64Images', () {
+    test('wraps an image before a CRLF line ending', () {
+      const image = 'data:image/png;base64,AAAA';
+
+      check(
+        ConduitMarkdownPreprocessor.wrapStandaloneBase64Images(
+          '$image\r\nnext',
+        ),
+      ).equals('![Generated Image]($image)\r\nnext');
+    });
+  });
+
   group('ConduitMarkdownPreprocessor.cleanText', () {
     test('whitespace-only returns empty', () {
       check(ConduitMarkdownPreprocessor.cleanText('   ')).equals('');
@@ -268,9 +280,8 @@ after''';
       );
       check(result).contains('Before');
       check(result).contains('after');
-      check(
-        result,
-      ).contains('<details><summary>Hidden</summary>tool output</details>');
+      check(result)
+          .contains('<details><summary>Hidden</summary>tool output</details>');
     });
 
     test('preserves generic html content to mirror OpenWebUI', () {

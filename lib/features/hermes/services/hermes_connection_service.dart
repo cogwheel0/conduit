@@ -5,6 +5,8 @@ import '../models/hermes_connection_contract.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_api_service.dart';
+import 'hermes_desktop_api_service.dart';
+import 'hermes_desktop_connection_coordinator.dart';
 
 final hermesConnectionGatewayProvider = Provider<HermesConnectionGateway>(
   _RiverpodHermesConnectionGateway.new,
@@ -17,7 +19,28 @@ final class _RiverpodHermesConnectionGateway
   final Ref _ref;
 
   @override
-  Future<bool> probe(HermesConfig draft) => testHermesDraftConnection(draft);
+  Future<bool> probe(HermesConfig draft) async {
+    if (draft.mode != HermesBackendMode.desktopGateway) {
+      return testHermesDraftConnection(draft);
+    }
+    final current = _ref.read(hermesConfigProvider);
+    final live = _ref.read(hermesApiServiceProvider);
+    final sameConnection = hermesDesktopConnectionMatches(current, draft);
+    if (sameConnection && live is HermesDesktopApiService) {
+      return live.health();
+    }
+    if (draft.desktopCredentials?.nativeTokens != null) {
+      throw StateError('Save the Hermes server before testing its sign-in.');
+    }
+    final service = HermesDesktopApiService(
+      config: draft.copyWith(enabled: true),
+    );
+    try {
+      return await service.health();
+    } finally {
+      service.close();
+    }
+  }
 
   @override
   Future<void> persist(HermesConnectionDraft draft) {
@@ -25,10 +48,15 @@ final class _RiverpodHermesConnectionGateway
         .read(hermesConfigProvider.notifier)
         .saveConnection(
           baseUrl: draft.config.baseUrl,
+          mode: draft.config.mode,
+          desktopAuthKind: draft.config.desktopAuthKind,
+          desktopProfile: draft.config.desktopProfile,
           apiKeyChanged: draft.apiKeyChanged,
           apiKey: draft.config.apiKey,
           sessionKeyChanged: draft.sessionKeyChanged,
           sessionKey: draft.config.sessionKey,
+          desktopCredentialsChanged: draft.desktopCredentialsChanged,
+          desktopCredentials: draft.config.desktopCredentials,
         );
   }
 
@@ -55,17 +83,24 @@ final class _RiverpodHermesConnectionGateway
       isCurrent: isCurrent,
       persist: () => persist(draft),
       enable: () => notifier.setEnabled(true),
-      ensureSessionKey: notifier.ensureSessionKey,
+      ensureSessionKey: draft.config.mode == HermesBackendMode.responsesApi
+          ? notifier.ensureSessionKey
+          : () async => '',
       selectBackend: () => preferredBackend.set(PreferredBackend.hermes),
       rollback: () => runHermesOnboardingRollback(
         previousEnabled: previousConfig.enabled,
         setEnabled: notifier.setEnabled,
         restoreConnection: () => notifier.saveConnection(
           baseUrl: previousConfig.baseUrl,
+          mode: previousConfig.mode,
+          desktopAuthKind: previousConfig.desktopAuthKind,
+          desktopProfile: previousConfig.desktopProfile,
           apiKeyChanged: true,
           apiKey: previousConfig.apiKey,
           sessionKeyChanged: true,
           sessionKey: previousConfig.sessionKey,
+          desktopCredentialsChanged: true,
+          desktopCredentials: previousConfig.desktopCredentials,
         ),
         restoreBackend: () => preferredBackend.set(previousBackend),
       ),

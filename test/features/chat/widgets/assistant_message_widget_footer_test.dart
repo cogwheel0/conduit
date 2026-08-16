@@ -609,6 +609,7 @@ void main() {
           id: 'same-index-version-v1',
           content: 'Old archived body',
           timestamp: DateTime(2023, 12, 31),
+          model: 'Archived model',
         ),
       ],
     );
@@ -617,6 +618,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Old archived body'), findsOneWidget);
+    expect(find.text('Archived model'), findsOneWidget);
 
     final refreshed = message.copyWith(
       versions: [message.versions.single.copyWith(content: 'Refreshed body')],
@@ -626,6 +628,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Refreshed body'), findsOneWidget);
+    expect(find.text('Archived model'), findsOneWidget);
     expect(find.text('Old archived body'), findsNothing);
   });
 

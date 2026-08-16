@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import '../../features/hermes/models/hermes_chat_input.dart';
+import '../../features/hermes/models/hermes_config.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
 import '../../features/hermes/services/hermes_local_document_service.dart';
@@ -30,8 +31,10 @@ part 'media_upload_controller.g.dart';
 
 typedef DirectImageDataUrlEncoder = Future<String?> Function(File file);
 typedef ImageUploadConverter = Future<String?> Function(String filePath);
-typedef StagingFileCopy =
-    Future<File> Function(File source, String destinationPath);
+typedef StagingFileCopy = Future<File> Function(
+  File source,
+  String destinationPath,
+);
 typedef OwnedStagingConversionReplacer =
     Future<OwnedStagingConversionReplacementResult> Function({
       required String originalPath,
@@ -107,14 +110,15 @@ final class NativeShareDurableOwnershipUnavailable implements Exception {
       'Native shared files require a server-backed model before import.';
 }
 
-typedef UploadImagePrecacheReader =
-    Future<Uint8List?> Function(String filePath, int maxBytes);
-typedef MediaUploadAttachmentCleanup =
-    Future<bool> Function(
-      String filePath, {
-      required Future<void> Function() beforeDeleteAdmission,
-      required bool Function() canDelete,
-    });
+typedef UploadImagePrecacheReader = Future<Uint8List?> Function(
+  String filePath,
+  int maxBytes,
+);
+typedef MediaUploadAttachmentCleanup = Future<bool> Function(
+  String filePath, {
+  required Future<void> Function() beforeDeleteAdmission,
+  required bool Function() canDelete,
+});
 typedef MediaUploadCleanupBarrier = Future<void> Function(String filePath);
 
 final uploadImagePrecacheReaderProvider = Provider<UploadImagePrecacheReader>(
@@ -856,9 +860,8 @@ class MediaUploadController {
     };
     _ref.read(attachedFilesProvider.notifier).clearAll();
     if (localPaths.isEmpty) return Future<void>.value();
-    return Future.wait<void>(
-      localPaths.map(cancelUploadsForFile),
-    ).then<void>((_) {});
+    return Future.wait<void>(localPaths.map(cancelUploadsForFile))
+        .then<void>((_) {});
   }
 
   Future<bool> _cleanupAttachmentForGeneration({
@@ -1715,8 +1718,11 @@ class MediaUploadController {
         .toList(growable: false);
 
     if (!isImage) {
-      if (!isHermesLocalDocumentFileNameSupported(fileName)) {
-        throw const HermesChatInputException(
+      final desktop =
+          _ref.read(hermesConfigProvider).mode ==
+          HermesBackendMode.desktopGateway;
+      if (!desktop && !isHermesLocalDocumentFileNameSupported(fileName)) {
+        throw HermesChatInputException(
           'Hermes supports local UTF-8 text and DOCX documents.',
         );
       }

@@ -186,6 +186,12 @@ const _incompleteHermes = HermesConfig(
   baseUrl: 'https://hermes.example/v1',
 );
 
+const _usableDesktopHermes = HermesConfig(
+  enabled: true,
+  baseUrl: 'https://hermes.example',
+  mode: HermesBackendMode.desktopGateway,
+);
+
 void main() {
   group('Hermes model surfacing without an OWUI server', () {
     test('synthetic model requires a usable Hermes connection', () {
@@ -204,6 +210,146 @@ void main() {
       );
       check(usable).length.equals(2);
       check(usable.any(isHermesModel)).isTrue();
+    });
+
+    test('Desktop discovery keeps the default and discovered models', () {
+      final configured = hermesDesktopModel(
+        modelId: 'gpt-5.6-sol',
+        name: 'gpt-5.6-sol',
+        provider: 'azure-foundry',
+      );
+
+      final models = appendHermesModelIfUsable(
+        const [Model(id: 'owui-model', name: 'OpenWebUI model')],
+        hermesUsable: true,
+        hermesModels: [configured],
+      );
+
+      check(models.where(isHermesModel)).length.equals(2);
+      check(models[1].name).equals('Hermes Agent');
+      check(models[1].metadata?['hermesConfiguredDefault']).equals(true);
+      check(models[2]).identicalTo(configured);
+      check(configured.metadata?['hermesConfiguredDefault']).equals(false);
+    });
+
+    test('Desktop keeps the default when discovery is empty', () {
+      final models = appendHermesModelIfUsable(const [], hermesUsable: true);
+
+      check(models).length.equals(1);
+      check(models.single.name).equals('Hermes Agent');
+    });
+
+    test('modelsProvider includes Desktop default and discovery', () async {
+      final discovered = hermesDesktopModel(
+        modelId: 'gpt-5.6-sol',
+        name: 'gpt-5.6-sol',
+        provider: 'azure-foundry',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final models = await container.read(modelsProvider.future);
+
+      check(models).length.equals(2);
+      check(models.first.name).equals('Hermes Agent');
+      check(models.last).identicalTo(discovered);
+    });
+
+    test('switching to Responses removes cached Desktop models', () async {
+      final discovered = hermesDesktopModel(
+        modelId: 'gpt-5.6-sol',
+        name: 'gpt-5.6-sol',
+        provider: 'azure-foundry',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _MutableHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(await container.read(modelsProvider.future)).length.equals(2);
+      container.read(selectedModelProvider.notifier).set(discovered);
+      container.read(isManualModelSelectionProvider.notifier).set(true);
+
+      (container.read(
+        hermesConfigProvider.notifier,
+      ) as _MutableHermesConfigController).setConfig(_usableHermes);
+      final responsesModels = await container.read(modelsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      check(responsesModels).length.equals(1);
+      check(responsesModels.single.id).equals(kHermesDefaultModelId);
+      check(container.read(selectedModelProvider)?.id)
+          .equals(kHermesDefaultModelId);
+    });
+
+    test('refresh reloads Desktop model discovery', () async {
+      final first = hermesDesktopModel(
+        modelId: 'first',
+        name: 'First',
+        provider: 'provider',
+      );
+      var discovered = first;
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableDesktopHermes),
+          ),
+          hermesDesktopModelsProvider.overrideWith((_) async => [discovered]),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(
+        (await container.read(modelsProvider.future))
+            .any((model) => identical(model, first)),
+      ).isTrue();
+
+      final second = hermesDesktopModel(
+        modelId: 'second',
+        name: 'Second',
+        provider: 'provider',
+      );
+      discovered = second;
+      await container.read(modelsProvider.notifier).refresh();
+
+      final refreshed = container.read(modelsProvider).requireValue;
+      check(refreshed.any((model) => identical(model, second))).isTrue();
+      check(refreshed.any((model) => identical(model, first))).isFalse();
+    });
+
+    test('fast tier stays distinct from model capability', () {
+      check(hermesFastTierSelection(supported: true, selected: false))
+          .equals(false);
+      check(hermesFastTierSelection(supported: true, selected: true))
+          .equals(true);
+      check(hermesFastTierSelection(supported: false, selected: true)).isNull();
     });
 
     test('malicious server default cannot claim Hermes routing', () {
@@ -352,9 +498,8 @@ void main() {
         );
         _addOwnedApiCleanup(container, api, workerManager);
 
-        check(
-          await container.read(activeServerProvider.future),
-        ).equals(_modelsServer);
+        check(await container.read(activeServerProvider.future))
+            .equals(_modelsServer);
         final pendingModels = container.read(modelsProvider.future);
         await api.getModelsStarted.future;
 
@@ -368,9 +513,8 @@ void main() {
         responseGate.complete();
         final models = await pendingModels;
 
-        check(
-          models.map((model) => model.id).toList(),
-        ).deepEquals(<String>['owui-model']);
+        check(models.map((model) => model.id).toList())
+            .deepEquals(<String>['owui-model']);
         check(api.getModelsCalls).equals(1);
       },
     );
@@ -690,9 +834,8 @@ void main() {
         await container.read(reviewerModeProvider.notifier).setEnabled(true);
         discoveryResult.complete(DirectModelDiscoveryState());
 
-        check(
-          await pendingDefault.timeout(const Duration(seconds: 5)),
-        ).identicalTo(manual);
+        check(await pendingDefault.timeout(const Duration(seconds: 5)))
+            .identicalTo(manual);
         check(container.read(selectedModelProvider)).identicalTo(manual);
       },
     );
@@ -855,57 +998,51 @@ void main() {
         await container.read(reviewerModeProvider.notifier).setEnabled(true);
         apiResult.complete('owui/stale');
 
-        check(
-          await pendingDefault.timeout(const Duration(seconds: 5)),
-        ).identicalTo(reviewerModel);
+        check(await pendingDefault.timeout(const Duration(seconds: 5)))
+            .identicalTo(reviewerModel);
         check(container.read(selectedModelProvider)).identicalTo(reviewerModel);
       },
     );
 
-    test(
-      'reviewer-off during model load resolves usable Hermes on the same future',
-      () async {
-        final modelsCompleter = Completer<List<Model>>();
-        final modelsStarted = Completer<void>();
-        final container = ProviderContainer(
-          overrides: [
-            reviewerModeProvider.overrideWith(_MutableReviewerMode.new),
-            preferredBackendProvider.overrideWith(
-              () => _FakePreferredBackendController(PreferredBackend.hermes),
-            ),
-            isAuthenticatedProvider2.overrideWithValue(false),
-            apiServiceProvider.overrideWithValue(null),
-            optimizedStorageServiceProvider.overrideWithValue(
-              _FakeOptimizedStorageService(),
-            ),
-            hermesConfigProvider.overrideWith(
-              () => _FakeHermesConfigController(_usableHermes),
-            ),
-            modelsProvider.overrideWith(
-              () => _PendingModels(
-                modelsCompleter.future,
-                started: modelsStarted,
-              ),
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('reviewer-off during model load resolves usable Hermes on the same future', () async {
+      final modelsCompleter = Completer<List<Model>>();
+      final modelsStarted = Completer<void>();
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWith(_MutableReviewerMode.new),
+          preferredBackendProvider.overrideWith(
+            () => _FakePreferredBackendController(PreferredBackend.hermes),
+          ),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableHermes),
+          ),
+          modelsProvider.overrideWith(
+            () =>
+                _PendingModels(modelsCompleter.future, started: modelsStarted),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        await container.read(reviewerModeProvider.notifier).setEnabled(true);
-        final pendingDefault = container.read(defaultModelProvider.future);
-        await modelsStarted.future;
+      await container.read(reviewerModeProvider.notifier).setEnabled(true);
+      final pendingDefault = container.read(defaultModelProvider.future);
+      await modelsStarted.future;
 
-        await container.read(reviewerModeProvider.notifier).setEnabled(false);
-        modelsCompleter.complete(const <Model>[
-          Model(id: 'demo/stale', name: 'Stale reviewer model'),
-        ]);
+      await container.read(reviewerModeProvider.notifier).setEnabled(false);
+      modelsCompleter.complete(const <Model>[
+        Model(id: 'demo/stale', name: 'Stale reviewer model'),
+      ]);
 
-        final resolved = await pendingDefault;
-        check(resolved).isNotNull();
-        check(isHermesModel(resolved!)).isTrue();
-        check(container.read(selectedModelProvider)).identicalTo(resolved);
-      },
-    );
+      final resolved = await pendingDefault;
+      check(resolved).isNotNull();
+      check(isHermesModel(resolved!)).isTrue();
+      check(container.read(selectedModelProvider)).identicalTo(resolved);
+    });
 
     test(
       'reviewer default preserves a manual selection made during model load',
@@ -1038,9 +1175,8 @@ void main() {
       final rebuiltModels = await container.read(modelsProvider.future);
       await Future<void>.delayed(Duration.zero);
 
-      check(
-        rebuiltModels.map((model) => model.id).toList(),
-      ).deepEquals(<String>['owui-model']);
+      check(rebuiltModels.map((model) => model.id).toList())
+          .deepEquals(<String>['owui-model']);
       check(container.read(selectedModelProvider)).isNull();
       check(container.read(isManualModelSelectionProvider)).isFalse();
     });

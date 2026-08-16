@@ -1799,7 +1799,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final id = entry.id;
     final row = _MountedTimelineRow(
       key: _rowKeys[id],
-      messageId: id,
+      rowId: id,
       onMounted: _registerMountedRow,
       onUnmounted: _unregisterMountedRow,
       child: IndexedSemantics(
@@ -1828,21 +1828,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return chronologicalIndex - centerIndex;
   }
 
-  void _registerMountedRow(String messageId) {
-    _mountedRowCounts.update(
-      messageId,
-      (count) => count + 1,
-      ifAbsent: () => 1,
-    );
+  void _registerMountedRow(String rowId) {
+    _mountedRowCounts.update(rowId, (count) => count + 1, ifAbsent: () => 1);
   }
 
-  void _unregisterMountedRow(String messageId) {
-    final count = _mountedRowCounts[messageId];
+  void _unregisterMountedRow(String rowId) {
+    final count = _mountedRowCounts[rowId];
     if (count == null) return;
     if (count <= 1) {
-      _mountedRowCounts.remove(messageId);
+      _mountedRowCounts.remove(rowId);
     } else {
-      _mountedRowCounts[messageId] = count - 1;
+      _mountedRowCounts[rowId] = count - 1;
     }
   }
 
@@ -2041,14 +2037,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
 class _MountedTimelineRow extends StatefulWidget {
   const _MountedTimelineRow({
-    required this.messageId,
+    required this.rowId,
     required this.onMounted,
     required this.onUnmounted,
     required this.child,
     super.key,
   });
 
-  final String messageId;
+  final String rowId;
   final ValueChanged<String> onMounted;
   final ValueChanged<String> onUnmounted;
   final Widget child;
@@ -2061,20 +2057,20 @@ class _MountedTimelineRowState extends State<_MountedTimelineRow> {
   @override
   void initState() {
     super.initState();
-    widget.onMounted(widget.messageId);
+    widget.onMounted(widget.rowId);
   }
 
   @override
   void didUpdateWidget(covariant _MountedTimelineRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.messageId == widget.messageId) return;
-    oldWidget.onUnmounted(oldWidget.messageId);
-    widget.onMounted(widget.messageId);
+    if (oldWidget.rowId == widget.rowId) return;
+    oldWidget.onUnmounted(oldWidget.rowId);
+    widget.onMounted(widget.rowId);
   }
 
   @override
   void dispose() {
-    widget.onUnmounted(widget.messageId);
+    widget.onUnmounted(widget.rowId);
     super.dispose();
   }
 

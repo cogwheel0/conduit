@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -12,11 +13,13 @@ import '../models/hermes_config.dart';
 import '../models/hermes_job.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
+import 'hermes_backend_service.dart';
 import 'hermes_json_guard.dart';
 import 'hermes_stream_parser.dart';
 
 export 'hermes_identifier.dart'
     show kMaxHermesOpaqueIdentifierCharacters, validateHermesOpaqueIdentifier;
+export 'hermes_backend_service.dart' show HermesResponseStream;
 
 const Duration kHermesStreamIdleTimeout = Duration(minutes: 5);
 const Duration kHermesStreamMaxDuration = Duration(minutes: 30);
@@ -295,8 +298,13 @@ int _hermesEventCharacters(
       raw: raw,
       maxCharacters: maxCharacters,
     ),
+  HermesDecisionRequested(:final requestId, :final prompt, :final raw) =>
+    requestId.length +
+        (prompt?.length ?? 0) +
+        min(jsonEncode(raw).length, maxCharacters),
   HermesLifecycle(:final status) => status.length,
   HermesFinalOutput(:final text) => text.length,
+  HermesComposerPrefill(:final text) => text.length,
   HermesRunError(:final message) => message.length,
   HermesRunDone() => 0,
 };
@@ -761,15 +769,6 @@ void _validateHermesJsonStructure(String source) {
   return (characters: characters, nodes: nodes);
 }
 
-/// An established Responses SSE request. Headers are available before event
-/// consumption so callers can bind the server-created Hermes session.
-final class HermesResponseStream {
-  const HermesResponseStream({required this.events, this.sessionId});
-
-  final Stream<HermesRunEvent> events;
-  final String? sessionId;
-}
-
 Future<bool> testHermesDraftConnection(
   HermesConfig config, {
   Future<bool> Function(HermesConfig probeConfig)? probe,
@@ -792,7 +791,7 @@ Future<bool> testHermesDraftConnection(
 /// different backend with its own bearer auth and `X-Hermes-*` headers, and
 /// reusing the OpenWebUI auth interceptor (with its public-endpoint list and
 /// 401/403 escalation) would be wrong here.
-class HermesApiService {
+class HermesApiService implements HermesBackendService, HermesTurnService {
   HermesApiService({
     required this.config,
     Dio? dio,
@@ -827,6 +826,7 @@ class HermesApiService {
     _dio.options.receiveDataWhenStatusError = false;
   }
 
+  @override
   final HermesConfig config;
   final HermesStreamLimits streamLimits;
   final Dio _dio;
@@ -854,10 +854,8 @@ class HermesApiService {
     );
   }
 
-  List<String> get _identifierSensitiveValues => <String>[
-    if ((config.apiKey ?? '').isNotEmpty) config.apiKey!,
-    if ((config.sessionKey ?? '').isNotEmpty) config.sessionKey!,
-  ];
+  List<String> get _identifierSensitiveValues =>
+      config.sensitiveValues.toList(growable: false);
 
   String _requireOpaqueIdentifier(Object? value) {
     final validated = validateHermesOpaqueIdentifier(
@@ -1143,6 +1141,7 @@ class HermesApiService {
   }
 
   /// Returns true when the server answers `GET /health` with a 2xx.
+  @override
   Future<bool> health() async {
     try {
       final resp = await _requestAndConsumeBounded(
@@ -1168,6 +1167,7 @@ class HermesApiService {
 
   /// Lists the agent's skills (`GET /v1/skills`), the slash-commands invokable
   /// in chat input as `/skill-name args`. Read-only, bearer-gated.
+  @override
   Future<List<Map<String, dynamic>>> listSkills() async {
     final data = await _requestBoundedJson('GET', '$_root/v1/skills');
     return _boundedHermesMapList(
@@ -1340,6 +1340,7 @@ class HermesApiService {
   // ---------------------------------------------------------------------------
 
   /// Creates a session (`POST /api/sessions`) and returns its id.
+  @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
@@ -1353,6 +1354,7 @@ class HermesApiService {
   }
 
   /// Lists sessions (`GET /api/sessions`).
+  @override
   Future<List<Map<String, dynamic>>> listSessions() async {
     final data = await _requestBoundedJson('GET', '$_root/api/sessions');
     return _boundedHermesMapList(
@@ -1362,6 +1364,7 @@ class HermesApiService {
   }
 
   /// Fetches a session's message history (`GET /api/sessions/{id}/messages`).
+  @override
   Future<List<Map<String, dynamic>>> getSessionMessages(
     String id, {
     CancelToken? cancelToken,
@@ -1440,6 +1443,7 @@ class HermesApiService {
     cancelToken: cancelToken,
   );
 
+  @override
   Future<HermesResponseStream> streamResponseWithReasoning(
     HermesChatInput input, {
     String? instructions,
@@ -1561,6 +1565,7 @@ class HermesApiService {
   }
 
   /// Renames a session (`PATCH /api/sessions/{id}`).
+  @override
   Future<void> renameSession(String id, String title) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded(
@@ -1571,6 +1576,7 @@ class HermesApiService {
   }
 
   /// Deletes a session (`DELETE /api/sessions/{id}`).
+  @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded(
@@ -1582,6 +1588,7 @@ class HermesApiService {
 
   /// Forks a session via lineage (`POST /api/sessions/{id}/fork`) and returns
   /// the new session id.
+  @override
   Future<String> forkSession(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     final data = await _postBoundedCreateObject(
@@ -1596,12 +1603,14 @@ class HermesApiService {
   // ---------------------------------------------------------------------------
 
   /// Machine-readable server capabilities (`GET /v1/capabilities`).
+  @override
   Future<Map<String, dynamic>> getCapabilities() async {
     final data = await _requestBoundedJson('GET', '$_root/v1/capabilities');
     return data is Map ? data.cast<String, dynamic>() : const {};
   }
 
   /// Resolved toolsets and their concrete tools (`GET /v1/toolsets`).
+  @override
   Future<List<Map<String, dynamic>>> listToolsets() async {
     final data = await _requestBoundedJson('GET', '$_root/v1/toolsets');
     return _boundedHermesMapList(
@@ -1612,6 +1621,7 @@ class HermesApiService {
 
   /// Extended health (`GET /health/detailed`): active sessions, running agents,
   /// resource usage. Returns an empty map on any failure.
+  @override
   Future<Map<String, dynamic>> healthDetailed() async {
     try {
       final data = await _requestBoundedJson('GET', '$_root/health/detailed');
@@ -1625,6 +1635,7 @@ class HermesApiService {
   // Jobs API (`/api/jobs/*`) — scheduled/background agent runs.
   // ---------------------------------------------------------------------------
 
+  @override
   Future<List<Map<String, dynamic>>> listJobs() async {
     final data = await _requestBoundedJson(
       'GET',
@@ -1652,6 +1663,7 @@ class HermesApiService {
   }
 
   /// Creates a job using any schedule expression accepted by Hermes.
+  @override
   Future<Map<String, dynamic>> createJob({
     required String name,
     required String prompt,
@@ -1680,6 +1692,7 @@ class HermesApiService {
   }
 
   /// Partially updates a job (any of prompt / schedule / enabled).
+  @override
   Future<void> updateJob(
     String id, {
     String? name,
@@ -1715,16 +1728,19 @@ class HermesApiService {
     );
   }
 
+  @override
   Future<void> deleteJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded('DELETE', '$_root/api/jobs/$encodedId');
   }
 
+  @override
   Future<void> pauseJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded('POST', '$_root/api/jobs/$encodedId/pause');
   }
 
+  @override
   Future<void> resumeJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded(
@@ -1734,6 +1750,7 @@ class HermesApiService {
   }
 
   /// Triggers an immediate run outside the schedule (`POST /api/jobs/{id}/run`).
+  @override
   Future<void> runJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded('POST', '$_root/api/jobs/$encodedId/run');
@@ -1752,6 +1769,7 @@ class HermesApiService {
   }
 
   /// Resolves a pending approval gate (`POST /v1/runs/{id}/approval`).
+  @override
   Future<void> resolveApproval(
     String runId, {
     required String approvalId,
@@ -1770,6 +1788,7 @@ class HermesApiService {
     );
   }
 
+  @override
   void close() => _dio.close(force: true);
 }
 

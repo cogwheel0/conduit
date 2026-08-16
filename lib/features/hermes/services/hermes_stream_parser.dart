@@ -290,9 +290,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
-    final status = _str(
-      responseMap?['status'] ?? data['status'],
-    )?.toLowerCase();
+    final status = _str(responseMap?['status'] ?? data['status'])
+        ?.toLowerCase();
     final statusError = _fallbackResponseStatusError(
       status,
       responseMap ?? data,

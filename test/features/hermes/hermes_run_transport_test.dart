@@ -293,6 +293,63 @@ Stream<HermesRunEvent> _failedHermesStream(
   throw error;
 }
 
+Future<bool> _dispatchFakeHermesResponse({
+  required _FakeHermesApiService service,
+  required HermesRunRegistry registry,
+  required String assistantMessageId,
+  HermesRunKey? runKey,
+  HermesRunKey Function()? currentRunKey,
+  required HermesChatInput input,
+  String? sessionId,
+  String? conversation,
+  String? previousResponseId,
+  List<Map<String, dynamic>>? conversationHistory,
+  String? instructions,
+  String? reasoningEffort,
+  CancelToken? cancelToken,
+  int maxRecoveryPolls = 120,
+  Duration recoveryPollInterval = const Duration(seconds: 1),
+  FutureOr<void> Function(String? sessionId)? onSessionEstablished,
+  FutureOr<void> Function()? onCompletedSuccessfully,
+  required void Function(String content) appendContent,
+  void Function(String content)? replaceContent,
+  required void Function(ChatStatusUpdate update) appendStatus,
+  void Function(String text)? prefillComposer,
+  required void Function(ChatMessage Function(ChatMessage) updater)
+  updateMessage,
+  required void Function() finishStreaming,
+  required void Function() completeStreamingUi,
+}) => dispatchHermesTurn(
+  startTurn: (turnCancelToken) => service.streamResponseWithReasoning(
+    input,
+    sessionId: sessionId,
+    conversation: conversation,
+    previousResponseId: previousResponseId,
+    conversationHistory: conversationHistory,
+    instructions: instructions,
+    reasoningEffort: reasoningEffort,
+    cancelToken: turnCancelToken,
+  ),
+  sensitiveValues: service.config.sensitiveValues,
+  recoverResponse: hermesResponseRecoverer(service),
+  registry: registry,
+  assistantMessageId: assistantMessageId,
+  runKey: runKey,
+  currentRunKey: currentRunKey,
+  cancelToken: cancelToken,
+  maxRecoveryPolls: maxRecoveryPolls,
+  recoveryPollInterval: recoveryPollInterval,
+  onSessionEstablished: onSessionEstablished,
+  onCompletedSuccessfully: onCompletedSuccessfully,
+  appendContent: appendContent,
+  replaceContent: replaceContent,
+  appendStatus: appendStatus,
+  prefillComposer: prefillComposer,
+  updateMessage: updateMessage,
+  finishStreaming: finishStreaming,
+  completeStreamingUi: completeStreamingUi,
+);
+
 void main() {
   test('OpenWebUI Hermes run identity includes authentication epoch', () {
     final database = Object();
@@ -336,7 +393,7 @@ void main() {
       );
       String? establishedSession;
 
-      final completed = await dispatchHermesResponse(
+      final completed = await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'response-message',
@@ -371,7 +428,7 @@ void main() {
       );
       final cancelToken = CancelToken()..cancel('stopped');
 
-      final completed = await dispatchHermesResponse(
+      final completed = await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'cancelled-response',
@@ -403,7 +460,7 @@ void main() {
         timestamp: DateTime.fromMillisecondsSinceEpoch(0),
       );
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: message.id,
@@ -416,11 +473,36 @@ void main() {
       );
 
       check(message.metadata?['transport']).equals(kHermesTransport);
-      check(
-        message.metadata?['hermesTransportMode'],
-      ).equals(kHermesResponsesMode);
+      check(message.metadata?['hermesTransportMode'])
+          .equals(kHermesResponsesMode);
       check(message.metadata?['hermesResponseId']).equals('resp-1');
       check(message.metadata?['hermesRunId']).isNull();
+    });
+
+    test('routes Desktop slash prefill back to the composer', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesComposerPrefill('edited prompt'),
+          HermesRunDone(),
+        ],
+      );
+      String? prefill;
+
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'prefill-message',
+        input: HermesChatInput.text('/undo'),
+        prefillComposer: (text) => prefill = text,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(prefill).equals('edited prompt');
     });
 
     test('reconciles deltas with final output without duplication', () async {
@@ -436,7 +518,7 @@ void main() {
       );
       final content = StringBuffer();
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'm',
@@ -466,7 +548,7 @@ void main() {
       );
       final content = StringBuffer();
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'm',
@@ -500,7 +582,7 @@ void main() {
         );
         final statuses = <ChatStatusUpdate>[];
 
-        await dispatchHermesResponse(
+        await _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: 'm',
@@ -542,7 +624,7 @@ void main() {
       );
       final content = StringBuffer();
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'm',
@@ -581,7 +663,7 @@ void main() {
         timestamp: DateTime.fromMillisecondsSinceEpoch(0),
       );
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: message.id,
@@ -616,7 +698,7 @@ void main() {
           timestamp: DateTime.fromMillisecondsSinceEpoch(0),
         );
 
-        await dispatchHermesResponse(
+        await _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: message.id,
@@ -631,9 +713,8 @@ void main() {
 
         check(cancelToken.isCancelled).isTrue();
         check(fake.getResponseCalls).equals(0);
-        check(
-          message.error?.content,
-        ).equals('Hermes returned an invalid response.');
+        check(message.error?.content)
+            .equals('Hermes returned an invalid response.');
       },
     );
 
@@ -659,7 +740,7 @@ void main() {
           timestamp: DateTime.fromMillisecondsSinceEpoch(0),
         );
 
-        final dispatch = dispatchHermesResponse(
+        final dispatch = _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: message.id,
@@ -700,7 +781,7 @@ void main() {
       var finished = false;
       var completedUi = false;
 
-      final dispatch = dispatchHermesResponse(
+      final dispatch = _dispatchFakeHermesResponse(
         service: fake,
         registry: registry,
         assistantMessageId: 'm',
@@ -755,7 +836,7 @@ void main() {
 
         try {
           await runZonedGuarded(() async {
-            final dispatch = dispatchHermesResponse(
+            final dispatch = _dispatchFakeHermesResponse(
               service: fake,
               registry: HermesRunRegistry(),
               assistantMessageId: 'm',
@@ -816,7 +897,7 @@ void main() {
       );
       final content = StringBuffer();
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'm',
@@ -862,7 +943,7 @@ void main() {
         timestamp: DateTime.fromMillisecondsSinceEpoch(0),
       );
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: message.id,
@@ -875,9 +956,8 @@ void main() {
       );
 
       check(fake.getResponseCalls).equals(1);
-      check(
-        message.error?.content,
-      ).equals('The Hermes recovery output exceeded Conduit\'s size limit.');
+      check(message.error?.content)
+          .equals('The Hermes recovery output exceeded Conduit\'s size limit.');
     });
 
     test('recovery waits while a stored response is queued', () async {
@@ -913,7 +993,7 @@ void main() {
       );
       final content = StringBuffer();
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'm',
@@ -961,7 +1041,7 @@ void main() {
         );
         final content = StringBuffer();
 
-        await dispatchHermesResponse(
+        await _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: 'm',
@@ -1010,7 +1090,7 @@ void main() {
       };
 
       try {
-        await dispatchHermesResponse(
+        await _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: message.id,
@@ -1052,7 +1132,7 @@ void main() {
           timestamp: DateTime.fromMillisecondsSinceEpoch(0),
         );
 
-        await dispatchHermesResponse(
+        await _dispatchFakeHermesResponse(
           service: fake,
           registry: HermesRunRegistry(),
           assistantMessageId: message.id,
@@ -1065,9 +1145,8 @@ void main() {
         );
 
         check(fake.getResponseCalls).equals(1);
-        check(
-          message.error?.content,
-        ).equals('Hermes returned an invalid response.');
+        check(message.error?.content)
+            .equals('Hermes returned an invalid response.');
       },
     );
 
@@ -1088,7 +1167,7 @@ void main() {
         timestamp: DateTime.fromMillisecondsSinceEpoch(0),
       );
 
-      await dispatchHermesResponse(
+      await _dispatchFakeHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: message.id,
@@ -1190,9 +1269,8 @@ void main() {
         completeStreamingUi: () => completedUi = true,
       );
 
-      check(
-        message.error?.content,
-      ).equals('Hermes returned an invalid response.');
+      check(message.error?.content)
+          .equals('Hermes returned an invalid response.');
       check(finished).isTrue();
       check(completedUi).isTrue();
     },
@@ -1293,14 +1371,12 @@ void main() {
       check(description).startsWith('Thinking…');
       check(description).not((value) => value.contains(apiKey));
       check(description).not((value) => value.contains(sessionKey));
-      check(
-        description,
-      ).not((value) => value.contains('reflected-reasoning-token'));
+      check(description)
+          .not((value) => value.contains('reflected-reasoning-token'));
       check(description).not((value) => value.contains('\u0000'));
       check(description).not((value) => value.contains('\n'));
-      check(
-        description.replaceFirst('Thinking… ', '').runes.length,
-      ).isLessOrEqual(kMaxHermesStatusDetailCharacters);
+      check(description.replaceFirst('Thinking… ', '').runes.length)
+          .isLessOrEqual(kMaxHermesStatusDetailCharacters);
     },
   );
 
@@ -1479,9 +1555,8 @@ void main() {
       final approval = message.metadata?[kHermesApprovalMeta] as Map;
       check(approval['approvalId']).equals(approvalId);
       final summary = approval['summary'] as String? ?? '';
-      check(
-        summary.runes.length,
-      ).isLessOrEqual(kMaxHermesApprovalSummaryCharacters);
+      check(summary.runes.length)
+          .isLessOrEqual(kMaxHermesApprovalSummaryCharacters);
       check(summary).not((value) => value.contains(apiKey));
       check(summary).not((value) => value.contains(sessionKey));
       check(summary).not((value) => value.contains('reflected-approval-token'));
@@ -1530,9 +1605,8 @@ void main() {
       );
 
       check(message.metadata?[kHermesApprovalMeta]).isNull();
-      check(
-        message.error?.content,
-      ).equals('Hermes returned an invalid approval request.');
+      check(message.error?.content)
+          .equals('Hermes returned an invalid approval request.');
     }
   });
 
@@ -1695,9 +1769,8 @@ void main() {
       check(action).isNotNull();
       check(description).isNotNull();
       expect(action, matches(r'^hermes_tool_opaque_[0-9a-f]{16}$'));
-      check(
-        description!.runes.length,
-      ).isLessOrEqual(kMaxHermesToolNameCharacters);
+      check(description!.runes.length)
+          .isLessOrEqual(kMaxHermesToolNameCharacters);
       final persisted = <String>[
         started.action ?? '',
         started.description ?? '',
@@ -1740,9 +1813,8 @@ void main() {
       completeStreamingUi: () {},
     );
 
-    check(
-      statuses.map((status) => status.description).toList(),
-    ).deepEquals(['Hermes tool', 'Hermes tool']);
+    check(statuses.map((status) => status.description).toList())
+        .deepEquals(['Hermes tool', 'Hermes tool']);
     check(statuses.first.action).equals(statuses.last.action);
     check(statuses.first.action ?? '').not((value) => value.contains(apiKey));
   });
@@ -2004,9 +2076,8 @@ void main() {
 
       check(cancelToken.isCancelled).isTrue();
       check(fake.getRunCalls).equals(0);
-      check(
-        message.error?.content,
-      ).equals('Hermes returned an invalid response.');
+      check(message.error?.content)
+          .equals('Hermes returned an invalid response.');
     },
   );
 
@@ -2553,9 +2624,8 @@ void main() {
 
     check(fake.getRunCalls).equals(1);
     check(content.toString()).equals('Partial answer');
-    check(
-      message.error?.content,
-    ).equals('Hermes stopped this response before it completed.');
+    check(message.error?.content)
+        .equals('Hermes stopped this response before it completed.');
   });
 
   test(

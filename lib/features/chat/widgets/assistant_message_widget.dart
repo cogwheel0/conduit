@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart' show CancelToken;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -17,14 +16,10 @@ import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import '../../../core/models/chat_message.dart';
-import '../../../core/providers/app_providers.dart'
-    show activeConversationProvider;
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_run_transport.dart';
-import '../../hermes/widgets/hermes_approval_card.dart';
+import '../../hermes/widgets/hermes_message_interactions.dart';
 import 'enhanced_image_attachment.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -40,9 +35,6 @@ import '../../../shared/widgets/web_content_embed.dart';
 import '../providers/chat_providers.dart'
     show
         chatComposerTextInsertionTargetId,
-        captureHermesApprovalProjectionStateUpdater,
-        chatMessagesProvider,
-        hermesRunKeyForConversation,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider;
@@ -67,15 +59,6 @@ final _ttsDetailsPattern = RegExp(
 );
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
-
-typedef _HermesApprovalBinding = ({
-  HermesRunKey runKey,
-  Object generationToken,
-  CancelToken cancelToken,
-  String messageId,
-  String runId,
-  String approvalId,
-});
 
 /// Lightweight body for virtualized Markdown rows that own no message chrome.
 class AssistantMarkdownPartRow extends StatelessWidget {
@@ -1158,6 +1141,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _cachedAvatar = null;
     _cachedAvatarModelName = null;
     _cachedAvatarIconUrl = null;
+    _buildCachedAvatar();
   }
 
   void _clearVisibleFollowUps() {
@@ -1184,211 +1168,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   Widget build(BuildContext context) {
     return _buildDocumentationMessage();
-  }
-
-  /// Renders the Hermes human-approval gate when the assistant message is
-  /// paused awaiting a decision. Returns an empty box otherwise.
-  Widget _buildHermesApprovalCard() {
-    final approval = widget.message.metadata?['hermesApproval'];
-    if (approval is! Map) return const SizedBox.shrink();
-
-    final rawRunId = approval['runId'];
-    final runId = rawRunId is String ? rawRunId : null;
-    final rawApprovalId = approval['approvalId'];
-    final approvalId = rawApprovalId is String ? rawApprovalId : null;
-    final rawMessageId = widget.message.id;
-    final messageId = rawMessageId is String ? rawMessageId : null;
-    final activeConversation = ref.read(activeConversationProvider);
-    final runKey = activeConversation == null || messageId == null
-        ? null
-        : hermesRunKeyForConversation(
-            ref,
-            conversation: activeConversation,
-            assistantMessageId: messageId,
-          );
-    final registry = ref.read(hermesRunRegistryProvider);
-    final generationToken = runKey == null || runId == null
-        ? null
-        : registry.generationTokenFor(runKey, runId: runId);
-    final cancelToken =
-        runKey == null || runId == null || generationToken == null
-        ? null
-        : registry.cancelTokenForGeneration(
-            runKey,
-            generationToken: generationToken,
-            runId: runId,
-          );
-    if (widget.message.metadata?['transport'] != kHermesTransport ||
-        runId == null ||
-        approvalId == null ||
-        messageId == null ||
-        runKey == null ||
-        generationToken == null ||
-        cancelToken == null) {
-      return const SizedBox.shrink();
-    }
-    final binding = (
-      runKey: runKey,
-      generationToken: generationToken,
-      cancelToken: cancelToken,
-      messageId: messageId,
-      runId: runId,
-      approvalId: approvalId,
-    );
-
-    // Belt-and-suspenders: hide the gate if the server doesn't support approval.
-    final caps = ref.watch(hermesCapabilitiesProvider).asData?.value;
-    if (caps != null && !caps.runApproval) return const SizedBox.shrink();
-
-    final rawState = approval['state'];
-    final stateStr = rawState is String ? rawState : 'pending';
-    final state = switch (stateStr) {
-      'resolving' => HermesApprovalState.resolving,
-      'approved' => HermesApprovalState.approved,
-      'denied' => HermesApprovalState.denied,
-      _ => HermesApprovalState.pending,
-    };
-
-    return HermesApprovalCard(
-      state: state,
-      summary: approval['summary'] is String
-          ? approval['summary'] as String
-          : null,
-      onDecision: (approved) => _resolveHermesApproval(approved, binding),
-    );
-  }
-
-  Future<void> _resolveHermesApproval(
-    bool approved,
-    _HermesApprovalBinding binding,
-  ) async {
-    final approvalId = binding.approvalId;
-    final runId = binding.runId;
-    final messageId = binding.messageId;
-    final activeConversation = ref.read(activeConversationProvider);
-    final runKey = activeConversation == null
-        ? null
-        : hermesRunKeyForConversation(
-            ref,
-            conversation: activeConversation,
-            assistantMessageId: messageId,
-          );
-    final registry = ref.read(hermesRunRegistryProvider);
-    if (runKey == null) {
-      return;
-    }
-
-    // The callback belongs to the generation that rendered this card. A chat
-    // id remap may move that exact generation to a new key, but a same-key
-    // replacement must never let the stale button capture its newer token.
-    if (!registry.ownsGeneration(
-      binding.runKey,
-      generationToken: binding.generationToken,
-      runId: runId,
-    )) {
-      if (runKey == binding.runKey ||
-          !registry.ownsGeneration(
-            runKey,
-            generationToken: binding.generationToken,
-            runId: runId,
-          )) {
-        return;
-      }
-    }
-
-    final messagesNotifier = ref.read(chatMessagesProvider.notifier);
-    final updateProjectionState = captureHermesApprovalProjectionStateUpdater(
-      ref,
-      cancelToken: binding.cancelToken,
-      messageId: messageId,
-      runId: runId,
-      approvalId: approvalId,
-    );
-
-    bool setApprovalState(String next, {required String expectedState}) {
-      final projectionUpdate = updateProjectionState(
-        expectedState: expectedState,
-        nextState: next,
-      );
-      if (projectionUpdate.found && !projectionUpdate.changed) return false;
-
-      final currentConversation = mounted
-          ? ref.read(activeConversationProvider)
-          : null;
-      final currentRunKey = currentConversation == null
-          ? null
-          : hermesRunKeyForConversation(
-              ref,
-              conversation: currentConversation,
-              assistantMessageId: messageId,
-            );
-      final visibleOwnsGeneration =
-          currentRunKey != null &&
-          (projectionUpdate.found
-              ? currentRunKey == projectionUpdate.key
-              : registry.ownsGeneration(
-                  currentRunKey,
-                  generationToken: binding.generationToken,
-                  runId: runId,
-                ));
-      var visibleChanged = false;
-      if (visibleOwnsGeneration) {
-        messagesNotifier.updateMessageById(messageId, (m) {
-          if (m.id != messageId ||
-              m.metadata?['transport'] != kHermesTransport) {
-            return m;
-          }
-          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-          final current = meta['hermesApproval'];
-          if (current is! Map ||
-              current['approvalId'] != approvalId ||
-              current['runId'] != runId ||
-              (current['state'] ?? 'pending') != expectedState) {
-            return m;
-          }
-          meta['hermesApproval'] = {
-            ...current.cast<String, dynamic>(),
-            'state': next,
-          };
-          visibleChanged = true;
-          return m.copyWith(metadata: meta);
-        });
-      }
-      // Real chat dispatches always have a projection. The visible-only
-      // fallback preserves narrow widget seams while retaining the registry
-      // generation CAS above.
-      return projectionUpdate.found ? projectionUpdate.changed : visibleChanged;
-    }
-
-    // If Hermes was disabled/invalidated between display and tap, the service is
-    // null and `?.resolveApproval` would silently no-op while the UI claimed
-    // success — leaving the server-side run blocked. Keep the gate decidable.
-    final service = ref.read(hermesApiServiceProvider);
-    if (service == null) {
-      DebugLogger.warning('approval-no-service', scope: 'chat/hermes_approval');
-      return;
-    }
-
-    if (!setApprovalState('resolving', expectedState: 'pending')) return;
-    try {
-      await service.resolveApproval(
-        runId,
-        approvalId: approvalId,
-        approved: approved,
-      );
-    } catch (_) {
-      // Surface failure by returning the gate to a decidable state.
-      DebugLogger.error(
-        'approval-resolve-failed',
-        scope: 'chat/hermes_approval',
-      );
-      setApprovalState('pending', expectedState: 'resolving');
-      return;
-    }
-    setApprovalState(
-      approved ? 'approved' : 'denied',
-      expectedState: 'resolving',
-    );
   }
 
   Widget _buildDocumentationMessage() {
@@ -1514,7 +1293,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     activeSources: contentSources,
                   ),
 
-                if (widget.showTrailing) _buildHermesApprovalCard(),
+                if (widget.showTrailing)
+                  if (_chatMessage case final message?)
+                    HermesMessageInteractions(message: message),
 
                 if (widget.showTrailing && showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),

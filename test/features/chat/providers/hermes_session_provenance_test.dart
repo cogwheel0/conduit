@@ -31,7 +31,7 @@ final class _FixedHermesConfig extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig(
     enabled: true,
-    baseUrl: 'http://hermes',
+    baseUrl: 'https://hermes.example',
     apiKey: 'key',
     sessionKey: 'memory',
   );
@@ -45,7 +45,7 @@ final class _RecordingHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -134,7 +134,7 @@ ProviderContainer _container(_RecordingHermesApi service) => ProviderContainer(
 String _connectionIdentity(ProviderContainer container) =>
     HermesLocalDocumentTrustStore.connectionIdentity(
       endpointIdentity: HermesConfigController.connectionEndpoint(
-        'http://hermes',
+        'https://hermes.example',
       )!,
       principalId: container
           .read(hermesConfigProvider.notifier)
@@ -214,9 +214,8 @@ void main() {
       check(service.createSessionCalls).equals(1);
       check(service.sessionIds).deepEquals(<String?>['fresh-session-1']);
       check(service.previousResponseIds).deepEquals(<String?>[null]);
-      check(
-        chatStorageKindOf(container.read(activeConversationProvider)),
-      ).equals(ChatStorageKind.openWebUi);
+      check(chatStorageKindOf(container.read(activeConversationProvider)))
+          .equals(ChatStorageKind.openWebUi);
     },
   );
 

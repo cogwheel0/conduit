@@ -100,7 +100,10 @@ Conversation _conversation(String id, List<ChatMessage> messages) {
 class _StoppingHermesApi extends HermesApiService {
   _StoppingHermesApi()
     : super(
-        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+        ),
         dio: Dio(),
       );
 
@@ -115,7 +118,10 @@ class _StoppingHermesApi extends HermesApiService {
 class _RecoveredHermesApi extends HermesApiService {
   _RecoveredHermesApi()
     : super(
-        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+        ),
         dio: Dio(),
       );
 
@@ -163,7 +169,10 @@ class _RejectFirstAttachHermesRunRegistry extends HermesRunRegistry {
 class _GatedRecoveredHermesApi extends HermesApiService {
   _GatedRecoveredHermesApi(this.response)
     : super(
-        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+        ),
         dio: Dio(),
       );
 
@@ -309,7 +318,7 @@ class _FixedHermesConfigController extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig(
     enabled: true,
-    baseUrl: 'http://hermes',
+    baseUrl: 'https://hermes.example',
     apiKey: 'key',
     sessionKey: 'memory',
   );
@@ -325,7 +334,7 @@ class _GatedHermesConfigController extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig(
     enabled: true,
-    baseUrl: 'http://hermes',
+    baseUrl: 'https://hermes.example',
     apiKey: 'key',
     sessionKey: 'memory',
   );
@@ -388,7 +397,7 @@ class _SessionRecordingHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -476,7 +485,7 @@ class _MultiRunHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -541,7 +550,7 @@ class _RevocationHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -596,7 +605,7 @@ class _PreflightHermesApi extends HermesApiService {
   }) : super(
          config: const HermesConfig(
            enabled: true,
-           baseUrl: 'http://hermes',
+           baseUrl: 'https://hermes.example',
            apiKey: 'key',
          ),
          dio: Dio(),
@@ -690,7 +699,7 @@ class _BranchingHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -725,7 +734,7 @@ class _CreateRunRaceHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -776,7 +785,7 @@ class _ResponsesHermesApi extends HermesApiService {
   }) : super(
          config: const HermesConfig(
            enabled: true,
-           baseUrl: 'http://hermes',
+           baseUrl: 'https://hermes.example',
            apiKey: 'key',
          ),
          dio: Dio(),
@@ -951,7 +960,7 @@ class _StalledDocumentBaselineHermesApi extends HermesApiService {
     : super(
         config: const HermesConfig(
           enabled: true,
-          baseUrl: 'http://hermes',
+          baseUrl: 'https://hermes.example',
           apiKey: 'key',
         ),
         dio: Dio(),
@@ -1355,13 +1364,11 @@ void main() {
         final reloadedParent = messages.first;
         final user = messages[1];
         final assistant = messages[2];
-        check(
-          message_tree.chatMessageChildrenIds(reloadedParent),
-        ).deepEquals(<String>[user.id]);
+        check(message_tree.chatMessageChildrenIds(reloadedParent))
+            .deepEquals(<String>[user.id]);
         check(message_tree.chatMessageParentId(user)).equals(parent.id);
-        check(
-          message_tree.chatMessageChildrenIds(user),
-        ).deepEquals(<String>[assistant.id]);
+        check(message_tree.chatMessageChildrenIds(user))
+            .deepEquals(<String>[assistant.id]);
         check(message_tree.chatMessageParentId(assistant)).equals(user.id);
         check(assistant.content).equals(oversizedAnswer);
         check(assistant.isStreaming).isFalse();
@@ -1376,9 +1383,8 @@ void main() {
         check(durableAssistant).isNotNull();
         final durablePayload =
             jsonDecode(durableAssistant!.payload) as Map<String, dynamic>;
-        check(
-          (durablePayload['metadata'] as Map)['transport'],
-        ).equals(kHermesTransport);
+        check((durablePayload['metadata'] as Map)['transport'])
+            .equals(kHermesTransport);
         final pending = await database.outboxDao.pendingForChat(
           conversation.id,
         );
@@ -1467,250 +1473,230 @@ void main() {
         final payload = jsonDecode(durable!.payload) as Map<String, dynamic>;
         check(payload['isStreaming']).equals(false);
         check(payload['done']).equals(true);
-        check(
-          (payload['error'] as Map<String, dynamic>)['content'],
-        ).equals('Hermes run was cancelled.');
+        check((payload['error'] as Map<String, dynamic>)['content'])
+            .equals('Hermes run was cancelled.');
       },
     );
 
-    test(
-      'mixed Hermes dispatch keeps its pre-commit assistant seed after navigation',
-      () async {
-        final events = StreamController<HermesRunEvent>();
-        addTearDown(events.close);
-        final service = _SessionRecordingHermesApi(events: events);
-        final hermesModel = hermesSyntheticModel();
-        late ProviderContainer container;
-        late String assistantId;
-        late String userId;
-        container = _testContainer(
-          overrides: [
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
-            ),
-            reviewerModeProvider.overrideWithValue(false),
-            apiServiceProvider.overrideWithValue(null),
-            socketServiceProvider.overrideWithValue(null),
-            hermesConfigProvider.overrideWith(
-              () => _FixedHermesConfigController(),
-            ),
-            hermesApiServiceProvider.overrideWithValue(service),
-            hermesTurnStartPostCommitHookProvider.overrideWithValue(() {
-              final committed = container.read(chatMessagesProvider);
-              userId = committed.first.id;
-              assistantId = committed.last.id;
-              final foreign = committed.last.copyWith(
-                content: 'foreign view',
-                model: 'foreign-model',
-                metadata: const <String, dynamic>{
-                  'transport': kHermesTransport,
-                  'parentId': 'foreign-parent',
-                  'childrenIds': <String>['foreign-child'],
-                  'modelName': 'Foreign model',
-                },
-              );
-              final foreignOwner = withChatStorageProvenance(
-                Conversation(
-                  id: 'foreign-openwebui-chat',
-                  title: 'Foreign',
-                  createdAt: DateTime(2024),
-                  updatedAt: DateTime(2024),
-                  messages: <ChatMessage>[foreign],
-                ),
-                ChatStorageKind.openWebUi,
-              );
-              container
-                  .read(activeConversationProvider.notifier)
-                  .set(foreignOwner);
-              container.read(chatMessagesProvider.notifier).setMessages(
-                <ChatMessage>[foreign],
-              );
-            }),
-          ],
-        );
-        addTearDown(container.dispose);
-        final database = container.read(appDatabaseProvider)!;
-        await database.chatsDao.upsertEnvelopeStub(
+    test('mixed Hermes dispatch keeps its pre-commit assistant seed after navigation', () async {
+      final events = StreamController<HermesRunEvent>();
+      addTearDown(events.close);
+      final service = _SessionRecordingHermesApi(events: events);
+      final hermesModel = hermesSyntheticModel();
+      late ProviderContainer container;
+      late String assistantId;
+      late String userId;
+      container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesTurnStartPostCommitHookProvider.overrideWithValue(() {
+            final committed = container.read(chatMessagesProvider);
+            userId = committed.first.id;
+            assistantId = committed.last.id;
+            final foreign = committed.last.copyWith(
+              content: 'foreign view',
+              model: 'foreign-model',
+              metadata: const <String, dynamic>{
+                'transport': kHermesTransport,
+                'parentId': 'foreign-parent',
+                'childrenIds': <String>['foreign-child'],
+                'modelName': 'Foreign model',
+              },
+            );
+            final foreignOwner = withChatStorageProvenance(
+              Conversation(
+                id: 'foreign-openwebui-chat',
+                title: 'Foreign',
+                createdAt: DateTime(2024),
+                updatedAt: DateTime(2024),
+                messages: <ChatMessage>[foreign],
+              ),
+              ChatStorageKind.openWebUi,
+            );
+            container
+                .read(activeConversationProvider.notifier)
+                .set(foreignOwner);
+            container.read(chatMessagesProvider.notifier).setMessages(
+              <ChatMessage>[foreign],
+            );
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      final database = container.read(appDatabaseProvider)!;
+      await database.chatsDao.upsertEnvelopeStub(
+        id: 'seed-owner-chat',
+        title: 'Seed owner',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      final owner = withChatStorageProvenance(
+        Conversation(
           id: 'seed-owner-chat',
           title: 'Seed owner',
-          createdAt: 1,
-          updatedAt: 1,
-        );
-        final owner = withChatStorageProvenance(
-          Conversation(
-            id: 'seed-owner-chat',
-            title: 'Seed owner',
-            createdAt: DateTime(2024),
-            updatedAt: DateTime(2024),
+          createdAt: DateTime(2024),
+          updatedAt: DateTime(2024),
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      container.read(activeConversationProvider.notifier).set(owner);
+      container.read(selectedModelProvider.notifier).set(hermesModel);
+
+      final send = sendMessageWithContainer(container, 'Owned question', null);
+      await service.runEventsStarted.future.timeout(const Duration(seconds: 1));
+      events
+        ..add(const HermesTokenDelta('Owned final'))
+        ..add(const HermesRunDone());
+      await send.timeout(const Duration(seconds: 1));
+
+      final durable = await database.messagesDao.getMessage(
+        owner.id,
+        assistantId,
+      );
+      check(durable).isNotNull();
+      check(durable!.parentId).equals(userId);
+      check(durable.model).equals(hermesModel.id);
+      check(durable.content).equals('Owned final');
+      final payload = jsonDecode(durable.payload) as Map<String, dynamic>;
+      check(payload['parentId']).equals(userId);
+      check(payload['childrenIds'] as List).isEmpty();
+      check((payload['metadata'] as Map)['modelName']).equals(hermesModel.name);
+    });
+
+    test('approval mutation waiting behind primary persistence writes one snapshot', () async {
+      final events = StreamController<HermesRunEvent>(sync: true);
+      final service = _SessionRecordingHermesApi(events: events);
+      final locks = _GatedFirstHermesPersistenceLocks();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
           ),
-          ChatStorageKind.openWebUi,
-        );
-        container.read(activeConversationProvider.notifier).set(owner);
-        container.read(selectedModelProvider.notifier).set(hermesModel);
-
-        final send = sendMessageWithContainer(
-          container,
-          'Owned question',
-          null,
-        );
-        await service.runEventsStarted.future.timeout(
-          const Duration(seconds: 1),
-        );
-        events
-          ..add(const HermesTokenDelta('Owned final'))
-          ..add(const HermesRunDone());
-        await send.timeout(const Duration(seconds: 1));
-
-        final durable = await database.messagesDao.getMessage(
-          owner.id,
-          assistantId,
-        );
-        check(durable).isNotNull();
-        check(durable!.parentId).equals(userId);
-        check(durable.model).equals(hermesModel.id);
-        check(durable.content).equals('Owned final');
-        final payload = jsonDecode(durable.payload) as Map<String, dynamic>;
-        check(payload['parentId']).equals(userId);
-        check(payload['childrenIds'] as List).isEmpty();
-        check(
-          (payload['metadata'] as Map)['modelName'],
-        ).equals(hermesModel.name);
-      },
-    );
-
-    test(
-      'approval mutation waiting behind primary persistence writes one snapshot',
-      () async {
-        final events = StreamController<HermesRunEvent>(sync: true);
-        final service = _SessionRecordingHermesApi(events: events);
-        final locks = _GatedFirstHermesPersistenceLocks();
-        final container = _testContainer(
-          overrides: [
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
-            ),
-            apiServiceProvider.overrideWithValue(null),
-            socketServiceProvider.overrideWithValue(null),
-            hermesConfigProvider.overrideWith(
-              () => _FixedHermesConfigController(),
-            ),
-            hermesApiServiceProvider.overrideWithValue(service),
-            chatLocksProvider.overrideWithValue(locks),
-          ],
-        );
-        addTearDown(() async {
-          if (!locks.allow.isCompleted) locks.allow.complete();
-          await events.close();
-          container.dispose();
-        });
-        final placeholder = _assistantMessage(
-          id: 'approval-primary-race',
-          content: 'final body',
-          isStreaming: true,
-          metadata: const <String, dynamic>{'transport': kHermesTransport},
-        );
-        final owner = withChatStorageProvenance(
-          _conversation('approval-primary-race-chat', <ChatMessage>[
-            placeholder,
-          ]),
-          ChatStorageKind.openWebUi,
-        );
-        final database = container.read(appDatabaseProvider)!;
-        await _seedDurableAssistantOwner(
-          database,
-          chatId: owner.id,
-          assistant: placeholder,
-        );
-        container.read(activeConversationProvider.notifier).set(owner);
-        container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
-          placeholder,
-        ]);
-        final dispatch = dispatchHermesRunFromChatForTest(
-          container,
-          assistantMessageId: placeholder.id,
-          assistantSeed: placeholder,
-          input: 'race approval persistence',
-          existingMessages: <ChatMessage>[
-            _assistantMessage(
-              id: 'approval-primary-history',
-              metadata: const <String, dynamic>{
-                'hermesSessionId': 'approval-primary-session',
-              },
-            ),
-          ],
-        );
-        await service.runEventsStarted.future.timeout(
-          const Duration(seconds: 1),
-        );
-        events.add(
-          const HermesApprovalRequested(
-            approvalId: 'approval-primary-id',
-            summary: 'Continue?',
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
           ),
-        );
-        await pumpEventQueue();
-        final registry = container.read(hermesRunRegistryProvider);
-        final key = hermesRunKeyForConversation(
-          container,
-          conversation: owner,
-          assistantMessageId: placeholder.id,
-        );
-        final generation = registry.generationTokenFor(
-          key,
-          runId: 'recorded-run',
-        )!;
-        final cancelToken = registry.cancelTokenForGeneration(
-          key,
-          generationToken: generation,
-          runId: 'recorded-run',
-        )!;
-        final updateApproval = captureHermesApprovalProjectionStateUpdater(
-          container,
-          cancelToken: cancelToken,
-          messageId: placeholder.id,
-          runId: 'recorded-run',
+          hermesApiServiceProvider.overrideWithValue(service),
+          chatLocksProvider.overrideWithValue(locks),
+        ],
+      );
+      addTearDown(() async {
+        if (!locks.allow.isCompleted) locks.allow.complete();
+        await events.close();
+        container.dispose();
+      });
+      final placeholder = _assistantMessage(
+        id: 'approval-primary-race',
+        content: 'final body',
+        isStreaming: true,
+        metadata: const <String, dynamic>{'transport': kHermesTransport},
+      );
+      final owner = withChatStorageProvenance(
+        _conversation('approval-primary-race-chat', <ChatMessage>[placeholder]),
+        ChatStorageKind.openWebUi,
+      );
+      final database = container.read(appDatabaseProvider)!;
+      await _seedDurableAssistantOwner(
+        database,
+        chatId: owner.id,
+        assistant: placeholder,
+      );
+      container.read(activeConversationProvider.notifier).set(owner);
+      container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+        placeholder,
+      ]);
+      final dispatch = dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: placeholder.id,
+        assistantSeed: placeholder,
+        input: 'race approval persistence',
+        existingMessages: <ChatMessage>[
+          _assistantMessage(
+            id: 'approval-primary-history',
+            metadata: const <String, dynamic>{
+              'hermesSessionId': 'approval-primary-session',
+            },
+          ),
+        ],
+      );
+      await service.runEventsStarted.future.timeout(const Duration(seconds: 1));
+      events.add(
+        const HermesApprovalRequested(
           approvalId: 'approval-primary-id',
-        );
-        check(
-          updateApproval(
-            expectedState: 'pending',
-            nextState: 'resolving',
-          ).changed,
-        ).isTrue();
-        events.add(const HermesRunDone());
-        await locks.started.future.timeout(const Duration(seconds: 1));
-        check(
-          updateApproval(
-            expectedState: 'resolving',
-            nextState: 'approved',
-          ).changed,
-        ).isTrue();
-        locks.allow.complete();
-        await dispatch.timeout(const Duration(seconds: 1));
+          summary: 'Continue?',
+        ),
+      );
+      await pumpEventQueue();
+      final registry = container.read(hermesRunRegistryProvider);
+      final key = hermesRunKeyForConversation(
+        container,
+        conversation: owner,
+        assistantMessageId: placeholder.id,
+      );
+      final generation = registry.generationTokenFor(
+        key,
+        runId: 'recorded-run',
+      )!;
+      final cancelToken = registry.cancelTokenForGeneration(
+        key,
+        generationToken: generation,
+        runId: 'recorded-run',
+      )!;
+      final updateApproval = captureHermesApprovalProjectionStateUpdater(
+        container,
+        cancelToken: cancelToken,
+        messageId: placeholder.id,
+        runId: 'recorded-run',
+        approvalId: 'approval-primary-id',
+      );
+      check(
+        updateApproval(
+          expectedState: 'pending',
+          nextState: 'resolving',
+        ).changed,
+      ).isTrue();
+      events.add(const HermesRunDone());
+      await locks.started.future.timeout(const Duration(seconds: 1));
+      check(
+        updateApproval(
+          expectedState: 'resolving',
+          nextState: 'approved',
+        ).changed,
+      ).isTrue();
+      locks.allow.complete();
+      await dispatch.timeout(const Duration(seconds: 1));
 
-        String? durableState;
-        for (var attempt = 0; attempt < 20; attempt++) {
-          await pumpEventQueue();
-          final row = await database.messagesDao.getMessage(
-            owner.id,
-            placeholder.id,
-          );
-          final payload = jsonDecode(row!.payload) as Map<String, dynamic>;
-          durableState =
-              ((payload['metadata'] as Map)[kHermesApprovalMeta]
-                      as Map)['state']
-                  as String?;
-          if (durableState == 'approved') break;
-        }
-        check(durableState).equals('approved');
-        final pending = await database.outboxDao.pendingForChat(owner.id);
-        check(
-          pending.where(
-            (operation) => operation.kind == OutboxKind.updateChat.name,
-          ),
-        ).length.equals(1);
-      },
-    );
+      String? durableState;
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await pumpEventQueue();
+        final row = await database.messagesDao.getMessage(
+          owner.id,
+          placeholder.id,
+        );
+        final payload = jsonDecode(row!.payload) as Map<String, dynamic>;
+        durableState =
+            ((payload['metadata'] as Map)[kHermesApprovalMeta] as Map)['state']
+                as String?;
+        if (durableState == 'approved') break;
+      }
+      check(durableState).equals('approved');
+      final pending = await database.outboxDao.pendingForChat(owner.id);
+      check(
+        pending.where(
+          (operation) => operation.kind == OutboxKind.updateChat.name,
+        ),
+      ).length.equals(1);
+    });
 
     test(
       'late stop cleanup error survives approval compaction and durable reopen',
@@ -1835,9 +1821,8 @@ void main() {
             break;
           }
         }
-        check(
-          (durablePayload!['error'] as Map<String, dynamic>)['content'],
-        ).equals(expectedError);
+        check((durablePayload!['error'] as Map<String, dynamic>)['content'])
+            .equals(expectedError);
         check(
           ((durablePayload['metadata'] as Map)[kHermesApprovalMeta]
               as Map)['state'],
@@ -1946,9 +1931,8 @@ void main() {
         final payload = jsonDecode(assistant.payload) as Map<String, dynamic>;
         check(assistant.role).equals('assistant');
         check(payload['isStreaming']).equals(false);
-        check(
-          (payload['error'] as Map<String, dynamic>)['content'] as String,
-        ).contains('backend changed');
+        check((payload['error'] as Map<String, dynamic>)['content'] as String)
+            .contains('backend changed');
         final pending = await database.outboxDao.pendingForChat(
           conversation.id,
         );
@@ -2058,9 +2042,8 @@ void main() {
           'Cancel immediately after commit',
           null,
         ).timeout(const Duration(seconds: 1));
-        await Future.wait<void>(
-          cancellationFutures,
-        ).timeout(const Duration(seconds: 1));
+        await Future.wait<void>(cancellationFutures)
+            .timeout(const Duration(seconds: 1));
 
         check(postCommitHookCalls).equals(1);
         check(oldService.inputs).isEmpty();
@@ -2165,22 +2148,18 @@ void main() {
           ..emit('first', const HermesRunDone())
           ..emit('second', const HermesTokenDelta('Second final'))
           ..emit('second', const HermesRunDone());
-        await Future.wait(<Future<void>>[
-          first,
-          second,
-        ]).timeout(const Duration(seconds: 1));
+        await Future.wait(<Future<void>>[first, second])
+            .timeout(const Duration(seconds: 1));
 
         final reloaded = await loadLocalConversation(
           container,
           conversation.id,
         );
         check(reloaded).isNotNull();
-        check(
-          reloaded!.messages.map((message) => message.content),
-        ).contains('First final');
-        check(
-          reloaded.messages.map((message) => message.content),
-        ).contains('Second final');
+        check(reloaded!.messages.map((message) => message.content))
+            .contains('First final');
+        check(reloaded.messages.map((message) => message.content))
+            .contains('Second final');
         // As above, inspect the trusted local rows for transport provenance;
         // assembled OpenWebUI payloads deliberately discard it.
         final durableRows = await database.messagesDao.getForChat(
@@ -2196,9 +2175,8 @@ void main() {
             })
             .map((row) => row.content)
             .toList(growable: false);
-        check(
-          durableHermesContents,
-        ).unorderedEquals(<String>['First final', 'Second final']);
+        check(durableHermesContents)
+            .unorderedEquals(<String>['First final', 'Second final']);
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -2236,12 +2214,11 @@ void main() {
 
         check(service.createRunCalls).equals(0);
         check(service.inputs).length.equals(2);
-        check(
-          service.inputs.first.toJson() as List<Map<String, dynamic>>,
-        ).deepEquals([
-          {'type': 'input_text', 'text': 'describe'},
-          {'type': 'input_image', 'image_url': image},
-        ]);
+        check(service.inputs.first.toJson() as List<Map<String, dynamic>>)
+            .deepEquals([
+              {'type': 'input_text', 'text': 'describe'},
+              {'type': 'input_image', 'image_url': image},
+            ]);
         check(service.inputs.last.toJson()).equals('continue');
         check(service.sessionIds).deepEquals([null, 'responses-session']);
         check(service.previousResponseIds).deepEquals([null, 'resp-1']);
@@ -2254,9 +2231,8 @@ void main() {
         check(messages.first.files!.single['url']).equals(image);
         check(messages[1].metadata?['hermesResponseId']).equals('resp-1');
         check(messages.last.metadata?['hermesResponseId']).equals('resp-2');
-        check(
-          container.read(activeConversationProvider)?.metadata['backend'],
-        ).equals('hermes');
+        check(container.read(activeConversationProvider)?.metadata['backend'])
+            .equals('hermes');
       },
     );
 
@@ -2317,9 +2293,8 @@ void main() {
       check(
         container.read(activeConversationProvider)!.metadata['hermesSessionId'],
       ).equals('foreign-session');
-      check(
-        container.read(hermesActiveSessionProvider),
-      ).equals('foreign-session');
+      check(container.read(hermesActiveSessionProvider))
+          .equals('foreign-session');
       final assistant = container.read(chatMessagesProvider).single;
       check(assistant.isStreaming).isFalse();
       check(assistant.content).equals('answer 1');
@@ -2537,9 +2512,8 @@ void main() {
         check(user.content).not((value) => value.contains('private reference'));
         check(user.files).isNotNull();
         check(user.files!.single['source']).equals('hermes_local');
-        check(
-          user.files!.single['hermes_extracted_text'],
-        ).equals('private reference text');
+        check(user.files!.single['hermes_extracted_text'])
+            .equals('private reference text');
 
         await regenerateEditedHermesUserMessage(
           container,
@@ -2760,9 +2734,8 @@ void main() {
         check(replacementService.inputs).isEmpty();
         check(oldService.createSessionCalls).equals(0);
         check(replacementService.createSessionCalls).equals(0);
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('original answer');
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('original answer');
       },
     );
 
@@ -2873,16 +2846,13 @@ void main() {
             check(service.responseCalls).equals(stallPostCommit ? 1 : 0);
             if (stallPostCommit) {
               check(service.historyCancelTokens).length.equals(2);
-              check(
-                service.historyCancelTokens[0],
-              ).identicalTo(service.historyCancelTokens[1]);
-              check(
-                service.historyCancelTokens[1],
-              ).identicalTo(service.responseCancelToken);
+              check(service.historyCancelTokens[0])
+                  .identicalTo(service.historyCancelTokens[1]);
+              check(service.historyCancelTokens[1])
+                  .identicalTo(service.responseCancelToken);
             }
-            check(
-              container.read(chatMessagesProvider).single.isStreaming,
-            ).isFalse();
+            check(container.read(chatMessagesProvider).single.isStreaming)
+                .isFalse();
             if (configMutation) {
               check(container.read(hermesConfigProvider).enabled).isFalse();
             }
@@ -2990,9 +2960,8 @@ void main() {
           trustedLocalDocumentKeys: trustedKeys,
         );
         check(reopened).length.equals(2);
-        check(
-          reopened.every((message) => message.content == 'summarize'),
-        ).isTrue();
+        check(reopened.every((message) => message.content == 'summarize'))
+            .isTrue();
         check(
           reopened.every(
             (message) => message.files?.single['source'] == 'hermes_local',
@@ -3014,9 +2983,8 @@ void main() {
         );
         check(reopenedRegeneration).length.equals(1);
         check(reopenedRegeneration.single.content).equals('summarize');
-        check(
-          reopenedRegeneration.single.files?.single['source'],
-        ).equals('hermes_local');
+        check(reopenedRegeneration.single.files?.single['source'])
+            .equals('hermes_local');
 
         service.failNextResponse = true;
         await sendDocument();
@@ -3077,9 +3045,8 @@ void main() {
           throwsA(isA<Exception>()),
         );
 
-        check(
-          container.read(chatMessagesProvider).map((message) => message.id),
-        ).deepEquals(originalMessages.map((message) => message.id));
+        check(container.read(chatMessagesProvider).map((message) => message.id))
+            .deepEquals(originalMessages.map((message) => message.id));
         check(
           container
               .read(chatMessagesProvider)
@@ -3127,12 +3094,10 @@ void main() {
         fixture.profiles.complete(const <DirectConnectionProfile>[]);
         await failure;
 
-        check(
-          container.read(chatMessagesProvider).map((message) => message.id),
-        ).deepEquals(collidingMessages.map((message) => message.id));
-        check(
-          chatStorageKindOf(container.read(activeConversationProvider)),
-        ).equals(ChatStorageKind.directLocal);
+        check(container.read(chatMessagesProvider).map((message) => message.id))
+            .deepEquals(collidingMessages.map((message) => message.id));
+        check(chatStorageKindOf(container.read(activeConversationProvider)))
+            .equals(ChatStorageKind.directLocal);
       },
     );
 
@@ -3205,9 +3170,8 @@ void main() {
 
       check(subscriptionDisposed).isTrue();
       check(teardownDisposed).isTrue();
-      check(
-        container.read(chatMessagesProvider).single.id,
-      ).equals('assistant-2');
+      check(container.read(chatMessagesProvider).single.id)
+          .equals('assistant-2');
     });
 
     test('streaming buffer sync keeps the assistant message streaming', () {
@@ -3245,9 +3209,8 @@ void main() {
       notifier.appendToLastMessage('new answer');
       notifier.syncStreamingBuffer();
 
-      check(
-        container.read(chatMessagesProvider).single.content,
-      ).equals('new answer');
+      check(container.read(chatMessagesProvider).single.content)
+          .equals('new answer');
       notifier.clearMessages();
     });
 
@@ -3433,9 +3396,8 @@ void main() {
 
         check(service.inputs).deepEquals(['input-for-a']);
         check(service.sessionIds).deepEquals(['session-a']);
-        check(
-          container.read(activeConversationProvider)!.id,
-        ).equals(conversationB.id);
+        check(container.read(activeConversationProvider)!.id)
+            .equals(conversationB.id);
         final visible = container.read(chatMessagesProvider).single;
         check(visible.id).equals('copied-assistant');
         check(visible.content).equals('B untouched');
@@ -3443,9 +3405,8 @@ void main() {
         // switching to it settles its orphaned checkpoint without allowing
         // conversation A's dispatch to mutate the copied message identity.
         check(visible.isStreaming).isFalse();
-        check(
-          visible.error?.content,
-        ).equals('Hermes checkpoint is missing its recovery identifier.');
+        check(visible.error?.content)
+            .equals('Hermes checkpoint is missing its recovery identifier.');
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -3485,12 +3446,10 @@ void main() {
 
       check(service.createSessionCalls).equals(1);
       check(service.sessionIds).deepEquals(['fresh-session']);
-      check(
-        container.read(hermesActiveSessionProvider),
-      ).equals('fresh-session');
-      check(
-        container.read(activeConversationProvider)!.id,
-      ).equals('local:hermes_fresh-session');
+      check(container.read(hermesActiveSessionProvider))
+          .equals('fresh-session');
+      check(container.read(activeConversationProvider)!.id)
+          .equals('local:hermes_fresh-session');
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
@@ -3612,9 +3571,8 @@ void main() {
       );
 
       final sessions = await container.read(hermesSessionsProvider.future);
-      check(
-        sessions.map((session) => session.id).toList(),
-      ).deepEquals(['fresh-session']);
+      check(sessions.map((session) => session.id).toList())
+          .deepEquals(['fresh-session']);
       check(service.listSessionsCalls).equals(2);
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
@@ -3664,9 +3622,8 @@ void main() {
         );
 
         final sessions = await container.read(hermesSessionsProvider.future);
-        check(
-          sessions.map((session) => session.id).toList(),
-        ).deepEquals(['responses-session']);
+        check(sessions.map((session) => session.id).toList())
+            .deepEquals(['responses-session']);
         check(service.listSessionsCalls).equals(2);
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
@@ -3697,9 +3654,8 @@ void main() {
           (_, _) {},
         );
         addTearDown(sidebarSubscription.close);
-        check(
-          (await container.read(hermesSessionsProvider.future)).single.id,
-        ).equals('responses-session');
+        check((await container.read(hermesSessionsProvider.future)).single.id)
+            .equals('responses-session');
 
         final placeholder = _assistantMessage(
           id: 'existing-response-sidebar-assistant',
@@ -3817,184 +3773,178 @@ void main() {
       },
     );
 
-    test(
-      'copied ids across stores neither cross-cancel nor receive late chunks',
-      () async {
-        final events = StreamController<HermesRunEvent>();
-        addTearDown(events.close);
-        final service = _SessionRecordingHermesApi(events: events);
-        final locks = _FailOnceConversationLocks();
-        final container = _testContainer(
-          overrides: [
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
+    test('copied ids across stores neither cross-cancel nor receive late chunks', () async {
+      final events = StreamController<HermesRunEvent>();
+      addTearDown(events.close);
+      final service = _SessionRecordingHermesApi(events: events);
+      final locks = _FailOnceConversationLocks();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          chatLocksProvider.overrideWithValue(locks),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final placeholderA = _assistantMessage(
+        id: 'same-assistant',
+        content: 'A:',
+        isStreaming: true,
+        metadata: const {'transport': 'hermesRun'},
+      );
+      final conversationA = withChatStorageProvenance(
+        Conversation(
+          id: 'shared-chat',
+          title: 'OpenWebUI A',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          messages: [placeholderA],
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      await _seedDurableAssistantOwner(
+        container.read(appDatabaseProvider)!,
+        chatId: conversationA.id,
+        assistant: placeholderA,
+      );
+      container.read(activeConversationProvider.notifier).set(conversationA);
+      await Future<void>.delayed(Duration.zero);
+
+      final endpointIdentity = HermesConfigController.connectionEndpoint(
+        service.config.baseUrl,
+      )!;
+      final connectionIdentity =
+          HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpointIdentity,
+            principalId: container
+                .read(hermesConfigProvider.notifier)
+                .documentTrustPrincipalId(),
+          );
+      final history = _assistantMessage(
+        id: 'history-a',
+        content: 'earlier',
+        metadata: {
+          'hermesSessionId': 'session-a',
+          kHermesConnectionIdentityMetadataKey: connectionIdentity,
+        },
+      );
+      await rememberMixedHermesMessageProvenanceForTest(
+        container,
+        conversation: conversationA,
+        assistantMessage: history,
+      );
+      final dispatch = dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: 'same-assistant',
+        input: 'continue-a',
+        existingMessages: [history],
+      );
+      await service.runEventsStarted.future.timeout(const Duration(seconds: 1));
+
+      final conversationB = withChatStorageProvenance(
+        Conversation(
+          id: 'shared-chat',
+          title: 'Direct B',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          messages: [
+            _assistantMessage(
+              id: 'same-assistant',
+              content: 'B untouched',
+              isStreaming: true,
+              metadata: const {'transport': 'hermesRun'},
             ),
-            apiServiceProvider.overrideWithValue(null),
-            socketServiceProvider.overrideWithValue(null),
-            hermesConfigProvider.overrideWith(
-              () => _FixedHermesConfigController(),
-            ),
-            hermesApiServiceProvider.overrideWithValue(service),
-            chatLocksProvider.overrideWithValue(locks),
           ],
-        );
-        addTearDown(container.dispose);
+        ),
+        ChatStorageKind.directLocal,
+      );
+      container.read(activeConversationProvider.notifier).set(conversationB);
+      await Future<void>.delayed(Duration.zero);
 
-        final placeholderA = _assistantMessage(
+      final registry = container.read(hermesRunRegistryProvider);
+      final keyB = hermesRunKey(
+        ownerConversationId: chatMutationOwnerScopeForConversation(
+          conversationB,
+        ),
+        assistantMessageId: 'same-assistant',
+      );
+      final tokenB = registry.registerPending(keyB, onCancelled: () {});
+      final stopB = registry.cancelMessage(
+        'same-assistant',
+        ownerConversationId: keyB.ownerConversationId,
+      );
+      check(stopB).isNotNull();
+      await stopB!;
+      check(tokenB.isCancelled).isTrue();
+      check(service.createRunCancelToken!.isCancelled).isFalse();
+
+      events.add(const HermesTokenDelta('late A'));
+      events.add(const HermesToolProgress(toolName: 'search', done: false));
+      events.add(const HermesRunError('hidden failure'));
+      events.add(const HermesRunDone());
+      await dispatch.timeout(const Duration(seconds: 1));
+
+      check(service.inputs).deepEquals(['continue-a']);
+      check(service.sessionIds).deepEquals(['session-a']);
+      // The foreign store's stop did not touch A, but A's own terminal event
+      // must still close its HTTP transport once dispatch settles.
+      check(service.createRunCancelToken!.isCancelled).isTrue();
+      check(container.read(activeConversationProvider)!.id)
+          .equals(conversationB.id);
+      final visible = container.read(chatMessagesProvider).single;
+      check(visible.id).equals('same-assistant');
+      check(visible.content).equals('B untouched');
+
+      // Reopening A must replay its owner-bound final snapshot even though
+      // dispatch and all of its subscriptions already settled while B was
+      // visible. Text, status, and error are one atomic projection.
+      container.read(activeConversationProvider.notifier).set(conversationA);
+      await Future<void>.delayed(Duration.zero);
+      final restored = container.read(chatMessagesProvider).single;
+      check(restored.id).equals('same-assistant');
+      check(restored.content).equals('A:late A');
+      check(restored.isStreaming).isFalse();
+      check(restored.error?.content).equals('hidden failure');
+      check(restored.statusHistory).single
+          .has((status) => status.action, 'action')
+          .equals('hermes_tool_search');
+
+      // The initial durable write failed through [_FailOnceConversationLocks].
+      // Recovery adoption retries against the same captured database owner;
+      // once that succeeds the projection can safely be consumed.
+      await pumpEventQueue();
+      final durable = await container
+          .read(appDatabaseProvider)!
+          .messagesDao
+          .getMessage(conversationA.id, placeholderA.id);
+      check(durable).isNotNull();
+      check(durable!.content).equals('A:late A');
+
+      // The retained final is a one-adoption bridge, not a permanent
+      // override. A later authoritative pull/edit for the same row wins.
+      container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+        _assistantMessage(
           id: 'same-assistant',
-          content: 'A:',
-          isStreaming: true,
-          metadata: const {'transport': 'hermesRun'},
-        );
-        final conversationA = withChatStorageProvenance(
-          Conversation(
-            id: 'shared-chat',
-            title: 'OpenWebUI A',
-            createdAt: DateTime(2024, 1, 1),
-            updatedAt: DateTime(2024, 1, 1),
-            messages: [placeholderA],
-          ),
-          ChatStorageKind.openWebUi,
-        );
-        await _seedDurableAssistantOwner(
-          container.read(appDatabaseProvider)!,
-          chatId: conversationA.id,
-          assistant: placeholderA,
-        );
-        container.read(activeConversationProvider.notifier).set(conversationA);
-        await Future<void>.delayed(Duration.zero);
-
-        final endpointIdentity = HermesConfigController.connectionEndpoint(
-          service.config.baseUrl,
-        )!;
-        final connectionIdentity =
-            HermesLocalDocumentTrustStore.connectionIdentity(
-              endpointIdentity: endpointIdentity,
-              principalId: container
-                  .read(hermesConfigProvider.notifier)
-                  .documentTrustPrincipalId(),
-            );
-        final history = _assistantMessage(
-          id: 'history-a',
-          content: 'earlier',
-          metadata: {
-            'hermesSessionId': 'session-a',
-            kHermesConnectionIdentityMetadataKey: connectionIdentity,
+          content: 'Server-edited answer',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'recorded-run',
           },
-        );
-        await rememberMixedHermesMessageProvenanceForTest(
-          container,
-          conversation: conversationA,
-          assistantMessage: history,
-        );
-        final dispatch = dispatchHermesRunFromChatForTest(
-          container,
-          assistantMessageId: 'same-assistant',
-          input: 'continue-a',
-          existingMessages: [history],
-        );
-        await service.runEventsStarted.future.timeout(
-          const Duration(seconds: 1),
-        );
-
-        final conversationB = withChatStorageProvenance(
-          Conversation(
-            id: 'shared-chat',
-            title: 'Direct B',
-            createdAt: DateTime(2024, 1, 1),
-            updatedAt: DateTime(2024, 1, 1),
-            messages: [
-              _assistantMessage(
-                id: 'same-assistant',
-                content: 'B untouched',
-                isStreaming: true,
-                metadata: const {'transport': 'hermesRun'},
-              ),
-            ],
-          ),
-          ChatStorageKind.directLocal,
-        );
-        container.read(activeConversationProvider.notifier).set(conversationB);
-        await Future<void>.delayed(Duration.zero);
-
-        final registry = container.read(hermesRunRegistryProvider);
-        final keyB = hermesRunKey(
-          ownerConversationId: chatMutationOwnerScopeForConversation(
-            conversationB,
-          ),
-          assistantMessageId: 'same-assistant',
-        );
-        final tokenB = registry.registerPending(keyB, onCancelled: () {});
-        final stopB = registry.cancelMessage(
-          'same-assistant',
-          ownerConversationId: keyB.ownerConversationId,
-        );
-        check(stopB).isNotNull();
-        await stopB!;
-        check(tokenB.isCancelled).isTrue();
-        check(service.createRunCancelToken!.isCancelled).isFalse();
-
-        events.add(const HermesTokenDelta('late A'));
-        events.add(const HermesToolProgress(toolName: 'search', done: false));
-        events.add(const HermesRunError('hidden failure'));
-        events.add(const HermesRunDone());
-        await dispatch.timeout(const Duration(seconds: 1));
-
-        check(service.inputs).deepEquals(['continue-a']);
-        check(service.sessionIds).deepEquals(['session-a']);
-        // The foreign store's stop did not touch A, but A's own terminal event
-        // must still close its HTTP transport once dispatch settles.
-        check(service.createRunCancelToken!.isCancelled).isTrue();
-        check(
-          container.read(activeConversationProvider)!.id,
-        ).equals(conversationB.id);
-        final visible = container.read(chatMessagesProvider).single;
-        check(visible.id).equals('same-assistant');
-        check(visible.content).equals('B untouched');
-
-        // Reopening A must replay its owner-bound final snapshot even though
-        // dispatch and all of its subscriptions already settled while B was
-        // visible. Text, status, and error are one atomic projection.
-        container.read(activeConversationProvider.notifier).set(conversationA);
-        await Future<void>.delayed(Duration.zero);
-        final restored = container.read(chatMessagesProvider).single;
-        check(restored.id).equals('same-assistant');
-        check(restored.content).equals('A:late A');
-        check(restored.isStreaming).isFalse();
-        check(restored.error?.content).equals('hidden failure');
-        check(restored.statusHistory).single
-            .has((status) => status.action, 'action')
-            .equals('hermes_tool_search');
-
-        // The initial durable write failed through [_FailOnceConversationLocks].
-        // Recovery adoption retries against the same captured database owner;
-        // once that succeeds the projection can safely be consumed.
-        await pumpEventQueue();
-        final durable = await container
-            .read(appDatabaseProvider)!
-            .messagesDao
-            .getMessage(conversationA.id, placeholderA.id);
-        check(durable).isNotNull();
-        check(durable!.content).equals('A:late A');
-
-        // The retained final is a one-adoption bridge, not a permanent
-        // override. A later authoritative pull/edit for the same row wins.
-        container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
-          _assistantMessage(
-            id: 'same-assistant',
-            content: 'Server-edited answer',
-            metadata: const <String, dynamic>{
-              'transport': kHermesTransport,
-              'hermesRunId': 'recorded-run',
-            },
-          ),
-        ]);
-        final authoritative = container.read(chatMessagesProvider).single;
-        check(authoritative.content).equals('Server-edited answer');
-        check(authoritative.error).isNull();
-        container.read(chatMessagesProvider.notifier).clearMessages();
-      },
-    );
+        ),
+      ]);
+      final authoritative = container.read(chatMessagesProvider).single;
+      check(authoritative.content).equals('Server-edited answer');
+      check(authoritative.error).isNull();
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
 
     test(
       'failed OpenWebUI persistence survives trim and retries on adoption',
@@ -4087,10 +4037,8 @@ void main() {
           ..emit('retry-a', const HermesRunDone())
           ..emit('retry-b', const HermesTokenDelta('Disposable B'))
           ..emit('retry-b', const HermesRunDone());
-        await Future.wait(<Future<void>>[
-          dispatchA,
-          dispatchB,
-        ]).timeout(const Duration(seconds: 1));
+        await Future.wait(<Future<void>>[dispatchA, dispatchB])
+            .timeout(const Duration(seconds: 1));
 
         final failedPrimary = await database.messagesDao.getMessage(
           conversationA.id,
@@ -4177,9 +4125,8 @@ void main() {
           ),
         );
         await Future<void>.delayed(Duration.zero);
-        check(
-          container.read(chatMessagesProvider).single.content,
-        ).equals('B untouched');
+        check(container.read(chatMessagesProvider).single.content)
+            .equals('B untouched');
 
         container.read(activeConversationProvider.notifier).set(conversationA);
         await Future<void>.delayed(Duration.zero);
@@ -4336,9 +4283,8 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         final restored = container.read(chatMessagesProvider);
-        check(
-          restored.map((message) => message.id),
-        ).deepEquals(<String>[second.id, first.id, third.id, fourth.id]);
+        check(restored.map((message) => message.id))
+            .deepEquals(<String>[second.id, first.id, third.id, fourth.id]);
         check(restored[0].content).equals('OK');
         check(restored[0].error?.content).equals('second turn failed');
         check(restored[0].metadata?['hermesRunId']).equals('run-second');
@@ -4414,9 +4360,8 @@ void main() {
         await service.runEventsStarted.future.timeout(
           const Duration(seconds: 1),
         );
-        check(
-          container.read(hermesRunRegistryProvider).runIdFor(runKey),
-        ).equals('revoked-run');
+        check(container.read(hermesRunRegistryProvider).runIdFor(runKey))
+            .equals('revoked-run');
 
         service.events.add(const HermesTokenDelta('owned'));
         final localSentinel = _assistantMessage(
@@ -4458,9 +4403,8 @@ void main() {
         check(streamCancelledAtRevocation).isTrue();
         check(stopsAtRevocation).deepEquals(<String>['revoked-run']);
         check(afterStaleCallback).equals(beforeRevocation);
-        check(
-          container.read(hermesRunRegistryProvider).runIdFor(runKey),
-        ).isNull();
+        check(container.read(hermesRunRegistryProvider).runIdFor(runKey))
+            .isNull();
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -4605,9 +4549,8 @@ void main() {
         await dispatch.timeout(const Duration(seconds: 1));
 
         check(service.inputs).deepEquals(<String>['continue independently']);
-        check(
-          container.read(activeConversationProvider)?.metadata['backend'],
-        ).equals('hermes');
+        check(container.read(activeConversationProvider)?.metadata['backend'])
+            .equals('hermes');
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -4676,9 +4619,8 @@ void main() {
       await dispatch.timeout(const Duration(seconds: 1));
 
       check(cancelledAtRevocation).isFalse();
-      check(
-        container.read(chatMessagesProvider).single.content,
-      ).equals('local answer');
+      check(container.read(chatMessagesProvider).single.content)
+          .equals('local answer');
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
@@ -4735,9 +4677,8 @@ void main() {
       check(active.id).equals('local:hermes_branch-session');
       check(active.metadata['backend']).equals('hermes');
       check(active.metadata['hermesSessionId']).equals('branch-session');
-      check(
-        container.read(hermesActiveSessionProvider),
-      ).equals('branch-session');
+      check(container.read(hermesActiveSessionProvider))
+          .equals('branch-session');
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
@@ -4811,100 +4752,161 @@ void main() {
       },
     );
 
-    test(
-      'Hermes regeneration cannot mutate a chat switched during capability lookup',
-      () async {
-        final service = _ResponsesHermesApi();
-        final capabilities = Completer<HermesCapabilities>();
-        final capabilitiesRequested = Completer<void>();
-        final model = hermesSyntheticModel();
-        final user = ChatMessage(
-          id: 'old-user',
-          role: 'user',
-          content: 'old question',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        final previousAssistant = _assistantMessage(
-          id: 'old-assistant',
-          content: 'old answer',
-          metadata: const <String, dynamic>{
-            'transport': kHermesTransport,
-            'hermesTransportMode': kHermesResponsesMode,
+    test('Hermes file regeneration leaves a failed assistant bubble', () async {
+      final user = ChatMessage(
+        id: 'user-file',
+        role: 'user',
+        content: 'inspect this',
+        timestamp: DateTime(2024, 1, 1),
+        files: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'source': 'hermes_desktop_file',
+            'name': 'archive.zip',
           },
-        );
-        final container = _testContainer(
-          overrides: [
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
-            ),
-            selectedModelProvider.overrideWithValue(model),
-            reviewerModeProvider.overrideWithValue(false),
-            apiServiceProvider.overrideWithValue(null),
-            socketServiceProvider.overrideWithValue(null),
-            hermesConfigProvider.overrideWith(
-              () => _FixedHermesConfigController(),
-            ),
-            hermesApiServiceProvider.overrideWithValue(service),
-            hermesCapabilitiesProvider.overrideWith((ref) {
-              if (!capabilitiesRequested.isCompleted) {
-                capabilitiesRequested.complete();
-              }
-              return capabilities.future;
-            }),
-          ],
-        );
-        addTearDown(container.dispose);
-        final oldConversation = markNativeHermesConversation(
-          Conversation(
-            id: 'local:hermes-old',
-            title: 'Old Hermes chat',
-            createdAt: DateTime(2024, 1, 1),
-            updatedAt: DateTime(2024, 1, 1),
-            messages: <ChatMessage>[user, previousAssistant],
-            metadata: const <String, dynamic>{
-              'backend': 'hermes',
-              'hermesSessionId': 'old-session',
-            },
+        ],
+      );
+      final previousAssistant = _assistantMessage(
+        id: 'assistant-file',
+        content: 'previous answer',
+      );
+      final conversation = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes-file-session',
+          title: 'Hermes file session',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          messages: <ChatMessage>[user, previousAssistant],
+          metadata: const <String, dynamic>{
+            'backend': 'hermes',
+            'hermesSessionId': 'file-session',
+          },
+        ),
+      );
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
           ),
-        );
-        container
-            .read(activeConversationProvider.notifier)
-            .set(oldConversation);
-        container
-            .read(chatMessagesProvider.notifier)
-            .setMessages(oldConversation.messages);
+          selectedModelProvider.overrideWithValue(hermesSyntheticModel()),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(_BranchingHermesApi()),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(activeConversationProvider.notifier).set(conversation);
+      container
+          .read(chatMessagesProvider.notifier)
+          .setMessages(conversation.messages);
 
-        final regeneration = regenerateMessage(container, user.content, null);
-        await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+      await expectLater(
+        regenerateMessage(container, user.content, null),
+        throwsA(isA<HermesAttachmentsUnsupportedException>()),
+      );
 
-        final newMessages = <ChatMessage>[
-          _assistantMessage(id: 'new-sentinel', content: 'new chat answer'),
-        ];
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              markNativeHermesConversation(
-                Conversation(
-                  id: 'local:hermes-new',
-                  title: 'New Hermes chat',
-                  createdAt: DateTime(2024, 1, 2),
-                  updatedAt: DateTime(2024, 1, 2),
-                  messages: newMessages,
-                  metadata: const <String, dynamic>{
-                    'backend': 'hermes',
-                    'hermesSessionId': 'new-session',
-                  },
-                ),
+      final failed = container.read(chatMessagesProvider).last;
+      check(failed.id).equals(previousAssistant.id);
+      check(failed.isStreaming).isFalse();
+      check(failed.error?.content ?? '').contains('cannot be regenerated');
+      check(failed.versions).single
+          .has((version) => version.content, 'content')
+          .equals(previousAssistant.content);
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
+    test('Hermes regeneration cannot mutate a chat switched during capability lookup', () async {
+      final service = _ResponsesHermesApi();
+      final capabilities = Completer<HermesCapabilities>();
+      final capabilitiesRequested = Completer<void>();
+      final model = hermesSyntheticModel();
+      final user = ChatMessage(
+        id: 'old-user',
+        role: 'user',
+        content: 'old question',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final previousAssistant = _assistantMessage(
+        id: 'old-assistant',
+        content: 'old answer',
+        metadata: const <String, dynamic>{
+          'transport': kHermesTransport,
+          'hermesTransportMode': kHermesResponsesMode,
+        },
+      );
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesCapabilitiesProvider.overrideWith((ref) {
+            if (!capabilitiesRequested.isCompleted) {
+              capabilitiesRequested.complete();
+            }
+            return capabilities.future;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      final oldConversation = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes-old',
+          title: 'Old Hermes chat',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          messages: <ChatMessage>[user, previousAssistant],
+          metadata: const <String, dynamic>{
+            'backend': 'hermes',
+            'hermesSessionId': 'old-session',
+          },
+        ),
+      );
+      container.read(activeConversationProvider.notifier).set(oldConversation);
+      container
+          .read(chatMessagesProvider.notifier)
+          .setMessages(oldConversation.messages);
+
+      final regeneration = regenerateMessage(container, user.content, null);
+      await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+
+      final newMessages = <ChatMessage>[
+        _assistantMessage(id: 'new-sentinel', content: 'new chat answer'),
+      ];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            markNativeHermesConversation(
+              Conversation(
+                id: 'local:hermes-new',
+                title: 'New Hermes chat',
+                createdAt: DateTime(2024, 1, 2),
+                updatedAt: DateTime(2024, 1, 2),
+                messages: newMessages,
+                metadata: const <String, dynamic>{
+                  'backend': 'hermes',
+                  'hermesSessionId': 'new-session',
+                },
               ),
-            );
-        container.read(chatMessagesProvider.notifier).setMessages(newMessages);
-        capabilities.complete(const HermesCapabilities(inputImages: true));
-        await regeneration.timeout(const Duration(seconds: 1));
+            ),
+          );
+      container.read(chatMessagesProvider.notifier).setMessages(newMessages);
+      capabilities.complete(const HermesCapabilities(inputImages: true));
+      await regeneration.timeout(const Duration(seconds: 1));
 
-        check(container.read(chatMessagesProvider)).deepEquals(newMessages);
-        check(service.inputs).isEmpty();
-      },
-    );
+      check(container.read(chatMessagesProvider)).deepEquals(newMessages);
+      check(service.inputs).isEmpty();
+    });
 
     for (final disableHermes in <bool>[false, true]) {
       test('${disableHermes ? 'config cancellation' : 'Stop'} during image '
@@ -5088,9 +5090,8 @@ void main() {
 
         check(oldService.inputs).isEmpty();
         check(replacementService.inputs).isEmpty();
-        check(
-          container.read(chatMessagesProvider),
-        ).deepEquals(originalMessages);
+        check(container.read(chatMessagesProvider))
+            .deepEquals(originalMessages);
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -5166,9 +5167,8 @@ void main() {
         ).isFalse();
         check(container.read(hermesActiveSessionProvider)).isNull();
         check(cancellationSettled).isTrue();
-        check(
-          container.read(chatMessagesProvider).single.isStreaming,
-        ).isFalse();
+        check(container.read(chatMessagesProvider).single.isStreaming)
+            .isFalse();
         await service.deleteSessionCancelToken!.whenCancel.timeout(
           const Duration(seconds: 1),
         );
@@ -5242,9 +5242,8 @@ void main() {
         check(service.deleteSessionCancelToken!.isCancelled).isTrue();
         check(service.createRunCalls).equals(0);
         check(container.read(hermesActiveSessionProvider)).isNull();
-        check(
-          container.read(chatMessagesProvider).single.isStreaming,
-        ).isFalse();
+        check(container.read(chatMessagesProvider).single.isStreaming)
+            .isFalse();
         notifier.clearMessages();
       },
     );
@@ -5324,9 +5323,8 @@ void main() {
         check(combinedLogs).contains('late-session-cleanup-failed');
         check(combinedLogs).not((value) => value.contains(reflectedSecret));
         check(combinedLogs).not((value) => value.contains(providerSessionId));
-        check(
-          combinedLogs,
-        ).not((value) => value.contains('provider-error-secret'));
+        check(combinedLogs)
+            .not((value) => value.contains('provider-error-secret'));
         check(combinedLogs).not((value) => value.contains(stackSecret));
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
@@ -5375,12 +5373,11 @@ void main() {
 
         var rotationSettled = false;
         final rotation =
-            Future.wait(
-              container.read(hermesRunRegistryProvider).cancelAll(),
-            ).then((_) {
-              service.close();
-              rotationSettled = true;
-            });
+            Future.wait(container.read(hermesRunRegistryProvider).cancelAll())
+                .then((_) {
+                  service.close();
+                  rotationSettled = true;
+                });
         await Future<void>.delayed(Duration.zero);
         check(service.createRunToken!.isCancelled).isTrue();
         check(rotationSettled).isFalse();
@@ -5580,9 +5577,8 @@ void main() {
         container.read(stopGenerationProvider)();
         await pumpEventQueue();
 
-        check(
-          container.read(chatMessagesProvider).single.isStreaming,
-        ).isFalse();
+        check(container.read(chatMessagesProvider).single.isStreaming)
+            .isFalse();
         check(api.broadStops).equals(0);
       },
     );
@@ -5667,9 +5663,8 @@ void main() {
 
         final settled = container.read(chatMessagesProvider).single;
         check(settled.content).equals('Retained Hermes partial');
-        check(
-          settled.error?.content,
-        ).equals('Hermes recovery service is unavailable.');
+        check(settled.error?.content)
+            .equals('Hermes recovery service is unavailable.');
       },
     );
 
@@ -5734,9 +5729,8 @@ void main() {
         final settled = container.read(chatMessagesProvider).single;
         check(service.getRunCalls).equals(0);
         check(settled.content).equals('Retained Hermes partial');
-        check(
-          settled.error?.content,
-        ).equals('Hermes checkpoint is missing its recovery identifier.');
+        check(settled.error?.content)
+            .equals('Hermes checkpoint is missing its recovery identifier.');
       },
     );
 
@@ -5799,9 +5793,8 @@ void main() {
 
         check(registry.attachAttempts).equals(2);
         check(service.getRunCalls).equals(1);
-        check(
-          container.read(chatMessagesProvider).single.content,
-        ).equals('Authoritative recovered answer');
+        check(container.read(chatMessagesProvider).single.content)
+            .equals('Authoritative recovered answer');
       },
     );
 
@@ -5876,9 +5869,8 @@ void main() {
           'output': 'Stale old service answer',
         });
         await pumpEventQueue();
-        check(
-          container.read(chatMessagesProvider).single.content,
-        ).equals('Replacement service answer');
+        check(container.read(chatMessagesProvider).single.content)
+            .equals('Replacement service answer');
       },
     );
 
@@ -6145,10 +6137,8 @@ void main() {
             .read(hermesRunRegistryProvider)
             .cancel(key);
         check(cancellation).isNotNull();
-        await Future.wait(<Future<void>>[
-          dispatch,
-          cancellation!,
-        ]).timeout(const Duration(seconds: 1));
+        await Future.wait(<Future<void>>[dispatch, cancellation!])
+            .timeout(const Duration(seconds: 1));
 
         const stopFailure =
             'Could not confirm that Hermes stopped this run. It may still '
@@ -6475,64 +6465,61 @@ void main() {
       },
     );
 
-    test(
-      'in-progress status-only server echo does not retire the active stream',
-      () async {
-        // Regression: the server pushes status updates (e.g. "Searching…") as
-        // content-empty, non-streaming snapshots before the answer tokens
-        // arrive. statusHistory is populated during streaming, so a metadata-
-        // only echo must NOT be treated as completion — retiring the stream here
-        // drops the typing footer mid-turn.
-        final container = _buildContainer();
-        addTearDown(container.dispose);
+    test('in-progress status-only server echo does not retire the active stream', () async {
+      // Regression: the server pushes status updates (e.g. "Searching…") as
+      // content-empty, non-streaming snapshots before the answer tokens
+      // arrive. statusHistory is populated during streaming, so a metadata-
+      // only echo must NOT be treated as completion — retiring the stream here
+      // drops the typing footer mid-turn.
+      final container = _buildContainer();
+      addTearDown(container.dispose);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        final assistantMessage = _assistantMessage(
-          id: 'assistant-1',
-          content: '',
-          isStreaming: true,
-          metadata: const {'modelName': 'GPT-4o'},
-        );
-        final activeConversationNotifier = container.read(
-          activeConversationProvider.notifier,
-        );
-        activeConversationNotifier.set(
-          _conversation('chat-1', [userMessage, assistantMessage]),
-        );
-        await Future<void>.delayed(Duration.zero);
-        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final assistantMessage = _assistantMessage(
+        id: 'assistant-1',
+        content: '',
+        isStreaming: true,
+        metadata: const {'modelName': 'GPT-4o'},
+      );
+      final activeConversationNotifier = container.read(
+        activeConversationProvider.notifier,
+      );
+      activeConversationNotifier.set(
+        _conversation('chat-1', [userMessage, assistantMessage]),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
 
-        final statusOnlyEcho = ChatMessage(
-          id: 'assistant-1',
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime(2024, 1, 1),
-          isStreaming: false,
-          statusHistory: const [
-            ChatStatusUpdate(description: 'Searching', done: false),
-          ],
-        );
-        activeConversationNotifier.set(
-          _conversation('chat-1', [userMessage, statusOnlyEcho]),
-        );
-        await Future<void>.delayed(Duration.zero);
+      final statusOnlyEcho = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2024, 1, 1),
+        isStreaming: false,
+        statusHistory: const [
+          ChatStatusUpdate(description: 'Searching', done: false),
+        ],
+      );
+      activeConversationNotifier.set(
+        _conversation('chat-1', [userMessage, statusOnlyEcho]),
+      );
+      await Future<void>.delayed(Duration.zero);
 
-        final messages = container.read(chatMessagesProvider);
-        check(messages).length.equals(2);
-        check(messages.last.id).equals('assistant-1');
-        check(
-          messages.last.isStreaming,
-          because: 'an in-progress status-only echo must keep the stream alive',
-        ).isTrue();
+      final messages = container.read(chatMessagesProvider);
+      check(messages).length.equals(2);
+      check(messages.last.id).equals('assistant-1');
+      check(
+        messages.last.isStreaming,
+        because: 'an in-progress status-only echo must keep the stream alive',
+      ).isTrue();
 
-        container.read(chatMessagesProvider.notifier).clearMessages();
-      },
-    );
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
 
     test(
       'non-streaming echo with a non-empty completion field retires the stream',
@@ -6768,101 +6755,93 @@ void main() {
       },
     );
 
-    test(
-      'empty non-streaming echo preserves streaming-state, content, and modelName together',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
+    test('empty non-streaming echo preserves streaming-state, content, and modelName together', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        // Local streaming tail with a non-empty partial body and a modelName chip.
-        final localTail = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Partial streamed answer',
-          isStreaming: true,
-          metadata: const {'modelName': 'GPT-4o'},
-        );
-        final active = container.read(activeConversationProvider.notifier);
-        active.set(_conversation('chat-1', [userMessage, localTail]));
-        await Future<void>.delayed(Duration.zero);
-        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      // Local streaming tail with a non-empty partial body and a modelName chip.
+      final localTail = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Partial streamed answer',
+        isStreaming: true,
+        metadata: const {'modelName': 'GPT-4o'},
+      );
+      final active = container.read(activeConversationProvider.notifier);
+      active.set(_conversation('chat-1', [userMessage, localTail]));
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
 
-        // Lagging server echo: empty content, isStreaming:false, no modelName.
-        final emptyEcho = _assistantMessage(
-          id: 'assistant-1',
-          content: '',
-          isStreaming: false,
-        );
-        active.set(_conversation('chat-1', [userMessage, emptyEcho]));
-        await Future<void>.delayed(Duration.zero);
+      // Lagging server echo: empty content, isStreaming:false, no modelName.
+      final emptyEcho = _assistantMessage(
+        id: 'assistant-1',
+        content: '',
+        isStreaming: false,
+      );
+      active.set(_conversation('chat-1', [userMessage, emptyEcho]));
+      await Future<void>.delayed(Duration.zero);
 
-        final merged = container.read(chatMessagesProvider).last;
-        check(merged.isStreaming).isTrue(); // shouldPreserveStreamingState
-        check(
-          merged.content,
-        ).equals('Partial streamed answer'); // preserveContent
-        check(
-          merged.metadata?['modelName'],
-        ).equals('GPT-4o'); // shouldPreserveModelName
+      final merged = container.read(chatMessagesProvider).last;
+      check(merged.isStreaming).isTrue(); // shouldPreserveStreamingState
+      check(merged.content)
+          .equals('Partial streamed answer'); // preserveContent
+      check(merged.metadata?['modelName'])
+          .equals('GPT-4o'); // shouldPreserveModelName
 
-        container.read(chatMessagesProvider.notifier).clearMessages();
-      },
-    );
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
 
-    test(
-      'socket-resumed tail preserves streaming-state when a stale empty echo carries the foreign server id',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
+    test('socket-resumed tail preserves streaming-state when a stale empty echo carries the foreign server id', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        final localTail = _assistantMessage(
-          id: 'assistant-local',
-          content: 'Partial',
-          isStreaming: true,
-          metadata: const {'modelName': 'GPT-4o'},
-        );
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final localTail = _assistantMessage(
+        id: 'assistant-local',
+        content: 'Partial',
+        isStreaming: true,
+        metadata: const {'modelName': 'GPT-4o'},
+      );
 
-        final notifier = container.read(chatMessagesProvider.notifier);
-        final active = container.read(activeConversationProvider.notifier);
-        active.set(_conversation('chat-1', [userMessage, localTail]));
-        await Future<void>.delayed(Duration.zero);
-        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final active = container.read(activeConversationProvider.notifier);
+      active.set(_conversation('chat-1', [userMessage, localTail]));
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
 
-        // Socket resume bound a foreign server id to the local tail (must be
-        // recorded while the tail is still state.last).
-        notifier.recordResumeBoundRemoteMessageId(
-          'assistant-local',
-          'server-foreign',
-        );
+      // Socket resume bound a foreign server id to the local tail (must be
+      // recorded while the tail is still state.last).
+      notifier.recordResumeBoundRemoteMessageId(
+        'assistant-local',
+        'server-foreign',
+      );
 
-        // Lagging snapshot carries the FOREIGN id with empty, non-streaming
-        // content: the boundToTail path must still preserve streaming-state.
-        final foreignEcho = _assistantMessage(
-          id: 'server-foreign',
-          content: '',
-          isStreaming: false,
-        );
-        active.set(_conversation('chat-1', [userMessage, foreignEcho]));
-        await Future<void>.delayed(Duration.zero);
+      // Lagging snapshot carries the FOREIGN id with empty, non-streaming
+      // content: the boundToTail path must still preserve streaming-state.
+      final foreignEcho = _assistantMessage(
+        id: 'server-foreign',
+        content: '',
+        isStreaming: false,
+      );
+      active.set(_conversation('chat-1', [userMessage, foreignEcho]));
+      await Future<void>.delayed(Duration.zero);
 
-        final merged = container.read(chatMessagesProvider).last;
-        check(merged.isStreaming).isTrue();
-        check(merged.metadata?['modelName']).equals('GPT-4o');
+      final merged = container.read(chatMessagesProvider).last;
+      check(merged.isStreaming).isTrue();
+      check(merged.metadata?['modelName']).equals('GPT-4o');
 
-        notifier.clearMessages();
-      },
-    );
+      notifier.clearMessages();
+    });
 
     test(
       'adopt preserves foreign-id streaming echo even when tracked transport '
@@ -6988,48 +6967,45 @@ void main() {
       },
     );
 
-    test(
-      'server adoption cancels a tracked controller when no streaming tail remains',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
+    test('server adoption cancels a tracked controller when no streaming tail remains', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
 
-        final active = container.read(activeConversationProvider.notifier);
-        active.set(
-          _conversation('chat-1', [
-            _assistantMessage(content: 'Local settled answer'),
-          ]),
-        );
-        await Future<void>.delayed(Duration.zero);
+      final active = container.read(activeConversationProvider.notifier);
+      active.set(
+        _conversation('chat-1', [
+          _assistantMessage(content: 'Local settled answer'),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
 
-        final upstream = StreamController<String>();
-        addTearDown(upstream.close);
-        final lateChunks = <String>[];
-        final controller = StreamingResponseController(
-          stream: upstream.stream,
-          onChunk: lateChunks.add,
-          onComplete: () {},
-          onError: (_, _) {},
-        );
-        final notifier = container.read(chatMessagesProvider.notifier);
-        notifier.setMessageStream('stale-transport-id', controller);
-        check(controller.isActive).isTrue();
+      final upstream = StreamController<String>();
+      addTearDown(upstream.close);
+      final lateChunks = <String>[];
+      final controller = StreamingResponseController(
+        stream: upstream.stream,
+        onChunk: lateChunks.add,
+        onComplete: () {},
+        onError: (_, _) {},
+      );
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessageStream('stale-transport-id', controller);
+      check(controller.isActive).isTrue();
 
-        active.set(
-          _conversation('chat-1', [
-            _assistantMessage(content: 'Server replacement'),
-          ]),
-        );
-        await Future<void>.delayed(Duration.zero);
+      active.set(
+        _conversation('chat-1', [
+          _assistantMessage(content: 'Server replacement'),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
 
-        check(controller.isActive).isFalse();
-        upstream.add('late chunk');
-        await Future<void>.delayed(Duration.zero);
-        check(lateChunks).isEmpty();
+      check(controller.isActive).isFalse();
+      upstream.add('late chunk');
+      await Future<void>.delayed(Duration.zero);
+      check(lateChunks).isEmpty();
 
-        notifier.clearMessages();
-      },
-    );
+      notifier.clearMessages();
+    });
 
     test(
       'server completion cancels a tracked controller through the cleanup path',
@@ -7069,9 +7045,8 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        check(
-          container.read(chatMessagesProvider).single.isStreaming,
-        ).isFalse();
+        check(container.read(chatMessagesProvider).single.isStreaming)
+            .isFalse();
         check(controller.isActive).isFalse();
         upstream.add('late chunk');
         await Future<void>.delayed(Duration.zero);
@@ -7081,84 +7056,73 @@ void main() {
       },
     );
 
-    test(
-      'shouldCleanupStreamingFromServer ignores a stale echo but retires real completions',
-      () {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        final notifier = container.read(chatMessagesProvider.notifier);
-        notifier.setMessages([
+    test('shouldCleanupStreamingFromServer ignores a stale echo but retires real completions', () {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(
+          id: 'assistant-1',
+          content: 'Partial',
+          isStreaming: true,
+        ),
+      ]);
+
+      // A stale empty non-streaming echo must NOT retire the stream.
+      check(
+        notifier.debugShouldCleanupStreamingFromServer([
+          _assistantMessage(id: 'assistant-1', content: '', isStreaming: false),
+        ]),
+      ).isFalse();
+
+      // responseDone retires it.
+      check(
+        notifier.debugShouldCleanupStreamingFromServer([
           _assistantMessage(
             id: 'assistant-1',
-            content: 'Partial',
-            isStreaming: true,
+            content: '',
+            isStreaming: false,
+            metadata: const {'responseDone': true},
           ),
-        ]);
+        ]),
+      ).isTrue();
 
-        // A stale empty non-streaming echo must NOT retire the stream.
-        check(
-          notifier.debugShouldCleanupStreamingFromServer([
-            _assistantMessage(
-              id: 'assistant-1',
-              content: '',
-              isStreaming: false,
-            ),
-          ]),
-        ).isFalse();
+      // An error retires it.
+      check(
+        notifier.debugShouldCleanupStreamingFromServer([
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            error: const ChatMessageError(content: 'boom'),
+          ),
+        ]),
+      ).isTrue();
 
-        // responseDone retires it.
-        check(
-          notifier.debugShouldCleanupStreamingFromServer([
-            _assistantMessage(
-              id: 'assistant-1',
-              content: '',
-              isStreaming: false,
-              metadata: const {'responseDone': true},
-            ),
-          ]),
-        ).isTrue();
+      // A stale echo is still retired once the server has moved past this
+      // turn: extra messages after the echo prove streaming completed, so the
+      // echo must not keep the stream (and its footer/task state) attached to
+      // a no-longer-tail message.
+      check(
+        notifier.debugShouldCleanupStreamingFromServer([
+          _assistantMessage(id: 'assistant-1', content: '', isStreaming: false),
+          ChatMessage(
+            id: 'user-2',
+            role: 'user',
+            content: 'Next question',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+          _assistantMessage(
+            id: 'assistant-2',
+            content: 'Next answer',
+            isStreaming: false,
+          ),
+        ]),
+      ).isTrue();
 
-        // An error retires it.
-        check(
-          notifier.debugShouldCleanupStreamingFromServer([
-            ChatMessage(
-              id: 'assistant-1',
-              role: 'assistant',
-              content: '',
-              timestamp: DateTime(2024, 1, 1),
-              error: const ChatMessageError(content: 'boom'),
-            ),
-          ]),
-        ).isTrue();
-
-        // A stale echo is still retired once the server has moved past this
-        // turn: extra messages after the echo prove streaming completed, so the
-        // echo must not keep the stream (and its footer/task state) attached to
-        // a no-longer-tail message.
-        check(
-          notifier.debugShouldCleanupStreamingFromServer([
-            _assistantMessage(
-              id: 'assistant-1',
-              content: '',
-              isStreaming: false,
-            ),
-            ChatMessage(
-              id: 'user-2',
-              role: 'user',
-              content: 'Next question',
-              timestamp: DateTime(2024, 1, 1),
-            ),
-            _assistantMessage(
-              id: 'assistant-2',
-              content: 'Next answer',
-              isStreaming: false,
-            ),
-          ]),
-        ).isTrue();
-
-        notifier.clearMessages();
-      },
-    );
+      notifier.clearMessages();
+    });
 
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
@@ -7182,9 +7146,8 @@ void main() {
       check(messages.last.id).equals('assistant-1');
       check(messages.last.isStreaming).isFalse();
       check(messages.last.error).isNotNull();
-      check(
-        messages.last.error!.content ?? '',
-      ).contains('server returned an error');
+      check(messages.last.error!.content ?? '')
+          .contains('server returned an error');
     });
 
     test(
@@ -7221,60 +7184,57 @@ void main() {
       },
     );
 
-    test(
-      'non-tail failure retires only its transport and preserves the newer tail',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        final notifier = container.read(chatMessagesProvider.notifier);
-        notifier.setMessages([
-          _assistantMessage(
-            id: 'failed-assistant',
-            content: 'failed partial',
-            isStreaming: true,
-          ),
-        ]);
-        final upstream = StreamController<String>();
-        addTearDown(upstream.close);
-        final lateChunks = <String>[];
-        final controller = StreamingResponseController(
-          stream: upstream.stream,
-          onChunk: lateChunks.add,
-          onComplete: () {},
-          onError: (_, _) {},
-        );
-        var socketDisposed = false;
-        notifier.setMessageStream('failed-assistant', controller);
-        notifier.setSocketSubscriptions('failed-assistant', [
-          () => socketDisposed = true,
-        ]);
-        notifier.addMessage(
-          _assistantMessage(
-            id: 'newer-assistant',
-            content: 'newer partial',
-            isStreaming: true,
-          ),
-        );
+    test('non-tail failure retires only its transport and preserves the newer tail', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(
+          id: 'failed-assistant',
+          content: 'failed partial',
+          isStreaming: true,
+        ),
+      ]);
+      final upstream = StreamController<String>();
+      addTearDown(upstream.close);
+      final lateChunks = <String>[];
+      final controller = StreamingResponseController(
+        stream: upstream.stream,
+        onChunk: lateChunks.add,
+        onComplete: () {},
+        onError: (_, _) {},
+      );
+      var socketDisposed = false;
+      notifier.setMessageStream('failed-assistant', controller);
+      notifier.setSocketSubscriptions('failed-assistant', [
+        () => socketDisposed = true,
+      ]);
+      notifier.addMessage(
+        _assistantMessage(
+          id: 'newer-assistant',
+          content: 'newer partial',
+          isStreaming: true,
+        ),
+      );
 
-        notifier.failLastStreamingAssistant(
-          Exception('old run failed'),
-          assistantMessageId: 'failed-assistant',
-        );
+      notifier.failLastStreamingAssistant(
+        Exception('old run failed'),
+        assistantMessageId: 'failed-assistant',
+      );
 
-        final messages = container.read(chatMessagesProvider);
-        check(messages.first.isStreaming).isFalse();
-        check(messages.first.error).isNotNull();
-        check(messages.last.id).equals('newer-assistant');
-        check(messages.last.isStreaming).isTrue();
-        check(messages.last.error).isNull();
-        check(controller.isActive).isFalse();
-        check(socketDisposed).isTrue();
-        upstream.add('late old chunk');
-        await Future<void>.delayed(Duration.zero);
-        check(lateChunks).isEmpty();
-        notifier.clearMessages();
-      },
-    );
+      final messages = container.read(chatMessagesProvider);
+      check(messages.first.isStreaming).isFalse();
+      check(messages.first.error).isNotNull();
+      check(messages.last.id).equals('newer-assistant');
+      check(messages.last.isStreaming).isTrue();
+      check(messages.last.error).isNull();
+      check(controller.isActive).isFalse();
+      check(socketDisposed).isTrue();
+      upstream.add('late old chunk');
+      await Future<void>.delayed(Duration.zero);
+      check(lateChunks).isEmpty();
+      notifier.clearMessages();
+    });
 
     test(
       'non-tail failure retires its poll-only monitor, not newer transport',
@@ -7319,9 +7279,8 @@ void main() {
         check(messages.last.isStreaming).isTrue();
         check(notifier.debugHasRemoteTaskMonitor).isFalse();
         check(newerSocketDisposed).isFalse();
-        check(
-          notifier.debugBoundRemoteMessageId,
-        ).equals('newer-remote-assistant');
+        check(notifier.debugBoundRemoteMessageId)
+            .equals('newer-remote-assistant');
         notifier.cancelSocketSubscriptions();
         check(newerSocketDisposed).isTrue();
         notifier.clearMessages();
@@ -7376,12 +7335,10 @@ void main() {
         check(payload['isStreaming']).equals(false);
         check(payload['done']).equals(true);
         check(payload['statusHistory'] as List<dynamic>).length.equals(1);
-        check(
-          payload['followUps'] as List<dynamic>,
-        ).deepEquals(<String>['Next question']);
-        check(
-          (payload['error'] as Map<String, dynamic>)['content'],
-        ).equals('Visible terminal error');
+        check(payload['followUps'] as List<dynamic>)
+            .deepEquals(<String>['Next question']);
+        check((payload['error'] as Map<String, dynamic>)['content'])
+            .equals('Visible terminal error');
       },
     );
 
@@ -7472,9 +7429,8 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        check(
-          container.read(chatMessageStructureSignatureProvider),
-        ).equals(initialSignature);
+        check(container.read(chatMessageStructureSignatureProvider))
+            .equals(initialSignature);
         check(notifications).equals(0);
 
         notifier.clearMessages();
@@ -7506,57 +7462,52 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      check(
-        container.read(chatMessageStructureSignatureProvider),
-      ).equals(initialSignature);
+      check(container.read(chatMessageStructureSignatureProvider))
+          .equals(initialSignature);
       check(notifications).equals(0);
 
       notifier.clearMessages();
     });
 
-    test(
-      'server snapshots do not clear already-visible follow-ups for same response',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        container.read(chatMessagesProvider.notifier);
+    test('server snapshots do not clear already-visible follow-ups for same response', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        final localAssistant = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer',
-          followUps: const ['Ask again'],
-        );
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final localAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer',
+        followUps: const ['Ask again'],
+      );
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, localAssistant]));
-        await Future<void>.delayed(Duration.zero);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, localAssistant]));
+      await Future<void>.delayed(Duration.zero);
 
-        final serverAssistantWithoutFollowUps = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer',
-        );
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              _conversation('chat-1', [
-                userMessage,
-                serverAssistantWithoutFollowUps,
-              ]),
-            );
-        await Future<void>.delayed(Duration.zero);
+      final serverAssistantWithoutFollowUps = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer',
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-1', [
+              userMessage,
+              serverAssistantWithoutFollowUps,
+            ]),
+          );
+      await Future<void>.delayed(Duration.zero);
 
-        check(
-          container.read(chatMessagesProvider).last.followUps,
-        ).deepEquals(['Ask again']);
-      },
-    );
+      check(container.read(chatMessagesProvider).last.followUps)
+          .deepEquals(['Ask again']);
+    });
 
     test(
       'server snapshots do not clear already-visible response content',
@@ -7594,12 +7545,10 @@ void main() {
             );
         await Future<void>.delayed(Duration.zero);
 
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Answer that streamed completely');
-        check(
-          container.read(chatMessagesProvider).last.followUps,
-        ).deepEquals(['Ask again']);
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('Answer that streamed completely');
+        check(container.read(chatMessagesProvider).last.followUps)
+            .deepEquals(['Ask again']);
       },
     );
 
@@ -7641,9 +7590,8 @@ void main() {
       final adopted = container.read(chatMessagesProvider).last;
       check(adopted.followUps).deepEquals(['Ask again']);
       // The metadata mirror must match the typed field, not stay stale [].
-      check(
-        (adopted.metadata?['followUps'] as List).cast<String>(),
-      ).deepEquals(['Ask again']);
+      check((adopted.metadata?['followUps'] as List).cast<String>())
+          .deepEquals(['Ask again']);
     });
 
     test('content-preserving snapshot keeps local-only metadata (modelName) '

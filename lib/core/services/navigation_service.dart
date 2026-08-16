@@ -181,6 +181,7 @@ class Routes {
       '/profile/direct-connections/:id';
   static const String hermesSettings = '/profile/hermes';
   static const String hermesJobs = '/profile/hermes/jobs';
+  static const String hermesMcp = '/profile/hermes/mcp';
   static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
@@ -216,6 +217,7 @@ class RouteNames {
   static const String directConnectionEditor = 'direct-connection-editor';
   static const String hermesSettings = 'hermes-settings';
   static const String hermesJobs = 'hermes-jobs';
+  static const String hermesMcp = 'hermes-mcp';
   static const String about = 'about';
   static const String notes = 'notes';
   static const String noteEditor = 'note-editor';
