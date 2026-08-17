@@ -32,9 +32,8 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.completed);
     expect(timeline.runningFooterHost, isNull);
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-1': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-1': 1});
     check(timeline.listItemCount).equals(2);
     check(timeline.messageIds).deepEquals(['user-1', 'assistant-1']);
     check(timeline.sourceIndexByRenderIndex).deepEquals([0, 1]);
@@ -72,9 +71,8 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.running);
     expect(timeline.runningFooterHost?.messageId, 'assistant-live');
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-live': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-live': 1});
     check(timeline.listItemCount).equals(2);
     check(timeline.tailAssistantRenderIndex).equals(1);
   });
@@ -117,9 +115,8 @@ void main() {
         ),
       ]);
       check(tailDuplicate.messageIds).deepEquals(['duplicate', 'distinct']);
-      check(
-        tailDuplicate.listIndexByMessageId,
-      ).deepEquals({'duplicate': 0, 'distinct': 1});
+      check(tailDuplicate.listIndexByMessageId)
+          .deepEquals({'duplicate': 0, 'distinct': 1});
       check(tailDuplicate.sourceIndexByRenderIndex).deepEquals([0, 1]);
       check(tailDuplicate.listItemCount).equals(2);
       check(tailDuplicate.tailAssistant?.content).equals('Malformed live tail');
@@ -137,17 +134,14 @@ void main() {
           isStreaming: true,
         ),
       ]);
-      check(
-        uniqueTailAfterDuplicate.messageIds,
-      ).deepEquals(['duplicate', 'assistant-live']);
-      check(
-        uniqueTailAfterDuplicate.sourceIndexByRenderIndex,
-      ).deepEquals([0, 2]);
+      check(uniqueTailAfterDuplicate.messageIds)
+          .deepEquals(['duplicate', 'assistant-live']);
+      check(uniqueTailAfterDuplicate.sourceIndexByRenderIndex)
+          .deepEquals([0, 2]);
       check(uniqueTailAfterDuplicate.tailAssistantSourceIndex).equals(2);
       check(uniqueTailAfterDuplicate.tailAssistantRenderIndex).equals(1);
-      check(
-        uniqueTailAfterDuplicate.indexForMessageId('assistant-live'),
-      ).equals(1);
+      check(uniqueTailAfterDuplicate.indexForMessageId('assistant-live'))
+          .equals(1);
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(1)).equals(2);
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(-1)).isNull();
       check(uniqueTailAfterDuplicate.sourceIndexAtRenderIndex(2)).isNull();
@@ -289,12 +283,10 @@ void main() {
       'assistant-streaming',
       'user-final',
     ]);
-    check(
-      nonTailTimeline.listIndexByMessageId,
-    ).deepEquals({'assistant-streaming': 0, 'user-final': 1});
-    check(
-      nonTailTimeline.messageIds,
-    ).deepEquals(['assistant-streaming', 'user-final']);
+    check(nonTailTimeline.listIndexByMessageId)
+        .deepEquals({'assistant-streaming': 0, 'user-final': 1});
+    check(nonTailTimeline.messageIds)
+        .deepEquals(['assistant-streaming', 'user-final']);
   });
 
   test(
@@ -378,9 +370,8 @@ void main() {
       'user-1',
       'assistant-archived',
     ]);
-    check(
-      timeline.listIndexByMessageId,
-    ).deepEquals({'user-1': 0, 'assistant-archived': 1});
+    check(timeline.listIndexByMessageId)
+        .deepEquals({'user-1': 0, 'assistant-archived': 1});
   });
 
   test('fromMessages([]) yields an empty, tail-less timeline', () {

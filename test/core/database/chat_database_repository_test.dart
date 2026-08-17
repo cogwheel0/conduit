@@ -81,12 +81,10 @@ void main() {
         rows: _chatRows(id: 'server-chat', updatedAt: 20),
       );
 
-      check(
-        (await repository.resolveChat('local-chat'))!.storage,
-      ).equals(ChatStorageKind.directLocal);
-      check(
-        (await repository.resolveChat('server-chat'))!.storage,
-      ).equals(ChatStorageKind.openWebUi);
+      check((await repository.resolveChat('local-chat'))!.storage)
+          .equals(ChatStorageKind.directLocal);
+      check((await repository.resolveChat('server-chat'))!.storage)
+          .equals(ChatStorageKind.openWebUi);
       check(await repository.resolveChat('missing')).isNull();
 
       await serverDatabase.chatsDao.upsertServerChat(
@@ -96,9 +94,8 @@ void main() {
         rows: _chatRows(id: 'duplicate', updatedAt: 40),
       );
 
-      await check(
-        repository.resolveChat('duplicate'),
-      ).throws<AmbiguousChatStorageException>();
+      await check(repository.resolveChat('duplicate'))
+          .throws<AmbiguousChatStorageException>();
       check(
         (await repository.resolveChat(
           'duplicate',
@@ -138,9 +135,8 @@ void main() {
       await localDatabase.chatsDao.upsertLocalOnlyChat(
         rows: _chatRows(id: 'live-local-wins', updatedAt: 21),
       );
-      check(
-        (await repository.resolveChat('live-local-wins'))!.storage,
-      ).equals(ChatStorageKind.directLocal);
+      check((await repository.resolveChat('live-local-wins'))!.storage)
+          .equals(ChatStorageKind.directLocal);
 
       await serverDatabase.chatsDao.upsertServerChat(
         rows: _chatRows(id: 'live-server-wins', updatedAt: 30),
@@ -151,9 +147,8 @@ void main() {
       await (localDatabase.update(localDatabase.chats)
             ..where((chat) => chat.id.equals('live-server-wins')))
           .write(const ChatsCompanion(deleted: Value(true)));
-      check(
-        (await repository.resolveChat('live-server-wins'))!.storage,
-      ).equals(ChatStorageKind.openWebUi);
+      check((await repository.resolveChat('live-server-wins'))!.storage)
+          .equals(ChatStorageKind.openWebUi);
     });
   });
 
@@ -196,9 +191,8 @@ void main() {
       check(chat.updatedAt).equals(200);
       check(chat.dirty).isFalse();
       final messages = await localDatabase.messagesDao.getForChat('direct-1');
-      check(
-        messages.map((message) => message.id).toList(),
-      ).deepEquals(['message-direct-1', 'assistant-2']);
+      check(messages.map((message) => message.id).toList())
+          .deepEquals(['message-direct-1', 'assistant-2']);
       check(messages.every((message) => !message.dirty)).isTrue();
       check(await localDatabase.outboxDao.pendingForChat('direct-1')).isEmpty();
 
@@ -231,9 +225,8 @@ void main() {
       check(reparsed.storage).equals(ChatStorageKind.openWebUi);
       check(scoped.scopedId).startsWith('conduit-chat://scoped/v1/');
       check(
-        RegExp(
-          r'^conduit-chat://scoped/v1/[0-9a-f]{32}/openWebUi/',
-        ).hasMatch(scoped.scopedId),
+        RegExp(r'^conduit-chat://scoped/v1/[0-9a-f]{32}/openWebUi/')
+            .hasMatch(scoped.scopedId),
       ).isTrue();
       check(scoped.scopedId).not((it) => it.equals(rawIds[1]));
     });
@@ -283,25 +276,19 @@ void main() {
       );
 
       final entries = await repository.watchMergedChatList().first;
-      check(
-        entries.map((item) => item.entry.id).toList(),
-      ).deepEquals(['local-new', 'server-old']);
-      check(
-        entries.map((item) => item.storage).toList(),
-      ).deepEquals([ChatStorageKind.directLocal, ChatStorageKind.openWebUi]);
-      check(
-        ChatStorageIdentity.parse(entries.first.scopedId).rawId,
-      ).equals('local-new');
-      check(
-        ChatStorageIdentity.parse(entries.first.scopedId).storage,
-      ).equals(ChatStorageKind.directLocal);
+      check(entries.map((item) => item.entry.id).toList())
+          .deepEquals(['local-new', 'server-old']);
+      check(entries.map((item) => item.storage).toList())
+          .deepEquals([ChatStorageKind.directLocal, ChatStorageKind.openWebUi]);
+      check(ChatStorageIdentity.parse(entries.first.scopedId).rawId)
+          .equals('local-new');
+      check(ChatStorageIdentity.parse(entries.first.scopedId).storage)
+          .equals(ChatStorageKind.directLocal);
       final summary = entries.first.toConversation();
-      check(
-        chatStorageFromConversation(summary),
-      ).equals(ChatStorageKind.directLocal);
-      check(
-        summary.metadata[kChatStorageKindMetadataKey],
-      ).equals('directLocal');
+      check(chatStorageFromConversation(summary))
+          .equals(ChatStorageKind.directLocal);
+      check(summary.metadata[kChatStorageKindMetadataKey])
+          .equals('directLocal');
     });
 
     test('sums archived counts across both storage domains', () async {
@@ -389,9 +376,8 @@ void main() {
       addTearDown(subscription.cancel);
       await initialEmission.future.timeout(const Duration(seconds: 1));
 
-      check(
-        emissions.single.map((entry) => entry.entry.id).toList(),
-      ).deepEquals(['device-only']);
+      check(emissions.single.map((entry) => entry.entry.id).toList())
+          .deepEquals(['device-only']);
       check(
         emissions.single.every(
           (entry) => entry.storage == ChatStorageKind.directLocal,
@@ -423,9 +409,8 @@ void main() {
       check(loaded!.location.storage).equals(ChatStorageKind.directLocal);
       check(loaded.conversation.id).equals('load-local');
       check(loaded.conversation.messages.single.content).equals('loaded body');
-      check(
-        chatStorageFromConversation(loaded.conversation),
-      ).equals(ChatStorageKind.directLocal);
+      check(chatStorageFromConversation(loaded.conversation))
+          .equals(ChatStorageKind.directLocal);
     });
 
     test(
@@ -479,12 +464,10 @@ void main() {
       );
 
       final hits = await repository.searchMergedChats('needle');
-      check(
-        hits.map((item) => item.hit.chatId).toSet(),
-      ).deepEquals({'server-search', 'local-search'});
-      check(
-        hits.map((item) => item.storage).toSet(),
-      ).deepEquals({ChatStorageKind.openWebUi, ChatStorageKind.directLocal});
+      check(hits.map((item) => item.hit.chatId).toSet())
+          .deepEquals({'server-search', 'local-search'});
+      check(hits.map((item) => item.storage).toSet())
+          .deepEquals({ChatStorageKind.openWebUi, ChatStorageKind.directLocal});
     });
 
     test(
@@ -514,9 +497,8 @@ void main() {
           limit: 50,
         );
 
-        check(
-          hits.map((hit) => hit.hit.chatId).toList(),
-        ).deepEquals(['direct-result']);
+        check(hits.map((hit) => hit.hit.chatId).toList())
+            .deepEquals(['direct-result']);
         check(hits.single.storage).equals(ChatStorageKind.directLocal);
       },
     );
@@ -544,16 +526,14 @@ void main() {
 
         final entries = await repository.watchMergedChatList().first;
         check(entries.length).equals(2);
-        check(
-          entries.map((entry) => entry.entry.id).toSet(),
-        ).deepEquals({'collision'});
+        check(entries.map((entry) => entry.entry.id).toSet())
+            .deepEquals({'collision'});
         check(entries.map((entry) => entry.scopedId).toSet().length).equals(2);
 
         final hits = await repository.searchMergedChats('collision needle');
         check(hits.length).equals(2);
-        check(
-          hits.map((hit) => hit.hit.chatId).toSet(),
-        ).deepEquals({'collision'});
+        check(hits.map((hit) => hit.hit.chatId).toSet())
+            .deepEquals({'collision'});
         check(hits.map((hit) => hit.scopedId).toSet().length).equals(2);
       },
     );
@@ -578,9 +558,8 @@ void main() {
         async.flushMicrotasks();
 
         check(emissions).length.equals(1);
-        check(
-          emissions.single.map((entry) => entry.entry.id).toList(),
-        ).deepEquals(['local', 'server']);
+        check(emissions.single.map((entry) => entry.entry.id).toList())
+            .deepEquals(['local', 'server']);
 
         unawaited(subscription.cancel());
         unawaited(server.close());
@@ -867,9 +846,8 @@ void main() {
 
         await serverDatabase.chatsDao.purgeReconciledChat(serverId);
 
-        check(
-          await serverDatabase.syncMetaDao.getChatRemapTarget(localId),
-        ).isNull();
+        check(await serverDatabase.syncMetaDao.getChatRemapTarget(localId))
+            .isNull();
         check(
           await repository.resolveCommittedChatRemapTarget(
             location,
@@ -902,9 +880,8 @@ void main() {
         currentMessageId: 'direct-answer',
         updatedAt: 101,
       );
-      check(
-        await localDatabase.outboxDao.pendingForChat('direct-local'),
-      ).isEmpty();
+      check(await localDatabase.outboxDao.pendingForChat('direct-local'))
+          .isEmpty();
 
       final serverLocation = repository.chooseForNewDirectChat(
         DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,

@@ -370,6 +370,9 @@ class CompiledMarkdownDocument {
 
   @override
   bool operator ==(Object other) {
+    if (identical(other, this)) {
+      return true;
+    }
     return other is CompiledMarkdownDocument &&
         other.normalizedContent == normalizedContent &&
         other.renderTier == renderTier &&
@@ -456,13 +459,11 @@ CompiledMarkdownBlock _rebaseCompiledMarkdownBlock(
   if (block is CompiledMarkdownDetailsGroup) {
     final items = block.items
         .map(
-          (item) =>
-              _rebaseCompiledMarkdownBlock(
-                    item,
-                    rootNodeOffset,
-                    rebasedRootNodesByOldId,
-                  )
-                  as CompiledMarkdownDetailsBlock,
+          (item) => _rebaseCompiledMarkdownBlock(
+            item,
+            rootNodeOffset,
+            rebasedRootNodesByOldId,
+          ) as CompiledMarkdownDetailsBlock,
         )
         .toList(growable: false);
     final blockId = items.isEmpty

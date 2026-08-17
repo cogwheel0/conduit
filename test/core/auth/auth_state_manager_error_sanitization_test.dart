@@ -51,20 +51,18 @@ void main() {
         for (final mode in _AuthMode.values) {
           final storage = _Storage();
           when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-          when(
-            () => storage.getSavedCredentialsStrict(),
-          ).thenAnswer((_) async => null);
+          when(() => storage.getSavedCredentialsStrict())
+              .thenAnswer((_) async => null);
           when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
           when(() => storage.clearAuthData()).thenAnswer((_) async {});
-          when(
-            () => storage.clearAuthDataIf(canClear: any(named: 'canClear')),
-          ).thenAnswer((invocation) async {
-            final canClear =
-                invocation.namedArguments[#canClear] as bool Function();
-            if (!canClear()) return false;
-            await storage.clearAuthData();
-            return true;
-          });
+          when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
+              .thenAnswer((invocation) async {
+                final canClear =
+                    invocation.namedArguments[#canClear] as bool Function();
+                if (!canClear()) return false;
+                await storage.clearAuthData();
+                return true;
+              });
 
           final api = _ReflectingAuthApi(mode);
           _stubOwnershipCapture(storage, api.serverConfig);
@@ -112,9 +110,8 @@ void main() {
             }
 
             await notifier.logout();
-            check(
-              container.read(authStateManagerProvider).requireValue.status,
-            ).equals(AuthStatus.unauthenticated);
+            check(container.read(authStateManagerProvider).requireValue.status)
+                .equals(AuthStatus.unauthenticated);
           } finally {
             container.dispose();
           }
@@ -145,12 +142,10 @@ void main() {
     'background stored-token validation never logs reflected secrets',
     () async {
       final storage = _Storage();
-      when(
-        () => storage.getAuthTokenStrict(),
-      ).thenAnswer((_) async => _tokenSecret);
-      when(
-        () => storage.getLocalUserWithAvatar(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getAuthTokenStrict())
+          .thenAnswer((_) async => _tokenSecret);
+      when(() => storage.getLocalUserWithAvatar())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
 
       final api = _ReflectingAuthApi(_AuthMode.token);
@@ -207,9 +202,8 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
       final api = _LdapDisabledAuthApi();
       _stubOwnershipCapture(storage, api.serverConfig);
@@ -232,9 +226,8 @@ void main() {
       }
 
       check(thrown).isNotNull();
-      check(
-        thrown.toString(),
-      ).equals('Exception: LDAP authentication is not enabled');
+      check(thrown.toString())
+          .equals('Exception: LDAP authentication is not enabled');
       final auth = container.read(authStateManagerProvider).requireValue;
       check(auth.status).equals(AuthStatus.error);
       check(auth.error).equals('LDAP authentication is not enabled');

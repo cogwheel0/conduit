@@ -81,9 +81,8 @@ void main() {
       check(vars).length.equals(1);
       check(vars.first.start).equals(6);
       check(vars.first.end).equals(14);
-      check(
-        input.substring(vars.first.start, vars.first.end),
-      ).equals('{{name}}');
+      check(input.substring(vars.first.start, vars.first.end))
+          .equals('{{name}}');
     });
 
     test('fullMatch contains braces', () {

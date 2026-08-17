@@ -92,10 +92,61 @@ void main() {
     },
   );
 
+  test('splitter falls back to the full document when reference definitions are present', () {
+    const content = 'See [docs][d].\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
   test(
-    'splitter falls back to the full document when reference definitions are present',
+    'splitter keeps CommonMark raw HTML blocks mutable from their start',
     () {
-      const content = 'See [docs][d].\n\n[d]: https://example.com';
+      const content = '<pre>\nraw line\n\n**not markdown**\n</pre>\n\nTail';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], isEmpty);
+      expect(split['mutableTail'], content);
+      expect(split['canIncrementallyCompile'], isTrue);
+      expect(split['fallbackReason'], isNull);
+    },
+  );
+
+  test('splitter freezes blocks that precede a raw HTML block', () {
+    const content = 'Intro paragraph.\n\n<div>\nraw html\n</div>\n\nTail';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], 'Intro paragraph.\n\n');
+    expect(split['mutableTail'], '<div>\nraw html\n</div>\n\nTail');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
+  test('a reference definition after a raw HTML block still keeps the region '
+      'mutable', () {
+    const content =
+        'See [docs][d].\n\n<div>\nraw html\n</div>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test(
+    'reference definitions with escaped brackets in the label are detected',
+    () {
+      const content =
+          'See [docs][a\\]b].\n\n<div>\nraw html\n</div>\n\n'
+          '[a\\]b]: https://example.com';
 
       final split = debugSplitStreamingPreparedContentForTesting(content);
 
@@ -106,15 +157,185 @@ void main() {
     },
   );
 
-  test('splitter keeps CommonMark raw HTML blocks fully mutable', () {
-    const content = '<pre>\nraw line\n\n**not markdown**\n</pre>\n\nTail';
+  test('an unmatched fence inside a details body does not hide a later '
+      'reference definition', () {
+    const content =
+        'See [docs][d].\n\n<details>\nsome text\n```\nunmatched\n'
+        '</details>\n\n[d]: https://example.com';
 
     final split = debugSplitStreamingPreparedContentForTesting(content);
 
     expect(split['frozenPrefix'], isEmpty);
     expect(split['mutableTail'], content);
     expect(split['canIncrementallyCompile'], isFalse);
-    expect(split['fallbackReason'], 'rawHtmlBlock');
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('a details-close lookalike inside the body does not hide a later '
+      'reference definition', () {
+    // `</details >` is NOT a close for the details parser; treating it as
+    // one exited details tracking early, and the body backtick then opened
+    // a phantom outer fence that swallowed the definition after the block.
+    const content =
+        'See [docs][d].\n\n<details>\nbody with </details > lookalike\n'
+        '```\n</details>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('an inline nested details open inside the body does not hide a later '
+      'reference definition', () {
+    // The details parser counts `<details ...>` opens anywhere in a line;
+    // counting only line-anchored opens missed the nested inline open, so
+    // the first close exited details tracking early and the body backtick
+    // opened a phantom fence that swallowed the definition after the block.
+    const content =
+        'See [docs][d].\n\n<details>\nintro <details type="tool_calls" '
+        'done="true">\n</details>\n```\n</details>\n\n'
+        '[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('an indented nested details open inside the body does not hide a '
+      'later reference definition', () {
+    // The details parser counts tags on the raw line regardless of
+    // indentation inside the block; routing depth counting through the
+    // dedented block-starter candidate (null for 4+-space lines) missed
+    // the nested open, so the first close exited details tracking early
+    // and the body backtick opened a phantom fence.
+    const content =
+        'See [docs][d].\n\n<details>\n    intro <details type="tool_calls" '
+        'done="true">\n</details>\n```\n</details>\n\n'
+        '[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('a literal incomplete details tag inside the body does not leave '
+      'depth tracking stale past the close', () {
+    // The parser only counts complete `<details ...>` tags; crediting the
+    // partial line kept the scanner "inside" the block after the parser
+    // closed it, so the document-level definition after the block was
+    // treated as body content and never triggered the fallback.
+    const content =
+        'See [docs][d].\n\n<details>\n<details is an HTML tag\n'
+        '</details>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('an incomplete details entry tag keeps the tail mutable', () {
+    // Until the tag completes the parser sees only a paragraph; freezing a
+    // boundary here would shift on the next flush.
+    const content = 'Intro paragraph.\n\n<details type="reasoning';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], 'Intro paragraph.\n\n');
+    expect(split['mutableTail'], '<details type="reasoning');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
+  test('a definition-shaped line inside a details body does not force the '
+      'reference-definitions fallback', () {
+    // The parser lifts details bodies into a `body_markdown` attribute
+    // compiled as its own document, so a definition inside the body is not
+    // document-scoped and cannot couple frozen and mutable segments.
+    const content =
+        '<details type="reasoning" done="true">\n<summary>Thought'
+        '</summary>\n[d]: https://example.com\n</details>\n\nTail';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(
+      split['frozenPrefix'],
+      '<details type="reasoning" done="true">\n<summary>Thought'
+      '</summary>\n[d]: https://example.com\n</details>\n\n',
+    );
+    expect(split['mutableTail'], 'Tail');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
+  test(
+    'a closed details block with no unsafe lines still freezes normally',
+    () {
+      const content =
+          '<details type="reasoning" done="true">\n<summary>Thought'
+          '</summary>\nbody\n</details>\n\nTail';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(
+        split['frozenPrefix'],
+        '<details type="reasoning" done="true">\n<summary>Thought'
+        '</summary>\nbody\n</details>\n\n',
+      );
+      expect(split['mutableTail'], 'Tail');
+      expect(split['canIncrementallyCompile'], isTrue);
+      expect(split['fallbackReason'], isNull);
+    },
+  );
+
+  test(
+    'backtick lines inside raw HTML do not hide a later reference definition',
+    () {
+      const content =
+          'See [docs][d].\n\n<pre>\n```\ncontent\n</pre>\n\n'
+          '[d]: https://example.com';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], isEmpty);
+      expect(split['mutableTail'], content);
+      expect(split['canIncrementallyCompile'], isFalse);
+      expect(split['fallbackReason'], 'referenceDefinitions');
+    },
+  );
+
+  test('definition-shaped lines inside raw HTML fall back conservatively', () {
+    const content = 'Intro.\n\n<pre>\n[d]: https://example.com\n</pre>';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('reference-definition-shaped lines inside fenced code do not disable '
+      'incremental splitting', () {
+    const content = '```md\n[d]: https://example.com\n```\n\nTail';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], '```md\n[d]: https://example.com\n```\n\n');
+    expect(split['mutableTail'], 'Tail');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
   });
 
   test('splitter keeps loose list continuations in the mutable tail', () {
@@ -147,18 +368,15 @@ void main() {
     expect(split['canIncrementallyCompile'], isTrue);
   });
 
-  test(
-    'splitter keeps paragraph continuations that look like ordered lists together',
-    () {
-      const content = 'This wraps\n2. not a list\n\nTail';
+  test('splitter keeps paragraph continuations that look like ordered lists together', () {
+    const content = 'This wraps\n2. not a list\n\nTail';
 
-      final split = debugSplitStreamingPreparedContentForTesting(content);
+    final split = debugSplitStreamingPreparedContentForTesting(content);
 
-      expect(split['frozenPrefix'], 'This wraps\n2. not a list\n\n');
-      expect(split['mutableTail'], 'Tail');
-      expect(split['canIncrementallyCompile'], isTrue);
-    },
-  );
+    expect(split['frozenPrefix'], 'This wraps\n2. not a list\n\n');
+    expect(split['mutableTail'], 'Tail');
+    expect(split['canIncrementallyCompile'], isTrue);
+  });
 
   test('splitter keeps loose multi-item lists together before freezing', () {
     const content = '- one\n\n- two\n\nTail';
@@ -170,28 +388,25 @@ void main() {
     expect(split['canIncrementallyCompile'], isTrue);
   });
 
-  test(
-    'splitter keeps indented code blocks that resemble markdown starters together',
-    () {
-      const firstLines = <String>[
-        '# not a heading',
-        '```',
-        '> not a quote',
-        '- not a list',
-      ];
+  test('splitter keeps indented code blocks that resemble markdown starters together', () {
+    const firstLines = <String>[
+      '# not a heading',
+      '```',
+      '> not a quote',
+      '- not a list',
+    ];
 
-      for (final firstLine in firstLines) {
-        final frozenPrefix = '    $firstLine\n    still code\n\n';
-        final split = debugSplitStreamingPreparedContentForTesting(
-          '${frozenPrefix}Tail',
-        );
+    for (final firstLine in firstLines) {
+      final frozenPrefix = '    $firstLine\n    still code\n\n';
+      final split = debugSplitStreamingPreparedContentForTesting(
+        '${frozenPrefix}Tail',
+      );
 
-        expect(split['frozenPrefix'], frozenPrefix, reason: firstLine);
-        expect(split['mutableTail'], 'Tail', reason: firstLine);
-        expect(split['canIncrementallyCompile'], isTrue, reason: firstLine);
-      }
-    },
-  );
+      expect(split['frozenPrefix'], frozenPrefix, reason: firstLine);
+      expect(split['mutableTail'], 'Tail', reason: firstLine);
+      expect(split['canIncrementallyCompile'], isTrue, reason: firstLine);
+    }
+  });
 
   test('splitter keeps an unterminated heading line mutable at EOF', () {
     const content = '### Partial heading';
@@ -256,82 +471,76 @@ Body
     ]);
   });
 
-  test(
-    'compose regroups adjacent tool call blocks across segment boundaries',
-    () {
-      final firstToolCall = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
-        ].join('\n'),
-      );
-      final secondToolCall = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="browser">',
-          '<summary>browser</summary>',
-          '</details>',
-        ].join('\n'),
-      ).rebaseRootIds(rootNodeOffset: firstToolCall.rootNodeCount);
+  test('compose regroups adjacent tool call blocks across segment boundaries', () {
+    final firstToolCall = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final secondToolCall = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+      ].join('\n'),
+    ).rebaseRootIds(rootNodeOffset: firstToolCall.rootNodeCount);
 
-      final composed = CompiledMarkdownDocument.compose(
-        normalizedContent:
-            '${firstToolCall.normalizedContent}\n${secondToolCall.normalizedContent}',
-        segments: <CompiledMarkdownDocument>[firstToolCall, secondToolCall],
-      );
+    final composed = CompiledMarkdownDocument.compose(
+      normalizedContent:
+          '${firstToolCall.normalizedContent}\n${secondToolCall.normalizedContent}',
+      segments: <CompiledMarkdownDocument>[firstToolCall, secondToolCall],
+    );
 
-      expect(composed.blocks, hasLength(1));
-      final group = composed.blocks.single as CompiledMarkdownDetailsGroup;
-      expect(group.blockId, 'group:n0:tool_calls');
-      expect(group.items.map((item) => item.blockId).toList(), <String>[
-        'n0',
-        'n1',
-      ]);
-    },
-  );
+    expect(composed.blocks, hasLength(1));
+    final group = composed.blocks.single as CompiledMarkdownDetailsGroup;
+    expect(group.blockId, 'group:n0:tool_calls');
+    expect(group.items.map((item) => item.blockId).toList(), <String>[
+      'n0',
+      'n1',
+    ]);
+  });
 
-  test(
-    'compose realigns the mutable tail index when a tool_calls details merges across the boundary',
-    () {
-      final frozenToolCall = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
-        ].join('\n'),
-      );
-      final tail = compilePreparedMarkdownSync(
-        [
-          '<details type="tool_calls" done="true" name="browser">',
-          '<summary>browser</summary>',
-          '</details>',
-          '',
-          'Visible response',
-        ].join('\n'),
-      ).rebaseRootIds(rootNodeOffset: frozenToolCall.rootNodeCount);
+  test('compose realigns the mutable tail index when a tool_calls details merges across the boundary', () {
+    final frozenToolCall = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final tail = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+        '',
+        'Visible response',
+      ].join('\n'),
+    ).rebaseRootIds(rootNodeOffset: frozenToolCall.rootNodeCount);
 
-      final composed = CompiledMarkdownDocument.compose(
-        normalizedContent:
-            '${frozenToolCall.normalizedContent}\n${tail.normalizedContent}',
-        segments: <CompiledMarkdownDocument>[frozenToolCall, tail],
-        // Pre-merge index: the frozen prefix contributes one block. The boundary
-        // tool_calls blocks then merge into a single group, shifting the tail.
-        mutableBlockStartIndex: frozenToolCall.rootBlockCount,
-      );
+    final composed = CompiledMarkdownDocument.compose(
+      normalizedContent:
+          '${frozenToolCall.normalizedContent}\n${tail.normalizedContent}',
+      segments: <CompiledMarkdownDocument>[frozenToolCall, tail],
+      // Pre-merge index: the frozen prefix contributes one block. The boundary
+      // tool_calls blocks then merge into a single group, shifting the tail.
+      mutableBlockStartIndex: frozenToolCall.rootBlockCount,
+    );
 
-      // Composed list is [group(search, browser), paragraph]. The merged group
-      // still carries the streaming tail item, so it must be the mutable tail —
-      // not left below the (pre-merge) start index and treated as frozen.
-      expect(composed.blocks, hasLength(2));
-      expect(composed.blocks.first, isA<CompiledMarkdownDetailsGroup>());
-      expect(composed.mutableBlockStartIndex, 0);
-      expect(composed.isMutableRootBlock(0), isTrue);
-      expect(composed.isMutableRootBlock(1), isTrue);
+    // Composed list is [group(search, browser), paragraph]. The merged group
+    // still carries the streaming tail item, so it must be the mutable tail —
+    // not left below the (pre-merge) start index and treated as frozen.
+    expect(composed.blocks, hasLength(2));
+    expect(composed.blocks.first, isA<CompiledMarkdownDetailsGroup>());
+    expect(composed.mutableBlockStartIndex, 0);
+    expect(composed.isMutableRootBlock(0), isTrue);
+    expect(composed.isMutableRootBlock(1), isTrue);
 
-      final parts = buildMarkdownDisplayParts(composed, isStreaming: true);
-      expect(parts.first.isMutableTail, isTrue);
-    },
-  );
+    final parts = buildMarkdownDisplayParts(composed, isStreaming: true);
+    expect(parts.first.isMutableTail, isTrue);
+  });
 
   test('compose stamps the mutable index on a single tail-only segment', () {
     final tail = compilePreparedMarkdownSync('### Partial heading');
@@ -439,68 +648,65 @@ Body
     },
   );
 
-  test(
-    'patch controller preserves frozen compilation and compiles only the new tail',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
-      final engine = StreamingMarkdownPreparationEngine();
-      var prepared = const PreparedMarkdownText.empty();
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+  test('patch controller preserves frozen compilation and compiles only the new tail', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
+    final engine = StreamingMarkdownPreparationEngine();
+    var prepared = const PreparedMarkdownText.empty();
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      final firstPatch = engine.prepare(
-        const MarkdownPreparationRequest(
-          sessionId: 'message-1',
-          revision: 1,
-          expectedBaseRevision: 0,
-          content: 'First paragraph.\n\nSecond',
-          streaming: true,
-          collectMetrics: false,
-          verifyParity: true,
-        ),
-      );
-      prepared = prepared.applyPatch(firstPatch);
-      controller.resolveStreamingPreparedPatch(prepared, firstPatch);
-      await _flushAsyncWork();
+    final firstPatch = engine.prepare(
+      const MarkdownPreparationRequest(
+        sessionId: 'message-1',
+        revision: 1,
+        expectedBaseRevision: 0,
+        content: 'First paragraph.\n\nSecond',
+        streaming: true,
+        collectMetrics: false,
+        verifyParity: true,
+      ),
+    );
+    prepared = prepared.applyPatch(firstPatch);
+    controller.resolveStreamingPreparedPatch(prepared, firstPatch);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['First paragraph.\n\n', 'Second'],
-      ]);
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['First paragraph.\n\n', 'Second'],
+    ]);
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
 
-      final secondPatch = engine.prepare(
-        const MarkdownPreparationRequest(
-          sessionId: 'message-1',
-          revision: 2,
-          expectedBaseRevision: 1,
-          content: 'First paragraph.\n\nSecond grows',
-          streaming: true,
-          collectMetrics: false,
-          verifyParity: true,
-        ),
-      );
-      prepared = prepared.applyPatch(secondPatch);
-      controller.resolveStreamingPreparedPatch(prepared, secondPatch);
-      await _flushAsyncWork();
+    final secondPatch = engine.prepare(
+      const MarkdownPreparationRequest(
+        sessionId: 'message-1',
+        revision: 2,
+        expectedBaseRevision: 1,
+        content: 'First paragraph.\n\nSecond grows',
+        streaming: true,
+        collectMetrics: false,
+        verifyParity: true,
+      ),
+    );
+    prepared = prepared.applyPatch(secondPatch);
+    controller.resolveStreamingPreparedPatch(prepared, secondPatch);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>['Second grows']);
-      expect(latestDocument, isNotNull);
-      expect(latestDocument!.preparedContent.segmentCount, greaterThan(1));
-      expect(
-        latestDocument!.normalizedContent,
-        'First paragraph.\n\nSecond grows',
-      );
-      expect(latestDocument!.mutableBlockStartIndex, 1);
-    },
-  );
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>['Second grows']);
+    expect(latestDocument, isNotNull);
+    expect(latestDocument!.preparedContent.segmentCount, greaterThan(1));
+    expect(
+      latestDocument!.normalizedContent,
+      'First paragraph.\n\nSecond grows',
+    );
+    expect(latestDocument!.mutableBlockStartIndex, 1);
+  });
 
   test(
     'patch controller reuses a verified frozen prefix across skipped revisions',
@@ -626,89 +832,83 @@ Body
     },
   );
 
-  test(
-    'controller recompiles the full document when reference definitions arrive later',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+  test('controller recompiles the full document when reference definitions arrive later', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (_) {},
-      );
-      addTearDown(controller.dispose);
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (_) {},
+    );
+    addTearDown(controller.dispose);
 
-      controller.resolveStreamingPrepared('See [docs][d].\n\nTail');
-      await _flushAsyncWork();
+    controller.resolveStreamingPrepared('See [docs][d].\n\nTail');
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['See [docs][d].\n\n', 'Tail'],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['See [docs][d].\n\n', 'Tail'],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
 
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
 
-      controller.resolveStreamingPrepared(
-        'See [docs][d].\n\nTail\n\n[d]: https://example.com',
-      );
-      await _flushAsyncWork();
+    controller.resolveStreamingPrepared(
+      'See [docs][d].\n\nTail\n\n[d]: https://example.com',
+    );
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>[
-        'See [docs][d].\n\nTail\n\n[d]: https://example.com',
-      ]);
-    },
-  );
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>[
+      'See [docs][d].\n\nTail\n\n[d]: https://example.com',
+    ]);
+  });
 
-  test(
-    'controller keeps indented code blocks with starter-like first lines together across streaming updates',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+  test('controller keeps indented code blocks with starter-like first lines together across streaming updates', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      const partialContent = '    # not a heading\n    still code';
-      controller.resolveStreamingPrepared(partialContent);
-      await _flushAsyncWork();
+    const partialContent = '    # not a heading\n    still code';
+    controller.resolveStreamingPrepared(partialContent);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>[partialContent]);
-      expect(latestDocument, isNotNull);
-      expect(
-        (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
-        CompiledMarkdownNodeBlockKind.codeBlock,
-      );
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>[partialContent]);
+    expect(latestDocument, isNotNull);
+    expect(
+      (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
+      CompiledMarkdownNodeBlockKind.codeBlock,
+    );
 
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
 
-      const completedContent = '    # not a heading\n    still code\n\nTail';
-      controller.resolveStreamingPrepared(completedContent);
-      await _flushAsyncWork();
+    const completedContent = '    # not a heading\n    still code\n\nTail';
+    controller.resolveStreamingPrepared(completedContent);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['    # not a heading\n    still code\n\n', 'Tail'],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
-      expect(
-        (latestDocument!.blocks.first as CompiledMarkdownNodeBlock).kind,
-        CompiledMarkdownNodeBlockKind.codeBlock,
-      );
-      expect(
-        latestDocument!.blocks.map((block) => block.blockId).toList(),
-        <String>['n0', 'n1'],
-      );
-    },
-  );
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['    # not a heading\n    still code\n\n', 'Tail'],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
+    expect(
+      (latestDocument!.blocks.first as CompiledMarkdownNodeBlock).kind,
+      CompiledMarkdownNodeBlockKind.codeBlock,
+    );
+    expect(
+      latestDocument!.blocks.map((block) => block.blockId).toList(),
+      <String>['n0', 'n1'],
+    );
+  });
 
   test(
     'controller preserves setext headings when incrementally composing blocks',
@@ -742,261 +942,238 @@ Body
     },
   );
 
-  test(
-    'controller regroups adjacent tool calls that arrive across streaming updates',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+  test('controller regroups adjacent tool calls that arrive across streaming updates', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      controller.resolveStreamingPrepared(
+    controller.resolveStreamingPrepared(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    await _flushAsyncWork();
+
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>[
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    ]);
+    expect(latestDocument!.blocks, hasLength(1));
+    expect(latestDocument!.blocks.single, isA<CompiledMarkdownDetailsBlock>());
+
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
+
+    controller.resolveStreamingPrepared(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    await _flushAsyncWork();
+
+    expect(compiler.batchCalls, <List<String>>[
+      <String>[
         [
           '<details type="tool_calls" done="true" name="search">',
           '<summary>search</summary>',
           '</details>',
+          '',
         ].join('\n'),
-      );
-      await _flushAsyncWork();
-
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>[
         [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
-        ].join('\n'),
-      ]);
-      expect(latestDocument!.blocks, hasLength(1));
-      expect(
-        latestDocument!.blocks.single,
-        isA<CompiledMarkdownDetailsBlock>(),
-      );
-
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
-
-      controller.resolveStreamingPrepared(
-        [
-          '<details type="tool_calls" done="true" name="search">',
-          '<summary>search</summary>',
-          '</details>',
           '<details type="tool_calls" done="true" name="browser">',
           '<summary>browser</summary>',
           '</details>',
         ].join('\n'),
-      );
-      await _flushAsyncWork();
+      ],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
+    expect(latestDocument!.blocks, hasLength(1));
+    final group = latestDocument!.blocks.single as CompiledMarkdownDetailsGroup;
+    expect(group.items.map((item) => item.name).toList(), <String>[
+      'search',
+      'browser',
+    ]);
+  });
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>[
-          [
-            '<details type="tool_calls" done="true" name="search">',
-            '<summary>search</summary>',
-            '</details>',
-            '',
-          ].join('\n'),
-          [
-            '<details type="tool_calls" done="true" name="browser">',
-            '<summary>browser</summary>',
-            '</details>',
-          ].join('\n'),
-        ],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
-      expect(latestDocument!.blocks, hasLength(1));
-      final group =
-          latestDocument!.blocks.single as CompiledMarkdownDetailsGroup;
-      expect(group.items.map((item) => item.name).toList(), <String>[
-        'search',
-        'browser',
-      ]);
-    },
-  );
+  test('controller preserves lazy blockquote continuations when incrementally composing blocks', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-  test(
-    'controller preserves lazy blockquote continuations when incrementally composing blocks',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    controller.resolveStreamingPrepared('> quoted\ncontinued\n\nTail');
+    await _flushAsyncWork();
 
-      controller.resolveStreamingPrepared('> quoted\ncontinued\n\nTail');
-      await _flushAsyncWork();
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['> quoted\ncontinued\n\n', 'Tail'],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['> quoted\ncontinued\n\n', 'Tail'],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
+    final blockquoteBlock =
+        latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
+    expect(blockquoteBlock.kind, CompiledMarkdownNodeBlockKind.blockquote);
+    expect(
+      latestDocument!.blocks.map((block) => block.blockId).toList(),
+      <String>['n0', 'n1'],
+    );
+  });
 
-      final blockquoteBlock =
-          latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
-      expect(blockquoteBlock.kind, CompiledMarkdownNodeBlockKind.blockquote);
-      expect(
-        latestDocument!.blocks.map((block) => block.blockId).toList(),
-        <String>['n0', 'n1'],
-      );
-    },
-  );
+  test('controller preserves paragraph continuations that use non-1 ordered markers', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-  test(
-    'controller preserves paragraph continuations that use non-1 ordered markers',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    controller.resolveStreamingPrepared('This wraps\n2. not a list\n\nTail');
+    await _flushAsyncWork();
 
-      controller.resolveStreamingPrepared('This wraps\n2. not a list\n\nTail');
-      await _flushAsyncWork();
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['This wraps\n2. not a list\n\n', 'Tail'],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['This wraps\n2. not a list\n\n', 'Tail'],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
+    final paragraphBlock =
+        latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
+    expect(paragraphBlock.kind, CompiledMarkdownNodeBlockKind.paragraph);
+    expect(
+      latestDocument!.blocks.map((block) => block.blockId).toList(),
+      <String>['n0', 'n1'],
+    );
+  });
 
-      final paragraphBlock =
-          latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
-      expect(paragraphBlock.kind, CompiledMarkdownNodeBlockKind.paragraph);
-      expect(
-        latestDocument!.blocks.map((block) => block.blockId).toList(),
-        <String>['n0', 'n1'],
-      );
-    },
-  );
+  test('controller preserves loose multi-item lists when incrementally composing blocks', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-  test(
-    'controller preserves loose multi-item lists when incrementally composing blocks',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    controller.resolveStreamingPrepared('- one\n\n- two\n\nTail');
+    await _flushAsyncWork();
 
-      controller.resolveStreamingPrepared('- one\n\n- two\n\nTail');
-      await _flushAsyncWork();
+    expect(compiler.batchCalls, <List<String>>[
+      <String>['- one\n\n- two\n\n', 'Tail'],
+    ]);
+    expect(compiler.singleCalls, isEmpty);
 
-      expect(compiler.batchCalls, <List<String>>[
-        <String>['- one\n\n- two\n\n', 'Tail'],
-      ]);
-      expect(compiler.singleCalls, isEmpty);
+    final listBlock = latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
+    expect(listBlock.kind, CompiledMarkdownNodeBlockKind.unorderedList);
+    expect(
+      latestDocument!.blocks.map((block) => block.blockId).toList(),
+      <String>['n0', 'n1'],
+    );
+  });
 
-      final listBlock =
-          latestDocument!.blocks.first as CompiledMarkdownNodeBlock;
-      expect(listBlock.kind, CompiledMarkdownNodeBlockKind.unorderedList);
-      expect(
-        latestDocument!.blocks.map((block) => block.blockId).toList(),
-        <String>['n0', 'n1'],
-      );
-    },
-  );
+  test('controller keeps a growing heading line in the mutable tail across updates', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-  test(
-    'controller keeps a growing heading line in the mutable tail across updates',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
+    controller.resolveStreamingPrepared('### Partial');
+    await _flushAsyncWork();
 
-      controller.resolveStreamingPrepared('### Partial');
-      await _flushAsyncWork();
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>['### Partial']);
+    expect(latestDocument!.blocks, hasLength(1));
+    expect(
+      (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
+      CompiledMarkdownNodeBlockKind.heading3,
+    );
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>['### Partial']);
-      expect(latestDocument!.blocks, hasLength(1));
-      expect(
-        (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
-        CompiledMarkdownNodeBlockKind.heading3,
-      );
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
 
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
+    controller.resolveStreamingPrepared('### Partial heading');
+    await _flushAsyncWork();
 
-      controller.resolveStreamingPrepared('### Partial heading');
-      await _flushAsyncWork();
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>['### Partial heading']);
+    expect(latestDocument!.blocks, hasLength(1));
+    expect(
+      (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
+      CompiledMarkdownNodeBlockKind.heading3,
+    );
+  });
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>['### Partial heading']);
-      expect(latestDocument!.blocks, hasLength(1));
-      expect(
-        (latestDocument!.blocks.single as CompiledMarkdownNodeBlock).kind,
-        CompiledMarkdownNodeBlockKind.heading3,
-      );
-    },
-  );
+  test('controller keeps same-line text after closing details in the mutable tail across updates', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
 
-  test(
-    'controller keeps same-line text after closing details in the mutable tail across updates',
-    () async {
-      final compiler = _RecordingIncrementalMarkdownCompileService();
-      addTearDown(compiler.dispose);
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
 
-      CompiledMarkdownDocument? latestDocument;
-      final controller = MarkdownDocumentController(
-        readCompiler: () => compiler,
-        isWidgetTest: () => false,
-        onStateChanged: (document) => latestDocument = document,
-      );
-      addTearDown(controller.dispose);
-
-      const firstContent = '''
+    const firstContent = '''
 <details type="reasoning" done="true">
 <summary>Thinking…</summary>
 Body
 </details>Visible''';
-      controller.resolveStreamingPrepared(firstContent);
-      await _flushAsyncWork();
+    controller.resolveStreamingPrepared(firstContent);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>[firstContent]);
-      expect(latestDocument!.normalizedContent, firstContent);
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>[firstContent]);
+    expect(latestDocument!.normalizedContent, firstContent);
 
-      compiler.batchCalls.clear();
-      compiler.singleCalls.clear();
+    compiler.batchCalls.clear();
+    compiler.singleCalls.clear();
 
-      const secondContent = '''
+    const secondContent = '''
 <details type="reasoning" done="true">
 <summary>Thinking…</summary>
 Body
 </details>Visible response''';
-      controller.resolveStreamingPrepared(secondContent);
-      await _flushAsyncWork();
+    controller.resolveStreamingPrepared(secondContent);
+    await _flushAsyncWork();
 
-      expect(compiler.batchCalls, isEmpty);
-      expect(compiler.singleCalls, <String>[secondContent]);
-      expect(latestDocument!.normalizedContent, secondContent);
-    },
-  );
+    expect(compiler.batchCalls, isEmpty);
+    expect(compiler.singleCalls, <String>[secondContent]);
+    expect(latestDocument!.normalizedContent, secondContent);
+  });
 }

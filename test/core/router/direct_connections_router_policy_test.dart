@@ -48,9 +48,8 @@ void main() {
     });
 
     test('editor path percent-encodes profile ids', () {
-      check(
-        Routes.directConnectionEditorPath('local profile'),
-      ).equals('/profile/direct-connections/local%20profile');
+      check(Routes.directConnectionEditorPath('local profile'))
+          .equals('/profile/direct-connections/local%20profile');
     });
 
     test('native-sheet entry dismisses without a second page transition', () {

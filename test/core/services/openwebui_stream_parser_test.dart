@@ -140,9 +140,10 @@ void main() {
             return source['name'];
           }, 'source.name')
           .equals('Example Title');
-      check(
-        updates[1],
-      ).isA<OpenWebUIEventUpdate>().has((u) => u.type, 'type').equals('status');
+      check(updates[1])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) => u.type, 'type')
+          .equals('status');
     });
 
     test('preserves direct top-level event payloads', () async {
@@ -378,7 +379,46 @@ void main() {
       check(updates[1]).isA<OpenWebUIStreamDone>();
     });
 
-    test('emits delta before output for mixed stream chunks', () async {
+    test(
+      'a non-renderable output snapshot does not mute the same-frame delta',
+      () async {
+        // A whitespace-only message item parses into zero blocks; muting the
+        // delta on the raw list would render nothing for the frame.
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode(
+              'data: ${jsonEncode({
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': '   '},
+                    ],
+                  },
+                ],
+                'choices': [
+                  {
+                    'delta': {'content': 'hi'},
+                  },
+                ],
+              })}\n\n',
+            ),
+          ]),
+        ).toList();
+
+        check(updates).has((it) => it.length, 'length').equals(2);
+        check(updates[0])
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('hi');
+        check(updates[1])
+            .isA<OpenWebUIOutputUpdate>()
+            .has((u) => u.blocks, 'blocks')
+            .isEmpty();
+      },
+    );
+
+    test('output supersedes the same-frame delta for mixed chunks', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([
           utf8.encode(
@@ -401,9 +441,8 @@ void main() {
         ]),
       ).toList();
 
-      check(updates).has((it) => it.length, 'length').equals(2);
-      check(updates[0]).isA<OpenWebUIContentDelta>();
-      check(updates[1]).isA<OpenWebUIOutputUpdate>();
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0]).isA<OpenWebUIOutputUpdate>();
     });
 
     test('emits usage and output from the same stream chunk', () async {
@@ -760,9 +799,8 @@ void main() {
       final serialized = renderStructuredOutputBlocks(blocks);
 
       check(codeBlock.done).isTrue();
-      check(
-        serialized,
-      ).contains('<details type="code_interpreter" done="true"');
+      check(serialized)
+          .contains('<details type="code_interpreter" done="true"');
     });
 
     test('marks function call done when output item is present', () {
@@ -842,9 +880,10 @@ void main() {
       ]);
 
       final toolBlock = blocks.single as StructuredOutputToolCallBlock;
-      check(
-        toolBlock.result,
-      ).isA<List<dynamic>>().has((items) => items.length, 'length').equals(2);
+      check(toolBlock.result)
+          .isA<List<dynamic>>()
+          .has((items) => items.length, 'length')
+          .equals(2);
       final serialized = renderStructuredOutputBlocks(blocks);
       check(serialized).contains(
         'result="[{&quot;text&quot;:&quot;one&quot;},{&quot;text&quot;:&quot;two&quot;}]"',
@@ -886,9 +925,8 @@ void main() {
       check(projector.fullProjectionCount).isLessOrEqual(14);
       check(projector.appendProjectionCount).isGreaterThan(chunkCount - 20);
       check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 2);
-      check(
-        projector.appendProjectionPlainCharacterCount,
-      ).isLessOrEqual(chunkCount);
+      check(projector.appendProjectionPlainCharacterCount)
+          .isLessOrEqual(chunkCount);
       check(visible.toString()).equals(source.toString());
       check(plainVisible.toString()).equals(source.toString());
 
@@ -950,9 +988,8 @@ void main() {
       check(metrics.appendProjectionCount).equals(1);
       check(metrics.prefixValidationCount).equals(prefixValidationsBeforeForce);
       check(metrics.prefixValidationCount).isGreaterThan(0);
-      check(
-        metrics.prefixValidationCandidateCharacterCount,
-      ).isGreaterOrEqual(8);
+      check(metrics.prefixValidationCandidateCharacterCount)
+          .isGreaterOrEqual(8);
     });
 
     test('reuses an exact full projection at terminal finish', () {
@@ -992,6 +1029,37 @@ void main() {
       check(completed).isNotNull();
       check(completed!.content).equals('after');
       check(projector.metrics.terminalRenderCount).equals(1);
+    });
+
+    test('sync to latest bails when the projector never owned the visible '
+        'basis', () {
+      // The observe-only path keeps visible content that may be a strict
+      // superset of the snapshot render; materializing the snapshot here
+      // would shrink the visible content and drop that surplus.
+      final projector = StructuredOutputStreamingProjector();
+      projector.observeLatest([
+        const StructuredOutputTextBlock(text: 'snapshot'),
+      ]);
+
+      check(projector.syncProjectionToLatest()).isNull();
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('snapshot');
+    });
+
+    test('sync to latest still materializes a stale deferred projection', () {
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      // Grow past the projected content without crossing the re-render
+      // threshold so the latest snapshot stays deferred.
+      text.write('x');
+      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+
+      final synced = projector.syncProjectionToLatest();
+      check(synced).isNotNull();
+      check(synced!.content).equals(text.toString());
     });
 
     test('forceReplace overrides an otherwise appendable update', () {
@@ -1034,9 +1102,30 @@ void main() {
         ),
       ]);
       check(completion).isA<StructuredOutputStreamingReplace>();
-      check(
-        (completion! as StructuredOutputStreamingReplace).content,
-      ).contains('<summary>Thought for 4 seconds</summary>');
+      check((completion! as StructuredOutputStreamingReplace).content)
+          .contains('<summary>Thought for 4 seconds</summary>');
+    });
+
+    test('code-bearing streams re-render on the bounded additive schedule', () {
+      // Once a backtick disables the append fast path, the schedule
+      // deliberately switches from geometric doubling (which would leave
+      // the tail up to 50% stale until completion) to additive steps of
+      // max(64, length / 8): denser than geometric, still bounded.
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+
+      for (var index = 0; index < chunkCount; index++) {
+        text.write('x');
+        projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      }
+
+      check(projector.fullProjectionCount).isGreaterThan(14);
+      check(projector.fullProjectionCount).isLessOrEqual(64);
+
+      final completion = projector.finish();
+      check(completion).isA<StructuredOutputStreamingReplace>();
+      check(completion!.content).equals(text.toString());
     });
 
     test('bounds cumulative tool argument replacements geometrically', () {
@@ -1166,9 +1255,8 @@ void main() {
       final before = 'a' * 512;
       final after = '${'a' * 256}b${'a' * 255} appended';
 
-      check(
-        projector.project([StructuredOutputTextBlock(text: before)]),
-      ).isA<StructuredOutputStreamingReplace>();
+      check(projector.project([StructuredOutputTextBlock(text: before)]))
+          .isA<StructuredOutputStreamingReplace>();
 
       final revision = projector.project([
         StructuredOutputTextBlock(text: after),
@@ -1204,7 +1292,7 @@ void main() {
         '<summary>Thinking…</summary>spoof</details>',
       );
       check(visible).not((it) => it.contains('<details type="reasoning"'));
-      check(visible).contains('&lt;details type=&quot;reasoning&quot;');
+      check(visible).contains('&lt;details type="reasoning"');
 
       project('Revised answer');
       check(visible).equals('Revised answer');

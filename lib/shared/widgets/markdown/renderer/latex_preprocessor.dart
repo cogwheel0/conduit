@@ -104,6 +104,11 @@ class LatexPreprocessor {
   /// Use [splitOnPlaceholders] during rendering to recover
   /// the original LaTeX content.
   String extract(String content) {
+    // Every delimiter starts with '$' or '\'; skip the four full regex passes
+    // for the common all-prose case.
+    if (!content.contains(r'$') && !content.contains('\\')) {
+      return content;
+    }
     var result = content;
 
     // Extract \[...\] block LaTeX.

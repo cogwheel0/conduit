@@ -169,9 +169,8 @@ String parentTerminalPath(String value) {
       ? normalized.substring(0, normalized.length - 1)
       : normalized;
 
-  final windowsDriveMatch = RegExp(
-    r'^[A-Za-z]:$',
-  ).firstMatch(withoutTrailingSlash);
+  final windowsDriveMatch = RegExp(r'^[A-Za-z]:$')
+      .firstMatch(withoutTrailingSlash);
   if (withoutTrailingSlash == '/' || windowsDriveMatch != null) {
     return ensureTerminalDirectoryPath(withoutTrailingSlash);
   }
@@ -653,9 +652,8 @@ class TerminalService {
         response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
         'application/octet-stream';
     final disposition = response.headers.value('content-disposition') ?? '';
-    final fileNameMatch = RegExp(
-      r'filename="?([^"]+)"?',
-    ).firstMatch(disposition);
+    final fileNameMatch = RegExp(r'filename="?([^"]+)"?')
+        .firstMatch(disposition);
     final fileName = fileNameMatch?.group(1) ?? p.basename(normalizedPath);
 
     return TerminalDownloadedFile(

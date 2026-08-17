@@ -41,9 +41,8 @@ void main() {
 
         final files = await api.getUserFiles();
 
-        check(
-          files.map((file) => file.id).toList(),
-        ).deepEquals(['file-1', 'file-2']);
+        check(files.map((file) => file.id).toList())
+            .deepEquals(['file-1', 'file-2']);
         check(adapter.requestedPages).deepEquals([1, 2]);
       },
     );
@@ -61,9 +60,9 @@ void main() {
       final files = await api.getUserFiles();
 
       check(files).has((it) => it.length, 'length').equals(200);
-      check(
-        adapter.requestedPages,
-      ).has((it) => it.length, 'length').equals(200);
+      check(adapter.requestedPages)
+          .has((it) => it.length, 'length')
+          .equals(200);
       check(adapter.requestedPages.first).equals(1);
       check(adapter.requestedPages.last).equals(200);
       check(adapter.requestedPages.contains(201)).isFalse();
@@ -90,9 +89,8 @@ void main() {
       );
       check(noMatches).isNotNull();
       check(noMatches!).isEmpty();
-      check(
-        await unavailableApi.searchFilesForSession(query: 'recording.m4a'),
-      ).isNull();
+      check(await unavailableApi.searchFilesForSession(query: 'recording.m4a'))
+          .isNull();
     });
 
     test('uses a targeted query and forwards cancellation', () async {

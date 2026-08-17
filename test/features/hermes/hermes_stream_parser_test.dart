@@ -100,9 +100,10 @@ void main() {
       check(events[0]).isA<HermesToolProgress>()
         ..has((e) => e.toolName, 'toolName').equals('terminal')
         ..has((e) => e.done, 'done').isFalse();
-      check(
-        events[1],
-      ).isA<HermesTokenDelta>().has((e) => e.content, 'content').equals('Hi');
+      check(events[1])
+          .isA<HermesTokenDelta>()
+          .has((e) => e.content, 'content')
+          .equals('Hi');
       check(events[2]).isA<HermesToolProgress>()
         ..has((e) => e.toolName, 'toolName').equals('terminal')
         ..has((e) => e.done, 'done').isTrue();
@@ -117,9 +118,9 @@ void main() {
         ).toList();
 
         check(events.whereType<HermesRunError>()).isNotEmpty();
-        check(
-          events.whereType<HermesRunError>().first,
-        ).has((e) => e.message, 'message').equals('Hermes run failed.');
+        check(events.whereType<HermesRunError>().first)
+            .has((e) => e.message, 'message')
+            .equals('Hermes run failed.');
       },
     );
 
@@ -128,9 +129,9 @@ void main() {
         _sse(['event: run.failed\ndata: {"error":"boom"}\n\n']),
       ).toList();
 
-      check(
-        events.whereType<HermesRunError>().first,
-      ).has((e) => e.message, 'message').equals('boom');
+      check(events.whereType<HermesRunError>().first)
+          .has((e) => e.message, 'message')
+          .equals('boom');
     });
 
     test('response.failed surfaces an error event', () async {
@@ -149,9 +150,9 @@ void main() {
         ]),
       ).toList();
 
-      check(
-        events.whereType<HermesToolProgress>().first,
-      ).has((e) => e.done, 'done').isTrue();
+      check(events.whereType<HermesToolProgress>().first)
+          .has((e) => e.done, 'done')
+          .isTrue();
     });
 
     test('tool.failed keeps a string error scoped to the tool', () async {
@@ -292,9 +293,8 @@ void main() {
         ]),
       ).toList();
 
-      check(
-        events.whereType<HermesApprovalRequested>().single.approvalId,
-      ).equals('a1');
+      check(events.whereType<HermesApprovalRequested>().single.approvalId)
+          .equals('a1');
     });
 
     test('legacy approval identifiers take precedence over run_id', () async {
@@ -305,9 +305,8 @@ void main() {
         ]),
       ).toList();
 
-      check(
-        events.whereType<HermesApprovalRequested>().single.approvalId,
-      ).equals('legacy-a1');
+      check(events.whereType<HermesApprovalRequested>().single.approvalId)
+          .equals('legacy-a1');
     });
 
     test('decodes Responses created, text delta, and completed envelope', () async {
@@ -326,9 +325,10 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((e) => e.responseId, 'responseId')
           .equals('resp_1');
-      check(
-        events[1],
-      ).isA<HermesLifecycle>().has((e) => e.status, 'status').equals('created');
+      check(events[1])
+          .isA<HermesLifecycle>()
+          .has((e) => e.status, 'status')
+          .equals('created');
       check(events[2])
           .isA<HermesTokenDelta>()
           .has((e) => e.content, 'content')
@@ -337,9 +337,10 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((e) => e.responseId, 'responseId')
           .equals('resp_1');
-      check(
-        events[4],
-      ).isA<HermesFinalOutput>().has((e) => e.text, 'text').equals('world');
+      check(events[4])
+          .isA<HermesFinalOutput>()
+          .has((e) => e.text, 'text')
+          .equals('world');
       check(events[5]).isA<HermesRunDone>();
     });
 
@@ -359,9 +360,8 @@ void main() {
       ).toList();
 
       check(events.whereType<HermesResponseCreated>()).isEmpty();
-      check(
-        events.whereType<HermesLifecycle>().single.status,
-      ).equals('created');
+      check(events.whereType<HermesLifecycle>().single.status)
+          .equals('created');
     });
 
     test(
@@ -376,9 +376,8 @@ void main() {
           ]),
         ).toList();
 
-        check(
-          events.whereType<HermesFinalOutput>().single.text,
-        ).equals('Hello world');
+        check(events.whereType<HermesFinalOutput>().single.text)
+            .equals('Hello world');
         check(events.last).isA<HermesRunDone>();
       },
     );
@@ -408,9 +407,10 @@ void main() {
         _sse(['data: {"error":{"message":"boom"}}\n\n']),
       ).toList();
       check(events).has((e) => e.length, 'length').equals(1);
-      check(
-        events[0],
-      ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
+      check(events[0])
+          .isA<HermesRunError>()
+          .has((e) => e.message, 'message')
+          .equals('boom');
     });
 
     test('surfaces top-level type error messages', () async {
@@ -419,9 +419,10 @@ void main() {
       ).toList();
 
       check(events).has((e) => e.length, 'length').equals(1);
-      check(
-        events.single,
-      ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
+      check(events.single)
+          .isA<HermesRunError>()
+          .has((e) => e.message, 'message')
+          .equals('boom');
     });
 
     test('does not coerce a nested type into protocol routing text', () async {
@@ -485,31 +486,26 @@ void main() {
   });
 
   group('parseHermesResponseStream', () {
-    test(
-      'maps sparse response terminal output shape to a typed run error',
-      () async {
-        Object? output = 'leaf';
-        for (var depth = 0; depth <= 128; depth++) {
-          output = <Object?>[output];
-        }
+    test('maps sparse response terminal output shape to a typed run error', () async {
+      Object? output = 'leaf';
+      for (var depth = 0; depth <= 128; depth++) {
+        output = <Object?>[output];
+      }
 
-        final events = await parseHermesResponseStream(
-          _sse([
-            'event: response.completed\n'
-                'data: ${jsonEncode(<String, Object?>{
-                  'response': <String, Object?>{'id': 'resp_deep', 'status': 'completed', 'output': output},
-                })}\n\n',
-          ]),
-        ).toList();
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.completed\n'
+              'data: ${jsonEncode(<String, Object?>{
+                'response': <String, Object?>{'id': 'resp_deep', 'status': 'completed', 'output': output},
+              })}\n\n',
+        ]),
+      ).toList();
 
-        check(
-          events.whereType<HermesResponseCreated>().single.responseId,
-        ).equals('resp_deep');
-        check(
-          events.whereType<HermesRunError>().single.message,
-        ).contains('size or shape limit');
-      },
-    );
+      check(events.whereType<HermesResponseCreated>().single.responseId)
+          .equals('resp_deep');
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('size or shape limit');
+    });
 
     test(
       'delegates event-only terminal frames to the Hermes fallback',
@@ -603,9 +599,8 @@ void main() {
           (event) => event.responseId,
         ),
       ).deepEquals(['resp_sdk', 'resp_sdk']);
-      check(
-        events.whereType<HermesTokenDelta>().map((event) => event.content),
-      ).deepEquals(['hello', ' declined']);
+      check(events.whereType<HermesTokenDelta>().map((event) => event.content))
+          .deepEquals(['hello', ' declined']);
       check(
         events.whereType<HermesReasoningDelta>().map((event) => event.content),
       ).deepEquals(['think', 'summary', 'final thought']);
@@ -633,18 +628,14 @@ void main() {
         ]),
       ).toList();
 
-      check(
-        events.whereType<HermesTokenDelta>().single.content,
-      ).equals('legacy');
-      check(
-        events.whereType<HermesReasoningDelta>().single.content,
-      ).equals('alias');
-      check(
-        events.whereType<HermesToolProgress>().single.toolName,
-      ).equals('terminal');
-      check(
-        events.whereType<HermesApprovalRequested>().single.approvalId,
-      ).equals('a1');
+      check(events.whereType<HermesTokenDelta>().single.content)
+          .equals('legacy');
+      check(events.whereType<HermesReasoningDelta>().single.content)
+          .equals('alias');
+      check(events.whereType<HermesToolProgress>().single.toolName)
+          .equals('terminal');
+      check(events.whereType<HermesApprovalRequested>().single.approvalId)
+          .equals('a1');
     });
 
     test('surfaces typed incomplete responses as terminal errors', () async {
@@ -668,9 +659,8 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((event) => event.responseId, 'responseId')
           .equals('resp_incomplete');
-      check(
-        events.whereType<HermesRunError>().single.message,
-      ).contains('max_output_tokens');
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('max_output_tokens');
       check(events.last).isA<HermesRunDone>();
     });
 
@@ -686,9 +676,8 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((event) => event.responseId, 'responseId')
           .equals('resp_cancelled');
-      check(
-        events.whereType<HermesRunError>().single.message,
-      ).contains('cancelled');
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('cancelled');
       check(events.last).isA<HermesRunDone>();
     });
 
@@ -704,9 +693,8 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((event) => event.responseId, 'responseId')
           .equals('resp_sparse');
-      check(
-        events.whereType<HermesRunError>().single.message,
-      ).contains('content_filter');
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('content_filter');
       check(events.last).isA<HermesRunDone>();
     });
   });

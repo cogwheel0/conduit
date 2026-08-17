@@ -13,17 +13,15 @@ import '../network/conduit_user_agent.dart';
 import '../utils/debug_logger.dart';
 import 'socket_tls_override.dart';
 
-typedef SocketChatEventHandler =
-    void Function(
-      Map<String, dynamic> event,
-      void Function(dynamic response)? ack,
-    );
+typedef SocketChatEventHandler = void Function(
+  Map<String, dynamic> event,
+  void Function(dynamic response)? ack,
+);
 
-typedef SocketChannelEventHandler =
-    void Function(
-      Map<String, dynamic> event,
-      void Function(dynamic response)? ack,
-    );
+typedef SocketChannelEventHandler = void Function(
+  Map<String, dynamic> event,
+  void Function(dynamic response)? ack,
+);
 
 enum SocketReplayGapReason {
   eventLimit,
@@ -35,12 +33,11 @@ enum SocketReplayGapReason {
 
 typedef SocketReplayGapCallback = void Function(SocketReplayGapReason reason);
 
-typedef SocketFactory =
-    io.Socket Function(
-      String base,
-      io.OptionBuilder builder,
-      ServerConfig serverConfig,
-    );
+typedef SocketFactory = io.Socket Function(
+  String base,
+  io.OptionBuilder builder,
+  ServerConfig serverConfig,
+);
 
 class SocketService with WidgetsBindingObserver {
   final ServerConfig serverConfig;

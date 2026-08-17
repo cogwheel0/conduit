@@ -131,10 +131,7 @@ void main() {
 
       expect(defaultCached, isNotNull);
       expect(tlsCached, isNotNull);
-      expect(
-        await defaultCached!.file.readAsBytes(),
-        orderedEquals([9, 9, 9]),
-      );
+      expect(await defaultCached!.file.readAsBytes(), orderedEquals([9, 9, 9]));
       expect(await tlsCached!.file.readAsBytes(), orderedEquals([7, 7, 7]));
     } finally {
       await tlsManager?.dispose();

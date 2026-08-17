@@ -87,6 +87,9 @@ class HivePrefsMigrator {
     final key =
         '${PreferenceKeys.transportOptionsPrefix}:'
         '${base64Url.encode(utf8.encode(serverId))}';
-    await PreferencesStore.put(key, jsonEncode(Map<String, dynamic>.from(data)));
+    await PreferencesStore.put(
+      key,
+      jsonEncode(Map<String, dynamic>.from(data)),
+    );
   }
 }

@@ -585,9 +585,8 @@ void main() {
 
         check(api.completionCalls).equals(1);
         final messages = container.read(chatMessagesProvider);
-        check(
-          messages.where((message) => message.role == 'assistant').length,
-        ).equals(2);
+        check(messages.where((message) => message.role == 'assistant').length)
+            .equals(2);
         check(messages.last.content).equals('Regenerated answer');
       },
     );
@@ -644,18 +643,15 @@ void main() {
         check(api.settingsCalls).equals(2);
 
         settingsGate.complete();
-        await Future.wait([
-          regeneration,
-          replacementRegeneration,
-        ]).timeout(const Duration(seconds: 1));
+        await Future.wait([regeneration, replacementRegeneration])
+            .timeout(const Duration(seconds: 1));
         await _flushAsyncWork();
 
         // Only the replacement operation can submit. The stale operation was
         // displaced before its await resumed and cannot reacquire A by id.
         check(api.completionCalls).equals(1);
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Regenerated answer');
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('Regenerated answer');
       },
     );
 
@@ -817,18 +813,17 @@ void main() {
         final expectedOwnedMetadata = Map<String, dynamic>.from(
           ownedBefore.metadata!,
         )..remove('conduitOpenWebUiRegenerationAttemptId');
-        check(
-          ownedAfter.metadata,
-        ).isA<Map<String, dynamic>>().deepEquals(expectedOwnedMetadata);
-        check(
-          ownedAfter.copyWith(metadata: ownedBefore.metadata),
-        ).equals(ownedBefore);
+        check(ownedAfter.metadata)
+            .isA<Map<String, dynamic>>()
+            .deepEquals(expectedOwnedMetadata);
+        check(ownedAfter.copyWith(metadata: ownedBefore.metadata))
+            .equals(ownedBefore);
         check(ownedAfter.error).isNull();
         check(messages.last).equals(newer);
         check(messages.last.error).isNull();
-        check(messages.last.metadata).isA<Map<String, dynamic>>().deepEquals(
-          const <String, dynamic>{'sentinel': 'newer'},
-        );
+        check(messages.last.metadata)
+            .isA<Map<String, dynamic>>()
+            .deepEquals(const <String, dynamic>{'sentinel': 'newer'});
       },
     );
 
@@ -917,9 +912,8 @@ void main() {
 
         check(api.completionCalls).equals(1);
         check(api.lastConversationId).equals('remote-conv-remap');
-        check(
-          container.read(activeConversationProvider)?.id,
-        ).equals('remote-conv-remap');
+        check(container.read(activeConversationProvider)?.id)
+            .equals('remote-conv-remap');
       },
     );
 
@@ -1077,9 +1071,8 @@ void main() {
         await _flushAsyncWork();
 
         check(api.completionCalls).equals(1);
-        check(
-          api.lastMessages.map((message) => message['role']).toList(),
-        ).deepEquals(['user']);
+        check(api.lastMessages.map((message) => message['role']).toList())
+            .deepEquals(['user']);
         check(api.lastMessages.single['content']).equals('First prompt');
       },
     );
@@ -1107,9 +1100,8 @@ void main() {
 
         var messages = container.read(chatMessagesProvider);
         final firstReplay = messages.last;
-        check(
-          firstReplay.versions.map((version) => version.id).toList(),
-        ).deepEquals(['a1']);
+        check(firstReplay.versions.map((version) => version.id).toList())
+            .deepEquals(['a1']);
 
         await regenerateHistoricalMessageById(container, firstReplay.id);
         await _flushAsyncWork();
@@ -1117,12 +1109,10 @@ void main() {
         messages = container.read(chatMessagesProvider);
         final secondReplay = messages.last;
         check(secondReplay.content).equals('Regenerated answer');
-        check(
-          secondReplay.versions.map((version) => version.id).toList(),
-        ).deepEquals(['a1', firstReplay.id]);
-        check(
-          secondReplay.versions.map((version) => version.content).toList(),
-        ).deepEquals(['First answer', 'Regenerated answer']);
+        check(secondReplay.versions.map((version) => version.id).toList())
+            .deepEquals(['a1', firstReplay.id]);
+        check(secondReplay.versions.map((version) => version.content).toList())
+            .deepEquals(['First answer', 'Regenerated answer']);
       },
     );
   });

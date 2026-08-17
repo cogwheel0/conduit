@@ -368,9 +368,8 @@ final class _UnavailableAppIntentHandler implements AppIntentFlutterApi {
     // reclaimed; cached completed records intentionally report no path.
     if (response.ownedFilePath != payload.filePath) {
       try {
-        await AppIntentStagedFileOwnership(
-          payload.filePath,
-        ).cleanupIfUntransferred();
+        await AppIntentStagedFileOwnership(payload.filePath)
+            .cleanupIfUntransferred();
       } catch (error) {
         // Rejection must remain available even when filesystem cleanup fails.
         // The staging sweeper can retry without exposing the sensitive path.
@@ -642,9 +641,8 @@ Future<PlatformAppIntentResponse> dispatchAppIntentInvocation({
     try {
       // A cached or joined duplicate did not adopt this delivery's fresh
       // staging path. Reclaim it on the Dart side as well as the native path.
-      await AppIntentStagedFileOwnership(
-        ownedFilePathOnSuccess,
-      ).cleanupIfUntransferred();
+      await AppIntentStagedFileOwnership(ownedFilePathOnSuccess)
+          .cleanupIfUntransferred();
     } catch (error) {
       // Preserve the durable invocation result if cleanup fails. The staging
       // sweeper can retry without exposing the sensitive path.

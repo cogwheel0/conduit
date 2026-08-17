@@ -29,15 +29,13 @@ class Tools:
 
   group('nameToId', () {
     test('lowercases, folds accents, and underscores separators', () {
-      check(WorkspaceToolContent.nameToId('Wéb Search Tool!')).equals(
-        'web_search_tool',
-      );
+      check(WorkspaceToolContent.nameToId('Wéb Search Tool!'))
+          .equals('web_search_tool');
     });
 
     test('trims leading and trailing underscores', () {
-      check(WorkspaceToolContent.nameToId('  ***My Tool***  ')).equals(
-        'my_tool',
-      );
+      check(WorkspaceToolContent.nameToId('  ***My Tool***  '))
+          .equals('my_tool');
     });
   });
 

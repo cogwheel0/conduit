@@ -158,9 +158,9 @@ class WorkspacePagedResponse<T> {
     T Function(Map<String, dynamic>) fromJson,
   ) {
     if (json is List) {
-      final items = workspaceJsonList(
-        json,
-      ).map(fromJson).toList(growable: false);
+      final items = workspaceJsonList(json)
+          .map(fromJson)
+          .toList(growable: false);
       return WorkspacePagedResponse(items: items, total: items.length);
     }
     final map = workspaceJsonMap(json);
@@ -174,9 +174,10 @@ class WorkspacePagedResponse<T> {
   }
 }
 
-List<WorkspaceAccessGrant> workspaceGrants(dynamic value) => workspaceJsonList(
-  value,
-).map(WorkspaceAccessGrant.fromJson).toList(growable: false);
+List<WorkspaceAccessGrant> workspaceGrants(dynamic value) =>
+    workspaceJsonList(value)
+        .map(WorkspaceAccessGrant.fromJson)
+        .toList(growable: false);
 
 List<Map<String, dynamic>> workspaceGrantInputs(
   List<WorkspaceAccessGrantInput> grants,

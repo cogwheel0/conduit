@@ -15,9 +15,8 @@ void main() {
       final container = _container(api);
       addTearDown(container.dispose);
 
-      await check(
-        container.read(userFilesProvider.future),
-      ).throws<StateError>();
+      await check(container.read(userFilesProvider.future))
+          .throws<StateError>();
       check(api.requestedPages).deepEquals([1]);
     });
 
@@ -47,9 +46,8 @@ void main() {
 
         final initialFiles = await container.read(userFilesProvider.future);
 
-        check(
-          initialFiles.map((file) => file.id).toList(),
-        ).deepEquals(['file-1']);
+        check(initialFiles.map((file) => file.id).toList())
+            .deepEquals(['file-1']);
         check(
           container.read(userFilesProvider).requireValue.map((file) => file.id),
         ).deepEquals(['file-1']);
@@ -57,9 +55,8 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 30));
 
         final allFiles = container.read(userFilesProvider).requireValue;
-        check(
-          allFiles.map((file) => file.id).toList(),
-        ).deepEquals(['file-3', 'file-2', 'file-1']);
+        check(allFiles.map((file) => file.id).toList())
+            .deepEquals(['file-3', 'file-2', 'file-1']);
         check(api.requestedPages).deepEquals([1, 2]);
       },
     );
@@ -90,9 +87,8 @@ void main() {
 
         final files = await container.read(userFilesProvider.future);
 
-        check(
-          files.map((file) => file.id).toList(),
-        ).deepEquals(['server-2', 'server-1']);
+        check(files.map((file) => file.id).toList())
+            .deepEquals(['server-2', 'server-1']);
         check(api.requestedPages).deepEquals([1]);
       },
     );

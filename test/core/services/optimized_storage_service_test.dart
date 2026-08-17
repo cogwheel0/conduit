@@ -168,23 +168,17 @@ void main() {
     }
   });
 
-  test(
-    'validated active server id reuses cached server configs across repeated lookups',
-    () async {
-      await saveServerConfigs(['server-a']);
-      await storage.setActiveServerId('server-a');
-      final readsAfterSetup = secureStorageReadCounts['server_configs_v2'] ?? 0;
+  test('validated active server id reuses cached server configs across repeated lookups', () async {
+    await saveServerConfigs(['server-a']);
+    await storage.setActiveServerId('server-a');
+    final readsAfterSetup = secureStorageReadCounts['server_configs_v2'] ?? 0;
 
-      expect(await storage.getActiveServerId(), 'server-a');
-      expect(await storage.getActiveServerId(), 'server-a');
-      expect(await storage.getActiveServerId(), 'server-a');
+    expect(await storage.getActiveServerId(), 'server-a');
+    expect(await storage.getActiveServerId(), 'server-a');
+    expect(await storage.getActiveServerId(), 'server-a');
 
-      expect(
-        secureStorageReadCounts['server_configs_v2'] ?? 0,
-        readsAfterSetup,
-      );
-    },
-  );
+    expect(secureStorageReadCounts['server_configs_v2'] ?? 0, readsAfterSetup);
+  });
 
   test('server config read failures are not cached as an empty list', () async {
     await saveServerConfigs(['server-a']);
@@ -232,44 +226,41 @@ void main() {
     );
   });
 
-  test(
-    'serverConfigsProvider exposes Keychain failure and recovers after invalidation',
-    () async {
-      await saveServerConfigs(['server-a']);
-      storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
-        boxes: HiveBoxes(
-          preferences: preferences,
-          caches: caches,
-          attachmentQueue: attachmentQueue,
-          metadata: metadata,
-        ),
-        workerManager: workerManager,
-      );
-      secureStorageReadErrors['server_configs_v2'] = PlatformException(
-        code: 'read-failed',
-        message: 'temporarily unavailable',
-      );
-      final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
-      final container = ProviderContainer(
-        overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
-      );
-      addTearDown(container.dispose);
+  test('serverConfigsProvider exposes Keychain failure and recovers after invalidation', () async {
+    await saveServerConfigs(['server-a']);
+    storage = OptimizedStorageService(
+      secureStorage: const FlutterSecureStorage(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+    );
+    secureStorageReadErrors['server_configs_v2'] = PlatformException(
+      code: 'read-failed',
+      message: 'temporarily unavailable',
+    );
+    final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
+    final container = ProviderContainer(
+      overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
 
-      await expectLater(
-        container.read(serverConfigsProvider.future),
-        throwsA(isA<PlatformException>()),
-      );
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
+    await expectLater(
+      container.read(serverConfigsProvider.future),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
 
-      secureStorageReadErrors.remove('server_configs_v2');
-      container.invalidate(serverConfigsProvider);
+    secureStorageReadErrors.remove('server_configs_v2');
+    container.invalidate(serverConfigsProvider);
 
-      final recovered = await container.read(serverConfigsProvider.future);
-      expect(recovered.map((config) => config.id), ['server-a']);
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
-    },
-  );
+    final recovered = await container.read(serverConfigsProvider.future);
+    expect(recovered.map((config) => config.id), ['server-a']);
+    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
+  });
 
   test(
     'active server validation does not cache null after a Keychain failure',
@@ -340,47 +331,44 @@ void main() {
     },
   );
 
-  test(
-    'delayed credentials read cannot restore the positive presence cache after delete',
-    () async {
-      await storage.saveCredentials(
-        serverId: 'server-a',
-        username: 'old-user',
-        password: 'old-password',
-      );
-      storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
-        boxes: HiveBoxes(
-          preferences: preferences,
-          caches: caches,
-          attachmentQueue: attachmentQueue,
-          metadata: metadata,
-        ),
-        workerManager: workerManager,
-      );
-      final readEntered = Completer<void>();
-      final releaseRead = Completer<void>();
-      secureStorageOperationEntered['read:user_credentials_v2'] = readEntered;
-      secureStorageOperationGates['read:user_credentials_v2'] = releaseRead;
-      secureStorageSnapshotReadsBeforeGate.add('read:user_credentials_v2');
+  test('delayed credentials read cannot restore the positive presence cache after delete', () async {
+    await storage.saveCredentials(
+      serverId: 'server-a',
+      username: 'old-user',
+      password: 'old-password',
+    );
+    storage = OptimizedStorageService(
+      secureStorage: const FlutterSecureStorage(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+    );
+    final readEntered = Completer<void>();
+    final releaseRead = Completer<void>();
+    secureStorageOperationEntered['read:user_credentials_v2'] = readEntered;
+    secureStorageOperationGates['read:user_credentials_v2'] = releaseRead;
+    secureStorageSnapshotReadsBeforeGate.add('read:user_credentials_v2');
 
-      final oldRead = storage.getSavedCredentials();
-      await readEntered.future;
-      final deletion = storage.deleteSavedCredentials();
-      releaseRead.complete();
+    final oldRead = storage.getSavedCredentials();
+    await readEntered.future;
+    final deletion = storage.deleteSavedCredentials();
+    releaseRead.complete();
 
-      expect((await oldRead)?['username'], 'old-user');
-      await deletion;
-      final readsAfterDelete =
-          secureStorageReadCounts['user_credentials_v2'] ?? 0;
-      expect(await storage.hasCredentials(), isFalse);
-      expect(
-        secureStorageReadCounts['user_credentials_v2'] ?? 0,
-        readsAfterDelete,
-      );
-      expect(secureStorageValues.containsKey('user_credentials_v2'), isFalse);
-    },
-  );
+    expect((await oldRead)?['username'], 'old-user');
+    await deletion;
+    final readsAfterDelete =
+        secureStorageReadCounts['user_credentials_v2'] ?? 0;
+    expect(await storage.hasCredentials(), isFalse);
+    expect(
+      secureStorageReadCounts['user_credentials_v2'] ?? 0,
+      readsAfterDelete,
+    );
+    expect(secureStorageValues.containsKey('user_credentials_v2'), isFalse);
+  });
 
   test(
     'delayed server config read cannot overwrite a newer saved config cache',
@@ -714,9 +702,8 @@ void main() {
     'candidate discard is transaction-owned and normal edits supersede it',
     () async {
       final previous = [_serverConfig('server-a').copyWith(isActive: true)];
-      final candidate = _serverConfig(
-        'server-candidate',
-      ).copyWith(isActive: true);
+      final candidate = _serverConfig('server-candidate')
+          .copyWith(isActive: true);
       await storage.saveServerConfigs(previous);
       await storage.setActiveServerId('server-a');
       var snapshot = await storage.stageServerConfigCandidate(candidate);
@@ -775,9 +762,8 @@ void main() {
         username: 'account-a',
         password: 'account-a-secret',
       );
-      final candidate = _serverConfig(
-        'server-candidate',
-      ).copyWith(apiKey: 'candidate-token', isActive: true);
+      final candidate = _serverConfig('server-candidate')
+          .copyWith(apiKey: 'candidate-token', isActive: true);
 
       final snapshot = await storage.stageServerConfigCandidate(candidate);
       var published = false;
@@ -915,9 +901,8 @@ void main() {
 
   test('superseded proxy commit rolls every durable key back', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
-    final candidate = _serverConfig(
-      'server-candidate',
-    ).copyWith(apiKey: 'candidate-token', isActive: true);
+    final candidate = _serverConfig('server-candidate')
+        .copyWith(apiKey: 'candidate-token', isActive: true);
     await storage.saveServerConfigs([previous]);
     await storage.setActiveServerId(previous.id);
     await storage.saveAuthToken('previous-token');
@@ -972,9 +957,8 @@ void main() {
     'proxy commit aborts before writes when the prior token snapshot fails',
     () async {
       final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final candidate = _serverConfig(
-        'server-candidate',
-      ).copyWith(apiKey: 'candidate-token', isActive: true);
+      final candidate = _serverConfig('server-candidate')
+          .copyWith(apiKey: 'candidate-token', isActive: true);
       await storage.saveServerConfigs([previous]);
       await storage.setActiveServerId(previous.id);
       await storage.saveAuthToken('previous-token');
@@ -1091,39 +1075,36 @@ void main() {
     },
   );
 
-  test(
-    'existing session supersession at each owner write restores the exact baseline',
-    () async {
-      final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final target = _serverConfig('server-b');
+  test('existing session supersession at each owner write restores the exact baseline', () async {
+    final previous = _serverConfig('server-a').copyWith(isActive: true);
+    final target = _serverConfig('server-b');
 
-      for (final failedCheck in const [5, 6]) {
-        await storage.saveServerConfigs([previous, target]);
-        await storage.setActiveServerId(previous.id);
-        await storage.saveAuthToken('previous-token');
-        final ownership = await storage.captureServerSessionOwnership(
-          validatedConfig: target,
-          requireActive: false,
-        );
-        expect(ownership, isNotNull);
+    for (final failedCheck in const [5, 6]) {
+      await storage.saveServerConfigs([previous, target]);
+      await storage.setActiveServerId(previous.id);
+      await storage.saveAuthToken('previous-token');
+      final ownership = await storage.captureServerSessionOwnership(
+        validatedConfig: target,
+        requireActive: false,
+      );
+      expect(ownership, isNotNull);
 
-        var checks = 0;
-        var published = false;
-        final committed = await storage.commitExistingServerSession(
-          ownership: ownership!,
-          token: 'candidate-token',
-          canCommit: () => ++checks < failedCheck,
-          publish: () => published = true,
-        );
+      var checks = 0;
+      var published = false;
+      final committed = await storage.commitExistingServerSession(
+        ownership: ownership!,
+        token: 'candidate-token',
+        canCommit: () => ++checks < failedCheck,
+        publish: () => published = true,
+      );
 
-        expect(committed, isFalse, reason: 'failed check $failedCheck');
-        expect(published, isFalse);
-        expect(await storage.getServerConfigs(), [previous, target]);
-        expect(await storage.getActiveServerId(), previous.id);
-        expect(await storage.getAuthToken(), 'previous-token');
-      }
-    },
-  );
+      expect(committed, isFalse, reason: 'failed check $failedCheck');
+      expect(published, isFalse);
+      expect(await storage.getServerConfigs(), [previous, target]);
+      expect(await storage.getActiveServerId(), previous.id);
+      expect(await storage.getAuthToken(), 'previous-token');
+    }
+  });
 
   test(
     'existing session rejects A-B-A selection and same-id transport mutation',
@@ -1374,64 +1355,61 @@ void main() {
     },
   );
 
-  test(
-    'existing session rollback uncertainty publishes poison and stays tokenless',
-    () async {
-      final previous = _serverConfig('server-a').copyWith(
-        isActive: true,
-        customHeaders: const {
-          'Cookie': 'proxy_session=must-not-survive',
-          'X-Tenant': 'retained',
-        },
-      );
-      final target = _serverConfig('server-b');
-      await storage.saveServerConfigs([previous, target]);
-      await storage.setActiveServerId(previous.id);
-      await storage.saveAuthToken('previous-token');
-      await storage.saveCredentials(
-        serverId: previous.id,
-        username: 'previous-user',
-        password: 'previous-password',
-      );
-      final ownership = await storage.captureServerSessionOwnership(
-        validatedConfig: target,
-        requireActive: false,
-      );
-      secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
-      var poisoned = false;
+  test('existing session rollback uncertainty publishes poison and stays tokenless', () async {
+    final previous = _serverConfig('server-a').copyWith(
+      isActive: true,
+      customHeaders: const {
+        'Cookie': 'proxy_session=must-not-survive',
+        'X-Tenant': 'retained',
+      },
+    );
+    final target = _serverConfig('server-b');
+    await storage.saveServerConfigs([previous, target]);
+    await storage.setActiveServerId(previous.id);
+    await storage.saveAuthToken('previous-token');
+    await storage.saveCredentials(
+      serverId: previous.id,
+      username: 'previous-user',
+      password: 'previous-password',
+    );
+    final ownership = await storage.captureServerSessionOwnership(
+      validatedConfig: target,
+      requireActive: false,
+    );
+    secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
+    secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
+    var poisoned = false;
 
-      await expectLater(
-        storage.commitExistingServerSession(
-          ownership: ownership!,
-          token: 'candidate-token',
-          canCommit: () => true,
-          publish: () {},
-          onRollbackUncertain: () => poisoned = true,
-        ),
-        throwsA(isA<ServerConfigSessionRollbackException>()),
-      );
+    await expectLater(
+      storage.commitExistingServerSession(
+        ownership: ownership!,
+        token: 'candidate-token',
+        canCommit: () => true,
+        publish: () {},
+        onRollbackUncertain: () => poisoned = true,
+      ),
+      throwsA(isA<ServerConfigSessionRollbackException>()),
+    );
 
-      expect(poisoned, isTrue);
-      expect(await storage.getAuthToken(), isNull);
-      expect(await storage.getSavedCredentials(), isNull);
-      final failClosedConfigs = await storage.getServerConfigs();
-      expect(
-        failClosedConfigs.every(
-          (config) => config.customHeaders.keys.every(
-            (key) => key.toLowerCase() != 'cookie',
-          ),
+    expect(poisoned, isTrue);
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getSavedCredentials(), isNull);
+    final failClosedConfigs = await storage.getServerConfigs();
+    expect(
+      failClosedConfigs.every(
+        (config) => config.customHeaders.keys.every(
+          (key) => key.toLowerCase() != 'cookie',
         ),
-        isTrue,
-      );
-      expect(
-        failClosedConfigs
-            .firstWhere((config) => config.id == previous.id)
-            .customHeaders,
-        const {'X-Tenant': 'retained'},
-      );
-    },
-  );
+      ),
+      isTrue,
+    );
+    expect(
+      failClosedConfigs
+          .firstWhere((config) => config.id == previous.id)
+          .customHeaders,
+      const {'X-Tenant': 'retained'},
+    );
+  });
 
   test(
     'failed checked active-id write rolls back before candidate token',
@@ -1473,59 +1451,54 @@ void main() {
     },
   );
 
-  test(
-    'fresh server selection is bearer-tokenless and preserves exact candidate headers',
-    () async {
-      final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final target = _serverConfig('server-b').copyWith(
-        apiKey: 'legacy-bearer',
-        customHeaders: const {
-          'Cookie': 'proxy_session=fresh-candidate',
-          'X-OpenWebUI-Key': 'fresh-custom-key',
-          'X-Tenant': 'fresh-routing-value',
-        },
-      );
-      await storage.saveServerConfigs([previous]);
-      await storage.setActiveServerId(previous.id);
-      await storage.saveAuthToken('previous-token');
-      await storage.saveCredentials(
-        serverId: previous.id,
-        username: 'previous-user',
-        password: 'previous-password',
-      );
-      secureStorageOperations.clear();
-      var publishedTokenless = false;
+  test('fresh server selection is bearer-tokenless and preserves exact candidate headers', () async {
+    final previous = _serverConfig('server-a').copyWith(isActive: true);
+    final target = _serverConfig('server-b').copyWith(
+      apiKey: 'legacy-bearer',
+      customHeaders: const {
+        'Cookie': 'proxy_session=fresh-candidate',
+        'X-OpenWebUI-Key': 'fresh-custom-key',
+        'X-Tenant': 'fresh-routing-value',
+      },
+    );
+    await storage.saveServerConfigs([previous]);
+    await storage.setActiveServerId(previous.id);
+    await storage.saveAuthToken('previous-token');
+    await storage.saveCredentials(
+      serverId: previous.id,
+      username: 'previous-user',
+      password: 'previous-password',
+    );
+    secureStorageOperations.clear();
+    var publishedTokenless = false;
 
-      await storage.selectUnauthenticatedServerConfig(
-        target,
-        publish: () {
-          publishedTokenless =
-              !secureStorageValues.containsKey('auth_token_v2') &&
-              PreferencesStore.getString(PreferenceKeys.activeServerId) ==
-                  target.id;
-        },
-      );
+    await storage.selectUnauthenticatedServerConfig(
+      target,
+      publish: () {
+        publishedTokenless =
+            !secureStorageValues.containsKey('auth_token_v2') &&
+            PreferencesStore.getString(PreferenceKeys.activeServerId) ==
+                target.id;
+      },
+    );
 
-      expect(publishedTokenless, isTrue);
-      expect(await storage.getAuthToken(), isNull);
-      expect(await storage.getSavedCredentials(), isNull);
-      expect(await storage.getServerConfigs(), [
-        target.copyWith(apiKey: null, isActive: true),
-      ]);
-      final tokenDelete = secureStorageOperations.indexOf(
-        'delete:auth_token_v2',
-      );
-      final credentialsDelete = secureStorageOperations.indexOf(
-        'delete:user_credentials_v2',
-      );
-      final configWrite = secureStorageOperations.indexOf(
-        'write:server_configs_v2',
-      );
-      expect(tokenDelete, greaterThanOrEqualTo(0));
-      expect(credentialsDelete, greaterThan(tokenDelete));
-      expect(configWrite, greaterThan(credentialsDelete));
-    },
-  );
+    expect(publishedTokenless, isTrue);
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getSavedCredentials(), isNull);
+    expect(await storage.getServerConfigs(), [
+      target.copyWith(apiKey: null, isActive: true),
+    ]);
+    final tokenDelete = secureStorageOperations.indexOf('delete:auth_token_v2');
+    final credentialsDelete = secureStorageOperations.indexOf(
+      'delete:user_credentials_v2',
+    );
+    final configWrite = secureStorageOperations.indexOf(
+      'write:server_configs_v2',
+    );
+    expect(tokenDelete, greaterThanOrEqualTo(0));
+    expect(credentialsDelete, greaterThan(tokenDelete));
+    expect(configWrite, greaterThan(credentialsDelete));
+  });
 
   test(
     'failed server-selection publication restores the prior session',
@@ -1587,59 +1560,56 @@ void main() {
     expect(await storage.getAuthToken(), 'previous-token');
   });
 
-  test(
-    'logout scrubs proxy cookies and legacy bearer but preserves connection '
-    'settings',
-    () async {
-      final config = _serverConfig('server-a').copyWith(
-        apiKey: 'legacy-bearer',
+  test('logout scrubs proxy cookies and legacy bearer but preserves connection '
+      'settings', () async {
+    final config = _serverConfig('server-a').copyWith(
+      apiKey: 'legacy-bearer',
+      customHeaders: const {
+        'Cookie': 'session=secret',
+        'CF-Access-Client-Id': 'service-token-id',
+        'CF-Access-Client-Secret': 'service-token-secret',
+        'X-Tenant': 'connection-routing-value',
+      },
+      allowSelfSignedCertificates: true,
+      mtlsCertificateChainPem: 'client-certificate',
+      mtlsCertificateLabel: 'client.crt',
+      mtlsPrivateKeyPem: 'client-private-key',
+      mtlsPrivateKeyLabel: 'client.key',
+      mtlsPrivateKeyPassword: 'private-key-password',
+      isActive: true,
+    );
+    await storage.saveServerConfigs([config]);
+    await storage.setActiveServerId(config.id);
+    await storage.saveAuthToken('token');
+    await storage.saveCredentials(
+      serverId: config.id,
+      username: 'user',
+      password: 'password',
+    );
+    secureStorageOperations.clear();
+
+    await storage.clearAuthData();
+
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getSavedCredentials(), isNull);
+    // Header-gated and mTLS-gated proxies must stay reachable for re-login:
+    // only the captured proxy session cookie and the legacy apiKey bearer
+    // are session credentials.
+    expect(await storage.getServerConfigs(), [
+      config.copyWith(
+        apiKey: null,
         customHeaders: const {
-          'Cookie': 'session=secret',
           'CF-Access-Client-Id': 'service-token-id',
           'CF-Access-Client-Secret': 'service-token-secret',
           'X-Tenant': 'connection-routing-value',
         },
-        allowSelfSignedCertificates: true,
-        mtlsCertificateChainPem: 'client-certificate',
-        mtlsCertificateLabel: 'client.crt',
-        mtlsPrivateKeyPem: 'client-private-key',
-        mtlsPrivateKeyLabel: 'client.key',
-        mtlsPrivateKeyPassword: 'private-key-password',
-        isActive: true,
-      );
-      await storage.saveServerConfigs([config]);
-      await storage.setActiveServerId(config.id);
-      await storage.saveAuthToken('token');
-      await storage.saveCredentials(
-        serverId: config.id,
-        username: 'user',
-        password: 'password',
-      );
-      secureStorageOperations.clear();
-
-      await storage.clearAuthData();
-
-      expect(await storage.getAuthToken(), isNull);
-      expect(await storage.getSavedCredentials(), isNull);
-      // Header-gated and mTLS-gated proxies must stay reachable for re-login:
-      // only the captured proxy session cookie and the legacy apiKey bearer
-      // are session credentials.
-      expect(await storage.getServerConfigs(), [
-        config.copyWith(
-          apiKey: null,
-          customHeaders: const {
-            'CF-Access-Client-Id': 'service-token-id',
-            'CF-Access-Client-Secret': 'service-token-secret',
-            'X-Tenant': 'connection-routing-value',
-          },
-        ),
-      ]);
-      expect(
-        secureStorageOperations.indexOf('delete:auth_token_v2'),
-        lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
-      );
-    },
-  );
+      ),
+    ]);
+    expect(
+      secureStorageOperations.indexOf('delete:auth_token_v2'),
+      lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
+    );
+  });
 
   test('logout preserves a standalone mTLS identity', () async {
     final config = _serverConfig('mtls-only').copyWith(
@@ -1666,10 +1636,7 @@ void main() {
     expect(preserved.mtlsPrivateKeyPem, 'standalone-private-key');
     expect(preserved.mtlsPrivateKeyLabel, 'standalone.key');
     expect(preserved.mtlsPrivateKeyPassword, 'standalone-password');
-    expect(
-      secureStorageOperations,
-      isNot(contains('write:server_configs_v2')),
-    );
+    expect(secureStorageOperations, isNot(contains('write:server_configs_v2')));
   });
 
   test(
@@ -1708,9 +1675,8 @@ void main() {
     () async {
       // Simulate a config persisted by a pre-hardening build that still
       // carries the legacy apiKey bearer field.
-      final legacy = _serverConfig(
-        'server-a',
-      ).copyWith(apiKey: 'legacy-bearer', isActive: true);
+      final legacy = _serverConfig('server-a')
+          .copyWith(apiKey: 'legacy-bearer', isActive: true);
       secureStorageValues['server_configs_v2'] = jsonEncode([legacy.toJson()]);
       await storage.setActiveServerId(legacy.id);
       await storage.saveAuthToken('session-token');
@@ -1724,9 +1690,7 @@ void main() {
       // legacy field. That one-time migration is not an ownership change.
       await storage.saveServerConfigs([legacy]);
 
-      expect(await storage.getServerConfigs(), [
-        legacy.copyWith(apiKey: null),
-      ]);
+      expect(await storage.getServerConfigs(), [legacy.copyWith(apiKey: null)]);
       expect(await storage.getAuthToken(), 'session-token');
       expect(await storage.getSavedCredentials(), isNotNull);
     },
@@ -1781,33 +1745,27 @@ void main() {
 
     await storage.saveServerConfigs([replacement]);
 
-    check(
-      PreferencesStore.getString(PreferenceKeys.activeServerId),
-    ).equals(replacement.id);
+    check(PreferencesStore.getString(PreferenceKeys.activeServerId))
+        .equals(replacement.id);
     check(await storage.getActiveServerId()).equals(replacement.id);
   });
 
-  test(
-    'locked missing-server cleanup preserves credentials when the server exists',
-    () async {
-      final config = _serverConfig('server-a').copyWith(isActive: true);
-      await storage.saveServerConfigs([config]);
-      await storage.saveCredentials(
-        serverId: config.id,
-        username: 'user',
-        password: 'password',
-      );
-      final expected = await storage.getSavedCredentials();
+  test('locked missing-server cleanup preserves credentials when the server exists', () async {
+    final config = _serverConfig('server-a').copyWith(isActive: true);
+    await storage.saveServerConfigs([config]);
+    await storage.saveCredentials(
+      serverId: config.id,
+      username: 'user',
+      password: 'password',
+    );
+    final expected = await storage.getSavedCredentials();
 
-      expect(
-        await storage.deleteSavedCredentialsIfMatchesAndServerMissing(
-          expected!,
-        ),
-        isFalse,
-      );
-      expect(await storage.getSavedCredentials(), expected);
-    },
-  );
+    expect(
+      await storage.deleteSavedCredentialsIfMatchesAndServerMissing(expected!),
+      isFalse,
+    );
+    expect(await storage.getSavedCredentials(), expected);
+  });
 
   test('staging snapshots the effective fallback active server', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
@@ -1828,9 +1786,8 @@ void main() {
     'process death after staging leaves durable session untouched',
     () async {
       final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final candidate = _serverConfig(
-        'server-candidate',
-      ).copyWith(apiKey: 'candidate-token', isActive: true);
+      final candidate = _serverConfig('server-candidate')
+          .copyWith(apiKey: 'candidate-token', isActive: true);
       await storage.saveServerConfigs([previous]);
       await storage.setActiveServerId(previous.id);
       await storage.saveAuthToken('previous-token');
@@ -1859,9 +1816,8 @@ void main() {
     'provider rebuild cannot publish or activate a staged proxy candidate',
     () async {
       final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final candidate = _serverConfig(
-        'server-candidate',
-      ).copyWith(isActive: true);
+      final candidate = _serverConfig('server-candidate')
+          .copyWith(isActive: true);
       await storage.saveServerConfigs([previous]);
       await storage.setActiveServerId(previous.id);
       final snapshot = await storage.stageServerConfigCandidate(candidate);
@@ -2136,67 +2092,64 @@ void main() {
     expect(restored?.id, modelA.id);
   });
 
-  test(
-    'user cache cleanup cannot retarget transport options after an A to B switch',
-    () async {
-      final databaseA = AppDatabase(NativeDatabase.memory());
-      addTearDown(databaseA.close);
-      final releaseStarted = Completer<void>();
-      final releaseGate = Completer<void>();
-      addTearDown(() {
-        if (!releaseGate.isCompleted) releaseGate.complete();
-      });
-      storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
-        boxes: HiveBoxes(
-          preferences: preferences,
-          caches: caches,
-          attachmentQueue: attachmentQueue,
-          metadata: metadata,
-        ),
-        workerManager: workerManager,
-        databaseAccess: () => OptimizedStorageDatabaseHandle(
-          database: databaseA,
-          onRelease: () async {
-            if (!releaseStarted.isCompleted) releaseStarted.complete();
-            await releaseGate.future;
-          },
-        ),
-      );
-      const optionsA = SocketTransportAvailability(
-        allowPolling: false,
-        allowWebsocketOnly: true,
-      );
-      const optionsB = SocketTransportAvailability(
-        allowPolling: true,
-        allowWebsocketOnly: false,
-      );
-      await saveServerConfigs(['server-a', 'server-b']);
-      await storage.setActiveServerId('server-a');
-      await storage.saveLocalTransportOptions(optionsA);
-      await storage.setActiveServerId('server-b');
-      await storage.saveLocalTransportOptions(optionsB);
-      await storage.setActiveServerId('server-a');
+  test('user cache cleanup cannot retarget transport options after an A to B switch', () async {
+    final databaseA = AppDatabase(NativeDatabase.memory());
+    addTearDown(databaseA.close);
+    final releaseStarted = Completer<void>();
+    final releaseGate = Completer<void>();
+    addTearDown(() {
+      if (!releaseGate.isCompleted) releaseGate.complete();
+    });
+    storage = OptimizedStorageService(
+      secureStorage: const FlutterSecureStorage(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+      databaseAccess: () => OptimizedStorageDatabaseHandle(
+        database: databaseA,
+        onRelease: () async {
+          if (!releaseStarted.isCompleted) releaseStarted.complete();
+          await releaseGate.future;
+        },
+      ),
+    );
+    const optionsA = SocketTransportAvailability(
+      allowPolling: false,
+      allowWebsocketOnly: true,
+    );
+    const optionsB = SocketTransportAvailability(
+      allowPolling: true,
+      allowWebsocketOnly: false,
+    );
+    await saveServerConfigs(['server-a', 'server-b']);
+    await storage.setActiveServerId('server-a');
+    await storage.saveLocalTransportOptions(optionsA);
+    await storage.setActiveServerId('server-b');
+    await storage.saveLocalTransportOptions(optionsB);
+    await storage.setActiveServerId('server-a');
 
-      final cleanup = storage.clearUserScopedAuthData();
-      await releaseStarted.future;
+    final cleanup = storage.clearUserScopedAuthData();
+    await releaseStarted.future;
 
-      var switchCompleted = false;
-      final serverSwitch = storage.setActiveServerId('server-b').then((_) {
-        switchCompleted = true;
-      });
-      await Future<void>.delayed(Duration.zero);
-      expect(switchCompleted, isFalse);
+    var switchCompleted = false;
+    final serverSwitch = storage.setActiveServerId('server-b').then((_) {
+      switchCompleted = true;
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(switchCompleted, isFalse);
 
-      releaseGate.complete();
-      await cleanup;
-      await serverSwitch;
+    releaseGate.complete();
+    await cleanup;
+    await serverSwitch;
 
-      expect(storage.getLocalTransportOptionsSync(), optionsB);
-      await storage.setActiveServerId('server-a');
-      expect(storage.getLocalTransportOptionsSync(), isNull);
-    },
-  );
+    expect(storage.getLocalTransportOptionsSync(), optionsB);
+    await storage.setActiveServerId('server-a');
+    expect(storage.getLocalTransportOptionsSync(), isNull);
+  });
 
   test(
     'user cleanup cannot erase a newer queued authenticated user persistence',
@@ -2275,71 +2228,66 @@ void main() {
     },
   );
 
-  test(
-    'conditional full wipe preserves only non-secret server details when requested',
-    () async {
-      final config = _serverConfig('server-a').copyWith(
-        apiKey: 'legacy-session-token',
-        customHeaders: const {
-          'Cookie': 'proxy_session=remove-me',
-          'X-Tenant': 'keep-me',
-        },
-        allowSelfSignedCertificates: true,
-        mtlsCertificateChainPem: 'certificate',
-        mtlsCertificateLabel: 'client-certificate.pem',
-        mtlsPrivateKeyPem: 'private-key',
-        mtlsPrivateKeyLabel: 'client-key.pem',
-        mtlsPrivateKeyPassword: 'passphrase',
-        isActive: true,
-      );
-      await storage.saveServerConfigs([config]);
-      await storage.setActiveServerId(config.id);
-      await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
-      await PreferencesStore.putChecked(PreferenceKeys.hermesEnabled, true);
-      await PreferencesStore.putChecked(
-        PreferenceKeys.incompleteLogoutFence,
-        true,
-      );
-      secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
-      secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
+  test('conditional full wipe preserves only non-secret server details when requested', () async {
+    final config = _serverConfig('server-a').copyWith(
+      apiKey: 'legacy-session-token',
+      customHeaders: const {
+        'Cookie': 'proxy_session=remove-me',
+        'X-Tenant': 'keep-me',
+      },
+      allowSelfSignedCertificates: true,
+      mtlsCertificateChainPem: 'certificate',
+      mtlsCertificateLabel: 'client-certificate.pem',
+      mtlsPrivateKeyPem: 'private-key',
+      mtlsPrivateKeyLabel: 'client-key.pem',
+      mtlsPrivateKeyPassword: 'passphrase',
+      isActive: true,
+    );
+    await storage.saveServerConfigs([config]);
+    await storage.setActiveServerId(config.id);
+    await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
+    await PreferencesStore.putChecked(PreferenceKeys.hermesEnabled, true);
+    await PreferencesStore.putChecked(
+      PreferenceKeys.incompleteLogoutFence,
+      true,
+    );
+    secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
+    secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
 
-      final cleared = await storage.clearAllIf(
-        canClear: () => true,
-        preserveServerDetails: true,
-      );
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
 
-      expect(cleared, isTrue);
-      final retained = (await storage.getServerConfigs()).single;
-      expect(retained.id, config.id);
-      expect(retained.apiKey, isNull);
-      expect(
-        retained.customHeaders.keys.any(
-          (name) => name.toLowerCase() == 'cookie',
-        ),
-        isFalse,
-      );
-      check(retained.customHeaders).isEmpty();
-      check(retained.allowSelfSignedCertificates).isTrue();
-      check(retained.mtlsCertificateChainPem).isNull();
-      check(retained.mtlsCertificateLabel).isNull();
-      check(retained.mtlsPrivateKeyPem).isNull();
-      check(retained.mtlsPrivateKeyLabel).isNull();
-      check(retained.mtlsPrivateKeyPassword).isNull();
-      expect(await storage.getActiveServerId(), config.id);
+    expect(cleared, isTrue);
+    final retained = (await storage.getServerConfigs()).single;
+    expect(retained.id, config.id);
+    expect(retained.apiKey, isNull);
+    expect(
+      retained.customHeaders.keys.any((name) => name.toLowerCase() == 'cookie'),
+      isFalse,
+    );
+    check(retained.customHeaders).isEmpty();
+    check(retained.allowSelfSignedCertificates).isTrue();
+    check(retained.mtlsCertificateChainPem).isNull();
+    check(retained.mtlsCertificateLabel).isNull();
+    check(retained.mtlsPrivateKeyPem).isNull();
+    check(retained.mtlsPrivateKeyLabel).isNull();
+    check(retained.mtlsPrivateKeyPassword).isNull();
+    expect(await storage.getActiveServerId(), config.id);
 
-      expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);
-      expect(PreferencesStore.getBool(PreferenceKeys.hermesEnabled), isNull);
-      expect(
-        PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-        isTrue,
-      );
-      expect(secureStorageValues.containsKey('hermes_api_key_v1'), isFalse);
-      expect(
-        secureStorageValues.containsKey('direct_connection_profiles_v1'),
-        isFalse,
-      );
-    },
-  );
+    expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);
+    expect(PreferencesStore.getBool(PreferenceKeys.hermesEnabled), isNull);
+    expect(
+      PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
+      isTrue,
+    );
+    expect(secureStorageValues.containsKey('hermes_api_key_v1'), isFalse);
+    expect(
+      secureStorageValues.containsKey('direct_connection_profiles_v1'),
+      isFalse,
+    );
+  });
 
   test('conditional full wipe removes server details by default', () async {
     await saveServerConfigs(['server-a']);
@@ -2367,10 +2315,7 @@ void main() {
       );
 
       await expectLater(
-        storage.clearAllIf(
-          canClear: () => true,
-          preserveServerDetails: true,
-        ),
+        storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
         throwsA(isA<PlatformException>()),
       );
 
@@ -2429,9 +2374,9 @@ void main() {
       check(await storage.getServerConfigs()).isEmpty();
       check(await storage.getActiveServerId()).isNull();
 
-      final storedConfigs =
-          jsonDecode(secureStorageValues['server_configs_v2']!)
-              as List<dynamic>;
+      final storedConfigs = jsonDecode(
+        secureStorageValues['server_configs_v2']!,
+      ) as List<dynamic>;
       final storedConfig = ServerConfig.fromJson(storedConfigs.single);
       check(storedConfig.apiKey).isNull();
       check(
@@ -2443,135 +2388,125 @@ void main() {
     },
   );
 
-  test(
-    'failed wipe suppression survives cache expiry eviction and clearing until explicit resave',
-    () async {
-      storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
-        boxes: HiveBoxes(
-          preferences: preferences,
-          caches: caches,
-          attachmentQueue: attachmentQueue,
-          metadata: metadata,
-        ),
-        workerManager: workerManager,
-        cacheManager: CacheManager(maxEntries: 1),
-        authTokenCacheTtl: Duration.zero,
-        serverIdCacheTtl: Duration.zero,
-        serverConfigsCacheTtl: Duration.zero,
-        credentialsFlagCacheTtl: Duration.zero,
-      );
-      final retainedConfig = _serverConfig('server-a').copyWith(
-        apiKey: 'retained-api-key',
-        customHeaders: const {'Cookie': 'retained-proxy-cookie'},
-        isActive: true,
-      );
-      await storage.saveServerConfigs([retainedConfig]);
-      await storage.setActiveServerId(retainedConfig.id);
-      await storage.saveAuthToken('retained-token');
-      await storage.saveCredentials(
-        serverId: retainedConfig.id,
-        username: 'retained-user',
-        password: 'retained-password',
-      );
-      secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
-      secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
-      secureStorageFailureCountdowns['deleteAll:null'] = 1;
+  test('failed wipe suppression survives cache expiry eviction and clearing until explicit resave', () async {
+    storage = OptimizedStorageService(
+      secureStorage: const FlutterSecureStorage(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+      cacheManager: CacheManager(maxEntries: 1),
+      authTokenCacheTtl: Duration.zero,
+      serverIdCacheTtl: Duration.zero,
+      serverConfigsCacheTtl: Duration.zero,
+      credentialsFlagCacheTtl: Duration.zero,
+    );
+    final retainedConfig = _serverConfig('server-a').copyWith(
+      apiKey: 'retained-api-key',
+      customHeaders: const {'Cookie': 'retained-proxy-cookie'},
+      isActive: true,
+    );
+    await storage.saveServerConfigs([retainedConfig]);
+    await storage.setActiveServerId(retainedConfig.id);
+    await storage.saveAuthToken('retained-token');
+    await storage.saveCredentials(
+      serverId: retainedConfig.id,
+      username: 'retained-user',
+      password: 'retained-password',
+    );
+    secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
+    secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
+    secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
 
-      await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
-      // Model a retained/reintroduced platform preference independently of the
-      // service cache. The process-local wipe fence must still hide it.
-      await PreferencesStore.putChecked(
-        PreferenceKeys.activeServerId,
-        retainedConfig.id,
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 2));
-      storage.clearCache();
+    await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
+    // Model a retained/reintroduced platform preference independently of the
+    // service cache. The process-local wipe fence must still hide it.
+    await PreferencesStore.putChecked(
+      PreferenceKeys.activeServerId,
+      retainedConfig.id,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    storage.clearCache();
 
-      expect(secureStorageValues['auth_token_v2'], 'retained-token');
-      expect(secureStorageValues.containsKey('user_credentials_v2'), isTrue);
-      expect(await storage.getAuthTokenStrict(), isNull);
-      expect(await storage.getSavedCredentialsStrict(), isNull);
-      expect(await storage.getServerConfigsStrict(), isEmpty);
-      expect(await storage.getActiveServerId(), isNull);
+    expect(secureStorageValues['auth_token_v2'], 'retained-token');
+    expect(secureStorageValues.containsKey('user_credentials_v2'), isTrue);
+    expect(await storage.getAuthTokenStrict(), isNull);
+    expect(await storage.getSavedCredentialsStrict(), isNull);
+    expect(await storage.getServerConfigsStrict(), isEmpty);
+    expect(await storage.getActiveServerId(), isNull);
 
-      // A later cleanup pass must bypass both the suppression flag and the
-      // negative cache so it can sanitize the retained platform payload.
-      await storage.clearAuthData();
-      final scrubbedConfigs =
-          jsonDecode(secureStorageValues['server_configs_v2']!)
-              as List<dynamic>;
-      final scrubbedConfig = ServerConfig.fromJson(scrubbedConfigs.single);
-      expect(scrubbedConfig.apiKey, isNull);
-      expect(
-        scrubbedConfig.customHeaders.keys.any(
-          (name) => name.toLowerCase() == 'cookie',
-        ),
-        isFalse,
-      );
-      expect(scrubbedConfig.customHeaders, isEmpty);
-      expect(await storage.getServerConfigsStrict(), isEmpty);
+    // A later cleanup pass must bypass both the suppression flag and the
+    // negative cache so it can sanitize the retained platform payload.
+    await storage.clearAuthData();
+    final scrubbedConfigs =
+        jsonDecode(secureStorageValues['server_configs_v2']!) as List<dynamic>;
+    final scrubbedConfig = ServerConfig.fromJson(scrubbedConfigs.single);
+    expect(scrubbedConfig.apiKey, isNull);
+    expect(
+      scrubbedConfig.customHeaders.keys.any(
+        (name) => name.toLowerCase() == 'cookie',
+      ),
+      isFalse,
+    );
+    expect(scrubbedConfig.customHeaders, isEmpty);
+    expect(await storage.getServerConfigsStrict(), isEmpty);
 
-      final replacement = _serverConfig('server-b').copyWith(isActive: true);
-      await storage.saveServerConfigs([replacement]);
-      await storage.setActiveServerId(replacement.id);
-      await storage.saveAuthToken('replacement-token');
-      await storage.saveCredentials(
-        serverId: replacement.id,
-        username: 'replacement-user',
-        password: 'replacement-password',
-      );
+    final replacement = _serverConfig('server-b').copyWith(isActive: true);
+    await storage.saveServerConfigs([replacement]);
+    await storage.setActiveServerId(replacement.id);
+    await storage.saveAuthToken('replacement-token');
+    await storage.saveCredentials(
+      serverId: replacement.id,
+      username: 'replacement-user',
+      password: 'replacement-password',
+    );
 
-      expect(await storage.getAuthTokenStrict(), 'replacement-token');
-      expect(
-        (await storage.getSavedCredentialsStrict())?['username'],
-        'replacement-user',
-      );
-      expect(
-        (await storage.getServerConfigsStrict()).single.id,
-        replacement.id,
-      );
-      expect(await storage.getActiveServerId(), replacement.id);
-    },
-  );
+    expect(await storage.getAuthTokenStrict(), 'replacement-token');
+    expect(
+      (await storage.getSavedCredentialsStrict())?['username'],
+      'replacement-user',
+    );
+    expect((await storage.getServerConfigsStrict()).single.id, replacement.id);
+    expect(await storage.getActiveServerId(), replacement.id);
+  });
 
-  test(
-    'clearAll queued behind a session commit cannot be followed by token resurrection',
-    () async {
-      final previous = _serverConfig('server-a').copyWith(isActive: true);
-      final target = _serverConfig('server-b');
-      await storage.saveServerConfigs([previous, target]);
-      await storage.setActiveServerId(previous.id);
-      await storage.saveAuthToken('previous-token');
-      final ownership = await storage.captureServerSessionOwnership(
-        validatedConfig: target,
-        requireActive: false,
-      );
-      final tokenWriteEntered = Completer<void>();
-      final releaseTokenWrite = Completer<void>();
-      secureStorageOperationEntered['write:auth_token_v2'] = tokenWriteEntered;
-      secureStorageOperationGates['write:auth_token_v2'] = releaseTokenWrite;
+  test('clearAll queued behind a session commit cannot be followed by token resurrection', () async {
+    final previous = _serverConfig('server-a').copyWith(isActive: true);
+    final target = _serverConfig('server-b');
+    await storage.saveServerConfigs([previous, target]);
+    await storage.setActiveServerId(previous.id);
+    await storage.saveAuthToken('previous-token');
+    final ownership = await storage.captureServerSessionOwnership(
+      validatedConfig: target,
+      requireActive: false,
+    );
+    final tokenWriteEntered = Completer<void>();
+    final releaseTokenWrite = Completer<void>();
+    secureStorageOperationEntered['write:auth_token_v2'] = tokenWriteEntered;
+    secureStorageOperationGates['write:auth_token_v2'] = releaseTokenWrite;
 
-      var published = false;
-      final commit = storage.commitExistingServerSession(
-        ownership: ownership!,
-        token: 'candidate-token',
-        canCommit: () => true,
-        publish: () => published = true,
-      );
-      await tokenWriteEntered.future;
-      final wipe = storage.clearAll();
-      releaseTokenWrite.complete();
+    var published = false;
+    final commit = storage.commitExistingServerSession(
+      ownership: ownership!,
+      token: 'candidate-token',
+      canCommit: () => true,
+      publish: () => published = true,
+    );
+    await tokenWriteEntered.future;
+    final wipe = storage.clearAll();
+    releaseTokenWrite.complete();
 
-      expect(await commit, isTrue);
-      expect(published, isTrue);
-      await wipe;
-      expect(await storage.getAuthToken(), isNull);
-      expect(await storage.getServerConfigs(), isEmpty);
-      expect(await storage.getActiveServerId(), isNull);
-    },
-  );
+    expect(await commit, isTrue);
+    expect(published, isTrue);
+    await wipe;
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getServerConfigs(), isEmpty);
+    expect(await storage.getActiveServerId(), isNull);
+  });
 
   test(
     'clearAll keeps its server owner until deferred Drift cleanup finishes',

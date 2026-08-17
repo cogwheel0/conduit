@@ -53,7 +53,10 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
+import '../../../core/utils/openwebui_message_payload.dart';
+import '../../../core/utils/semantic_details.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../utils/follow_ups_socket_event.dart';
 import '../../hermes/models/hermes_chat_input.dart';
 import '../../hermes/models/hermes_capabilities.dart';
 import '../../hermes/models/hermes_config.dart';
@@ -1176,59 +1179,74 @@ bool failedCompactedHermesApprovalRemainsAdoptableForTest() {
 class _ChatMessageListStructure {
   const _ChatMessageListStructure({required this.ids, required this.signature});
 
+  // ChatMessage is immutable and unchanged messages keep their identity
+  // across chatMessagesProvider emissions, so per-message signature fragments
+  // are cached by identity. This factory runs on every message-list emission;
+  // without the cache it re-derived O(messages × versions) string work each
+  // time even when nothing changed.
+  static final Expando<String> _messageSignatureCache = Expando<String>();
+
   factory _ChatMessageListStructure.fromMessages(List<ChatMessage> messages) {
     final ids = List<String>.unmodifiable(
       messages.map((message) => message.id).toList(growable: false),
     );
     final buffer = StringBuffer();
     for (final message in messages) {
-      buffer
-        ..write(message.id)
-        ..write('\u0000')
-        ..write(message.role)
-        ..write('\u0000')
-        ..write(message.model ?? '')
-        ..write('\u0000')
-        ..write(message.attachmentIds?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.files?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.embeds?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.output?.length ?? 0)
-        ..write('\u0000')
-        ..write(message.statusHistory.length)
-        ..write('\u0000')
-        ..write(message.followUps.length)
-        ..write('\u0000')
-        ..write(message.sources.length)
-        ..write('\u0000')
-        ..write(message.codeExecutions.length)
-        ..write('\u0000')
-        ..write(message.error == null ? 0 : 1)
-        ..write('\u0000')
-        ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
-        ..write('\u0000')
-        // responseDone flips the rendered turn phase (running footer host /
-        // pin-to-top) while isStreaming is still set, so the list shell must
-        // rebuild on this transition to recompute the timeline.
-        ..write(message.metadata?['responseDone'] == true ? 1 : 0)
-        ..write('\u0000')
-        // Include the displayed model-name fallback so the structure signature
-        // changes whenever the label changes, keeping the list-shell rebuild
-        // trigger in agreement with chat_page's layout signature. Use the
-        // normalized extractor so trim/empty handling matches the displayed name.
-        ..write(_messageModelName(message) ?? '')
-        ..write('\u0000')
-        ..write(message.versions.length);
-      for (final version in message.versions) {
-        buffer
-          ..write('\u0000')
-          ..write(version.model ?? '');
-      }
-      buffer.writeln();
+      buffer.write(
+        _messageSignatureCache[message] ??= _buildMessageSignature(message),
+      );
     }
     return _ChatMessageListStructure(ids: ids, signature: buffer.toString());
+  }
+
+  static String _buildMessageSignature(ChatMessage message) {
+    final buffer = StringBuffer();
+    buffer
+      ..write(message.id)
+      ..write('\u0000')
+      ..write(message.role)
+      ..write('\u0000')
+      ..write(message.model ?? '')
+      ..write('\u0000')
+      ..write(message.attachmentIds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.files?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.embeds?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.output?.length ?? 0)
+      ..write('\u0000')
+      ..write(message.statusHistory.length)
+      ..write('\u0000')
+      ..write(message.followUps.length)
+      ..write('\u0000')
+      ..write(message.sources.length)
+      ..write('\u0000')
+      ..write(message.codeExecutions.length)
+      ..write('\u0000')
+      ..write(message.error == null ? 0 : 1)
+      ..write('\u0000')
+      ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
+      ..write('\u0000')
+      // responseDone flips the rendered turn phase (running footer host /
+      // pin-to-top) while isStreaming is still set, so the list shell must
+      // rebuild on this transition to recompute the timeline.
+      ..write(message.metadata?['responseDone'] == true ? 1 : 0)
+      ..write('\u0000')
+      // Include the displayed model-name fallback so the structure signature
+      // changes whenever the label changes, keeping the list-shell rebuild
+      // trigger in agreement with chat_page's layout signature. Use the
+      // normalized extractor so trim/empty handling matches the displayed name.
+      ..write(_messageModelName(message) ?? '')
+      ..write('\u0000')
+      ..write(message.versions.length);
+    for (final version in message.versions) {
+      buffer
+        ..write('\u0000')
+        ..write(version.model ?? '');
+    }
+    buffer.writeln();
+    return buffer.toString();
   }
 
   final List<String> ids;
@@ -2455,6 +2473,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
           return;
         }
+        // The server emits `chat:message:follow_ups` only AFTER
+        // `chat:completion {done:true}`, and the per-stream socket
+        // subscription is disposed synchronously by that done event — this
+        // passive handler is the only delivery path for follow-ups. Apply
+        // the payload directly: the debounced full refetch below races the
+        // server's own persistence of the suggestions (the event is emitted
+        // before the upsert) and can be rejected by adoption guards.
+        if (_applyPassiveFollowUpsEvent(event)) {
+          return;
+        }
         if (!_shouldRefreshFromPassiveSocketEvent(
           event,
           localSessionId: socket.sessionId,
@@ -2468,6 +2496,42 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         );
       },
     );
+  }
+
+  /// Applies a pushed `chat:message:follow_ups` payload straight to the
+  /// target message. Returns true when the event was consumed.
+  bool _applyPassiveFollowUpsEvent(Map<String, dynamic> event) {
+    final parsed = parseFollowUpsSocketEvent(event);
+    if (parsed == null) {
+      return false;
+    }
+    // An unknown message id must fall through to the debounced refetch —
+    // consuming the event here would silently drop the payload.
+    final messageIndex = state.indexWhere(
+      (message) => message.id == parsed.messageId,
+    );
+    if (messageIndex == -1) {
+      return false;
+    }
+    DebugLogger.log(
+      'follow-ups-received',
+      scope: 'chat/passive-sync',
+      data: {'messageId': parsed.messageId, 'count': parsed.followUps.length},
+    );
+    updateMessageById(parsed.messageId, (current) {
+      if (listEquals(current.followUps, parsed.followUps)) {
+        return current;
+      }
+      return current.copyWith(followUps: parsed.followUps);
+    });
+    // The turn echo was persisted at completion, before this event fired.
+    // Re-persist the message so the suggestions survive a conversation
+    // switch (the local Drift copy would otherwise reload without them).
+    // Re-resolve the index: updateMessageById rebuilt the list above.
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == parsed.messageId),
+    );
+    return true;
   }
 
   List<ChatMessage> _preserveFreshLocalAssistantState(
@@ -3170,12 +3234,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (!_hasLocalStreamingProvenance(localMessage)) {
       return false;
     }
-    final localContent = localMessage.content;
-    final serverContent = serverMessage.content;
-    if (localContent.trim().isEmpty) {
-      return false;
+    // Compare answer bodies with rendered semantic <details> wrappers
+    // stripped. Local and server renders of the same turn carry different
+    // details attributes (e.g. the locally injected reasoning duration="0"
+    // vs the server's real duration), which would otherwise defeat both the
+    // length and the prefix checks and let a mid-write server body replace a
+    // complete local answer on every reasoning turn.
+    final localContent = comparableAssistantBody(localMessage.content);
+    final serverContent = comparableAssistantBody(serverMessage.content);
+    if (localContent.isEmpty) {
+      return localMessage.content.trim().isNotEmpty &&
+          serverMessage.content.trim().isEmpty;
     }
-    if (serverContent.trim().isEmpty) {
+    if (serverContent.isEmpty) {
       return true;
     }
     if (localContent.length <= serverContent.length) {
@@ -3640,6 +3711,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       unawaited(controller.cancel());
     }
     cancelSocketSubscriptions();
+    // Fold any un-flushed streamed content into state before dropping the
+    // buffer — it is not periodically synced, so clearing it here would
+    // silently discard the whole tail of an in-flight response (e.g. on
+    // conversation switch or message deletion mid-stream). Skipped during
+    // provider dispose, where touching state is forbidden and pointless.
+    if (!_disposed) {
+      _syncStreamingBufferToState();
+    }
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
@@ -6122,8 +6201,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           chatId: chatId,
           user: trailingUser == null
               ? null
-              : _localEchoRow(chatId, trailingUser),
-          assistant: _localEchoRow(chatId, assistant),
+              : localEchoRowForMessage(chatId, trailingUser),
+          assistant: localEchoRowForMessage(chatId, assistant),
         );
       });
     } catch (error, stackTrace) {
@@ -6145,44 +6224,75 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
     return null;
   }
+}
 
-  /// Minimal history-message shape (`{id, parentId, childrenIds, role,
-  /// content, timestamp, model?}`) — explicitly a local echo.
-  ///
-  /// The `parentId` written here is only a placeholder for the payload map:
-  /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
-  /// rewriting both the row and `payload['parentId']` to the branch tip.
-  MessageRowData _localEchoRow(String chatId, ChatMessage message) {
-    final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
-    final resolvedParentId = message_tree.chatMessageParentId(message);
-    final childrenIds = message_tree
-        .chatMessageChildrenIds(message)
-        .toList(growable: false);
-    return MessageRowData(
-      id: message.id,
-      chatId: chatId,
-      parentId: resolvedParentId,
-      role: message.role,
-      content: message.content,
-      model: message.model,
-      createdAt: timestamp,
-      // Recomputed by upsertLocalEcho for new rows.
-      orderIndex: 0,
-      payload: <String, dynamic>{
-        'id': message.id,
-        'parentId': resolvedParentId,
-        'childrenIds': childrenIds,
-        'role': message.role,
-        'content': message.content,
-        'timestamp': timestamp,
-        'isStreaming': message.isStreaming,
-        if (message.role == 'assistant' && !message.isStreaming) 'done': true,
-        if (message.model != null) 'model': message.model,
-        if (message.metadata != null && message.metadata!.isNotEmpty)
-          'metadata': message.metadata,
-      },
-    );
-  }
+/// History-message shape for the local turn echo.
+///
+/// Top-level (rather than a notifier method) so tests can pin payload
+/// completeness against the ChatMessage model.
+///
+/// The `parentId` written here is only a placeholder for the payload map:
+/// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
+/// rewriting both the row and `payload['parentId']` to the branch tip.
+///
+/// The payload must carry every durable server-shape field the message has:
+/// the sync outbox rebuilds the full chat blob from these rows and the
+/// server's merge replaces each message object wholesale, so any field
+/// omitted here (`output`, `sources`, `usage`, …) would be wiped from the
+/// server copy on the next push.
+MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
+  final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
+  final resolvedParentId = message_tree.chatMessageParentId(message);
+  final childrenIds = message_tree
+      .chatMessageChildrenIds(message)
+      .toList(growable: false);
+  final sanitizedFiles = sanitizeFilesForWebUi(message.files);
+  return MessageRowData(
+    id: message.id,
+    chatId: chatId,
+    parentId: resolvedParentId,
+    role: message.role,
+    content: message.content,
+    model: message.model,
+    createdAt: timestamp,
+    // Recomputed by upsertLocalEcho for new rows.
+    orderIndex: 0,
+    payload: <String, dynamic>{
+      'id': message.id,
+      'parentId': resolvedParentId,
+      'childrenIds': childrenIds,
+      'role': message.role,
+      'content': message.content,
+      'timestamp': timestamp,
+      'isStreaming': message.isStreaming,
+      if (message.role == 'assistant' && !message.isStreaming) 'done': true,
+      if (message.model != null) 'model': message.model,
+      if (message.metadata != null && message.metadata!.isNotEmpty)
+        'metadata': message.metadata,
+      if (message.output != null && message.output!.isNotEmpty)
+        'output': message.output,
+      'files': ?sanitizedFiles,
+      if (message.embeds != null && message.embeds!.isNotEmpty)
+        'embeds': message.embeds,
+      if (message.usage != null) 'usage': message.usage,
+      // The OWUI web client reads `sources` in citation shape and
+      // `code_executions` in snake_case; the local parser accepts both
+      // shapes, so the server shape is the only safe one to persist.
+      if (message.sources.isNotEmpty)
+        'sources': convertSourcesToOpenWebUIFormat(message.sources),
+      if (message.statusHistory.isNotEmpty)
+        'statusHistory': message.statusHistory
+            .map((status) => status.toJson())
+            .toList(growable: false),
+      if (message.codeExecutions.isNotEmpty)
+        'code_executions': convertCodeExecutionsToOpenWebUIFormat(
+          message.codeExecutions,
+        ),
+      if (message.followUps.isNotEmpty)
+        'followUps': List<String>.from(message.followUps),
+      if (message.error != null) 'error': message.error!.toJson(),
+    },
+  );
 }
 
 bool _shouldIncludeConversationHistoryMessage(ChatMessage message) {
@@ -14546,7 +14656,8 @@ Map<String, dynamic> _directPersistedMessagePayload(
     if (metadata['modelName'] != null) 'modelName': metadata['modelName'],
     if (message.attachmentIds?.isNotEmpty == true)
       'attachment_ids': List<String>.from(message.attachmentIds!),
-    if (message.files != null) 'files': message.files,
+    if (sanitizeFilesForWebUi(message.files) != null)
+      'files': sanitizeFilesForWebUi(message.files),
     if (message.output != null) 'output': message.output,
     if (message.embeds != null) 'embeds': message.embeds,
     if (message.statusHistory.isNotEmpty)
@@ -14556,13 +14667,11 @@ Map<String, dynamic> _directPersistedMessagePayload(
     if (message.followUps.isNotEmpty)
       'followUps': List<String>.from(message.followUps),
     if (message.codeExecutions.isNotEmpty)
-      'code_executions': message.codeExecutions
-          .map((execution) => execution.toJson())
-          .toList(growable: false),
+      'code_executions': convertCodeExecutionsToOpenWebUIFormat(
+        message.codeExecutions,
+      ),
     if (message.sources.isNotEmpty)
-      'sources': message.sources
-          .map((source) => source.toJson())
-          .toList(growable: false),
+      'sources': convertSourcesToOpenWebUIFormat(message.sources),
     if (message.usage != null) 'usage': message.usage,
     if (message.versions.isNotEmpty)
       'versions': message.versions

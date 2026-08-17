@@ -303,9 +303,8 @@ void main() {
           _activeEnvelope(chatId: 'background-chat', active: true),
           null,
         );
-        check(
-          container.read(activeChatIdsProvider),
-        ).contains('background-chat');
+        check(container.read(activeChatIdsProvider))
+            .contains('background-chat');
       },
     );
 
@@ -325,12 +324,10 @@ void main() {
         null,
       );
 
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('Generated title');
-      check(
-        container.read(activeConversationProvider)?.title,
-      ).equals('Generated title');
+      check(container.read(conversationsProvider).requireValue.single.title)
+          .equals('Generated title');
+      check(container.read(activeConversationProvider)?.title)
+          .equals('Generated title');
       check(container.read(activeChatIdsProvider)).isEmpty();
     });
 
@@ -352,9 +349,8 @@ void main() {
         null,
       );
 
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('Mapped title');
+      check(container.read(conversationsProvider).requireValue.single.title)
+          .equals('Mapped title');
     });
   });
 

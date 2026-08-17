@@ -142,9 +142,8 @@ void main() {
         ),
         _ =>
           (chatModels..sort((left, right) {
-                final sizeOrder = _ollamaSmokeModelScore(
-                  left.id,
-                ).compareTo(_ollamaSmokeModelScore(right.id));
+                final sizeOrder = _ollamaSmokeModelScore(left.id)
+                    .compareTo(_ollamaSmokeModelScore(right.id));
                 return sizeOrder != 0 ? sizeOrder : left.id.compareTo(right.id);
               }))
               .first,
@@ -200,9 +199,8 @@ void main() {
               .where((candidate) => !_looksNonChatModel(candidate.id))
               .toList()
             ..sort((left, right) {
-              final sizeOrder = _ollamaSmokeModelScore(
-                left.id,
-              ).compareTo(_ollamaSmokeModelScore(right.id));
+              final sizeOrder = _ollamaSmokeModelScore(left.id)
+                  .compareTo(_ollamaSmokeModelScore(right.id));
               return sizeOrder != 0 ? sizeOrder : left.id.compareTo(right.id);
             });
       expect(chatModels, isNotEmpty);

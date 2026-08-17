@@ -252,12 +252,11 @@ final class LocalPdfExtraction {
   final bool isEncrypted;
 }
 
-typedef LocalPdfExtractor =
-    Future<LocalPdfExtraction> Function(
-      Uint8List bytes, {
-      required int maxPages,
-      required int maxCharacters,
-    });
+typedef LocalPdfExtractor = Future<LocalPdfExtraction> Function(
+  Uint8List bytes, {
+  required int maxPages,
+  required int maxCharacters,
+});
 
 /// A bounded local document extracted without backend-specific formatting.
 final class ExtractedLocalDocument {

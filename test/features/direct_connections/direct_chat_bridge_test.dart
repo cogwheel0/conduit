@@ -328,10 +328,7 @@ void main() {
         final presentationContent = accumulator.render(done: true);
 
         expect(presentationContent, isNot(rawAssistantAnswer));
-        expect(
-          presentationContent,
-          contains('&lt;tag data=&quot;a&amp;b&quot;&gt;'),
-        );
+        expect(presentationContent, contains('&lt;tag data="a&amp;b"&gt;'));
         expect(
           presentationContent,
           contains('&amp;lt;existing-entity&amp;gt;'),
@@ -417,9 +414,8 @@ void main() {
 
       check(output).isNotNull();
       final item = output!.single;
-      check(
-        item['id'],
-      ).equals('$kConduitDirectReplayOutputIdPrefix${'assistant_one'}');
+      check(item['id'])
+          .equals('$kConduitDirectReplayOutputIdPrefix${'assistant_one'}');
       check(item['type']).equals('message');
       check(item['role']).equals('assistant');
       check(item['status']).equals('completed');
@@ -455,9 +451,9 @@ void main() {
         rawContent: '',
         useIncompleteAnswerSentinel: true,
       )!;
-      check(
-        incomplete.single['id'],
-      ).isA<String>().startsWith(kConduitDirectNoFinalReplayOutputIdPrefix);
+      check(incomplete.single['id'])
+          .isA<String>()
+          .startsWith(kConduitDirectNoFinalReplayOutputIdPrefix);
       check(
         parseConduitDirectReplayOutput(incomplete)?.isIncompleteAnswerSentinel,
       ).equals(true);
@@ -1291,16 +1287,15 @@ void main() {
           output.first['arguments'] as Map<String, dynamic>;
       final persistedFilters =
           persistedArguments['filters'] as Map<String, dynamic>;
-      check(
-        persistedFilters['domains'],
-      ).isA<List<dynamic>>().deepEquals(['ollama.com']);
+      check(persistedFilters['domains'])
+          .isA<List<dynamic>>()
+          .deepEquals(['ollama.com']);
       final persistedResult = output.last['output'] as Map<String, dynamic>;
       check(persistedResult['results']).isA<List<dynamic>>().deepEquals([
         {'title': 'Original'},
       ]);
-      check(
-        () => (persistedFilters['domains'] as List).add('another.example'),
-      ).throws<UnsupportedError>();
+      check(() => (persistedFilters['domains'] as List).add('another.example'))
+          .throws<UnsupportedError>();
       check(() => output.first['name'] = 'changed').throws<UnsupportedError>();
     });
 
@@ -1331,8 +1326,13 @@ void main() {
 
       expect(visible, accumulator.render(done: false));
       expect(visible, isNot(contains('<details type="reasoning"')));
-      expect(visible, contains('&lt;details type=&quot;reasoning&quot;'));
-      expect(accumulator.render(done: true), isNot(contains('done="false"')));
+      expect(visible, contains('&lt;details type="reasoning"'));
+      // The neutralized spoof TEXT may contain the literal substring
+      // done="false"; only a real (unescaped) element would be a spoof.
+      expect(
+        accumulator.render(done: true),
+        isNot(contains('<details type="reasoning" done="false"')),
+      );
     });
 
     test(

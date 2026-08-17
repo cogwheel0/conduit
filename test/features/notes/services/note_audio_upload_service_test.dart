@@ -268,9 +268,8 @@ void main() {
         await durable.delete();
         final interrupted = File('${durable.parent.path}/.staging.m4a');
         await interrupted.writeAsBytes(completeBytes.take(512).toList());
-        await File(
-          '${cache.path}/source.m4a',
-        ).writeAsBytes(completeBytes, flush: true);
+        await File('${cache.path}/source.m4a')
+            .writeAsBytes(completeBytes, flush: true);
 
         final recovered = await NoteAudioUploadStore(
           applicationSupportDirectory: () async => root,
@@ -342,9 +341,8 @@ void main() {
         check(uploadCalls).equals(1);
         check(firstAttachCalls).equals(1);
         check(replacementAttachCalls).equals(1);
-        check(
-          await store.loadForNote(serverId: 'server-1', noteId: 'note-1'),
-        ).isEmpty();
+        check(await store.loadForNote(serverId: 'server-1', noteId: 'note-1'))
+            .isEmpty();
       },
     );
 
@@ -404,9 +402,8 @@ void main() {
           attach: (_, _) async => fail('must not attach a completed job'),
         ).process(staged);
         check(repeated).isNull();
-        check(
-          await store.loadForNote(serverId: 'server-1', noteId: 'note-1'),
-        ).isEmpty();
+        check(await store.loadForNote(serverId: 'server-1', noteId: 'note-1'))
+            .isEmpty();
       },
     );
 
@@ -838,9 +835,8 @@ void main() {
       }
       check(await processing).isNull();
 
-      check(
-        await store.loadForNote(serverId: 'server-1', noteId: 'note-1'),
-      ).isEmpty();
+      check(await store.loadForNote(serverId: 'server-1', noteId: 'note-1'))
+          .isEmpty();
     });
 
     test(

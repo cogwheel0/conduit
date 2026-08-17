@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 // Types are used through app_providers.dart
 import '../providers/app_providers.dart';
 import '../models/user.dart';
@@ -22,11 +23,10 @@ import 'openwebui_account_owner_marker.dart';
 
 part 'auth_state_manager.g.dart';
 
-typedef SavedCredentialAuthApiFactory =
-    ApiService Function({
-      required ServerConfig serverConfig,
-      required WorkerManager workerManager,
-    });
+typedef SavedCredentialAuthApiFactory = ApiService Function({
+  required ServerConfig serverConfig,
+  required WorkerManager workerManager,
+});
 
 const _newerAuthAttemptSettleGrace = Duration(milliseconds: 500);
 
@@ -2214,8 +2214,7 @@ class AuthStateManager extends _$AuthStateManager {
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
-          error:
-              'Saved server configuration is no longer available. Please reconnect.',
+          error: 'Saved server configuration is no longer available. Please reconnect.',
           isLoading: false,
         ),
       );
@@ -2481,9 +2480,7 @@ class AuthStateManager extends _$AuthStateManager {
           );
         }
         DebugLogger.auth(
-          cleared
-              ? 'Cleared invalid credentials after auth failure'
-              : 'Skipped clearing credentials that changed during the auth attempt',
+          cleared ? 'Cleared invalid credentials after auth failure' : 'Skipped clearing credentials that changed during the auth attempt',
         );
       } catch (deleteError) {
         _logAuthenticationFailure(

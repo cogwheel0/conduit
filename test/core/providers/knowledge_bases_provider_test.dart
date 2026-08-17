@@ -59,17 +59,15 @@ void main() {
         final afterUpserts = container
             .read(knowledgeBasesProvider)
             .requireValue;
-        check(
-          afterUpserts.map((base) => base.id).toList(),
-        ).deepEquals(['kb-1', 'kb-3', 'kb-2']);
+        check(afterUpserts.map((base) => base.id).toList())
+            .deepEquals(['kb-1', 'kb-3', 'kb-2']);
         check(afterUpserts.first.name).equals('KB 1 Updated');
 
         notifier.remove('kb-2');
 
         final afterRemove = container.read(knowledgeBasesProvider).requireValue;
-        check(
-          afterRemove.map((base) => base.id).toList(),
-        ).deepEquals(['kb-1', 'kb-3']);
+        check(afterRemove.map((base) => base.id).toList())
+            .deepEquals(['kb-1', 'kb-3']);
       },
     );
 

@@ -680,133 +680,124 @@ void main() {
       check(modelItem['id'] as String).equals('server-prefix.provider/model');
       check(modelItem['direct'] as bool).isTrue();
       check(modelItem['urlIdx'] as int).equals(3);
-      check(
-        modelItem['openai'] as Map<String, dynamic>,
-      ).deepEquals(<String, dynamic>{'id': 'provider/model'});
+      check(modelItem['openai'] as Map<String, dynamic>)
+          .deepEquals(<String, dynamic>{'id': 'provider/model'});
       check(modelItem['connection_type'] as String).equals('external');
-      check(
-        (api.submittedUserMessage!['models'] as List).cast<String>(),
-      ).contains('server-prefix.provider/model');
+      check((api.submittedUserMessage!['models'] as List).cast<String>())
+          .contains('server-prefix.provider/model');
       check(nativeAdapter.completionCalls).equals(0);
     },
   );
 
-  test(
-    'inline POST navigation continues A headlessly without touching colliding B',
-    () async {
-      const chatId = 'same-chat-id';
-      await _seedChat(db, chatId);
-      final releasePost = Completer<void>();
-      final api = _GatedCompletionApi(releasePost);
-      final syncEngine = _PersistingSyncEngine(db, api);
-      final aMessages = <ChatMessage>[_user('a-user-existing', 'A history')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, aMessages, ChatStorageKind.openWebUi),
-        messages: aMessages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
+  test('inline POST navigation continues A headlessly without touching colliding B', () async {
+    const chatId = 'same-chat-id';
+    await _seedChat(db, chatId);
+    final releasePost = Completer<void>();
+    final api = _GatedCompletionApi(releasePost);
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final aMessages = <ChatMessage>[_user('a-user-existing', 'A history')];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, aMessages, ChatStorageKind.openWebUi),
+      messages: aMessages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
 
-      final send = sendMessageWithContainer(container, 'A new turn', null);
-      await api.postEntered.future;
-      final assistantId = api.assistantMessageId!;
-      final bMessages = <ChatMessage>[
-        _user('b-user', 'B exact bytes'),
-        _streamingAssistant(assistantId, 'B is still streaming'),
-      ];
-      final bSnapshot = _snapshot(bMessages);
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_conversation(chatId, bMessages, ChatStorageKind.directLocal));
-      container.read(chatMessagesProvider.notifier).setMessages(bMessages);
-      container
-          .read(contextAttachmentsProvider.notifier)
-          .addNote(noteId: 'b-note', displayName: 'B note');
+    final send = sendMessageWithContainer(container, 'A new turn', null);
+    await api.postEntered.future;
+    final assistantId = api.assistantMessageId!;
+    final bMessages = <ChatMessage>[
+      _user('b-user', 'B exact bytes'),
+      _streamingAssistant(assistantId, 'B is still streaming'),
+    ];
+    final bSnapshot = _snapshot(bMessages);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation(chatId, bMessages, ChatStorageKind.directLocal));
+    container.read(chatMessagesProvider.notifier).setMessages(bMessages);
+    container
+        .read(contextAttachmentsProvider.notifier)
+        .addNote(noteId: 'b-note', displayName: 'B note');
 
-      releasePost.complete();
-      await send;
-      await Future<void>.delayed(Duration.zero);
+    releasePost.complete();
+    await send;
+    await Future<void>.delayed(Duration.zero);
 
-      check(api.completionCalls).equals(1);
-      check(syncEngine.pulls).equals(1);
-      check(_snapshot(container.read(chatMessagesProvider))).equals(bSnapshot);
-      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
-      check(
-        container.read(contextAttachmentsProvider).single.id,
-      ).equals('b-note');
-      final persisted = await db.messagesDao.getMessage(chatId, assistantId);
-      check(persisted).isNotNull();
-      check(persisted!.content).equals('A safely completed');
-    },
-  );
+    check(api.completionCalls).equals(1);
+    check(syncEngine.pulls).equals(1);
+    check(_snapshot(container.read(chatMessagesProvider))).equals(bSnapshot);
+    check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+    check(container.read(contextAttachmentsProvider).single.id)
+        .equals('b-note');
+    final persisted = await db.messagesDao.getMessage(chatId, assistantId);
+    check(persisted).isNotNull();
+    check(persisted!.content).equals('A safely completed');
+  });
 
-  test(
-    'queued POST navigation continues A headlessly without touching colliding B',
-    () async {
-      const chatId = 'same-queued-chat-id';
-      const assistantId = 'same-assistant-id';
-      await _seedChat(db, chatId, assistantId: assistantId);
-      final releasePost = Completer<void>();
-      final api = _GatedCompletionApi(releasePost);
-      final syncEngine = _PersistingSyncEngine(db, api);
-      final aMessages = <ChatMessage>[
-        _user('a-user', 'A queued turn'),
-        ChatMessage(
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
-          model: 'model-1',
-          isStreaming: true,
-        ),
-      ];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, aMessages, ChatStorageKind.openWebUi),
-        messages: aMessages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
-
-      final completion = runQueuedCompletion(
-        container,
-        chatId: chatId,
-        assistantMessageId: assistantId,
+  test('queued POST navigation continues A headlessly without touching colliding B', () async {
+    const chatId = 'same-queued-chat-id';
+    const assistantId = 'same-assistant-id';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final releasePost = Completer<void>();
+    final api = _GatedCompletionApi(releasePost);
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final aMessages = <ChatMessage>[
+      _user('a-user', 'A queued turn'),
+      ChatMessage(
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
         model: 'model-1',
-      );
-      await api.postEntered.future;
-      final pendingRow = await db.messagesDao.getMessage(chatId, assistantId);
-      final pendingPayload =
-          jsonDecode(pendingRow!.payload) as Map<String, dynamic>;
-      final pendingMetadata =
-          pendingPayload['metadata'] as Map<String, dynamic>? ?? const {};
-      check(pendingMetadata['completionSubmitted']).isNull();
-      final bMessages = <ChatMessage>[
-        _user('b-user', 'B exact bytes'),
-        _streamingAssistant(assistantId, 'B is still streaming'),
-      ];
-      final bSnapshot = _snapshot(bMessages);
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_conversation(chatId, bMessages, ChatStorageKind.directLocal));
-      container.read(chatMessagesProvider.notifier).setMessages(bMessages);
+        isStreaming: true,
+      ),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, aMessages, ChatStorageKind.openWebUi),
+      messages: aMessages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
 
-      releasePost.complete();
-      await completion;
-      await Future<void>.delayed(Duration.zero);
+    final completion = runQueuedCompletion(
+      container,
+      chatId: chatId,
+      assistantMessageId: assistantId,
+      model: 'model-1',
+    );
+    await api.postEntered.future;
+    final pendingRow = await db.messagesDao.getMessage(chatId, assistantId);
+    final pendingPayload =
+        jsonDecode(pendingRow!.payload) as Map<String, dynamic>;
+    final pendingMetadata =
+        pendingPayload['metadata'] as Map<String, dynamic>? ?? const {};
+    check(pendingMetadata['completionSubmitted']).isNull();
+    final bMessages = <ChatMessage>[
+      _user('b-user', 'B exact bytes'),
+      _streamingAssistant(assistantId, 'B is still streaming'),
+    ];
+    final bSnapshot = _snapshot(bMessages);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation(chatId, bMessages, ChatStorageKind.directLocal));
+    container.read(chatMessagesProvider.notifier).setMessages(bMessages);
 
-      check(api.completionCalls).equals(1);
-      check(syncEngine.pulls).equals(1);
-      check(_snapshot(container.read(chatMessagesProvider))).equals(bSnapshot);
-      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
-      final persisted = await db.messagesDao.getMessage(chatId, assistantId);
-      check(persisted).isNotNull();
-      check(persisted!.content).equals('A safely completed');
-    },
-  );
+    releasePost.complete();
+    await completion;
+    await Future<void>.delayed(Duration.zero);
+
+    check(api.completionCalls).equals(1);
+    check(syncEngine.pulls).equals(1);
+    check(_snapshot(container.read(chatMessagesProvider))).equals(bSnapshot);
+    check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+    final persisted = await db.messagesDao.getMessage(chatId, assistantId);
+    check(persisted).isNotNull();
+    check(persisted!.content).equals('A safely completed');
+  });
 
   test(
     'equal OpenWebUI ids on two servers never pull or mutate server B',
@@ -1159,9 +1150,8 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      check(
-        container.read(activeChatIdsProvider),
-      ).not((activeIds) => activeIds.contains('chat-a'));
+      check(container.read(activeChatIdsProvider))
+          .not((activeIds) => activeIds.contains('chat-a'));
     },
   );
 
@@ -1209,13 +1199,12 @@ void main() {
         isTemporary: true,
       );
 
-      final notifier =
-          container.read(chatMessagesProvider.notifier)
-              as _TestMessagesNotifier;
+      final notifier = container.read(
+        chatMessagesProvider.notifier,
+      ) as _TestMessagesNotifier;
       check(attached).isTrue();
-      check(
-        container.read(chatMessagesProvider).single.content,
-      ).equals('Already completed');
+      check(container.read(chatMessagesProvider).single.content)
+          .equals('Already completed');
       check(container.read(chatMessagesProvider).single.isStreaming).isFalse();
       check(socket.chatSubscriptionDisposals).equals(1);
       check(socket.channelRegistrationCalls).equals(0);
@@ -1252,9 +1241,8 @@ void main() {
           .read(activeConversationProvider.notifier)
           .set(_conversation('server-id', const [], ChatStorageKind.openWebUi));
 
-      check(
-        isActiveConversationInPlaceRemap(container, 'local-a', 'server-id'),
-      ).isFalse();
+      check(isActiveConversationInPlaceRemap(container, 'local-a', 'server-id'))
+          .isFalse();
     },
   );
 
@@ -1291,9 +1279,8 @@ void main() {
 
       final remap = container.read(activeConversationInPlaceRemapProvider);
       check(remap).isNotNull();
-      check(
-        remap!.namespace,
-      ).equals(ActiveConversationRemapNamespace.openWebUi);
+      check(remap!.namespace)
+          .equals(ActiveConversationRemapNamespace.openWebUi);
       check(remap.openWebUiDatabase).identicalTo(db);
       check(remap.openWebUiApi).identicalTo(api);
       check(remap.openWebUiAuthSessionEpoch).identicalTo(epoch);
@@ -1443,9 +1430,8 @@ void main() {
             .read(chatMessagesProvider)
             .every((message) => message.content != 'late A database bytes'),
       ).isTrue();
-      check(
-        container.read(activeConversationProvider)!.messages.single.content,
-      ).equals('B exact bytes');
+      check(container.read(activeConversationProvider)!.messages.single.content)
+          .equals('B exact bytes');
     },
   );
 
@@ -1544,9 +1530,8 @@ void main() {
             .read(chatMessagesProvider)
             .every((message) => message.content != 'late A direct bytes'),
       ).isTrue();
-      check(
-        container.read(activeConversationProvider)!.messages.single.content,
-      ).equals('B exact bytes');
+      check(container.read(activeConversationProvider)!.messages.single.content)
+          .equals('B exact bytes');
     },
   );
 

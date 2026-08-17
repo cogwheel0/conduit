@@ -1655,10 +1655,8 @@ void main() {
       container.read(selectedModelProvider.notifier).set(modelB);
       api.gates[1].complete();
 
-      await Future.wait<void>([
-        firstRegeneration,
-        secondRegeneration,
-      ]).timeout(const Duration(seconds: 1));
+      await Future.wait<void>([firstRegeneration, secondRegeneration])
+          .timeout(const Duration(seconds: 1));
 
       expect(adapter.startCalls, 0);
       final visibleAssistant = container
@@ -1677,89 +1675,83 @@ void main() {
     },
   );
 
-  test(
-    'Stop interrupts a never-settling direct attachment preflight and releases its lease',
-    () async {
-      final manager = DatabaseManager(
-        openDatabase: (_) =>
-            GatedCloseDatabase(NativeDatabase.memory(), failClose: false),
-      );
-      final db =
-          manager.openForServerId('direct-stop-preflight')
-              as GatedCloseDatabase;
-      final databaseCloseGate = Completer<void>();
-      final api = _DeferredAttachmentApi();
-      addTearDown(() async {
-        if (!api.firstInfoGate.isCompleted) api.firstInfoGate.complete();
-        if (!databaseCloseGate.isCompleted) databaseCloseGate.complete();
-        await manager.closeActive();
-      });
-      final profile = DirectConnectionProfile(
-        id: 'profile',
-        name: 'Provider',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(
-        profile,
-        <DirectRemoteModel>[DirectRemoteModel(id: 'model', isMultimodal: true)],
-      ).single;
-      final adapter = _Adapter();
-      final chat = await _seedDirectConversation(
-        db: db,
-        chatId: 'direct-local:stalled-attachment',
-        modelId: model.id,
-        suffix: 'stalled-attachment',
-      );
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(_ActiveConversation.new),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthenticatedProvider2.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(api),
-          socketServiceProvider.overrideWithValue(null),
-          appDatabaseProvider.overrideWithValue(null),
-          directLocalDatabaseManagerProvider.overrideWithValue(manager),
-          directLocalDatabaseProvider.overrideWithValue(db),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directConnectionProfilesProvider.overrideWith(
-            () => _Profiles(profile),
-          ),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry(<DirectProviderAdapter>[adapter]),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-      container.read(activeConversationProvider.notifier).set(chat);
-      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+  test('Stop interrupts a never-settling direct attachment preflight and releases its lease', () async {
+    final manager = DatabaseManager(
+      openDatabase: (_) =>
+          GatedCloseDatabase(NativeDatabase.memory(), failClose: false),
+    );
+    final db =
+        manager.openForServerId('direct-stop-preflight') as GatedCloseDatabase;
+    final databaseCloseGate = Completer<void>();
+    final api = _DeferredAttachmentApi();
+    addTearDown(() async {
+      if (!api.firstInfoGate.isCompleted) api.firstInfoGate.complete();
+      if (!databaseCloseGate.isCompleted) databaseCloseGate.complete();
+      await manager.closeActive();
+    });
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final modelRegistry = DirectModelRegistry();
+    final model = modelRegistry.replaceProfileModels(
+      profile,
+      <DirectRemoteModel>[DirectRemoteModel(id: 'model', isMultimodal: true)],
+    ).single;
+    final adapter = _Adapter();
+    final chat = await _seedDirectConversation(
+      db: db,
+      chatId: 'direct-local:stalled-attachment',
+      modelId: model.id,
+      suffix: 'stalled-attachment',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        selectedModelProvider.overrideWithValue(model),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(api),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseManagerProvider.overrideWithValue(manager),
+        directLocalDatabaseProvider.overrideWithValue(db),
+        directModelRegistryProvider.overrideWithValue(modelRegistry),
+        directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry(<DirectProviderAdapter>[adapter]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
 
-      final send = sendMessageWithContainer(
-        container,
-        'Stop this attachment lookup',
-        const <String>['server-image'],
-      );
-      await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
-      db.closeGate = databaseCloseGate;
-      container.read(stopGenerationProvider)();
-      final close = manager.closeActive();
+    final send = sendMessageWithContainer(
+      container,
+      'Stop this attachment lookup',
+      const <String>['server-image'],
+    );
+    await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
+    db.closeGate = databaseCloseGate;
+    container.read(stopGenerationProvider)();
+    final close = manager.closeActive();
 
-      await send.timeout(const Duration(seconds: 1));
-      await api.firstInfoCancelled.future.timeout(const Duration(seconds: 1));
-      await db.closeStarted.future.timeout(const Duration(seconds: 1));
-      expect(api.firstInfoGate.isCompleted, isFalse);
-      expect(api.firstInfoCancelToken?.isCancelled, isTrue);
-      expect(adapter.startCalls, 0);
-      expect(container.read(chatMessagesProvider).last.isStreaming, isFalse);
+    await send.timeout(const Duration(seconds: 1));
+    await api.firstInfoCancelled.future.timeout(const Duration(seconds: 1));
+    await db.closeStarted.future.timeout(const Duration(seconds: 1));
+    expect(api.firstInfoGate.isCompleted, isFalse);
+    expect(api.firstInfoCancelToken?.isCancelled, isTrue);
+    expect(adapter.startCalls, 0);
+    expect(container.read(chatMessagesProvider).last.isStreaming, isFalse);
 
-      databaseCloseGate.complete();
-      await close.timeout(const Duration(seconds: 1));
-      api.firstInfoGate.complete();
-      await Future<void>.delayed(Duration.zero);
-    },
-  );
+    databaseCloseGate.complete();
+    await close.timeout(const Duration(seconds: 1));
+    api.firstInfoGate.complete();
+    await Future<void>.delayed(Duration.zero);
+  });
 
   test('direct send cannot retarget after route resolution await', () async {
     final db = AppDatabase(NativeDatabase.memory());
@@ -1820,107 +1812,102 @@ void main() {
     expect(identical(container.read(chatMessagesProvider), visibleB), isTrue);
     expect(adapter.startCalls, 0);
     expect(
-      (await db.messagesDao.getForChat(
-        chatA.id,
-      )).where((row) => row.content == 'Must stay in A'),
+      (await db.messagesDao.getForChat(chatA.id))
+          .where((row) => row.content == 'Must stay in A'),
       isEmpty,
     );
     expect(
-      (await db.messagesDao.getForChat(
-        chatB.id,
-      )).where((row) => row.content == 'Must stay in A'),
+      (await db.messagesDao.getForChat(chatB.id))
+          .where((row) => row.content == 'Must stay in A'),
       isEmpty,
     );
   });
 
-  test(
-    'direct send aborts when selection switches to another live profile',
-    () async {
-      final db = AppDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
-      final profileA = DirectConnectionProfile(
-        id: 'profile-a',
-        name: 'Provider A',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11434',
-      );
-      final profileB = DirectConnectionProfile(
-        id: 'profile-b',
-        name: 'Provider B',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11435',
-      );
-      final registry = DirectModelRegistry();
-      final modelA = registry.replaceProfileModels(profileA, [
-        DirectRemoteModel(id: 'model-a'),
-      ]).single;
-      final modelB = registry.replaceProfileModels(profileB, [
-        DirectRemoteModel(id: 'model-b'),
-      ]).single;
-      final profiles = _GatedProfiles(profileA);
-      final adapter = _Adapter();
-      final chat = await _seedDirectConversation(
-        db: db,
-        chatId: 'direct-local:selection-switch',
-        modelId: modelA.id,
-        suffix: 'selection-switch',
-      );
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(_ActiveConversation.new),
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthenticatedProvider2.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          appDatabaseProvider.overrideWithValue(null),
-          directLocalDatabaseProvider.overrideWithValue(db),
-          directModelRegistryProvider.overrideWithValue(registry),
-          directConnectionProfilesProvider.overrideWith(() => profiles),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-      container.read(selectedModelProvider.notifier).set(modelA);
-      container.read(activeConversationProvider.notifier).set(chat);
-      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
-      final visibleBeforeSend = container.read(chatMessagesProvider);
-      final rowsBeforeSend = await db.messagesDao.getForChat(chat.id);
-
-      final send = sendMessageWithContainer(
-        container,
-        'Do not send through profile A',
-        null,
-      );
-      await profiles.started.future.timeout(const Duration(seconds: 1));
-      container.read(selectedModelProvider.notifier).set(modelB);
-      profiles.gate.complete([profileA, profileB]);
-
-      await expectLater(
-        send,
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            'The selected direct connection changed while preparing the message.',
-          ),
+  test('direct send aborts when selection switches to another live profile', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final profileA = DirectConnectionProfile(
+      id: 'profile-a',
+      name: 'Provider A',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final profileB = DirectConnectionProfile(
+      id: 'profile-b',
+      name: 'Provider B',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11435',
+    );
+    final registry = DirectModelRegistry();
+    final modelA = registry.replaceProfileModels(profileA, [
+      DirectRemoteModel(id: 'model-a'),
+    ]).single;
+    final modelB = registry.replaceProfileModels(profileB, [
+      DirectRemoteModel(id: 'model-b'),
+    ]).single;
+    final profiles = _GatedProfiles(profileA);
+    final adapter = _Adapter();
+    final chat = await _seedDirectConversation(
+      db: db,
+      chatId: 'direct-local:selection-switch',
+      modelId: modelA.id,
+      suffix: 'selection-switch',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseProvider.overrideWithValue(db),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
         ),
-      );
-      expect(
-        identical(container.read(chatMessagesProvider), visibleBeforeSend),
-        isTrue,
-      );
-      expect(registry.resolve(modelA), isNotNull);
-      expect(registry.resolve(modelB), isNotNull);
-      expect(adapter.startCalls, 0);
-      final rowsAfterSend = await db.messagesDao.getForChat(chat.id);
-      expect(
-        rowsAfterSend.map((row) => row.id),
-        rowsBeforeSend.map((row) => row.id),
-      );
-    },
-  );
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(modelA);
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+    final visibleBeforeSend = container.read(chatMessagesProvider);
+    final rowsBeforeSend = await db.messagesDao.getForChat(chat.id);
+
+    final send = sendMessageWithContainer(
+      container,
+      'Do not send through profile A',
+      null,
+    );
+    await profiles.started.future.timeout(const Duration(seconds: 1));
+    container.read(selectedModelProvider.notifier).set(modelB);
+    profiles.gate.complete([profileA, profileB]);
+
+    await expectLater(
+      send,
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'The selected direct connection changed while preparing the message.',
+        ),
+      ),
+    );
+    expect(
+      identical(container.read(chatMessagesProvider), visibleBeforeSend),
+      isTrue,
+    );
+    expect(registry.resolve(modelA), isNotNull);
+    expect(registry.resolve(modelB), isNotNull);
+    expect(adapter.startCalls, 0);
+    final rowsAfterSend = await db.messagesDao.getForChat(chat.id);
+    expect(
+      rowsAfterSend.map((row) => row.id),
+      rowsBeforeSend.map((row) => row.id),
+    );
+  });
 
   test('direct send survives an unchanged catalog refresh', () async {
     final db = AppDatabase(NativeDatabase.memory());
@@ -2051,49 +2038,43 @@ void main() {
     expect(adapter.startCalls, 0);
   });
 
-  test(
-    'tombstoned durable owner blocks provider start and settles its placeholder',
-    () async {
-      final harness = await _createInvalidatedOwnerRefreshHarness(
-        'owner-refresh-tombstone',
-        _OwnerLossMutation.tombstoneChat,
-      );
-      final send = sendMessageWithContainer(
-        harness.container,
-        'Do not start after deletion',
-        null,
-      );
+  test('tombstoned durable owner blocks provider start and settles its placeholder', () async {
+    final harness = await _createInvalidatedOwnerRefreshHarness(
+      'owner-refresh-tombstone',
+      _OwnerLossMutation.tombstoneChat,
+    );
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Do not start after deletion',
+      null,
+    );
 
-      await expectLater(
-        send.timeout(const Duration(seconds: 1)),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            'Direct conversation owner is no longer available.',
-          ),
+    await expectLater(
+      send.timeout(const Duration(seconds: 1)),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'Direct conversation owner is no longer available.',
         ),
-      );
-      final assistantId = harness.repository.invalidatedMessageId!;
-      final ownerKey = (
-        ownerConversationId: directRunOwnerScopeForTest(
-          harness.container,
-          harness.chat,
-        ),
-        assistantMessageId: assistantId,
-      );
-      expect(harness.adapter.startCalls, 0);
-      expect(harness.runRegistry.hasLiveIntent(ownerKey), isFalse);
-      final failed = harness.container
-          .read(chatMessagesProvider)
-          .singleWhere((message) => message.id == assistantId);
-      expect(failed.isStreaming, isFalse);
-      expect(
-        failed.error?.content,
-        'This conversation is no longer available.',
-      );
-    },
-  );
+      ),
+    );
+    final assistantId = harness.repository.invalidatedMessageId!;
+    final ownerKey = (
+      ownerConversationId: directRunOwnerScopeForTest(
+        harness.container,
+        harness.chat,
+      ),
+      assistantMessageId: assistantId,
+    );
+    expect(harness.adapter.startCalls, 0);
+    expect(harness.runRegistry.hasLiveIntent(ownerKey), isFalse);
+    final failed = harness.container
+        .read(chatMessagesProvider)
+        .singleWhere((message) => message.id == assistantId);
+    expect(failed.isStreaming, isFalse);
+    expect(failed.error?.content, 'This conversation is no longer available.');
+  });
 
   test(
     'deleted durable placeholder blocks provider start without resurrection',
@@ -2251,9 +2232,8 @@ void main() {
         utf8.decode(base64Decode(imageParts.single.base64Data!)),
         'image-a',
       );
-      final userRow = (await db.messagesDao.getForChat(
-        chatA.id,
-      )).singleWhere((row) => row.content == 'Use source image');
+      final userRow = (await db.messagesDao.getForChat(chatA.id))
+          .singleWhere((row) => row.content == 'Use source image');
       final userPayload = jsonDecode(userRow.payload) as Map<String, dynamic>;
       final files = (userPayload['files'] as List).cast<Map>();
       expect(files.single['content_type'], 'image/png;source=a');
@@ -3353,9 +3333,8 @@ void main() {
       expect(completed.content, 'Partial answer');
       expect(completed.isStreaming, isFalse);
       expect(run.run.isCancelled, isTrue);
-      final persisted = (await db.messagesDao.getForChat(
-        chat.id,
-      )).singleWhere((row) => row.id == completed.id);
+      final persisted = (await db.messagesDao.getForChat(chat.id))
+          .singleWhere((row) => row.id == completed.id);
       expect(persisted.content, 'Partial answer');
     },
   );
@@ -3482,9 +3461,8 @@ void main() {
       expect(completed.error, isNull);
       expect(completed.files?.single['url'], image);
       expect(completed.usage?['cost'], 0.04);
-      final durable = (await harness.db.messagesDao.getForChat(
-        harness.chat.id,
-      )).singleWhere((row) => row.id == assistantId);
+      final durable = (await harness.db.messagesDao.getForChat(harness.chat.id))
+          .singleWhere((row) => row.id == assistantId);
       final durablePayload =
           jsonDecode(durable.payload) as Map<String, dynamic>;
       expect(durablePayload['isStreaming'], isFalse);
@@ -3493,60 +3471,55 @@ void main() {
     },
   );
 
-  test(
-    'OpenRouter image generation is consumed before the conversational follow-up',
-    () async {
-      const image = 'data:image/png;base64,AQID';
-      final harness = await _createGatedDirectHarness(
-        'openrouter-image-one-shot',
-        profileBaseUrl: kOpenRouterApiBaseUrl,
-        profileAdapterKey: kOpenAiCompatibleAdapterKey,
-      );
-      harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
-      expect(harness.container.read(imageGenerationAvailableProvider), isTrue);
+  test('OpenRouter image generation is consumed before the conversational follow-up', () async {
+    const image = 'data:image/png;base64,AQID';
+    final harness = await _createGatedDirectHarness(
+      'openrouter-image-one-shot',
+      profileBaseUrl: kOpenRouterApiBaseUrl,
+      profileAdapterKey: kOpenAiCompatibleAdapterKey,
+    );
+    harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
+    expect(harness.container.read(imageGenerationAvailableProvider), isTrue);
 
-      final imageStarted = harness.adapter.nextRun();
-      final imageSend = sendMessageWithContainer(
-        harness.container,
-        'Draw a lighthouse',
-        null,
-      );
-      final imageRun = await imageStarted.timeout(const Duration(seconds: 1));
-      addTearDown(imageRun.close);
+    final imageStarted = harness.adapter.nextRun();
+    final imageSend = sendMessageWithContainer(
+      harness.container,
+      'Draw a lighthouse',
+      null,
+    );
+    final imageRun = await imageStarted.timeout(const Duration(seconds: 1));
+    addTearDown(imageRun.close);
 
-      expect(harness.adapter.lastRequest?.enableImageGeneration, isTrue);
-      expect(harness.container.read(imageGenerationEnabledProvider), isFalse);
-      imageRun
-        ..add(
-          const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'),
-        )
-        ..add(const DirectStreamDone());
-      await imageSend.timeout(const Duration(seconds: 1));
+    expect(harness.adapter.lastRequest?.enableImageGeneration, isTrue);
+    expect(harness.container.read(imageGenerationEnabledProvider), isFalse);
+    imageRun
+      ..add(const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'))
+      ..add(const DirectStreamDone());
+    await imageSend.timeout(const Duration(seconds: 1));
 
-      final followUpStarted = harness.adapter.nextRun();
-      final followUpSend = sendMessageWithContainer(
-        harness.container,
-        'Make the mood warmer',
-        null,
-      );
-      final followUpRun = await followUpStarted.timeout(
-        const Duration(seconds: 1),
-      );
-      addTearDown(followUpRun.close);
+    final followUpStarted = harness.adapter.nextRun();
+    final followUpSend = sendMessageWithContainer(
+      harness.container,
+      'Make the mood warmer',
+      null,
+    );
+    final followUpRun = await followUpStarted.timeout(
+      const Duration(seconds: 1),
+    );
+    addTearDown(followUpRun.close);
 
-      expect(harness.adapter.lastRequest?.enableImageGeneration, isFalse);
-      followUpRun
-        ..add(const DirectContentDelta('I can help refine it.'))
-        ..add(const DirectStreamDone());
-      await followUpSend.timeout(const Duration(seconds: 1));
+    expect(harness.adapter.lastRequest?.enableImageGeneration, isFalse);
+    followUpRun
+      ..add(const DirectContentDelta('I can help refine it.'))
+      ..add(const DirectStreamDone());
+    await followUpSend.timeout(const Duration(seconds: 1));
 
-      final messages = harness.container.read(chatMessagesProvider);
-      expect(
-        messages.where((message) => message.role == 'assistant').last.content,
-        'I can help refine it.',
-      );
-    },
-  );
+    final messages = harness.container.read(chatMessagesProvider);
+    expect(
+      messages.where((message) => message.role == 'assistant').last.content,
+      'I can help refine it.',
+    );
+  });
 
   test(
     'OpenRouter image generation is consumed when regeneration submits',
@@ -3809,9 +3782,8 @@ void main() {
       expect(completed.content, contains('Private provider reasoning'));
       expect(completed.error, isNull);
       expect(
-        parseConduitDirectReplayOutput(
-          completed.output!,
-        )?.isIncompleteAnswerSentinel,
+        parseConduitDirectReplayOutput(completed.output!)
+            ?.isIncompleteAnswerSentinel,
         isTrue,
       );
       expect(
@@ -3865,13 +3837,11 @@ void main() {
     final completed = harness.container.read(chatMessagesProvider).last;
     check(completed.error).isNull();
     check(
-      parseConduitDirectReplayOutput(
-        completed.output!,
-      )?.isIncompleteAnswerSentinel,
+      parseConduitDirectReplayOutput(completed.output!)
+          ?.isIncompleteAnswerSentinel,
     ).equals(true);
-    check(
-      outboundProviderReplayText(completed),
-    ).equals(kConduitDirectIncompleteAnswerReplayText);
+    check(outboundProviderReplayText(completed))
+        .equals(kConduitDirectIncompleteAnswerReplayText);
     check(completed.sources).deepEquals([
       const ChatSourceReference(
         title: 'Ollama Cloud',
@@ -4467,196 +4437,183 @@ void main() {
     expect(completed.isStreaming, isFalse);
   });
 
-  test(
-    'direct turn start aborts before writing through a closing managed database',
-    () async {
-      final manager = DatabaseManager(
-        openDatabase: (_) => GatedCloseDatabase.memory(failClose: false),
-      );
-      final database =
-          manager.openForServerId('closing-turn-start') as GatedCloseDatabase;
-      final closeGate = Completer<void>();
-      database.closeGate = closeGate;
-      final profile = DirectConnectionProfile(
-        id: 'closing-profile',
-        name: 'Provider',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model'),
-      ]).single;
-      final adapter = _Adapter();
-      final chat = await _seedDirectConversation(
-        db: database,
-        chatId: 'direct-local:closing-turn-start',
+  test('direct turn start aborts before writing through a closing managed database', () async {
+    final manager = DatabaseManager(
+      openDatabase: (_) => GatedCloseDatabase.memory(failClose: false),
+    );
+    final database =
+        manager.openForServerId('closing-turn-start') as GatedCloseDatabase;
+    final closeGate = Completer<void>();
+    database.closeGate = closeGate;
+    final profile = DirectConnectionProfile(
+      id: 'closing-profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final modelRegistry = DirectModelRegistry();
+    final model = modelRegistry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+    final adapter = _Adapter();
+    final chat = await _seedDirectConversation(
+      db: database,
+      chatId: 'direct-local:closing-turn-start',
+      modelId: model.id,
+      suffix: 'closing-turn-start',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        selectedModelProvider.overrideWithValue(model),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseManagerProvider.overrideWithValue(manager),
+        directLocalDatabaseProvider.overrideWithValue(database),
+        directModelRegistryProvider.overrideWithValue(modelRegistry),
+        directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(() async {
+      if (!closeGate.isCompleted) closeGate.complete();
+      await manager.closeActive();
+    });
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+    final close = manager.closeActive();
+    await database.closeStarted.future.timeout(const Duration(seconds: 1));
+
+    await expectLater(
+      sendMessageWithContainer(container, 'Must not be written', null),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('database is closing'),
+        ),
+      ),
+    );
+    expect(adapter.startCalls, 0);
+    final rows = await database.messagesDao.getForChat(chat.id);
+    expect(rows.where((row) => row.content == 'Must not be written'), isEmpty);
+
+    closeGate.complete();
+    await close.timeout(const Duration(seconds: 1));
+  });
+
+  test('OpenWebUI auth revocation detaches a silent direct run and releases its lease', () async {
+    final directory = Directory.systemTemp.createTempSync(
+      'conduit_direct_auth_revoke_',
+    );
+    final manager = DatabaseManager(
+      databaseDirectory: () async => directory,
+      openDatabase: (fileName) => AppDatabase(
+        NativeDatabase(File(p.join(directory.path, '$fileName.sqlite'))),
+      ),
+    );
+    addTearDown(() async {
+      await manager.closeActive();
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+    const serverA = ServerConfig(
+      id: 'auth-revoke-a',
+      name: 'Server A',
+      url: 'https://a.example.test',
+    );
+    const serverB = ServerConfig(
+      id: 'auth-revoke-b',
+      name: 'Server B',
+      url: 'https://b.example.test',
+    );
+    final databaseA = manager.openFor(serverA);
+    final directLocal = AppDatabase(NativeDatabase.memory());
+    addTearDown(directLocal.close);
+    final repository = ChatDatabaseRepository(
+      openWebUiDatabase: databaseA,
+      directLocalDatabase: directLocal,
+    );
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final modelRegistry = DirectModelRegistry();
+    final model = modelRegistry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+    final adapter = _GatedAdapter(hostileCancellation: true);
+    addTearDown(adapter.dispose);
+    final chat = withChatStorageProvenance(
+      await _seedDirectConversation(
+        db: databaseA,
+        chatId: 'auth-revoke-chat',
         modelId: model.id,
-        suffix: 'closing-turn-start',
-      );
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(_ActiveConversation.new),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthenticatedProvider2.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          appDatabaseProvider.overrideWithValue(null),
-          directLocalDatabaseManagerProvider.overrideWithValue(manager),
-          directLocalDatabaseProvider.overrideWithValue(database),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directConnectionProfilesProvider.overrideWith(
-            () => _Profiles(profile),
-          ),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-      addTearDown(() async {
-        if (!closeGate.isCompleted) closeGate.complete();
-        await manager.closeActive();
-      });
-      container.read(activeConversationProvider.notifier).set(chat);
-      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
-
-      final close = manager.closeActive();
-      await database.closeStarted.future.timeout(const Duration(seconds: 1));
-
-      await expectLater(
-        sendMessageWithContainer(container, 'Must not be written', null),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('database is closing'),
-          ),
+        suffix: 'auth-revoke-a',
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    final epochState = NotifierProvider<_EpochState, Object>(
+      () => _EpochState(Object()),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeServerProvider.overrideWith((_) async => serverA),
+        databaseManagerProvider.overrideWithValue(manager),
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        selectedModelProvider.overrideWithValue(model),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(databaseA),
+        directLocalDatabaseProvider.overrideWithValue(directLocal),
+        chatDatabaseRepositoryProvider.overrideWithValue(repository),
+        directModelRegistryProvider.overrideWithValue(modelRegistry),
+        directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
         ),
-      );
-      expect(adapter.startCalls, 0);
-      final rows = await database.messagesDao.getForChat(chat.id);
-      expect(
-        rows.where((row) => row.content == 'Must not be written'),
-        isEmpty,
-      );
-
-      closeGate.complete();
-      await close.timeout(const Duration(seconds: 1));
-    },
-  );
-
-  test(
-    'OpenWebUI auth revocation detaches a silent direct run and releases its lease',
-    () async {
-      final directory = Directory.systemTemp.createTempSync(
-        'conduit_direct_auth_revoke_',
-      );
-      final manager = DatabaseManager(
-        databaseDirectory: () async => directory,
-        openDatabase: (fileName) => AppDatabase(
-          NativeDatabase(File(p.join(directory.path, '$fileName.sqlite'))),
+        openWebUiAuthSessionEpochProvider.overrideWith(
+          (ref) => ref.watch(epochState),
         ),
-      );
-      addTearDown(() async {
-        await manager.closeActive();
-        if (directory.existsSync()) directory.deleteSync(recursive: true);
-      });
-      const serverA = ServerConfig(
-        id: 'auth-revoke-a',
-        name: 'Server A',
-        url: 'https://a.example.test',
-      );
-      const serverB = ServerConfig(
-        id: 'auth-revoke-b',
-        name: 'Server B',
-        url: 'https://b.example.test',
-      );
-      final databaseA = manager.openFor(serverA);
-      final directLocal = AppDatabase(NativeDatabase.memory());
-      addTearDown(directLocal.close);
-      final repository = ChatDatabaseRepository(
-        openWebUiDatabase: databaseA,
-        directLocalDatabase: directLocal,
-      );
-      final profile = DirectConnectionProfile(
-        id: 'profile',
-        name: 'Provider',
-        adapterKey: 'test-adapter',
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model'),
-      ]).single;
-      final adapter = _GatedAdapter(hostileCancellation: true);
-      addTearDown(adapter.dispose);
-      final chat = withChatStorageProvenance(
-        await _seedDirectConversation(
-          db: databaseA,
-          chatId: 'auth-revoke-chat',
-          modelId: model.id,
-          suffix: 'auth-revoke-a',
-        ),
-        ChatStorageKind.openWebUi,
-      );
-      final epochState = NotifierProvider<_EpochState, Object>(
-        () => _EpochState(Object()),
-      );
-      final container = ProviderContainer(
-        overrides: [
-          activeServerProvider.overrideWith((_) async => serverA),
-          databaseManagerProvider.overrideWithValue(manager),
-          activeConversationProvider.overrideWith(_ActiveConversation.new),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthenticatedProvider2.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          appDatabaseProvider.overrideWithValue(databaseA),
-          directLocalDatabaseProvider.overrideWithValue(directLocal),
-          chatDatabaseRepositoryProvider.overrideWithValue(repository),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directConnectionProfilesProvider.overrideWith(
-            () => _Profiles(profile),
-          ),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-          openWebUiAuthSessionEpochProvider.overrideWith(
-            (ref) => ref.watch(epochState),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-      container
-          .read(openWebUiCertifiedDatabaseServerProvider.notifier)
-          .set(serverA.id);
-      container.read(openWebUiDatabaseAccessProvider.notifier).open();
-      container.read(activeConversationProvider.notifier).set(chat);
-      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+      ],
+    );
+    addTearDown(container.dispose);
+    container
+        .read(openWebUiCertifiedDatabaseServerProvider.notifier)
+        .set(serverA.id);
+    container.read(openWebUiDatabaseAccessProvider.notifier).open();
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
 
-      final started = adapter.nextRun();
-      final send = sendMessageWithContainer(
-        container,
-        'Wait forever unless auth revokes ownership',
-        null,
-      );
-      final run = await started.timeout(const Duration(seconds: 1));
-      addTearDown(run.close);
+    final started = adapter.nextRun();
+    final send = sendMessageWithContainer(
+      container,
+      'Wait forever unless auth revokes ownership',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
 
-      final databaseB = manager.openFor(serverB);
-      expect(await databaseB.customSelect('SELECT 1').get(), isNotEmpty);
-      expect(await databaseA.customSelect('SELECT 1').get(), isNotEmpty);
+    final databaseB = manager.openFor(serverB);
+    expect(await databaseB.customSelect('SELECT 1').get(), isNotEmpty);
+    expect(await databaseA.customSelect('SELECT 1').get(), isNotEmpty);
 
-      container.read(epochState.notifier).rotate();
-      await send.timeout(const Duration(seconds: 1));
+    container.read(epochState.notifier).rotate();
+    await send.timeout(const Duration(seconds: 1));
 
-      expect(run.run.isCancelled, isTrue);
-      await _waitForDatabaseClosed(databaseA);
-    },
-  );
+    expect(run.run.isCancelled, isTrue);
+    await _waitForDatabaseClosed(databaseA);
+  });
 
   test(
     'hidden OpenWebUI direct final write keeps its leased database alive',
@@ -4803,9 +4760,8 @@ void main() {
 
       final reopenedA = manager.openFor(serverA);
       expect(identical(reopenedA, databaseA), isFalse);
-      final finalRow = (await reopenedA.messagesDao.getForChat(
-        chatA.id,
-      )).singleWhere((row) => row.id == assistantId);
+      final finalRow = (await reopenedA.messagesDao.getForChat(chatA.id))
+          .singleWhere((row) => row.id == assistantId);
       expect(finalRow.content, finalContent);
     },
   );

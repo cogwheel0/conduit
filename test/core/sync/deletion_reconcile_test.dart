@@ -145,29 +145,26 @@ void main() {
   };
 
   group('pagination absence is NOT a delete signal', () {
-    test(
-      'manual reconcile restores a server title changed without a timestamp bump',
-      () async {
-        await seedServerChat(db, id: 'retitled', updatedAt: 100);
-        server.seedChat(
-          id: 'retitled',
-          blob: <String, dynamic>{
-            ...blobFor('retitled'),
-            'title': 'Generated on server',
-          },
-          createdAt: 50,
-          updatedAt: 100,
-        );
+    test('manual reconcile restores a server title changed without a timestamp bump', () async {
+      await seedServerChat(db, id: 'retitled', updatedAt: 100);
+      server.seedChat(
+        id: 'retitled',
+        blob: <String, dynamic>{
+          ...blobFor('retitled'),
+          'title': 'Generated on server',
+        },
+        createdAt: 50,
+        updatedAt: 100,
+      );
 
-        final result = await reconcile.run(ReconcileReason.manualRefresh);
+      final result = await reconcile.run(ReconcileReason.manualRefresh);
 
-        check(result.ran).isTrue();
-        final row = await db.chatsDao.getChat('retitled');
-        check(row).isNotNull();
-        check(row!.title).equals('Generated on server');
-        check(row.updatedAt).equals(100);
-      },
-    );
+      check(result.ran).isTrue();
+      final row = await db.chatsDao.getChat('retitled');
+      check(row).isNotNull();
+      check(row!.title).equals('Generated on server');
+      check(row.updatedAt).equals(100);
+    });
 
     test('manual title reconcile preserves a pending local rename', () async {
       await seedServerChat(db, id: 'locally-retitled', updatedAt: 100);
@@ -258,43 +255,40 @@ void main() {
   });
 
   group('confirmed server delete purges after reconcile', () {
-    test(
-      'a true server 404 (gone) purges the local chat + its pending ops',
-      () async {
-        server.seedChat(
-          id: 'alive',
-          blob: blobFor('alive'),
-          createdAt: 50,
-          updatedAt: 100,
-        );
-        await seedServerChat(db, id: 'alive');
+    test('a true server 404 (gone) purges the local chat + its pending ops', () async {
+      server.seedChat(
+        id: 'alive',
+        blob: blobFor('alive'),
+        createdAt: 50,
+        updatedAt: 100,
+      );
+      await seedServerChat(db, id: 'alive');
 
-        // 'ghost' exists locally but NOT on the server: absent from the list AND
-        // the probe reports gone (404).
-        await seedServerChat(db, id: 'ghost');
-        client.nullChatIds.add('ghost'); // probe -> false (gone)
+      // 'ghost' exists locally but NOT on the server: absent from the list AND
+      // the probe reports gone (404).
+      await seedServerChat(db, id: 'ghost');
+      client.nullChatIds.add('ghost'); // probe -> false (gone)
 
-        // A stale pending op for the ghost should be dropped on purge.
-        await db
-            .into(db.outboxOps)
-            .insert(
-              OutboxOpsCompanion.insert(
-                kind: OutboxKind.updateChat.name,
-                chatId: const Value('ghost'),
-                payload: const Value('{}'),
-              ),
-            );
+      // A stale pending op for the ghost should be dropped on purge.
+      await db
+          .into(db.outboxOps)
+          .insert(
+            OutboxOpsCompanion.insert(
+              kind: OutboxKind.updateChat.name,
+              chatId: const Value('ghost'),
+              payload: const Value('{}'),
+            ),
+          );
 
-        final result = await reconcile.run(ReconcileReason.manualRefresh);
+      final result = await reconcile.run(ReconcileReason.manualRefresh);
 
-        check(result.purged).equals(1);
-        check(result.candidates).equals(1);
-        check(await db.chatsDao.getChat('ghost')).isNull();
-        check(await db.chatsDao.getChat('alive')).isNotNull();
-        final ops = await db.outboxDao.pendingForChat('ghost');
-        check(ops).isEmpty();
-      },
-    );
+      check(result.purged).equals(1);
+      check(result.candidates).equals(1);
+      check(await db.chatsDao.getChat('ghost')).isNull();
+      check(await db.chatsDao.getChat('alive')).isNotNull();
+      final ops = await db.outboxDao.pendingForChat('ghost');
+      check(ops).isEmpty();
+    });
 
     test(
       'a 401 NOT_FOUND (vendored normal-user not-ours) also counts as gone',

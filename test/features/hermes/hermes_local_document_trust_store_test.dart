@@ -253,10 +253,8 @@ void main() {
     ).isEmpty();
 
     releaseWrite.complete();
-    await Future.wait<void>([
-      remember,
-      prepare,
-    ]).timeout(const Duration(seconds: 1));
+    await Future.wait<void>([remember, prepare])
+        .timeout(const Duration(seconds: 1));
 
     // Model restart: no in-memory tombstone may be required to hide a late
     // trust write after the reuse purge has reported success.
@@ -305,10 +303,8 @@ void main() {
     );
 
     releaseWrite.complete();
-    await Future.wait<void>([
-      remember,
-      forget,
-    ]).timeout(const Duration(seconds: 1));
+    await Future.wait<void>([remember, forget])
+        .timeout(const Duration(seconds: 1));
 
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     check(

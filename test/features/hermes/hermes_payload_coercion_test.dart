@@ -288,9 +288,9 @@ void main() {
         {'id': 'target-1', 'role': 'user', 'content': 'same'},
       ],
     );
-    check(
-      valid,
-    ).isNotNull().deepEquals(<String, String>{'source-1': 'target-1'});
+    check(valid)
+        .isNotNull()
+        .deepEquals(<String, String>{'source-1': 'target-1'});
     check(
       alignHermesForkedMessageIds(
         const <Map<String, dynamic>>[
@@ -412,9 +412,8 @@ void main() {
         ]);
         check(mapped).length.equals(1);
         check(mapped.single.content).equals(sharedPrefix);
-        check(
-          mapped.single.content.runes.length,
-        ).equals(kHermesMaxHistoryMessageTextCharacters);
+        check(mapped.single.content.runes.length)
+            .equals(kHermesMaxHistoryMessageTextCharacters);
       },
     );
 
@@ -423,9 +422,8 @@ void main() {
         for (var index = 0; index < kHermesMaxHistoryContentNodes - 1; index++)
           'x',
       ];
-      check(
-        hermesMessageTextContent(atBoundary),
-      ).equals(_repeat('x', kHermesMaxHistoryContentNodes - 1));
+      check(hermesMessageTextContent(atBoundary))
+          .equals(_repeat('x', kHermesMaxHistoryContentNodes - 1));
       final overBoundary = <Object?>[...atBoundary, 'different-tail'];
       check(hermesMessageTextContent(overBoundary)).isNull();
 

@@ -117,9 +117,8 @@ void main() {
     // Ordering is identical to watchChatList: updatedAt DESC, id ASC. The
     // fixture's strictly-decreasing updatedAt makes chat-0000 the newest.
     final firstFromStream = await db.chatsDao.watchChatList().first;
-    check(
-      page.map((e) => e.id).toList(),
-    ).deepEquals(firstFromStream.take(200).map((e) => e.id).toList());
+    check(page.map((e) => e.id).toList())
+        .deepEquals(firstFromStream.take(200).map((e) => e.id).toList());
 
     // Pagination composes: second page continues with no gaps/overlaps.
     final page2 = await db.chatsDao.getChatPage(limit: 200, offset: 200);
@@ -173,52 +172,44 @@ void main() {
   // -------------------------------------------------------------------------
   // BUDGET 3 — one list emission per merge transaction (no per-row jank).
   // -------------------------------------------------------------------------
-  test(
-    'BUDGET 3: upsertServerChat emits the list stream EXACTLY ONCE per merge tx',
-    () async {
-      final file = dbFile('emissions-1');
-      final db = AppDatabase(NativeDatabase(file));
-      addTearDown(db.close);
-      await seedAndBuildFts(
-        db,
-        chats: 50,
-        msgsPerChat: 10,
-        bigChatMessages: 50,
-      );
+  test('BUDGET 3: upsertServerChat emits the list stream EXACTLY ONCE per merge tx', () async {
+    final file = dbFile('emissions-1');
+    final db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    await seedAndBuildFts(db, chats: 50, msgsPerChat: 10, bigChatMessages: 50);
 
-      // Subscribe and drain the initial emission, then count only NEW ones.
-      final emissions = <int>[];
-      final ready = Completer<void>();
-      final sub = db.chatsDao.watchChatList().listen((rows) {
-        if (!ready.isCompleted) {
-          ready.complete();
-          return;
-        }
-        emissions.add(rows.length);
-      });
-      await ready.future;
+    // Subscribe and drain the initial emission, then count only NEW ones.
+    final emissions = <int>[];
+    final ready = Completer<void>();
+    final sub = db.chatsDao.watchChatList().listen((rows) {
+      if (!ready.isCompleted) {
+        ready.complete();
+        return;
+      }
+      emissions.add(rows.length);
+    });
+    await ready.future;
 
-      // One chat re-upserted = a full delete+reinsert of its messages inside
-      // ONE transaction (and chat_fts trigger writes). Drift coalesces table
-      // notifications to the commit; chat_fts is not a watched table, so its
-      // trigger writes raise no extra notification on chats/messages.
-      await _reupsert(db, 'chat-0000');
+    // One chat re-upserted = a full delete+reinsert of its messages inside
+    // ONE transaction (and chat_fts trigger writes). Drift coalesces table
+    // notifications to the commit; chat_fts is not a watched table, so its
+    // trigger writes raise no extra notification on chats/messages.
+    await _reupsert(db, 'chat-0000');
 
-      await _waitUntil(
-        () => emissions.isNotEmpty,
-        timeout: const Duration(seconds: 2),
-      );
-      await _settleQueuedEmissions();
-      await sub.cancel();
+    await _waitUntil(
+      () => emissions.isNotEmpty,
+      timeout: const Duration(seconds: 2),
+    );
+    await _settleQueuedEmissions();
+    await sub.cancel();
 
-      DebugLogger.log(
-        'sync-emissions',
-        scope: 'perf/sync',
-        data: {'emissions': emissions.length},
-      );
-      check(emissions.length).equals(1);
-    },
-  );
+    DebugLogger.log(
+      'sync-emissions',
+      scope: 'perf/sync',
+      data: {'emissions': emissions.length},
+    );
+    check(emissions.length).equals(1);
+  });
 
   test(
     'BUDGET 3: a batch of 10 chats each in its own tx emits EXACTLY 10 times',
@@ -278,9 +269,8 @@ void main() {
 
       // Before any build: fts_built is absent/'0' and search short-circuits to
       // [] without relying on FTS contents.
-      check(
-        await db.syncMetaDao.getValue('fts_built'),
-      ).anyOf([(it) => it.isNull(), (it) => it.equals('0')]);
+      check(await db.syncMetaDao.getValue('fts_built'))
+          .anyOf([(it) => it.isNull(), (it) => it.equals('0')]);
       // search() sanitizes its raw argument internally (toFtsMatchQuery), so we
       // pass the raw sentinel word, not a pre-built MATCH expression.
       //
@@ -349,9 +339,8 @@ void main() {
 
     final chatIds = results.map((r) => r.chatId).toList();
     // Exactly the three planted chats, grouped one row each.
-    check(
-      chatIds.toSet(),
-    ).deepEquals(fixture.sentinelHitsByChatId.keys.toSet());
+    check(chatIds.toSet())
+        .deepEquals(fixture.sentinelHitsByChatId.keys.toSet());
     check(chatIds.length).equals(3);
 
     // bm25 ranking: equal-length corpus, so most/earliest sentinel hits rank

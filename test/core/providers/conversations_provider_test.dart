@@ -224,9 +224,8 @@ void main() {
       for (final conversation in conversations) {
         check(conversation.messages).isEmpty();
       }
-      check(
-        conversations.first.updatedAt,
-      ).equals(DateTime.fromMillisecondsSinceEpoch(200 * 1000));
+      check(conversations.first.updatedAt)
+          .equals(DateTime.fromMillisecondsSinceEpoch(200 * 1000));
     });
 
     test('later database writes stream into provider state', () async {
@@ -240,9 +239,8 @@ void main() {
         final state = container.read(conversationsProvider);
         return idsOf(state.asData?.value ?? const []).contains('chat-2');
       });
-      check(
-        idsOf(container.read(conversationsProvider).requireValue),
-      ).deepEquals(['chat-2', 'chat-1']);
+      check(idsOf(container.read(conversationsProvider).requireValue))
+          .deepEquals(['chat-2', 'chat-1']);
     });
 
     test('surfaces a cold replacement-watch failure', () async {
@@ -306,9 +304,8 @@ void main() {
         await replacement;
         final retained = await container.read(conversationsProvider.future);
 
-        check(
-          retained.map((chat) => chat.id),
-        ).deepEquals(firstPage.map((chat) => chat.id));
+        check(retained.map((chat) => chat.id))
+            .deepEquals(firstPage.map((chat) => chat.id));
       },
     );
 
@@ -323,17 +320,15 @@ void main() {
           conversationsProvider.future,
         );
         check(conversations.length).equals(2);
-        check(
-          conversations.map((conversation) => conversation.id).toSet(),
-        ).deepEquals({'collision'});
+        check(conversations.map((conversation) => conversation.id).toSet())
+            .deepEquals({'collision'});
         final server = conversations.singleWhere(
           (conversation) =>
               chatStorageKindOf(conversation) == ChatStorageKind.openWebUi,
         );
         final direct = conversations.singleWhere(isDirectLocalConversation);
-        check(
-          conversationScopedId(server) == conversationScopedId(direct),
-        ).isFalse();
+        check(conversationScopedId(server) == conversationScopedId(direct))
+            .isFalse();
 
         final loadedServer = await container.read(
           loadConversationProvider(conversationScopedId(server)).future,
@@ -341,18 +336,14 @@ void main() {
         final loadedDirect = await container.read(
           loadConversationProvider(conversationScopedId(direct)).future,
         );
-        check(
-          chatStorageKindOf(loadedServer),
-        ).equals(ChatStorageKind.openWebUi);
-        check(
-          chatStorageKindOf(loadedDirect),
-        ).equals(ChatStorageKind.directLocal);
-        check(
-          loadedServer.messages.single.content,
-        ).equals('hello from collision');
-        check(
-          loadedDirect.messages.single.content,
-        ).equals('hello from direct collision');
+        check(chatStorageKindOf(loadedServer))
+            .equals(ChatStorageKind.openWebUi);
+        check(chatStorageKindOf(loadedDirect))
+            .equals(ChatStorageKind.directLocal);
+        check(loadedServer.messages.single.content)
+            .equals('hello from collision');
+        check(loadedDirect.messages.single.content)
+            .equals('hello from direct collision');
 
         container
             .read(conversationsProvider.notifier)
@@ -370,16 +361,14 @@ void main() {
               )
               .title,
         ).equals('Server renamed');
-        check(
-          afterRename.singleWhere(isDirectLocalConversation).title,
-        ).equals('Device copy');
+        check(afterRename.singleWhere(isDirectLocalConversation).title)
+            .equals('Device copy');
 
         container
             .read(conversationsProvider.notifier)
             .removeConversation(conversationScopedId(direct));
-        check(
-          container.read(conversationsProvider).requireValue.length,
-        ).equals(1);
+        check(container.read(conversationsProvider).requireValue.length)
+            .equals(1);
         check(
           chatStorageKindOf(
             container.read(conversationsProvider).requireValue.single,
@@ -501,63 +490,55 @@ void main() {
 
         check(socket.emits.length).equals(1);
         check(socket.emits.single.$1).equals('events:chat');
-        check(
-          (socket.emits.single.$2 as Map<String, dynamic>)['chat_id'],
-        ).equals('chat-1');
+        check((socket.emits.single.$2 as Map<String, dynamic>)['chat_id'])
+            .equals('chat-1');
       },
     );
 
-    test(
-      'scoped read mark retains outgoing ownership after active collision switch',
-      () async {
-        await seedServerChat('collision', updatedAt: 100);
-        await seedDirectChat('collision', updatedAt: 200);
-        final socket = _RecordingSocketService();
-        final container = makeContainer(
-          extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
-        );
-        final conversations = await container.read(
-          conversationsProvider.future,
-        );
-        final direct = conversations.singleWhere(isDirectLocalConversation);
-        final openWebUi = conversations.singleWhere(
-          (conversation) => !isDirectLocalConversation(conversation),
-        );
-        final outgoingSelection = conversationScopedId(direct);
-        final outgoingIdentity = ChatStorageIdentity.parse(outgoingSelection);
-        check(outgoingIdentity.rawId).equals(direct.id);
-        check(outgoingIdentity.storage).equals(ChatStorageKind.directLocal);
-        check(conversationScopedId(direct)).equals(outgoingSelection);
-        check(conversationMatchesScopedId(direct, outgoingSelection)).isTrue();
-        check(
-          conversationMatchesScopedId(openWebUi, outgoingSelection),
-        ).isFalse();
-        container.read(activeConversationProvider.notifier).set(openWebUi);
-        final readAt = DateTime.fromMillisecondsSinceEpoch(500 * 1000);
+    test('scoped read mark retains outgoing ownership after active collision switch', () async {
+      await seedServerChat('collision', updatedAt: 100);
+      await seedDirectChat('collision', updatedAt: 200);
+      final socket = _RecordingSocketService();
+      final container = makeContainer(
+        extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
+      );
+      final conversations = await container.read(conversationsProvider.future);
+      final direct = conversations.singleWhere(isDirectLocalConversation);
+      final openWebUi = conversations.singleWhere(
+        (conversation) => !isDirectLocalConversation(conversation),
+      );
+      final outgoingSelection = conversationScopedId(direct);
+      final outgoingIdentity = ChatStorageIdentity.parse(outgoingSelection);
+      check(outgoingIdentity.rawId).equals(direct.id);
+      check(outgoingIdentity.storage).equals(ChatStorageKind.directLocal);
+      check(conversationScopedId(direct)).equals(outgoingSelection);
+      check(conversationMatchesScopedId(direct, outgoingSelection)).isTrue();
+      check(conversationMatchesScopedId(openWebUi, outgoingSelection))
+          .isFalse();
+      container.read(activeConversationProvider.notifier).set(openWebUi);
+      final readAt = DateTime.fromMillisecondsSinceEpoch(500 * 1000);
 
-        // ChatPage captures the outgoing scoped selection before the active
-        // row changes. The newly active colliding row must not steal the mark.
-        markConversationRead(container, outgoingSelection, readAt: readAt);
+      // ChatPage captures the outgoing scoped selection before the active
+      // row changes. The newly active colliding row must not steal the mark.
+      markConversationRead(container, outgoingSelection, readAt: readAt);
 
-        final updated = container.read(conversationsProvider).requireValue;
-        check(
-          updated.singleWhere(isDirectLocalConversation).lastReadAt,
-        ).equals(readAt);
-        check(
-          updated
-              .singleWhere(
-                (conversation) => !isDirectLocalConversation(conversation),
-              )
-              .lastReadAt,
-        ).isNull();
-        await waitForAsync(
-          () => directDb.chatsDao.getChat('collision'),
-          condition: (chat) => chat?.lastReadAt == 500,
-        );
-        check((await db.chatsDao.getChat('collision'))?.lastReadAt).isNull();
-        check(socket.emits).isEmpty();
-      },
-    );
+      final updated = container.read(conversationsProvider).requireValue;
+      check(updated.singleWhere(isDirectLocalConversation).lastReadAt)
+          .equals(readAt);
+      check(
+        updated
+            .singleWhere(
+              (conversation) => !isDirectLocalConversation(conversation),
+            )
+            .lastReadAt,
+      ).isNull();
+      await waitForAsync(
+        () => directDb.chatsDao.getChat('collision'),
+        condition: (chat) => chat?.lastReadAt == 500,
+      );
+      check((await db.chatsDao.getChat('collision'))?.lastReadAt).isNull();
+      check(socket.emits).isEmpty();
+    });
 
     test('storage-scoped collisions never match a native Hermes shell', () {
       const rawId = 'local:hermes_collision';
@@ -575,9 +556,8 @@ void main() {
       check(
         conversationMatchesScopedId(native, conversationScopedId(openWebUi)),
       ).isFalse();
-      check(
-        conversationMatchesScopedId(native, conversationScopedId(direct)),
-      ).isFalse();
+      check(conversationMatchesScopedId(native, conversationScopedId(direct)))
+          .isFalse();
       check(
         conversationMatchesScopedId(openWebUi, conversationScopedId(openWebUi)),
       ).isTrue();
@@ -599,9 +579,8 @@ void main() {
       ).scopedId;
 
       check(conversationMatchesScopedId(directShell, rawId)).isTrue();
-      check(
-        conversationMatchesScopedId(directShell, openWebUiSelection),
-      ).isFalse();
+      check(conversationMatchesScopedId(directShell, openWebUiSelection))
+          .isFalse();
       check(isSameStoredConversation(directShell, legacyOpenWebUi)).isFalse();
       check(
         conversationMatchesScopedId(
@@ -624,9 +603,8 @@ void main() {
           .upsertConversation(_conversation('chat-new', updatedAtSeconds: 300));
 
       // Synchronous in-memory upsert.
-      check(
-        idsOf(container.read(conversationsProvider).requireValue),
-      ).deepEquals(['chat-new']);
+      check(idsOf(container.read(conversationsProvider).requireValue))
+          .deepEquals(['chat-new']);
 
       // The stub row materializes and the stream emission keeps the chat
       // (no flicker revert — risk guard 6).
@@ -636,9 +614,8 @@ void main() {
       );
       check(row!.bodySynced).isFalse();
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        idsOf(container.read(conversationsProvider).requireValue),
-      ).deepEquals(['chat-new']);
+      check(idsOf(container.read(conversationsProvider).requireValue))
+          .deepEquals(['chat-new']);
     });
 
     test('updateConversation persists the rename across emissions', () async {
@@ -656,9 +633,8 @@ void main() {
             ),
           );
 
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('Renamed');
+      check(container.read(conversationsProvider).requireValue.single.title)
+          .equals('Renamed');
 
       await waitForAsync<ChatRow?>(
         () => db.chatsDao.getChat('chat-1'),
@@ -666,9 +642,8 @@ void main() {
       );
       // The next emission agrees with the optimistic state.
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('Renamed');
+      check(container.read(conversationsProvider).requireValue.single.title)
+          .equals('Renamed');
     });
 
     test(
@@ -685,9 +660,8 @@ void main() {
               (conversation) => conversation.copyWith(title: 'Remote rename'),
             );
 
-        check(
-          container.read(conversationsProvider).requireValue.single.title,
-        ).equals('Remote rename');
+        check(container.read(conversationsProvider).requireValue.single.title)
+            .equals('Remote rename');
       },
     );
 
@@ -736,9 +710,8 @@ void main() {
           .read(conversationsProvider.notifier)
           .applyServerGeneratedTitle('chat-1', 'Generated title');
 
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('My local title');
+      check(container.read(conversationsProvider).requireValue.single.title)
+          .equals('My local title');
 
       final row = await waitForAsync<ChatRow?>(
         () => db.chatsDao.getChat('chat-1'),
@@ -792,18 +765,16 @@ void main() {
           .read(conversationsProvider.notifier)
           .removeConversation('chat-1');
 
-      check(
-        idsOf(container.read(conversationsProvider).requireValue),
-      ).deepEquals(['chat-2']);
+      check(idsOf(container.read(conversationsProvider).requireValue))
+          .deepEquals(['chat-2']);
 
       await waitForAsync<ChatRow?>(
         () => db.chatsDao.getChat('chat-1'),
         condition: (row) => row == null,
       );
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        idsOf(container.read(conversationsProvider).requireValue),
-      ).deepEquals(['chat-2']);
+      check(idsOf(container.read(conversationsProvider).requireValue))
+          .deepEquals(['chat-2']);
     });
 
     test('trustConversation and exhausted loadMore are no-ops', () async {
@@ -815,9 +786,8 @@ void main() {
       notifier.trustConversation('chat-1');
       await notifier.loadMore();
 
-      check(
-        container.read(conversationsProvider).requireValue,
-      ).deepEquals(before);
+      check(container.read(conversationsProvider).requireValue)
+          .deepEquals(before);
       check(notifier.hasMoreRegularChats()).isFalse();
       check(notifier.isLoadingMoreRegularChats()).isFalse();
     });
@@ -998,9 +968,8 @@ void main() {
         );
         await container.read(conversationsProvider.future);
 
-        check(
-          idsOf(container.read(conversationsProvider).requireValue),
-        ).contains('deleted-remotely');
+        check(idsOf(container.read(conversationsProvider).requireValue))
+            .contains('deleted-remotely');
 
         await container.read(conversationsProvider.notifier).refresh();
 

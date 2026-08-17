@@ -320,15 +320,14 @@ void main() {
           .cancel(info!);
 
       check(removed).equals(1);
-      check(
-        identical(container.read(activeConversationProvider), native),
-      ).isTrue();
+      check(identical(container.read(activeConversationProvider), native))
+          .isTrue();
       check(
         isNativeHermesConversation(container.read(activeConversationProvider)),
       ).isTrue();
-      check(
-        container.read(chatMessagesProvider),
-      ).single.has((message) => message.id, 'id').equals(assistantId);
+      check(container.read(chatMessagesProvider)).single
+          .has((message) => message.id, 'id')
+          .equals(assistantId);
     },
   );
 
@@ -379,9 +378,8 @@ void main() {
       check(await actions.cancel(staleInfo)).equals(0);
 
       check((await db.select(db.outboxOps).get()).single).equals(beforeA);
-      check(
-        (await databaseB.select(databaseB.outboxOps).get()).single,
-      ).equals(beforeB);
+      check((await databaseB.select(databaseB.outboxOps).get()).single)
+          .equals(beforeB);
     },
   );
 
@@ -551,90 +549,86 @@ void main() {
     check(drainBarrier.databaseOwnedDrainCalls).equals(1);
     check(drainBarrier.genericDrainCalls).equals(0);
     check(drainBarrier.expectedDatabase).identicalTo(db);
-    check(
-      (await databaseB.select(databaseB.outboxOps).get()).single,
-    ).equals(beforeB);
+    check((await databaseB.select(databaseB.outboxOps).get()).single)
+        .equals(beforeB);
   });
 
-  test(
-    'ApiService identity churn without an auth-epoch change republishes a '
-    'current snapshot so retry still executes',
-    () async {
-      const chatId = 'same-chat';
-      const assistantId = 'same-assistant';
-      final seq = await enqueueCompletion(chatId, assistantId);
-      await db.outboxDao.markParked(seq, error: 'boom');
+  test('ApiService identity churn without an auth-epoch change republishes a '
+      'current snapshot so retry still executes', () async {
+    const chatId = 'same-chat';
+    const assistantId = 'same-assistant';
+    final seq = await enqueueCompletion(chatId, assistantId);
+    await db.outboxDao.markParked(seq, error: 'boom');
 
-      final workerManager = WorkerManager(debugIsWebOverride: true);
-      addTearDown(workerManager.dispose);
-      ApiService buildApi() {
-        final api = ApiService(
-          serverConfig: const ServerConfig(
-            id: 'server-1',
-            name: 'Open WebUI',
-            url: 'https://openwebui.example.com',
-          ),
-          workerManager: workerManager,
-        );
-        addTearDown(api.dispose);
-        return api;
-      }
-
-      var currentApi = buildApi();
-      final syncEngine = _NoopSyncEngine();
-      final container = ProviderContainer(
-        overrides: [
-          appDatabaseProvider.overrideWith((ref) => db),
-          isOnlineProvider.overrideWith((ref) => true),
-          apiServiceProvider.overrideWith((ref) => currentApi),
-          syncEngineProvider.overrideWith(() => syncEngine),
-        ],
+    final workerManager = WorkerManager(debugIsWebOverride: true);
+    addTearDown(workerManager.dispose);
+    ApiService buildApi() {
+      final api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server-1',
+          name: 'Open WebUI',
+          url: 'https://openwebui.example.com',
+        ),
+        workerManager: workerManager,
       );
-      addTearDown(container.dispose);
-      container.read(activeConversationProvider.notifier).set(conv(chatId));
+      addTearDown(api.dispose);
+      return api;
+    }
 
-      final staleInfo = await firstInfo(container, assistantId);
-      check(staleInfo).isNotNull();
+    var currentApi = buildApi();
+    final syncEngine = _NoopSyncEngine();
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        isOnlineProvider.overrideWith((ref) => true),
+        apiServiceProvider.overrideWith((ref) => currentApi),
+        syncEngineProvider.overrideWith(() => syncEngine),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(activeConversationProvider.notifier).set(conv(chatId));
 
-      // Recreate the ApiService with no auth-epoch transition, as happens for
-      // ref.invalidate(apiServiceProvider) during an auth-state rollback or a
-      // logout-fence toggle. The stale snapshot must stay fenced out, but the
-      // provider must republish a fresh snapshot whose actions work.
-      currentApi = buildApi();
-      container.invalidate(apiServiceProvider);
-      check(container.read(apiServiceProvider)).identicalTo(currentApi);
+    final staleInfo = await firstInfo(container, assistantId);
+    check(staleInfo).isNotNull();
 
-      final before = (await db.select(db.outboxOps).get()).single;
-      final actions = container.read(queuedCompletionActionsProvider);
-      await actions.retry(staleInfo!);
-      check((await db.select(db.outboxOps).get()).single).equals(before);
-      check(syncEngine.databaseOwnedDrainCalls).equals(0);
+    // Recreate the ApiService with no auth-epoch transition, as happens for
+    // ref.invalidate(apiServiceProvider) during an auth-state rollback or a
+    // logout-fence toggle. The stale snapshot must stay fenced out, but the
+    // provider must republish a fresh snapshot whose actions work.
+    currentApi = buildApi();
+    container.invalidate(apiServiceProvider);
+    check(container.read(apiServiceProvider)).identicalTo(currentApi);
 
-      // Wait for the rebuilt stream to publish an info owned by the new
-      // ApiService identity (distinct ownership token from the stale one).
-      final freshCompleter = Completer<QueuedCompletionInfo>();
-      final sub = container.listen(
-        queuedCompletionInfoForMessageProvider(assistantId),
-        (_, next) {
-          final info = next.hasValue ? next.value : null;
-          if (info != null && info != staleInfo && !freshCompleter.isCompleted) {
-            freshCompleter.complete(info);
-          }
-        },
-        fireImmediately: true,
-      );
-      addTearDown(sub.close);
-      final freshInfo = await freshCompleter.future.timeout(
-        const Duration(seconds: 5),
-      );
+    final before = (await db.select(db.outboxOps).get()).single;
+    final actions = container.read(queuedCompletionActionsProvider);
+    await actions.retry(staleInfo!);
+    check((await db.select(db.outboxOps).get()).single).equals(before);
+    check(syncEngine.databaseOwnedDrainCalls).equals(0);
 
-      await actions.retry(freshInfo);
+    // Wait for the rebuilt stream to publish an info owned by the new
+    // ApiService identity (distinct ownership token from the stale one).
+    final freshCompleter = Completer<QueuedCompletionInfo>();
+    final sub = container.listen(
+      queuedCompletionInfoForMessageProvider(assistantId),
+      (_, next) {
+        final info = next.hasValue ? next.value : null;
+        if (info != null && info != staleInfo && !freshCompleter.isCompleted) {
+          freshCompleter.complete(info);
+        }
+      },
+      fireImmediately: true,
+    );
+    addTearDown(sub.close);
+    final freshInfo = await freshCompleter.future.timeout(
+      const Duration(seconds: 5),
+    );
 
-      final after = (await db.select(db.outboxOps).get()).single;
-      check(after.status).equals(OutboxStatus.pending);
-      check(syncEngine.databaseOwnedDrainCalls).equals(1);
-    },
-  );
+    await actions.retry(freshInfo);
+
+    final after = (await db.select(db.outboxOps).get()).single;
+    check(after.status).equals(OutboxStatus.pending);
+    check(syncEngine.databaseOwnedDrainCalls).equals(1);
+  });
 
   test('queued actions retain their Ref across an async boundary', () async {
     final container = makeContainer(online: true, chatId: 'c1');

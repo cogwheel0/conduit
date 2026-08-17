@@ -178,9 +178,8 @@ class ReasoningParser {
       (String, String)? matchedRawPair;
 
       // Check for any <details tag (we'll determine if it's reasoning later)
-      final detailsMatch = RegExp(
-        r'<details(?:\s|>)',
-      ).firstMatch(content.substring(index));
+      final detailsMatch = RegExp(r'<details(?:\s|>)')
+          .firstMatch(content.substring(index));
       if (detailsMatch != null) {
         nextDetailsIdx = index + detailsMatch.start;
       }
@@ -563,9 +562,8 @@ class ReasoningParser {
 
     // Check for <details> with reasoning-like summary
     if (content.contains('<details')) {
-      final summaryMatch = RegExp(
-        r'<summary>([^<]*)</summary>',
-      ).firstMatch(content);
+      final summaryMatch = RegExp(r'<summary>([^<]*)</summary>')
+          .firstMatch(content);
       if (summaryMatch != null) {
         final summary = summaryMatch.group(1) ?? '';
         if (_reasoningSummaryPattern.hasMatch(summary)) return true;

@@ -233,10 +233,12 @@ final class DirectEditorMessages {
   final String Function(DirectConnectionProbe probe) probeMessage;
 }
 
-typedef DirectCredentialTransferConfirmation =
-    Future<bool> Function(DirectConnectionProfile draft);
-typedef DirectDeleteConfirmation =
-    Future<bool> Function(DirectConnectionProfile savedProfile);
+typedef DirectCredentialTransferConfirmation = Future<bool> Function(
+  DirectConnectionProfile draft,
+);
+typedef DirectDeleteConfirmation = Future<bool> Function(
+  DirectConnectionProfile savedProfile,
+);
 
 /// Owns persistence and the save/test/delete operation state machine.
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {

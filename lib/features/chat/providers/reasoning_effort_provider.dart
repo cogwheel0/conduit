@@ -318,9 +318,10 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
         kAutomaticReasoningEffort;
   }
   if (read(apiServiceProvider) != null) {
-    final configured = read(
-      personalizationSettingsProvider,
-    ).asData?.value.reasoningEffort;
+    final configured = read(personalizationSettingsProvider)
+        .asData
+        ?.value
+        .reasoningEffort;
     return policy.effectiveConfiguredEffort(configured) ??
         kAutomaticReasoningEffort;
   }
@@ -433,15 +434,13 @@ Future<void> setReasoningEffortForModel(
     return;
   }
   if (isHermesModel(model)) {
-    await read(
-      localReasoningEffortsProvider.notifier,
-    ).set('hermes:${model.id}', configured);
+    await read(localReasoningEffortsProvider.notifier)
+        .set('hermes:${model.id}', configured);
     return;
   }
   if (read(apiServiceProvider) != null) {
-    await read(
-      personalizationSettingsProvider.notifier,
-    ).setReasoningEffort(configured);
+    await read(personalizationSettingsProvider.notifier)
+        .setReasoningEffort(configured);
   }
 }
 

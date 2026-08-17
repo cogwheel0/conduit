@@ -26,41 +26,38 @@ class _LoadingConversationNotifier extends IsLoadingConversation {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'sendMessageWithContainer refuses to create a new chat while a selection is loading',
-    () async {
-      final api = ApiService(
-        serverConfig: const ServerConfig(
-          id: 'test',
-          name: 'Test',
-          url: 'https://example.com',
+  test('sendMessageWithContainer refuses to create a new chat while a selection is loading', () async {
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'test',
+        name: 'Test',
+        url: 'https://example.com',
+      ),
+      workerManager: WorkerManager(),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(
+          () => _NullConversationNotifier(),
         ),
-        workerManager: WorkerManager(),
-      );
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            () => _NullConversationNotifier(),
-          ),
-          isLoadingConversationProvider.overrideWith(
-            () => _LoadingConversationNotifier(true),
-          ),
-          apiServiceProvider.overrideWithValue(api),
-          selectedModelProvider.overrideWithValue(
-            const Model(id: 'gpt-4', name: 'GPT-4'),
-          ),
-          reviewerModeProvider.overrideWithValue(false),
-        ],
-      );
-      addTearDown(container.dispose);
+        isLoadingConversationProvider.overrideWith(
+          () => _LoadingConversationNotifier(true),
+        ),
+        apiServiceProvider.overrideWithValue(api),
+        selectedModelProvider.overrideWithValue(
+          const Model(id: 'gpt-4', name: 'GPT-4'),
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      await expectLater(
-        sendMessageWithContainer(container, 'How do I add flavour?', null),
-        throwsA(isA<StateError>()),
-      );
+    await expectLater(
+      sendMessageWithContainer(container, 'How do I add flavour?', null),
+      throwsA(isA<StateError>()),
+    );
 
-      check(container.read(activeConversationProvider)).isNull();
-      check(container.read(chatMessagesProvider)).isEmpty();
-    },
-  );
+    check(container.read(activeConversationProvider)).isNull();
+    check(container.read(chatMessagesProvider)).isEmpty();
+  });
 }

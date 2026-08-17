@@ -116,9 +116,9 @@ void main() {
       final result = await api.updateUserReasoningEffort(null);
 
       check(result.reasoningEffort).isNull();
-      check(adapter.settings['params']).isA<Map<String, dynamic>>().deepEquals(
-        <String, dynamic>{'temperature': 0.3},
-      );
+      check(adapter.settings['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(<String, dynamic>{'temperature': 0.3});
     });
   });
 }

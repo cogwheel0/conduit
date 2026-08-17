@@ -110,18 +110,22 @@ void main() {
     expect(bottomSheetTitle.maxLines, isNull);
   });
 
-  testWidgets('hides incomplete status rows once streaming has finished', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      buildHarness(const [
-        ChatStatusUpdate(description: 'Searching...', done: false),
-      ], isStreaming: false),
-    );
+  testWidgets(
+    'keeps the last incomplete status row when settling would empty the list',
+    (tester) async {
+      // Dropping the whole row at settle shifted the bottom-anchored layout
+      // by the row height and lost the only description of what the turn
+      // did; the last update stays visible instead.
+      await tester.pumpWidget(
+        buildHarness(const [
+          ChatStatusUpdate(description: 'Searching...', done: false),
+        ], isStreaming: false),
+      );
 
-    expect(find.text('Searching...'), findsNothing);
-    expect(find.byType(StreamingStatusWidget), findsOneWidget);
-  });
+      expect(find.text('Searching...'), findsOneWidget);
+      expect(find.byType(StreamingStatusWidget), findsOneWidget);
+    },
+  );
 
   testWidgets('keeps completed status rows visible after streaming finishes', (
     tester,

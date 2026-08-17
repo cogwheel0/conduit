@@ -11,9 +11,8 @@ void main() {
       });
 
       test('returns custom fallback', () {
-        check(
-          deriveUserDisplayName(null, fallback: 'Anonymous'),
-        ).equals('Anonymous');
+        check(deriveUserDisplayName(null, fallback: 'Anonymous'))
+            .equals('Anonymous');
       });
     });
 

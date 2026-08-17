@@ -563,7 +563,6 @@ LIMIT 1
   List<Variable<String>> _ownerVariables(String userId) {
     return [Variable.withString(userId), Variable.withString(userId)];
   }
-
 }
 
 /// Decodes an outbox `noteUpdate` patch payload (used by the push handler /

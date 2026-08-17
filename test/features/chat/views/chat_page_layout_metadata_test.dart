@@ -21,11 +21,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('message cache shrinks only while streaming', () {
-    check(debugChatMessageScrollCachePixels(streaming: false)).equals(600);
-    check(debugChatMessageScrollCachePixels(streaming: true)).equals(120);
-  });
-
   testWidgets(
     'assistant row state survives the live-tail to history transition',
     (tester) async {

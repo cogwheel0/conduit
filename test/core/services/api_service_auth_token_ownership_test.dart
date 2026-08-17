@@ -35,9 +35,8 @@ void main() {
 
     api.updateAuthToken('owned-session-token');
     await api.dio.get<void>('/api/config');
-    check(
-      adapter.requests.last.headers['Authorization'],
-    ).equals('Bearer owned-session-token');
+    check(adapter.requests.last.headers['Authorization'])
+        .equals('Bearer owned-session-token');
   });
 
   test(
@@ -123,9 +122,8 @@ void main() {
     final request = adapter.requests.single;
     check(request.method).equals('POST');
     check(request.path).equals('/api/v1/auths/signout');
-    check(
-      request.headers[HttpHeaders.authorizationHeader],
-    ).equals('Bearer original-session');
+    check(request.headers[HttpHeaders.authorizationHeader])
+        .equals('Bearer original-session');
 
     api.updateAuthToken('newer-session');
     await expectLater(

@@ -6,8 +6,9 @@ import 'compiled_markdown_document.dart';
 import 'markdown_compile_service.dart';
 import 'streaming_markdown_preparation.dart';
 
-typedef MarkdownDocumentControllerListener =
-    void Function(CompiledMarkdownDocument? document);
+typedef MarkdownDocumentControllerListener = void Function(
+  CompiledMarkdownDocument? document,
+);
 
 enum _MarkdownResolveMode { full, streamingIncremental, streamingPatch }
 
@@ -29,8 +30,31 @@ final RegExp _streamingDetailsOpenPattern = RegExp(
   r'^<details\b',
   caseSensitive: false,
 );
+// The details parser counts nested opens ANYWHERE in a line with the
+// complete-tag pattern (details_block_syntax.dart _openingTagPattern), not
+// just at line starts. Depth counting must match it, or an inline nested
+// open makes the first close exit scanner details mode one level early.
+final RegExp _streamingDetailsInlineOpenPattern = RegExp(
+  r'<details(?:\s+[^>]*)?>',
+  caseSensitive: false,
+);
+
+// Complete tags only, exactly like the parser: crediting a partial
+// line-leading `<details` here left scanner depth permanently stale when a
+// body contained a literal `<details` that never completed, keeping the
+// scanner "inside" a block the parser had already closed. Incomplete ENTRY
+// tags are handled structurally instead (the tail stays mutable until the
+// tag completes).
+int _streamingDetailsOpenCount(String line) =>
+    _streamingDetailsInlineOpenPattern.allMatches(line).length;
+
+// Must match exactly what the details parser recognizes as a close
+// (details_block_syntax.dart uses the literal `</details>`): counting a
+// looser `</details >` as a close exits details tracking early, and a
+// subsequent backtick line inside the still-open body then poisons fence
+// state and hides later reference definitions.
 final RegExp _streamingDetailsClosePattern = RegExp(
-  r'</details\s*>',
+  r'</details>',
   caseSensitive: false,
 );
 final RegExp _streamingRawHtmlBlockPattern = RegExp(
@@ -41,8 +65,13 @@ final RegExp _streamingRawHtmlBlockPattern = RegExp(
   caseSensitive: false,
   multiLine: true,
 );
+// Labels may contain backslash-escaped brackets ("[a\]b]:"), so escaped
+// pairs are consumed before the closing bracket. The character class
+// excludes the backslash so the two branches cannot overlap — an overlap
+// backtracks exponentially on long malformed labels, and this pattern runs
+// on the UI isolate during streamed flushes.
 final RegExp _streamingReferenceDefinitionPattern = RegExp(
-  r'^\s{0,3}\[[^\]\n]+\]:',
+  r'^\s{0,3}\[(?:\\.|[^\]\\\n])+\]:',
   multiLine: true,
 );
 
@@ -817,28 +846,29 @@ _StreamingPreparedSplit _splitStreamingPreparedContent(String preparedContent) {
     return const _StreamingPreparedSplit(frozenPrefix: '', mutableTail: '');
   }
 
-  // Reference definitions can retroactively change earlier blocks, so keep
-  // the full document mutable while they are present.
-  if (_streamingReferenceDefinitionPattern.hasMatch(preparedContent)) {
+  final lines = _splitStreamingPreparedLines(preparedContent);
+
+  // One fence-aware pass finds the first line with possible non-local effects.
+  // Reference definitions can retroactively rebind earlier links in this
+  // region, so they keep the whole region mutable — but only when they appear
+  // outside fenced code; previously a definition-shaped line (or any raw HTML
+  // block) anywhere, including inside code fences, disabled incremental
+  // compilation for the entire message on every streamed flush.
+  //
+  // Raw HTML blocks have tag-specific termination rules the scanner does not
+  // model, but they cannot affect blocks before them, so freezing is capped
+  // at the first HTML block start instead of keeping the whole document
+  // mutable.
+  final unsafe = _firstStreamingUnsafeLine(lines);
+  if (unsafe != null && unsafe.isReferenceDefinition) {
     return _StreamingPreparedSplit(
       frozenPrefix: '',
       mutableTail: preparedContent,
       fallbackReason: 'referenceDefinitions',
     );
   }
+  final freezeCap = unsafe?.offset ?? preparedContent.length;
 
-  // CommonMark raw HTML blocks have tag-specific termination rules. Until the
-  // splitter models those rules, parsing the document as one mutable segment
-  // is safer than freezing at a blank line inside the raw block.
-  if (_containsStreamingRawHtmlBlock(preparedContent)) {
-    return _StreamingPreparedSplit(
-      frozenPrefix: '',
-      mutableTail: preparedContent,
-      fallbackReason: 'rawHtmlBlock',
-    );
-  }
-
-  final lines = _splitStreamingPreparedLines(preparedContent);
   var index = 0;
   var safeBoundary = 0;
 
@@ -853,7 +883,7 @@ _StreamingPreparedSplit _splitStreamingPreparedContent(String preparedContent) {
       index,
       preparedContent.length,
     );
-    if (result == null) {
+    if (result == null || result.safeBoundary > freezeCap) {
       break;
     }
 
@@ -901,13 +931,60 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
   return lines;
 }
 
-bool _containsStreamingRawHtmlBlock(String content) {
+({int offset, bool isReferenceDefinition})? _firstStreamingUnsafeLine(
+  List<_StreamingPreparedLine> lines,
+) {
   String? fenceCharacter;
   var fenceLength = 0;
+  var detailsDepth = 0;
+  int? firstRawHtmlOffset;
 
-  for (final line in _splitStreamingPreparedLines(content)) {
+  // Reference definitions must be detected across the whole region — one
+  // after a raw HTML block still rebinds links before it — so the scan never
+  // stops at the first raw HTML line; only its offset is recorded as the
+  // freeze cap.
+  //
+  // Once a raw HTML block has started, fence tracking is unreliable: backtick
+  // lines inside raw HTML are content, not fences, and an odd count would
+  // leave the tracker "inside" a fence and skip a later real definition. From
+  // that point every line is checked for a definition regardless of fence
+  // state — at worst more conservative than the pre-split whole-document
+  // check this replaced.
+  //
+  // <details> bodies are treated the same way the block scanner treats them:
+  // as opaque content tracked by open/close depth. An unmatched backtick line
+  // inside a details body must not open a phantom outer fence that would hide
+  // a definition appearing after the block.
+  for (final line in lines) {
+    if (detailsDepth > 0) {
+      // The parser counts nested opens/closes on the RAW line — indentation
+      // is irrelevant inside a details block — so this must not go through
+      // the dedented candidate, which is null for indented lines and would
+      // miss tags the parser counts, exiting details mode a level early.
+      // (Depth can only be non-zero while firstRawHtmlOffset is null: raw
+      // HTML detection runs outside details mode and ends the other checks.)
+      detailsDepth += _streamingDetailsOpenCount(line.text);
+      detailsDepth -= _streamingDetailsClosePattern
+          .allMatches(line.text)
+          .length;
+      if (detailsDepth < 0) {
+        detailsDepth = 0;
+      }
+      // Definition-shaped lines inside a details body are not document-scoped:
+      // the parser lifts the body into a `body_markdown` attribute compiled as
+      // its own document, so they cannot couple frozen and mutable segments.
+      continue;
+    }
+
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
+      continue;
+    }
+
+    if (firstRawHtmlOffset != null) {
+      if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
+        return (offset: line.start, isReferenceDefinition: true);
+      }
       continue;
     }
 
@@ -915,6 +992,17 @@ bool _containsStreamingRawHtmlBlock(String content) {
       if (_isStreamingFenceClose(candidate, fenceCharacter, fenceLength)) {
         fenceCharacter = null;
         fenceLength = 0;
+      }
+      continue;
+    }
+
+    if (_streamingDetailsOpenPattern.hasMatch(candidate)) {
+      detailsDepth = _streamingDetailsOpenCount(line.text);
+      detailsDepth -= _streamingDetailsClosePattern
+          .allMatches(line.text)
+          .length;
+      if (detailsDepth < 0) {
+        detailsDepth = 0;
       }
       continue;
     }
@@ -927,12 +1015,18 @@ bool _containsStreamingRawHtmlBlock(String content) {
       continue;
     }
 
+    if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
+      return (offset: line.start, isReferenceDefinition: true);
+    }
     if (_streamingRawHtmlBlockPattern.hasMatch(candidate)) {
-      return true;
+      firstRawHtmlOffset = line.start;
     }
   }
 
-  return false;
+  if (firstRawHtmlOffset != null) {
+    return (offset: firstRawHtmlOffset, isReferenceDefinition: false);
+  }
+  return null;
 }
 
 bool _isStreamingFenceClose(
@@ -972,15 +1066,12 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
       : _streamingFenceStartPattern.firstMatch(starterCandidate);
   if (fenceMatch != null) {
     final fence = fenceMatch.group(1)!;
-    final closingPattern = RegExp(
-      '^\\s*${RegExp.escape(fence[0])}{${fence.length},}\\s*\$',
-    );
     for (var lineIndex = index + 1; lineIndex < lines.length; lineIndex += 1) {
       final closingCandidate = _streamingBlockStarterCandidate(
         lines[lineIndex].text,
       );
       if (closingCandidate == null ||
-          !closingPattern.hasMatch(closingCandidate)) {
+          !_isStreamingFenceClose(closingCandidate, fence[0], fence.length)) {
         continue;
       }
       final nextIndex = _skipBlankStreamingLines(lines, lineIndex + 1);
@@ -993,20 +1084,23 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
   }
 
   if (_startsStreamingDetailsBlock(line.text)) {
+    if (_streamingDetailsOpenCount(line.text) == 0) {
+      // The entry tag is still incomplete (`<details` without `>`): the
+      // parser sees only a paragraph until the tag completes, so keep the
+      // tail mutable rather than freezing a boundary that shifts on the
+      // next flush.
+      return null;
+    }
     var depth = 0;
     for (var lineIndex = index; lineIndex < lines.length; lineIndex += 1) {
       final currentLine = lines[lineIndex];
-      final currentCandidate = _streamingBlockStarterCandidate(
-        currentLine.text,
-      );
-      if (currentCandidate != null) {
-        depth += _streamingDetailsOpenPattern
-            .allMatches(currentCandidate)
-            .length;
-        depth -= _streamingDetailsClosePattern
-            .allMatches(currentCandidate)
-            .length;
-      }
+      // Count on the RAW line: the parser counts tags regardless of
+      // indentation inside the block, and the dedented candidate is null
+      // for indented lines, which would drop tags the parser counts.
+      depth += _streamingDetailsOpenCount(currentLine.text);
+      depth -= _streamingDetailsClosePattern
+          .allMatches(currentLine.text)
+          .length;
       if (depth > 0) {
         continue;
       }

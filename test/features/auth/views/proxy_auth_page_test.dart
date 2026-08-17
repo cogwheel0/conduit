@@ -35,9 +35,8 @@ void main() {
       fence.invalidate();
 
       check(fence.ownsGeneration(generation)).isFalse();
-      check(
-        fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
-      ).isFalse();
+      check(fence.ownsDocument(fence.generation, 'https://chat.example/auth'))
+          .isFalse();
     });
 
     test('invalidated fence rejects a matching delayed completion', () {
@@ -167,9 +166,8 @@ void main() {
 
       check(fence.markDocumentCommitted('https://chat.example/old')).isFalse();
       check(fence.committedDocument).isNull();
-      check(
-        fence.ownsDocument(newDocument.generation, newDocument.url),
-      ).isTrue();
+      check(fence.ownsDocument(newDocument.generation, newDocument.url))
+          .isTrue();
     });
 
     test('redirect commit waits for the load-stop fallback', () {
@@ -177,9 +175,8 @@ void main() {
       fence.startNavigation('https://chat.example/');
       final pendingDocument = fence.activeDocument!;
 
-      check(
-        fence.markDocumentCommitted('https://auth.example/login'),
-      ).isFalse();
+      check(fence.markDocumentCommitted('https://auth.example/login'))
+          .isFalse();
       check(fence.committedDocument).isNull();
       check(
         fence.commitDocument(
@@ -211,9 +208,8 @@ void main() {
       );
 
       check(committed).isFalse();
-      check(
-        fence.ownsDocument(currentGeneration, 'https://chat.example/auth'),
-      ).isTrue();
+      check(fence.ownsDocument(currentGeneration, 'https://chat.example/auth'))
+          .isTrue();
     });
 
     test('rejects an old document ticket even when the URL is unchanged', () {
@@ -266,12 +262,10 @@ void main() {
       fence.markDocumentCommitted('https://chat.example/auth');
       final document = fence.committedDocument!;
 
-      check(
-        fence.ownsLiveDocument(document, 'https://chat.example/auth#ready'),
-      ).isFalse();
-      check(
-        fence.ownsLiveDocument(document, 'https://chat.example/chat/new'),
-      ).isFalse();
+      check(fence.ownsLiveDocument(document, 'https://chat.example/auth#ready'))
+          .isFalse();
+      check(fence.ownsLiveDocument(document, 'https://chat.example/chat/new'))
+          .isFalse();
     });
 
     test('fragment-only history change advances the committed ticket', () {
@@ -328,9 +322,8 @@ void main() {
 
       check(fence.markNavigationProvisional(document)).isTrue();
       check(fence.committedDocument).isNull();
-      check(
-        fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
-      ).isTrue();
+      check(fence.ownsDocument(fence.generation, 'https://chat.example/auth'))
+          .isTrue();
     });
 
     test('stale history ticket cannot replace a newer navigation', () {
@@ -347,9 +340,8 @@ void main() {
           url: 'https://chat.example/old/history',
         ),
       ).isFalse();
-      check(
-        fence.ownsDocument(newDocument.generation, newDocument.url),
-      ).isTrue();
+      check(fence.ownsDocument(newDocument.generation, newDocument.url))
+          .isTrue();
     });
   });
 

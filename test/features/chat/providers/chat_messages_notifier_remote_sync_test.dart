@@ -394,44 +394,40 @@ void main() {
       },
     );
 
-    test(
-      'cold reopen rebinds an Open WebUI wire model to its trusted direct model',
-      () async {
-        final direct = _serverDirectModel();
-        const priorSelection = Model(
-          id: 'previous-model',
-          name: 'Previous model',
-        );
-        final container = _modelRebindContainer(
-          registry: direct.registry,
-          models: <Model>[direct.model],
-        );
-        addTearDown(container.dispose);
-        container.read(chatMessagesProvider);
-        container.read(selectedModelProvider.notifier).set(priorSelection);
+    test('cold reopen rebinds an Open WebUI wire model to its trusted direct model', () async {
+      final direct = _serverDirectModel();
+      const priorSelection = Model(
+        id: 'previous-model',
+        name: 'Previous model',
+      );
+      final container = _modelRebindContainer(
+        registry: direct.registry,
+        models: <Model>[direct.model],
+      );
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider);
+      container.read(selectedModelProvider.notifier).set(priorSelection);
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              withChatStorageProvenance(
-                _conversation(
-                  'server-direct-chat',
-                  const <ChatMessage>[],
-                  DateTime.utc(2026, 7, 15),
-                ).copyWith(model: direct.wireModelId),
-                ChatStorageKind.openWebUi,
-              ),
-            );
-        await pumpMicrotasks();
-        await pumpMicrotasks();
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              _conversation(
+                'server-direct-chat',
+                const <ChatMessage>[],
+                DateTime.utc(2026, 7, 15),
+              ).copyWith(model: direct.wireModelId),
+              ChatStorageKind.openWebUi,
+            ),
+          );
+      await pumpMicrotasks();
+      await pumpMicrotasks();
 
-        check(direct.model.id).not((it) => it.equals(direct.wireModelId));
-        check(container.read(selectedModelProvider)).identicalTo(direct.model);
-        check(
-          direct.registry.resolve(container.read(selectedModelProvider)!),
-        ).isNotNull();
-      },
-    );
+      check(direct.model.id).not((it) => it.equals(direct.wireModelId));
+      check(container.read(selectedModelProvider)).identicalTo(direct.model);
+      check(direct.registry.resolve(container.read(selectedModelProvider)!))
+          .isNotNull();
+    });
 
     test(
       'cold reopen prefers trusted direct binding over a same-id server model',
@@ -465,9 +461,8 @@ void main() {
         await pumpMicrotasks();
 
         check(container.read(selectedModelProvider)).identicalTo(direct.model);
-        check(
-          container.read(selectedModelProvider),
-        ).not((it) => it.identicalTo(serverCollision));
+        check(container.read(selectedModelProvider))
+            .not((it) => it.identicalTo(serverCollision));
       },
     );
 
@@ -552,9 +547,8 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         await pumpMicrotasks();
 
-        check(
-          container.read(chatMessagesProvider),
-        ).deepEquals(refreshedMessages);
+        check(container.read(chatMessagesProvider))
+            .deepEquals(refreshedMessages);
         final activeConversation = container.read(activeConversationProvider);
         check(activeConversation).isNotNull();
         check(activeConversation!.messages).deepEquals(refreshedMessages);
@@ -731,9 +725,8 @@ void main() {
             .set(_conversation('chat-1', refreshedMessages, timestamp));
         await pumpMicrotasks();
 
-        check(
-          container.read(chatMessagesProvider),
-        ).deepEquals(refreshedMessages);
+        check(container.read(chatMessagesProvider))
+            .deepEquals(refreshedMessages);
         container.read(chatMessagesProvider.notifier).clearMessages();
         container.read(activeConversationProvider.notifier).clear();
       },
@@ -811,45 +804,52 @@ void main() {
       check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
     });
 
-    test('progressively adopts growing server content while resuming', () async {
-      final timestamp = DateTime.now();
-      final opened = [
-        _userMessage('user-1', 'Hi', timestamp),
-        _assistantMessage('assistant-1', 'Partial', timestamp),
-      ];
-      // The server has more content for the same streaming message.
-      final grown = [
-        _userMessage('user-1', 'Hi', timestamp),
-        _assistantMessage('assistant-1', 'Partial answer that grew', timestamp),
-      ];
-      final api = _FakeApiService(_conversation('chat-1', grown, timestamp))
-        ..taskIds = ['task-1'];
-
-      final container = ProviderContainer(
-        overrides: [
-          ...openWebUiStorageOpenOverrides(),
-          activeConversationProvider.overrideWith(
-            () => _TestActiveConversationNotifier(),
+    test(
+      'progressively adopts growing server content while resuming',
+      () async {
+        final timestamp = DateTime.now();
+        final opened = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('assistant-1', 'Partial', timestamp),
+        ];
+        // The server has more content for the same streaming message.
+        final grown = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage(
+            'assistant-1',
+            'Partial answer that grew',
+            timestamp,
           ),
-          socketServiceProvider.overrideWithValue(null),
-          apiServiceProvider.overrideWithValue(api),
-        ],
-      );
-      addTearDown(container.dispose);
+        ];
+        final api = _FakeApiService(_conversation('chat-1', grown, timestamp))
+          ..taskIds = ['task-1'];
 
-      check(container.read(chatMessagesProvider)).isEmpty();
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_conversation('chat-1', opened, timestamp));
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      // Let the active-on-open probe + the monitor's first progressive poll run.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await pumpMicrotasks();
+        check(container.read(chatMessagesProvider)).isEmpty();
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
 
-      final last = container.read(chatMessagesProvider).last;
-      check(last.content).equals('Partial answer that grew');
-      check(last.isStreaming).isTrue();
-    });
+        // Let the active-on-open probe + the monitor's first progressive poll run.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await pumpMicrotasks();
+
+        final last = container.read(chatMessagesProvider).last;
+        check(last.content).equals('Partial answer that grew');
+        check(last.isStreaming).isTrue();
+      },
+    );
 
     test(
       'reopening after a chat switch restores the authoritative server branch',
@@ -901,9 +901,8 @@ void main() {
         await pumpMicrotasks();
 
         final restored = container.read(chatMessagesProvider);
-        check(
-          restored.map((message) => message.id).toList(),
-        ).deepEquals(['user-1', 'assistant-1', 'user-2', 'assistant-2']);
+        check(restored.map((message) => message.id).toList())
+            .deepEquals(['user-1', 'assistant-1', 'user-2', 'assistant-2']);
         check(restored.last.content).equals('Partial answer that grew');
         check(restored.last.isStreaming).isTrue();
       },
@@ -1199,15 +1198,12 @@ void main() {
       await pumpMicrotasks();
       await pumpMicrotasks();
       check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
-      check(
-        container.read(chatMessagesProvider).last.content,
-      ).equals('Partial answer that grew');
-      check(
-        container.read(chatMessagesProvider)[0].content,
-      ).equals('Authoritative first question');
-      check(
-        container.read(chatMessagesProvider)[1].content,
-      ).equals('Authoritative first answer');
+      check(container.read(chatMessagesProvider).last.content)
+          .equals('Partial answer that grew');
+      check(container.read(chatMessagesProvider)[0].content)
+          .equals('Authoritative first question');
+      check(container.read(chatMessagesProvider)[1].content)
+          .equals('Authoritative first answer');
       notifier.debugCancelRemoteTaskMonitorTimer();
     });
 
@@ -1576,67 +1572,61 @@ void main() {
       // getConversation force-adopt + the settled, adopted message.
       await notifier.debugSyncRemoteTaskStatus();
       check(api.getConversationCalls).equals(1);
-      check(
-        container.read(chatMessagesProvider).last.content,
-      ).equals('Final answer');
+      check(container.read(chatMessagesProvider).last.content)
+          .equals('Final answer');
       check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
     });
 
-    test(
-      'offline reopened tail waits for a second empty task poll before finalizing',
-      () async {
-        final timestamp = DateTime.now();
-        final checkpoint = [
-          _userMessage('user-1', 'Hi', timestamp),
-          _assistantMessage(
-            'assistant-1',
-            'Partial',
-            timestamp,
-          ).copyWith(isStreaming: true),
-        ];
-        final finished = [
-          checkpoint.first,
-          _assistantMessage('assistant-1', 'Final answer', timestamp),
-        ];
-        final api =
-            _FakeApiService(_conversation('chat-1', finished, timestamp))
-              ..taskIds = const <String>[]
-              ..taskIdFailuresRemaining = 1;
-        final container = ProviderContainer(
-          overrides: [
-            ...openWebUiStorageOpenOverrides(),
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
-            ),
-            socketServiceProvider.overrideWithValue(null),
-            apiServiceProvider.overrideWithValue(api),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('offline reopened tail waits for a second empty task poll before finalizing', () async {
+      final timestamp = DateTime.now();
+      final checkpoint = [
+        _userMessage('user-1', 'Hi', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final finished = [
+        checkpoint.first,
+        _assistantMessage('assistant-1', 'Final answer', timestamp),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', finished, timestamp))
+        ..taskIds = const <String>[]
+        ..taskIdFailuresRemaining = 1;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        check(container.read(chatMessagesProvider)).isEmpty();
-        final notifier = container.read(chatMessagesProvider.notifier);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', checkpoint, timestamp));
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', checkpoint, timestamp));
 
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        await _drainRemoteTaskStatusCheck(notifier);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
 
-        check(api.getTaskIdsCalls).equals(2);
-        check(api.getConversationCalls).equals(0);
-        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      check(api.getTaskIdsCalls).equals(2);
+      check(api.getConversationCalls).equals(0);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
 
-        await notifier.debugSyncRemoteTaskStatus();
+      await notifier.debugSyncRemoteTaskStatus();
 
-        check(api.getTaskIdsCalls).equals(3);
-        check(api.getConversationCalls).equals(1);
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Final answer');
-        check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
-      },
-    );
+      check(api.getTaskIdsCalls).equals(3);
+      check(api.getConversationCalls).equals(1);
+      check(container.read(chatMessagesProvider).last.content)
+          .equals('Final answer');
+      check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+    });
 
     test(
       'completed task keeps polling until the authoritative body catches up',
@@ -1680,9 +1670,8 @@ void main() {
         ], timestamp);
         await notifier.debugSyncRemoteTaskStatus();
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Partial answer from socket');
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('Partial answer from socket');
 
         api.conversation = _conversation('chat-1', [
           opened.first,
@@ -1690,9 +1679,8 @@ void main() {
         ], timestamp);
         await notifier.debugSyncRemoteTaskStatus();
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Partial answer from socket');
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('Partial answer from socket');
 
         api.conversation = _conversation('chat-1', [
           opened.first,
@@ -1705,9 +1693,8 @@ void main() {
         await notifier.debugSyncRemoteTaskStatus();
 
         check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
-        check(
-          container.read(chatMessagesProvider).last.content,
-        ).equals('Final authoritative answer');
+        check(container.read(chatMessagesProvider).last.content)
+            .equals('Final authoritative answer');
       },
     );
 
@@ -1802,9 +1789,8 @@ void main() {
 
         await notifier.debugSyncRemoteTaskStatus();
         check(api.getConversationCalls).equals(1);
-        check(
-          container.read(chatMessagesProvider).last.id,
-        ).equals('assistant-1');
+        check(container.read(chatMessagesProvider).last.id)
+            .equals('assistant-1');
       },
     );
 
@@ -1842,55 +1828,52 @@ void main() {
       check(disposed).isTrue();
     });
 
-    test(
-      'finishStreaming keeps folder conversation summaries untrusted until the server confirms them',
-      () async {
-        final timestamp = DateTime.now();
-        final user = _userMessage('user-1', 'Hello', timestamp);
-        final assistant = ChatMessage(
-          id: 'assistant-1',
-          role: 'assistant',
-          content: 'Streaming answer',
-          timestamp: timestamp,
-          isStreaming: true,
-        );
+    test('finishStreaming keeps folder conversation summaries untrusted until the server confirms them', () async {
+      final timestamp = DateTime.now();
+      final user = _userMessage('user-1', 'Hello', timestamp);
+      final assistant = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Streaming answer',
+        timestamp: timestamp,
+        isStreaming: true,
+      );
 
-        final container = ProviderContainer(
-          overrides: [
-            ...openWebUiStorageOpenOverrides(),
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          conversationsProvider.overrideWith(_RecordingConversations.new),
+          socketServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            Conversation(
+              id: 'chat-1',
+              title: 'Folder Chat',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              folderId: 'folder-1',
+              messages: [user, assistant],
             ),
-            conversationsProvider.overrideWith(_RecordingConversations.new),
-            socketServiceProvider.overrideWithValue(null),
-          ],
-        );
-        addTearDown(container.dispose);
+          );
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              Conversation(
-                id: 'chat-1',
-                title: 'Folder Chat',
-                createdAt: timestamp,
-                updatedAt: timestamp,
-                folderId: 'folder-1',
-                messages: [user, assistant],
-              ),
-            );
+      container.read(chatMessagesProvider.notifier).finishStreaming();
+      await pumpMicrotasks();
 
-        container.read(chatMessagesProvider.notifier).finishStreaming();
-        await pumpMicrotasks();
+      final recorder = container.read(
+        conversationsProvider.notifier,
+      ) as _RecordingConversations;
 
-        final recorder =
-            container.read(conversationsProvider.notifier)
-                as _RecordingConversations;
-
-        check(recorder.lastTrustFolderConversation).equals(false);
-        check(recorder.lastUpsertedConversation).isNotNull();
-        check(recorder.lastUpsertedConversation!.folderId).equals('folder-1');
-      },
-    );
+      check(recorder.lastTrustFolderConversation).equals(false);
+      check(recorder.lastUpsertedConversation).isNotNull();
+      check(recorder.lastUpsertedConversation!.folderId).equals('folder-1');
+    });
   });
 }

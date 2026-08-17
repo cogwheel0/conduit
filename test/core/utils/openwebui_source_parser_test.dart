@@ -99,9 +99,8 @@ void main() {
 
         check(result).length.equals(1);
         check(result.first.snippet).equals('snippet A');
-        check(
-          result.first.metadata!['documents'] as List<dynamic>,
-        ).deepEquals(['snippet A', 'snippet B']);
+        check(result.first.metadata!['documents'] as List<dynamic>)
+            .deepEquals(['snippet A', 'snippet B']);
       });
 
       test('different IDs produce separate results', () {

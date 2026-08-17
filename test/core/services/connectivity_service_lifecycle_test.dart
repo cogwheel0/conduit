@@ -233,9 +233,8 @@ void main() {
       await dio.getUri<void>(Uri.parse('https://server.example/health'));
 
       check(dio.options.baseUrl).equals('https://server.example');
-      check(
-        adapter.headers.single['X-Proxy-Credential'],
-      ).equals('same-origin-secret');
+      check(adapter.headers.single['X-Proxy-Credential'])
+          .equals('same-origin-secret');
     },
   );
 
@@ -271,9 +270,8 @@ void main() {
       check(
         adapter.headers.last.keys.any((name) => name.toLowerCase() == 'cookie'),
       ).isFalse();
-      check(
-        adapter.headers.last['X-Proxy-Credential'],
-      ).equals('still-required');
+      check(adapter.headers.last['X-Proxy-Credential'])
+          .equals('still-required');
     },
   );
 
@@ -297,9 +295,8 @@ void main() {
       await dio.getUri<void>(Uri.parse('https://foreign.example/health'));
 
       final headers = adapter.headers.single;
-      check(
-        headers.keys.any((name) => name.toLowerCase() == 'cookie'),
-      ).isFalse();
+      check(headers.keys.any((name) => name.toLowerCase() == 'cookie'))
+          .isFalse();
       check(
         headers.keys.any((name) => name.toLowerCase() == 'x-proxy-credential'),
       ).isFalse();

@@ -329,9 +329,8 @@ void main() {
       const folderId = 'local:folder';
       await seedLocalChat(db, id: localId, folderId: folderId, messageCount: 1);
 
-      await check(
-        push.pushCreateChat(localId),
-      ).throws<OutboxDeferralException>();
+      await check(push.pushCreateChat(localId))
+          .throws<OutboxDeferralException>();
 
       check(client.createChatCalls).equals(0);
       final chat = await db.chatsDao.getChat(localId);
@@ -462,9 +461,8 @@ void main() {
         bodySynced: false,
       );
 
-      await check(
-        push.pushUpdateChat('stub'),
-      ).throws<OutboxDeferralException>();
+      await check(push.pushUpdateChat('stub'))
+          .throws<OutboxDeferralException>();
 
       final stored = server.getChatById('stub')!;
       final history = (stored['chat'] as Map)['history'] as Map;
@@ -473,88 +471,84 @@ void main() {
       check((await db.chatsDao.getChat('stub'))!.dirty).isTrue();
     });
 
-    test(
-      'respects the server shallow-merge + output->content re-derivation',
-      () async {
-        // Server has an assistant message with no output.
-        server.seedChat(
-          id: 'srv-out',
-          blob: {
-            'title': 'Title srv-out',
-            'history': {
-              'messages': {
-                'a1': {'id': 'a1', 'role': 'assistant', 'content': 'stale'},
-              },
-              'currentId': 'a1',
+    test('respects the server shallow-merge + output->content re-derivation', () async {
+      // Server has an assistant message with no output.
+      server.seedChat(
+        id: 'srv-out',
+        blob: {
+          'title': 'Title srv-out',
+          'history': {
+            'messages': {
+              'a1': {'id': 'a1', 'role': 'assistant', 'content': 'stale'},
             },
+            'currentId': 'a1',
           },
-          createdAt: 1,
-          updatedAt: 2,
-        );
-        // Local row carries an assistant message whose payload has a NEW output
-        // list; the server must re-derive content from it.
-        await db
-            .into(db.chats)
-            .insert(
-              ChatsCompanion.insert(
-                id: 'srv-out',
-                title: 'Title srv-out',
-                currentMessageId: const Value('a1'),
-                createdAt: 1,
-                updatedAt: 2,
-                dirty: const Value(true),
-                bodySynced: const Value(true),
-                blobMeta: Value(
-                  jsonEncode(<String, dynamic>{
-                    'v': 1,
-                    'blobHadTitle': true,
-                    'blobTitleValue': 'Title srv-out',
-                    'blobHadHistory': true,
-                    'historyHadMessages': true,
-                    'historyHadCurrentId': true,
-                    'historyExtra': <String, dynamic>{},
-                    'unmappableMessages': <String, dynamic>{},
-                  }),
-                ),
-              ),
-            );
-        await db
-            .into(db.messages)
-            .insert(
-              MessagesCompanion.insert(
-                id: 'a1',
-                chatId: 'srv-out',
-                role: 'assistant',
-                content: 'ignored-by-server',
-                createdAt: 5,
-                orderIndex: 0,
-                payload: jsonEncode(<String, dynamic>{
-                  'id': 'a1',
-                  'role': 'assistant',
-                  'content': 'ignored-by-server',
-                  'output': [
-                    {
-                      'type': 'message',
-                      'content': [
-                        {'text': 'derived body'},
-                      ],
-                    },
-                  ],
+        },
+        createdAt: 1,
+        updatedAt: 2,
+      );
+      // Local row carries an assistant message whose payload has a NEW output
+      // list; the server must re-derive content from it.
+      await db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'srv-out',
+              title: 'Title srv-out',
+              currentMessageId: const Value('a1'),
+              createdAt: 1,
+              updatedAt: 2,
+              dirty: const Value(true),
+              bodySynced: const Value(true),
+              blobMeta: Value(
+                jsonEncode(<String, dynamic>{
+                  'v': 1,
+                  'blobHadTitle': true,
+                  'blobTitleValue': 'Title srv-out',
+                  'blobHadHistory': true,
+                  'historyHadMessages': true,
+                  'historyHadCurrentId': true,
+                  'historyExtra': <String, dynamic>{},
+                  'unmappableMessages': <String, dynamic>{},
                 }),
-                dirty: const Value(true),
               ),
-            );
+            ),
+          );
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'a1',
+              chatId: 'srv-out',
+              role: 'assistant',
+              content: 'ignored-by-server',
+              createdAt: 5,
+              orderIndex: 0,
+              payload: jsonEncode(<String, dynamic>{
+                'id': 'a1',
+                'role': 'assistant',
+                'content': 'ignored-by-server',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'text': 'derived body'},
+                    ],
+                  },
+                ],
+              }),
+              dirty: const Value(true),
+            ),
+          );
 
-        await push.pushUpdateChat('srv-out');
+      await push.pushUpdateChat('srv-out');
 
-        final stored = server.getChatById('srv-out')!;
-        final msg =
-            ((stored['chat'] as Map)['history'] as Map)['messages']['a1']
-                as Map;
-        // Content was re-derived from output by the server, NOT the local value.
-        check(msg['content']).equals('derived body');
-      },
-    );
+      final stored = server.getChatById('srv-out')!;
+      final msg =
+          ((stored['chat'] as Map)['history'] as Map)['messages']['a1'] as Map;
+      // Content was re-derived from output by the server, NOT the local value.
+      check(msg['content']).equals('derived body');
+    });
 
     test('pin/archive toggle-delta fires only on a real delta', () async {
       server.seedChat(
@@ -755,42 +749,39 @@ void main() {
       },
     );
 
-    test(
-      'pin survives a folder move (move resets server pin; reconcile re-asserts)',
-      () async {
-        server.seedFolder('srv-folder');
-        // Server chat is pinned and unfiled; the local row both pins it and
-        // moves it into the folder in one coalesced update. The /folder
-        // endpoint forces pinned=false server-side, so the pin reconcile must
-        // run AFTER the move (and treat the post-move pin as false) or the
-        // desired pinned=true is silently lost.
-        server.seedChat(
-          id: 'srv-mv-pin',
-          blob: {
-            'title': 'm',
-            'history': {'messages': {}, 'currentId': null},
-          },
-          createdAt: 1,
-          updatedAt: 2,
-          pinned: true,
-        );
-        await seedLocalChat(
-          db,
-          id: 'srv-mv-pin',
-          messageCount: 0,
-          folderId: 'srv-folder',
-          pinned: true,
-        );
+    test('pin survives a folder move (move resets server pin; reconcile re-asserts)', () async {
+      server.seedFolder('srv-folder');
+      // Server chat is pinned and unfiled; the local row both pins it and
+      // moves it into the folder in one coalesced update. The /folder
+      // endpoint forces pinned=false server-side, so the pin reconcile must
+      // run AFTER the move (and treat the post-move pin as false) or the
+      // desired pinned=true is silently lost.
+      server.seedChat(
+        id: 'srv-mv-pin',
+        blob: {
+          'title': 'm',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        pinned: true,
+      );
+      await seedLocalChat(
+        db,
+        id: 'srv-mv-pin',
+        messageCount: 0,
+        folderId: 'srv-folder',
+        pinned: true,
+      );
 
-        await push.pushUpdateChat('srv-mv-pin');
+      await push.pushUpdateChat('srv-mv-pin');
 
-        final stored = server.getChatById('srv-mv-pin')!;
-        check(stored['folder_id']).equals('srv-folder');
-        check(stored['pinned']).equals(true);
-        final chat = await db.chatsDao.getChat('srv-mv-pin');
-        check(chat!.dirty).isFalse();
-      },
-    );
+      final stored = server.getChatById('srv-mv-pin')!;
+      check(stored['folder_id']).equals('srv-folder');
+      check(stored['pinned']).equals(true);
+      final chat = await db.chatsDao.getChat('srv-mv-pin');
+      check(chat!.dirty).isFalse();
+    });
 
     test(
       '404 (chat gone) is non-fatal: logs and returns, no dirty cleared',
@@ -943,9 +934,9 @@ void main() {
         check(serverFolder['data']).isA<Map<String, dynamic>>().deepEquals({
           'files': ['file-1'],
         });
-        check(
-          serverFolder['meta'],
-        ).isA<Map<String, dynamic>>().deepEquals({'color': '#336699'});
+        check(serverFolder['meta'])
+            .isA<Map<String, dynamic>>()
+            .deepEquals({'color': '#336699'});
       },
     );
 
@@ -1139,9 +1130,8 @@ void main() {
         check(server.getFolders().where((f) => f['id'] == id)).isEmpty();
         check(server.getChatById('kept')).isNotNull();
         check(server.getChatById('kept')!['folder_id']).isNull();
-        check(
-          (await db.select(db.folders).get()).where((f) => f.id == id),
-        ).isEmpty();
+        check((await db.select(db.folders).get()).where((f) => f.id == id))
+            .isEmpty();
       },
     );
 

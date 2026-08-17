@@ -24,71 +24,78 @@ void main() {
   });
 
   group('buildChatResponseEnvelope', () {
-    test('rebuilds the exact ChatResponse-shaped map (ints stay seconds)',
-        () async {
-      final fixture = loadChatBlobFixtures()
-          .singleWhere((f) => f.name == '02_linear_multi_turn');
-      await db.chatsDao.upsertServerChat(
-        rows: rowsFromFixture(fixture),
-        shareId: 'share-abc',
-        meta: const {
-          'tags': ['work'],
-        },
-        listLastReadAt: 1749700123,
-      );
+    test(
+      'rebuilds the exact ChatResponse-shaped map (ints stay seconds)',
+      () async {
+        final fixture = loadChatBlobFixtures().singleWhere(
+          (f) => f.name == '02_linear_multi_turn',
+        );
+        await db.chatsDao.upsertServerChat(
+          rows: rowsFromFixture(fixture),
+          shareId: 'share-abc',
+          meta: const {
+            'tags': ['work'],
+          },
+          listLastReadAt: 1749700123,
+        );
 
-      final chatRow = (await db.chatsDao.getChat(fixture.chatId))!;
-      final messageRows = await db.messagesDao.getForChat(fixture.chatId);
-      final envelope = buildChatResponseEnvelope(chatRow, messageRows);
+        final chatRow = (await db.chatsDao.getChat(fixture.chatId))!;
+        final messageRows = await db.messagesDao.getForChat(fixture.chatId);
+        final envelope = buildChatResponseEnvelope(chatRow, messageRows);
 
-      final expected = <String, dynamic>{
-        'id': fixture.chatId,
-        'title': fixture.envelope['title'],
-        'chat': fixture.blob,
-        'updated_at': fixture.envelope['updated_at'],
-        'created_at': fixture.envelope['created_at'],
-        'last_read_at': 1749700123,
-        'pinned': fixture.envelope['pinned'] ?? false,
-        'archived': fixture.envelope['archived'] ?? false,
-        'folder_id': fixture.envelope['folder_id'],
-        'share_id': 'share-abc',
-        'meta': {
-          'tags': ['work'],
-        },
-      };
-      check(
-        _deepEq.equals(envelope, expected),
-        because: 'envelope must match what /api/v1/chats/{id} returns today\n'
-            'got: ${jsonEncode(envelope)}',
-      ).isTrue();
-    });
+        final expected = <String, dynamic>{
+          'id': fixture.chatId,
+          'title': fixture.envelope['title'],
+          'chat': fixture.blob,
+          'updated_at': fixture.envelope['updated_at'],
+          'created_at': fixture.envelope['created_at'],
+          'last_read_at': 1749700123,
+          'pinned': fixture.envelope['pinned'] ?? false,
+          'archived': fixture.envelope['archived'] ?? false,
+          'folder_id': fixture.envelope['folder_id'],
+          'share_id': 'share-abc',
+          'meta': {
+            'tags': ['work'],
+          },
+        };
+        check(
+          _deepEq.equals(envelope, expected),
+          because:
+              'envelope must match what /api/v1/chats/{id} returns today\n'
+              'got: ${jsonEncode(envelope)}',
+        ).isTrue();
+      },
+    );
   });
 
   group('assembleConversation', () {
-    test('parses a full conversation through parseFullConversationModel',
-        () async {
-      final fixture = loadChatBlobFixtures()
-          .singleWhere((f) => f.name == '02_linear_multi_turn');
-      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+    test(
+      'parses a full conversation through parseFullConversationModel',
+      () async {
+        final fixture = loadChatBlobFixtures().singleWhere(
+          (f) => f.name == '02_linear_multi_turn',
+        );
+        await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
 
-      final chatRow = (await db.chatsDao.getChat(fixture.chatId))!;
-      final messageRows = await db.messagesDao.getForChat(fixture.chatId);
-      final conversation = assembleConversation(chatRow, messageRows);
+        final chatRow = (await db.chatsDao.getChat(fixture.chatId))!;
+        final messageRows = await db.messagesDao.getForChat(fixture.chatId);
+        final conversation = assembleConversation(chatRow, messageRows);
 
-      check(conversation.id).equals(fixture.chatId);
-      check(conversation.title).equals(fixture.envelope['title'] as String);
-      check(conversation.messages).isNotEmpty();
-      check(conversation.createdAt).equals(
-        DateTime.fromMillisecondsSinceEpoch(
-          (fixture.envelope['created_at'] as int) * 1000,
-        ),
-      );
-      check(conversation.updatedAt).equals(
-        DateTime.fromMillisecondsSinceEpoch(
-          (fixture.envelope['updated_at'] as int) * 1000,
-        ),
-      );
-    });
+        check(conversation.id).equals(fixture.chatId);
+        check(conversation.title).equals(fixture.envelope['title'] as String);
+        check(conversation.messages).isNotEmpty();
+        check(conversation.createdAt).equals(
+          DateTime.fromMillisecondsSinceEpoch(
+            (fixture.envelope['created_at'] as int) * 1000,
+          ),
+        );
+        check(conversation.updatedAt).equals(
+          DateTime.fromMillisecondsSinceEpoch(
+            (fixture.envelope['updated_at'] as int) * 1000,
+          ),
+        );
+      },
+    );
   });
 
   group('conversationFromListEntry', () {

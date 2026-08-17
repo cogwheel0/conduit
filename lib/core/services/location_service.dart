@@ -82,7 +82,8 @@ UserLocationSetting _extractUserLocationSetting(
   Map<String, dynamic>? userSettings,
 ) {
   final uiMap = _asStringDynamicMap(userSettings?['ui']);
-  final hasRootUserLocation = userSettings?.containsKey('userLocation') ?? false;
+  final hasRootUserLocation =
+      userSettings?.containsKey('userLocation') ?? false;
   final raw = hasRootUserLocation
       ? (userSettings?['userLocation'])
       : (uiMap?['userLocation']);
@@ -156,10 +157,7 @@ class LocationService {
     try {
       final servicesEnabled = await isLocationServiceEnabled();
       if (!servicesEnabled) {
-        DebugLogger.info(
-          'location-services-disabled',
-          scope: 'location',
-        );
+        DebugLogger.info('location-services-disabled', scope: 'location');
         return const UserLocationResult.failure(
           UserLocationFailureReason.servicesDisabled,
         );
@@ -181,10 +179,7 @@ class LocationService {
       }
 
       if (!_isGranted(permission)) {
-        DebugLogger.info(
-          'location-permission-denied',
-          scope: 'location',
-        );
+        DebugLogger.info('location-permission-denied', scope: 'location');
         return const UserLocationResult.failure(
           UserLocationFailureReason.permissionDenied,
         );

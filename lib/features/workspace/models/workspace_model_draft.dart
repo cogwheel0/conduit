@@ -262,9 +262,9 @@ class WorkspaceModelDraft {
       stop: _stringList(params['stop']),
       suggestionPrompts: _stringList(meta['suggestion_prompts']),
       capabilities: _capabilityMap(meta['capabilities']),
-      knowledge: workspaceJsonList(
-        meta['knowledge'],
-      ).map(WorkspaceModelKnowledgeRef.fromJson).toList(),
+      knowledge: workspaceJsonList(meta['knowledge'])
+          .map(WorkspaceModelKnowledgeRef.fromJson)
+          .toList(),
       toolIds: _stringList(meta['toolIds']),
       skillIds: _stringList(meta['skillIds']),
       filterIds: _stringList(meta['filterIds']),

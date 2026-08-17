@@ -173,9 +173,8 @@ void main() {
   });
 
   test('SVG URL detection ignores fragments and inspects URI query data', () {
-    check(
-      imageAttachmentUrlIsSvg('https://example.test/icon.svg#dark-symbol'),
-    ).isTrue();
+    check(imageAttachmentUrlIsSvg('https://example.test/icon.svg#dark-symbol'))
+        .isTrue();
     check(
       imageAttachmentUrlIsSvg(
         'https://example.test/render?format=image/svg+xml#preview',
@@ -186,9 +185,8 @@ void main() {
         'https://example.test/render?format=image%2Fsvg%2Bxml#preview',
       ),
     ).isTrue();
-    check(
-      imageAttachmentUrlIsSvg('https://example.test/icon.png#fallback.svg'),
-    ).isFalse();
+    check(imageAttachmentUrlIsSvg('https://example.test/icon.png#fallback.svg'))
+        .isFalse();
   });
 
   test('core cache deduplicates concurrent loads for the same owner', () async {
@@ -300,9 +298,8 @@ void main() {
       releaseOldLoad.complete();
       await check(oldLoad).throws<StateError>();
 
-      check(
-        imageAttachmentCacheStore.read(attachmentId)!.bytes!.toList(),
-      ).deepEquals([9]);
+      check(imageAttachmentCacheStore.read(attachmentId)!.bytes!.toList())
+          .deepEquals([9]);
     },
   );
 
@@ -325,9 +322,8 @@ void main() {
       Uint8List.fromList(const [2]),
       scope: oldScope,
     );
-    check(
-      imageAttachmentCacheStore.read(attachmentId, scope: oldScope),
-    ).isNull();
+    check(imageAttachmentCacheStore.read(attachmentId, scope: oldScope))
+        .isNull();
 
     final newScope = ImageAttachmentCacheScope(
       api: null,
@@ -435,9 +431,8 @@ void main() {
     );
 
     check(debugHasDecodedImageAttachment(attachmentId, scope: scopeA)).isTrue();
-    check(
-      debugHasDecodedImageAttachment(attachmentId, scope: scopeB),
-    ).isFalse();
+    check(debugHasDecodedImageAttachment(attachmentId, scope: scopeB))
+        .isFalse();
 
     debugSeedImageAttachmentError(
       attachmentId,
@@ -487,38 +482,29 @@ void main() {
     },
   );
 
-  test(
-    'cached resolved image data decodes without refetching through the api',
-    () async {
-      final workerManager = WorkerManager(maxConcurrentTasks: 1);
-      addTearDown(workerManager.dispose);
-      const attachmentId = 'cached-image';
-      final scope = ImageAttachmentCacheScope(
-        api: null,
-        authSessionEpoch: Object(),
-      );
-      const pngDataUrl =
-          'data:image/png;base64,'
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
+  test('cached resolved image data decodes without refetching through the api', () async {
+    final workerManager = WorkerManager(maxConcurrentTasks: 1);
+    addTearDown(workerManager.dispose);
+    const attachmentId = 'cached-image';
+    final scope = ImageAttachmentCacheScope(
+      api: null,
+      authSessionEpoch: Object(),
+    );
+    const pngDataUrl =
+        'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
 
-      debugSeedResolvedImageAttachment(attachmentId, pngDataUrl, scope: scope);
-      expect(
-        debugHasDecodedImageAttachment(attachmentId, scope: scope),
-        isFalse,
-      );
+    debugSeedResolvedImageAttachment(attachmentId, pngDataUrl, scope: scope);
+    expect(debugHasDecodedImageAttachment(attachmentId, scope: scope), isFalse);
 
-      await debugDecodeCachedResolvedImageAttachment(
-        attachmentId: attachmentId,
-        workerManager: workerManager,
-        scope: scope,
-      );
+    await debugDecodeCachedResolvedImageAttachment(
+      attachmentId: attachmentId,
+      workerManager: workerManager,
+      scope: scope,
+    );
 
-      expect(
-        debugHasDecodedImageAttachment(attachmentId, scope: scope),
-        isTrue,
-      );
-    },
-  );
+    expect(debugHasDecodedImageAttachment(attachmentId, scope: scope), isTrue);
+  });
 
   test(
     'invalid cached image data maps to the localized decode error',
@@ -598,9 +584,8 @@ void main() {
         scope: scope,
       );
       check(error).isNotNull();
-      check(
-        debugHasImageAttachmentError('server-file-id', scope: scope),
-      ).isFalse();
+      check(debugHasImageAttachmentError('server-file-id', scope: scope))
+          .isFalse();
     }
     check(api.fileInfoAttempts).equals(2);
   });

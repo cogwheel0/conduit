@@ -65,9 +65,8 @@ List<String>? boundedSensitiveValueVariants(
 
   // Authorization-style values place a scheme before the credential. Retain
   // both the complete payload and its first token for custom schemes.
-  final authorization = RegExp(
-    r'^[A-Za-z][A-Za-z0-9_-]*\s+(.+)$',
-  ).firstMatch(trimmed);
+  final authorization = RegExp(r'^[A-Za-z][A-Za-z0-9_-]*\s+(.+)$')
+      .firstMatch(trimmed);
   final payload = authorization?.group(1)?.trim();
   if (payload != null && payload.isNotEmpty) {
     addWithOptionalQuotes(payload);

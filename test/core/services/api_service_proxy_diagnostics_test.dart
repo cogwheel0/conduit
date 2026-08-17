@@ -55,9 +55,8 @@ void main() {
 
       try {
         check(await api.checkHealth()).isTrue();
-        check(
-          receivedUserAgents,
-        ).deepEquals([ConduitUserAgent.value, ConduitUserAgent.value]);
+        check(receivedUserAgents)
+            .deepEquals([ConduitUserAgent.value, ConduitUserAgent.value]);
       } finally {
         api.dispose();
         workerManager.dispose();
@@ -402,9 +401,8 @@ void main() {
 
       try {
         final health = api.checkHealth();
-        check(
-          await upgradeStarted.future.timeout(const Duration(seconds: 2)),
-        ).equals('health-target.invalid');
+        check(await upgradeStarted.future.timeout(const Duration(seconds: 2)))
+            .equals('health-target.invalid');
         await rawPeer.future.timeout(const Duration(seconds: 2));
         check(await health.timeout(const Duration(seconds: 2))).isFalse();
 
@@ -597,9 +595,8 @@ void main() {
 
     try {
       check(await api.checkHealth()).isFalse();
-      check(
-        resolvedHosts,
-      ).deepEquals(['health-target.invalid', 'ipv4only.arpa']);
+      check(resolvedHosts)
+          .deepEquals(['health-target.invalid', 'ipv4only.arpa']);
       check(socketAttempts).equals(0);
     } finally {
       api.dispose();
@@ -658,13 +655,11 @@ void main() {
     server.listen((request) async {
       check(request.uri.path).equals('/health');
       check(request.headers.value('x-proxy-credential')).equals(_headerSecret);
-      check(
-        request.headers.value(HttpHeaders.authorizationHeader),
-      ).equals('Bearer health-session-token');
+      check(request.headers.value(HttpHeaders.authorizationHeader))
+          .equals('Bearer health-session-token');
       check(request.headers.value(HttpHeaders.cookieHeader)).isNull();
-      check(
-        request.headers.value(HttpHeaders.userAgentHeader),
-      ).equals(ConduitUserAgent.value);
+      check(request.headers.value(HttpHeaders.userAgentHeader))
+          .equals(ConduitUserAgent.value);
       if (!requestSeen.isCompleted) requestSeen.complete();
       request.response
         ..statusCode = HttpStatus.temporaryRedirect
@@ -740,9 +735,8 @@ void main() {
       );
 
       try {
-        check(
-          await api.checkHealthWithProxyDetection(),
-        ).equals(HealthCheckResult.proxyAuthRequired);
+        check(await api.checkHealthWithProxyDetection())
+            .equals(HealthCheckResult.proxyAuthRequired);
       } finally {
         api.dispose();
         workerManager.dispose();
@@ -783,9 +777,8 @@ void main() {
     try {
       final health = api.checkHealthWithProxyDetection();
       await bodyStarted.future.timeout(const Duration(seconds: 2));
-      check(
-        await health.timeout(const Duration(seconds: 1)),
-      ).equals(HealthCheckResult.proxyAuthRequired);
+      check(await health.timeout(const Duration(seconds: 1)))
+          .equals(HealthCheckResult.proxyAuthRequired);
     } finally {
       if (!releaseBody.isCompleted) releaseBody.complete();
       api.dispose();
@@ -878,35 +871,29 @@ void main() {
       try {
         ConnectivityService.debugResetTrafficSignals();
         try {
-          check(
-            await api.fetchImageBytes(externalUri.toString()),
-          ).deepEquals([4, 5, 6]);
+          check(await api.fetchImageBytes(externalUri.toString()))
+              .deepEquals([4, 5, 6]);
         } catch (error) {
           throw StateError('external request failed: $error');
         }
         check(await externalAuthorization.future).isNull();
-        check(
-          ConnectivityService.debugHasRecentSuccessfulTraffic(originUri),
-        ).isFalse();
-        check(
-          ConnectivityService.debugHasRecentSuccessfulTraffic(externalUri),
-        ).isFalse();
+        check(ConnectivityService.debugHasRecentSuccessfulTraffic(originUri))
+            .isFalse();
+        check(ConnectivityService.debugHasRecentSuccessfulTraffic(externalUri))
+            .isFalse();
 
-        check(
-          requestUsesServerConnectivityOrigin(externalUri, originUri),
-        ).isFalse();
+        check(requestUsesServerConnectivityOrigin(externalUri, originUri))
+            .isFalse();
 
         try {
           await api.fetchImageBytes(originUri.resolve('/same.png').toString());
         } catch (error) {
           throw StateError('same-origin request failed: $error');
         }
-        check(
-          await originAuthorization.future,
-        ).equals('Bearer connectivity-test-token');
-        check(
-          ConnectivityService.debugHasRecentSuccessfulTraffic(originUri),
-        ).isTrue();
+        check(await originAuthorization.future)
+            .equals('Bearer connectivity-test-token');
+        check(ConnectivityService.debugHasRecentSuccessfulTraffic(originUri))
+            .isTrue();
       } finally {
         api.dispose();
         workerManager.dispose();

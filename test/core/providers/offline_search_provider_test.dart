@@ -77,8 +77,7 @@ void main() {
     );
   }
 
-  List<String> idsOf(List<Conversation> list) =>
-      list.map((c) => c.id).toList();
+  List<String> idsOf(List<Conversation> list) => list.map((c) => c.id).toList();
 
   test('empty query short-circuits to [] without touching the DB', () async {
     final container = makeContainer();
@@ -96,39 +95,33 @@ void main() {
     check(results).isEmpty();
   });
 
-  test(
-    'offline search returns ranked results across synced history once built',
-    () async {
-      // Three chats contain the sentinel at decreasing relevance via repetition.
-      await seedChat(
-        'chat-most',
-        updatedAt: 1000,
-        content: 'platypus platypus platypus river',
-      );
-      await seedChat(
-        'chat-mid',
-        updatedAt: 1001,
-        content: 'platypus platypus delta',
-      );
-      await seedChat('chat-one', updatedAt: 1002, content: 'platypus marsh');
-      await seedChat('chat-none', updatedAt: 1003, content: 'unrelated text');
-      await db.buildFtsIfNeeded();
+  test('offline search returns ranked results across synced history once built', () async {
+    // Three chats contain the sentinel at decreasing relevance via repetition.
+    await seedChat(
+      'chat-most',
+      updatedAt: 1000,
+      content: 'platypus platypus platypus river',
+    );
+    await seedChat(
+      'chat-mid',
+      updatedAt: 1001,
+      content: 'platypus platypus delta',
+    );
+    await seedChat('chat-one', updatedAt: 1002, content: 'platypus marsh');
+    await seedChat('chat-none', updatedAt: 1003, content: 'unrelated text');
+    await db.buildFtsIfNeeded();
 
-      final container = makeContainer();
-      final results = await container.read(
-        serverSearchProvider('platypus').future,
-      );
+    final container = makeContainer();
+    final results = await container.read(
+      serverSearchProvider('platypus').future,
+    );
 
-      // Only the three sentinel-bearing chats, grouped one row each.
-      check(idsOf(results).toSet()).deepEquals({
-        'chat-most',
-        'chat-mid',
-        'chat-one',
-      });
-      // bm25-ranked: most repetitions first.
-      check(idsOf(results)).deepEquals(['chat-most', 'chat-mid', 'chat-one']);
-    },
-  );
+    // Only the three sentinel-bearing chats, grouped one row each.
+    check(idsOf(results).toSet())
+        .deepEquals({'chat-most', 'chat-mid', 'chat-one'});
+    // bm25-ranked: most repetitions first.
+    check(idsOf(results)).deepEquals(['chat-most', 'chat-mid', 'chat-one']);
+  });
 
   test('offline search matches chat titles, not just message bodies', () async {
     await seedChat(

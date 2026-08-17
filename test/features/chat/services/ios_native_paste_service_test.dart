@@ -300,9 +300,8 @@ void main() {
       ],
     });
 
-    check(
-      (platformPayload as IosNativeImagePaste).deliveryId,
-    ).equals(_deliveryId);
+    check((platformPayload as IosNativeImagePaste).deliveryId)
+        .equals(_deliveryId);
     check((mapPayload as IosNativeImagePaste).deliveryId).equals(_deliveryId);
   });
 }

@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
+
 import '../database/app_database.dart';
 import '../database/daos/attachment_queue_dao.dart';
 import '../utils/debug_logger.dart';
@@ -134,19 +135,17 @@ typedef DurableAttachmentEnqueueResult = ({
   bool inserted,
 });
 
-typedef UploadCallback =
-    Future<String> Function(
-      String filePath,
-      String fileName, {
-      CancelToken? cancelToken,
-    });
+typedef UploadCallback = Future<String> Function(
+  String filePath,
+  String fileName, {
+  CancelToken? cancelToken,
+});
 typedef AttachmentsEventCallback = void Function(List<QueuedAttachment> queue);
-typedef _TerminalAttachmentCleanupWithAdmission =
-    Future<bool> Function(
-      String filePath, {
-      required Future<void> Function() beforeDeleteAdmission,
-      required bool Function() canDelete,
-    });
+typedef _TerminalAttachmentCleanupWithAdmission = Future<bool> Function(
+  String filePath, {
+  required Future<void> Function() beforeDeleteAdmission,
+  required bool Function() canDelete,
+});
 
 Future<bool> _cleanupTerminalAttachmentWithAdmission(
   String filePath, {

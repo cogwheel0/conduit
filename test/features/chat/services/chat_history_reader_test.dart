@@ -105,63 +105,60 @@ void main() {
     ).throws<StateError>();
   });
 
-  test(
-    'unmaterialized durable history uses the authoritative loader, not its window',
-    () async {
-      final localDatabase = AppDatabase(NativeDatabase.memory());
-      addTearDown(localDatabase.close);
-      final repository = ChatDatabaseRepository(
-        openWebUiDatabase: null,
-        directLocalDatabase: localDatabase,
-      );
-      final now = DateTime(2026);
-      final completeMessages = [
-        for (var index = 0; index < 500; index += 1)
-          ChatMessage(
-            id: 'm$index',
-            role: index.isEven ? 'user' : 'assistant',
-            content: 'message $index',
-            timestamp: now.add(Duration(seconds: index)),
-          ),
-      ];
-      final window = annotateConversationStorage(
-        Conversation(
-          id: 'pending-server-body',
-          title: 'Pending',
-          createdAt: now,
-          updatedAt: now,
-          messages: completeMessages.sublist(450),
+  test('unmaterialized durable history uses the authoritative loader, not its window', () async {
+    final localDatabase = AppDatabase(NativeDatabase.memory());
+    addTearDown(localDatabase.close);
+    final repository = ChatDatabaseRepository(
+      openWebUiDatabase: null,
+      directLocalDatabase: localDatabase,
+    );
+    final now = DateTime(2026);
+    final completeMessages = [
+      for (var index = 0; index < 500; index += 1)
+        ChatMessage(
+          id: 'm$index',
+          role: index.isEven ? 'user' : 'assistant',
+          content: 'message $index',
+          timestamp: now.add(Duration(seconds: index)),
         ),
-        ChatStorageKind.openWebUi,
-      );
-      var authoritativeReads = 0;
-      final reader = ChatHistoryReader(
-        repository: repository,
-        authoritativeLoader: (conversation) async {
-          authoritativeReads += 1;
-          return annotateConversationStorage(
-            conversation.copyWith(messages: completeMessages),
-            ChatStorageKind.openWebUi,
-          );
-        },
-        offload: (envelope) =>
-            Future.value(parseFullConversationModelWorker(envelope)),
-      );
+    ];
+    final window = annotateConversationStorage(
+      Conversation(
+        id: 'pending-server-body',
+        title: 'Pending',
+        createdAt: now,
+        updatedAt: now,
+        messages: completeMessages.sublist(450),
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    var authoritativeReads = 0;
+    final reader = ChatHistoryReader(
+      repository: repository,
+      authoritativeLoader: (conversation) async {
+        authoritativeReads += 1;
+        return annotateConversationStorage(
+          conversation.copyWith(messages: completeMessages),
+          ChatStorageKind.openWebUi,
+        );
+      },
+      offload: (envelope) =>
+          Future.value(parseFullConversationModelWorker(envelope)),
+    );
 
-      final complete = await reader.readCompleteActiveBranch(
-        conversation: window,
-        visibleOverlay: [
-          ...window.messages.take(49),
-          window.messages.last.copyWith(content: 'unflushed tail'),
-        ],
-        ownerIsCurrent: () => true,
-      );
+    final complete = await reader.readCompleteActiveBranch(
+      conversation: window,
+      visibleOverlay: [
+        ...window.messages.take(49),
+        window.messages.last.copyWith(content: 'unflushed tail'),
+      ],
+      ownerIsCurrent: () => true,
+    );
 
-      check(authoritativeReads).equals(1);
-      check(complete.messages.length).equals(500);
-      check(complete.messages.last.content).equals('unflushed tail');
-    },
-  );
+    check(authoritativeReads).equals(1);
+    check(complete.messages.length).equals(500);
+    check(complete.messages.last.content).equals('unflushed tail');
+  });
 }
 
 Conversation _runtimeConversation() {

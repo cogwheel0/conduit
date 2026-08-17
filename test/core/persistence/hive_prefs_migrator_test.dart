@@ -26,7 +26,8 @@ void main() {
     metadata: metadata,
   );
 
-  Future<void> migrate() => HivePrefsMigrator(hiveBoxes: boxes()).migrateIfNeeded();
+  Future<void> migrate() =>
+      HivePrefsMigrator(hiveBoxes: boxes()).migrateIfNeeded();
 
   String transportKey(String serverId) =>
       '${PreferenceKeys.transportOptionsPrefix}:'
@@ -72,21 +73,16 @@ void main() {
     await migrate();
 
     check(PreferencesStore.getBool(PreferenceKeys.darkMode)).equals(false);
-    check(
-      PreferencesStore.getDouble(PreferenceKeys.animationSpeed),
-    ).equals(0.75);
-    check(
-      PreferencesStore.getString(PreferenceKeys.defaultModel),
-    ).equals('gpt-4.1');
-    check(
-      PreferencesStore.getStringList(PreferenceKeys.quickPills)!,
-    ).deepEquals(['web', 'image']);
-    check(
-      PreferencesStore.getInt(PreferenceKeys.voiceSilenceDuration),
-    ).equals(1500);
-    check(
-      PreferencesStore.getString(PreferenceKeys.androidAssistantTrigger),
-    ).equals('new_chat');
+    check(PreferencesStore.getDouble(PreferenceKeys.animationSpeed))
+        .equals(0.75);
+    check(PreferencesStore.getString(PreferenceKeys.defaultModel))
+        .equals('gpt-4.1');
+    check(PreferencesStore.getStringList(PreferenceKeys.quickPills)!)
+        .deepEquals(['web', 'image']);
+    check(PreferencesStore.getInt(PreferenceKeys.voiceSilenceDuration))
+        .equals(1500);
+    check(PreferencesStore.getString(PreferenceKeys.androidAssistantTrigger))
+        .equals('new_chat');
 
     final flagsJson = PreferencesStore.getString(
       PreferenceKeys.serverFeatureAvailability,
@@ -97,9 +93,8 @@ void main() {
     });
 
     // Gate set.
-    check(
-      PreferencesStore.getBool(PreferenceKeys.hiveToPrefsMigrationV1),
-    ).equals(true);
+    check(PreferencesStore.getBool(PreferenceKeys.hiveToPrefsMigrationV1))
+        .equals(true);
   });
 
   test('copies the server-scoped transport options cache slot', () async {
@@ -112,10 +107,8 @@ void main() {
 
     final raw = PreferencesStore.getString(transportKey('server-a'));
     check(raw).isNotNull();
-    check(jsonDecode(raw!) as Map).deepEquals({
-      'allowPolling': false,
-      'allowWebsocketOnly': true,
-    });
+    check(jsonDecode(raw!) as Map)
+        .deepEquals({'allowPolling': false, 'allowWebsocketOnly': true});
   });
 
   test('is gated: a second run does not overwrite changed prefs', () async {
@@ -134,8 +127,7 @@ void main() {
 
   test('empty Hive still sets the gate', () async {
     await migrate();
-    check(
-      PreferencesStore.getBool(PreferenceKeys.hiveToPrefsMigrationV1),
-    ).equals(true);
+    check(PreferencesStore.getBool(PreferenceKeys.hiveToPrefsMigrationV1))
+        .equals(true);
   });
 }

@@ -16,6 +16,10 @@ String prepareMarkdownContentCanonical(
 }
 
 final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
+// Exactly the close the details parser recognizes; a looser match would
+// let the checkpoint think it left a details block the parser is still
+// inside, splitting prepared content mid-block.
+final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
 final _toolCallDetailsOpenPattern = RegExp(
   r'<details\b[^>]*type="tool_calls"[^>]*>',
   caseSensitive: false,
@@ -452,9 +456,10 @@ class PreparedMarkdownText {
 
   @override
   bool operator ==(Object other) =>
-      other is PreparedMarkdownText &&
-      length == other.length &&
-      materialize() == other.materialize();
+      identical(other, this) ||
+      (other is PreparedMarkdownText &&
+          length == other.length &&
+          startsWith(other));
 
   @override
   int get hashCode => Object.hash(length, materialize());
@@ -538,7 +543,9 @@ class StreamingMarkdownPreparationEngine {
     if (commonRawPrefix < checkpoint.rawOffset ||
         checkpoint.rawOffset == 0 ||
         state.hasReferenceDefinitions ||
-        request.content.contains(']:')) {
+        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+          request.content,
+        )) {
       return null;
     }
 
@@ -661,7 +668,10 @@ class StreamingMarkdownPreparationEngine {
           ? previousPrepared.utf8Length(preparedRetainLength)
           : 0,
     );
-    final hasReferences = request.content.contains(']:');
+    final hasReferences =
+        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+          request.content,
+        );
     final checkpoint = hasReferences
         ? const _MarkdownPreparationCheckpoint.empty()
         : _advanceCheckpoint(
@@ -766,7 +776,9 @@ class StreamingMarkdownPreparationEngine {
     }
 
     final rawPrefixTail = rawTail.substring(0, localRawBoundary);
-    if (rawPrefixTail.contains(']:')) {
+    if (ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+      rawPrefixTail,
+    )) {
       return _MarkdownPreparationCheckpoint(
         rawOffset: baseRawOffset,
         preparedOffset: basePreparedOffset,
@@ -828,7 +840,10 @@ int _commonPrefixLength(String left, String right) {
 }
 
 int _lastSafeRawBoundary(String input) {
-  if (input.isEmpty || input.contains(']:')) return 0;
+  if (input.isEmpty ||
+      ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(input)) {
+    return 0;
+  }
 
   var openTicks = 0;
   var detailsDepth = 0;
@@ -841,14 +856,12 @@ int _lastSafeRawBoundary(String input) {
     final line = input.substring(lineStart, lineEnd);
     final lower = line.toLowerCase();
 
-    detailsDepth += RegExp(
-      r'<details\b',
-      caseSensitive: false,
-    ).allMatches(line).length;
-    detailsDepth -= RegExp(
-      r'</details\s*>',
-      caseSensitive: false,
-    ).allMatches(line).length;
+    // Counting the partial `<details\b` (vs the parser's complete-tag
+    // count) can only overcount, which keeps content mutable longer —
+    // the safe direction for a checkpoint. This loop runs on the UI
+    // isolate during streamed flushes, so the patterns are hoisted.
+    detailsDepth += _detailsOpenPattern.allMatches(line).length;
+    detailsDepth -= _detailsClosePattern.allMatches(line).length;
     if (detailsDepth < 0) detailsDepth = 0;
 
     var index = 0;

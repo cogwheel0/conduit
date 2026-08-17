@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
+import 'package:html_unescape/html_unescape.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../auth/api_auth_interceptor.dart';
@@ -21,6 +22,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
+import '../utils/semantic_details.dart';
 import 'openwebui_stream_parser.dart';
 import 'performance_profiler.dart';
 import 'semantic_message_builder.dart';
@@ -38,6 +40,17 @@ Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 2);
 
 @visibleForTesting
 int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
+
+final _plainContentUnescape = HtmlUnescape();
+
+// Consumes only the wrapper's own trailing newline: the broader `\s*` used
+// by comparable-body stripping (see semantic_details.dart) would eat
+// whitespace belonging to the answer, such as the indentation of a leading
+// indented code block. That is why this deliberately does NOT share
+// stripRenderedSemanticDetails.
+final _plainWrapperDetailsPattern = RegExp(
+  r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\n?''',
+);
 
 /// Append-only text storage for transport streams.
 ///
@@ -793,14 +806,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function() syncImages = () {};
   void Function() updateImagesFromCurrentContent = () {};
 
+  // Rendered content is HTML-escaped; the plain accumulator must hold the
+  // UNESCAPED text, or the next full render escapes it a second time and the
+  // user sees literal entities (`&amp;quot;` decoding once to `&quot;`).
   String initialPlainStreamingContent(String content) {
-    if (!content.contains('<details')) {
-      return content;
+    var plain = content;
+    if (plain.contains('<details')) {
+      plain = plain.replaceAll(_plainWrapperDetailsPattern, '');
     }
-    final semanticDetailsPattern = RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-    );
-    return content.replaceAll(semanticDetailsPattern, '').trim();
+    return plain.contains('&') ? _plainContentUnescape.convert(plain) : plain;
   }
 
   final renderedStreamingContent = _StreamingTextAccumulator(
@@ -877,7 +891,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             visibleContent.length >= renderedStreamingContent.length)) {
       renderedStreamingContent.replace(visibleContent);
       if (!renderedFromStructuredOutput) {
-        plainStreamingContent.replace(visibleContent);
+        plainStreamingContent.replace(
+          initialPlainStreamingContent(visibleContent),
+        );
       }
       return;
     }
@@ -889,7 +905,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     renderedStreamingContent.replace(messages.last.content);
     if (!renderedFromStructuredOutput) {
-      plainStreamingContent.replace(messages.last.content);
+      plainStreamingContent.replace(
+        initialPlainStreamingContent(messages.last.content),
+      );
     }
   }
 
@@ -908,7 +926,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (plainContent != null) {
       plainStreamingContent.replace(plainContent);
     } else if (!fromStructuredOutput) {
-      plainStreamingContent.replace(content);
+      // The plain accumulator holds UNESCAPED, details-stripped text; a
+      // cumulative `content` frame can carry middleware-embedded <details>
+      // wrappers that must not leak in verbatim, or a later snapshot merge
+      // re-escapes them into literal &lt;details… text.
+      plainStreamingContent.replace(initialPlainStreamingContent(content));
       seenStreamingToolCallKeys.clear();
     } else if (content.isEmpty) {
       plainStreamingContent.replace('');
@@ -917,25 +939,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (updateImages) {
       updateImagesFromCurrentContent();
     }
-  }
-
-  bool containsRenderedSemanticDetails(String content) {
-    if (!content.contains('<details')) {
-      return false;
-    }
-    return RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
-    ).hasMatch(content);
-  }
-
-  String stripRenderedSemanticDetails(String content) {
-    if (!content.contains('<details')) {
-      return content;
-    }
-    final semanticDetailsPattern = RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-    );
-    return content.replaceAll(semanticDetailsPattern, '').trim();
   }
 
   void appendVisibleAssistantStructuredOutput(
@@ -1094,6 +1097,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void finalizeStructuredOutputProjection() {
+    // Every applied OR deferred output snapshot sets structuredOutputIsLatest
+    // back to true, so this bail only holds when a plain chunk was the very
+    // last content-affecting operation with no snapshot after it — where the
+    // accumulated visible text (full projection + chunk, kept complete by
+    // syncProjectionToLatest) is the right terminal value.
     if (!structuredOutputIsLatest) return;
     final projection = structuredOutputProjector.finish();
     if (projection == null) return;
@@ -1196,6 +1204,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     if (chunk.isEmpty) return;
     if (includeInPlainContent) {
+      // The projector defers full re-projections (geometric backoff), so the
+      // visible content can trail the logical structured content. Appending a
+      // plain chunk onto that stale prefix would permanently drop the
+      // deferred middle: this flip of structuredOutputIsLatest also makes the
+      // terminal finalizeStructuredOutputProjection bail. Materialize the
+      // full projection first so the chunk lands on complete content.
+      if (structuredOutputIsLatest) {
+        final syncProjection = structuredOutputProjector
+            .syncProjectionToLatest();
+        if (syncProjection != null) {
+          replaceVisibleAssistantContent(
+            syncProjection.content,
+            fromStructuredOutput: true,
+            plainContent: syncProjection.plainContent,
+          );
+        }
+      }
       renderedFromStructuredOutput = false;
       structuredProjectionIsVisible = false;
       structuredOutputIsLatest = false;
@@ -1754,8 +1779,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         source: 'poll recovery',
       );
 
-      // Extract content
-      final content = extractServerMessageContent(serverMsg['content']);
+      // Extract content. OWUI 0.11 does not persist a flat content string
+      // for a normal completion — the durable body is the output[] item
+      // array, so a reasoning/structured turn's raw content is ''. Recovery
+      // must render output[] the same way the snapshot parser does, or a
+      // socket that missed the final frames can never restore the tail and
+      // finishes the turn truncated.
+      var content = extractServerMessageContent(serverMsg['content']);
+      if (content.trim().isEmpty) {
+        final rawOutput = serverMsg['output'];
+        if (rawOutput is List && rawOutput.isNotEmpty) {
+          final outputBlocks = parseOpenWebUIStructuredOutput(rawOutput);
+          if (outputBlocks.isNotEmpty) {
+            content = renderStructuredOutputBlocks(outputBlocks);
+          }
+        }
+      }
 
       // Extract follow-ups (check both camelCase and snake_case keys)
       // Use _parseFollowUpsField for consistent parsing with socket handler
@@ -1909,8 +1948,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       );
     }
 
+    // Compare answer bodies with rendered semantic <details> wrappers
+    // stripped: local and server renders carry different attributes (for
+    // example a real reasoning duration vs the locally injected duration="0"),
+    // so raw lengths can grow while the actual answer shrinks — a mid-write
+    // server body with a long reasoning block and a partial answer must not
+    // replace a complete local answer.
+    final localComparableBody = stripRenderedSemanticDetails(
+      comparisonSnapshot.comparisonContent,
+    );
+    final serverComparableBody = stripRenderedSemanticDetails(content);
     final shouldAdoptContent =
-        content.isNotEmpty && content.length >= comparisonLength;
+        content.isNotEmpty &&
+        serverComparableBody.length >= localComparableBody.length;
     if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
@@ -1922,9 +1972,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
     }
 
-    if (content.isNotEmpty &&
-        isVisibleTarget &&
-        content.length < comparisonLength) {
+    if (content.isNotEmpty && isVisibleTarget && !shouldAdoptContent) {
       DebugLogger.log(
         '$source: keeping fresher visible content '
         '($comparisonLength > ${content.length})',
@@ -2068,8 +2116,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final recoveredStreamingState =
               !authoritativeTerminal &&
               (preserveActiveLocalStream || assistant.isStreaming);
+          // Replay-gap recovery can race the server's own persistence of the
+          // turn: a snapshot whose answer body is a strict prefix of the local
+          // streamed content is mid-write, not authoritative. Keep the local
+          // body then. Rendered semantic <details> wrappers are stripped
+          // before comparing — their attributes (reasoning duration, done
+          // flags) differ between local and server renders and would defeat
+          // the prefix check.
+          final keepLocalContent = serverBodyTruncatesLocal(
+            current.content,
+            assistant.content,
+          );
           return _AssistantServerPatch(
-            content: recoverAuthoritativeState ? assistant.content : null,
+            content: recoverAuthoritativeState && !keepLocalContent
+                ? assistant.content
+                : null,
             followUps: nextFollowUps,
             statusHistory: nextStatusHistory,
             sources: nextSources,
@@ -2691,6 +2752,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final newContent = msg['content']?.toString();
             if (newContent == null) return current;
             if (current.content == newContent) return current;
+            // A server echo of the (possibly stale) payload we sent must not
+            // truncate streamed content: compare answer bodies with rendered
+            // semantic <details> stripped (attribute differences such as the
+            // reasoning duration would otherwise defeat the prefix check),
+            // and skip echoes that only differ by those wrappers or are a
+            // strict prefix of the streamed body.
+            final currentBody = stripRenderedSemanticDetails(current.content);
+            final newBody = stripRenderedSemanticDetails(newContent);
+            if (newBody == currentBody) return current;
+            if (isStaleServerPrefix(
+              localBody: currentBody,
+              serverBody: newBody,
+            )) {
+              return current;
+            }
             // Preserve original content before filter modification
             final meta = <String, dynamic>{
               ...?current.metadata,
@@ -2914,6 +2990,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       onChatTitleUpdated?.call(doneTitle);
     }
 
+    // Fold the streamed buffer into message state BEFORE building the
+    // /api/chat/completed payload. The buffer is not periodically synced into
+    // the notifier, so without this the payload carries a stale prefix of a
+    // long response — and the server's echo of that payload then truncates
+    // the full content when merged back (the HTTP/SSE transport reaches here
+    // without any earlier terminal flush). The projector must materialize its
+    // exact terminal render first for the same reason: a deferred projection
+    // leaves the visible content up to ~50% behind the logical content.
+    finalizeStreamingReasoning();
+    finalizeStructuredOutputProjection();
+    flushStreamingBuffer();
+
     try {
       if (!isTemporaryChat(activeConversationId)) {
         final completed = ensureChatCompletedSynced();
@@ -2927,9 +3015,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // Non-critical - continue if sync fails
     }
 
-    finalizeStreamingReasoning();
-    flushStreamingBuffer();
-
     final msgs = getMessages();
     if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
       final comparisonSnapshot = readLocalMessageComparisonSnapshot(msgs.last);
@@ -2942,7 +3027,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           last.codeExecutions.isNotEmpty ||
           last.sources.isNotEmpty;
       DebugLogger.log(
-        'Done signal received: content length=${lastContent.length}',
+        // Content audit: on a healthy completion these lengths agree (modulo
+        // details wrappers). message < rendered pinpoints a lost flush;
+        // rendered < plain pinpoints an unrepaired deferred projection.
+        'Done signal received: content length=${lastContent.length} '
+        'rendered=${renderedStreamingContent.length} '
+        'plain=${plainStreamingContent.length}',
         scope: 'streaming/helper',
       );
       if (allowEmptyContentRecovery &&
@@ -3117,13 +3207,30 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 if (delta.containsKey('tool_calls')) {
                   handleOrDeferToolCallStatuses(delta['tool_calls']);
                 }
-                handleStreamingChoiceDelta(delta);
+                // Upstream contract (Chat.svelte): a frame carrying an
+                // `output` snapshot supersedes its own delta/content — the
+                // snapshot already contains the delta's text, so applying
+                // both duplicates it.
+                if (outputBlocks.isEmpty) {
+                  handleStreamingChoiceDelta(delta);
+                }
               }
             }
           }
-          if (completionTargetId != null && payload.containsKey('content')) {
+          if (completionTargetId != null &&
+              outputBlocks.isEmpty &&
+              payload.containsKey('content')) {
             final raw = payload['content']?.toString() ?? '';
-            if (raw.isNotEmpty) {
+            // Cumulative content snapshots must never shrink streamed
+            // content: a strict prefix is a stale/out-of-order frame, and
+            // adopting it would rebase later deltas onto a shortened buffer.
+            // Rendered semantic <details> wrappers are stripped before the
+            // comparison; their attributes differ between renders.
+            final isStalePrefix = serverBodyTruncatesLocal(
+              renderedStreamingContent.value,
+              raw,
+            );
+            if (raw.isNotEmpty && !isStalePrefix) {
               replaceVisibleAssistantContent(raw);
             }
           }
@@ -3959,7 +4066,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 .replaceAll('[/SEARCHING]', '');
           }
 
-          if (effectiveChunk.trim().isNotEmpty) {
+          // Whitespace-only chunks are real content: dropping a " " or
+          // "\n\n" delta glues words together and loses paragraph breaks.
+          if (effectiveChunk.isNotEmpty) {
             appendVisibleAssistantChunk(effectiveChunk);
           }
         },

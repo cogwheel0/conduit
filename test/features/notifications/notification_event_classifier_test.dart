@@ -106,9 +106,8 @@ void main() {
     });
 
     test('malformed envelopes return null without throwing', () {
-      check(
-        classifier.classifyChatEvent({}, currentUserId: currentUserId),
-      ).isNull();
+      check(classifier.classifyChatEvent({}, currentUserId: currentUserId))
+          .isNull();
       check(
         classifier.classifyChatEvent({
           'data': 'not-a-map',
@@ -187,9 +186,7 @@ void main() {
 
     test('message with missing/empty author is ignored as malformed', () {
       final result = classifier.classifyChannelEvent(
-        channelEvent(
-          inner: const {'id': 'msg-3', 'content': 'no author'},
-        ),
+        channelEvent(inner: const {'id': 'msg-3', 'content': 'no author'}),
         currentUserId: currentUserId,
       );
       check(result).isNull();
@@ -237,9 +234,8 @@ void main() {
     });
 
     test('malformed envelopes return null without throwing', () {
-      check(
-        classifier.classifyChannelEvent({}, currentUserId: currentUserId),
-      ).isNull();
+      check(classifier.classifyChannelEvent({}, currentUserId: currentUserId))
+          .isNull();
       check(
         classifier.classifyChannelEvent({
           'channel_id': 'c',

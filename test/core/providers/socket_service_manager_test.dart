@@ -116,9 +116,9 @@ void main() {
         fireImmediately: true,
       );
       addTearDown(subscription.close);
-      final serviceA =
-          await container.read(socketServiceManagerProvider.future)
-              as _TestSocketService;
+      final serviceA = await container.read(
+        socketServiceManagerProvider.future,
+      ) as _TestSocketService;
       final pendingServerB = Completer<ServerConfig?>();
 
       harness.setServer(container, pendingServerB.future);
@@ -131,9 +131,9 @@ void main() {
       ).isNull();
 
       pendingServerB.complete(serverB);
-      final serviceB =
-          await container.read(socketServiceManagerProvider.future)
-              as _TestSocketService;
+      final serviceB = await container.read(
+        socketServiceManagerProvider.future,
+      ) as _TestSocketService;
       check(serviceB.serverConfig).equals(serverB);
       check(serviceB.authToken).equals('token-a');
       check(harness.services).deepEquals([serviceA, serviceB]);
@@ -152,9 +152,9 @@ void main() {
           (_, _) {},
           fireImmediately: true,
         );
-        final service =
-            await container.read(socketServiceManagerProvider.future)
-                as _TestSocketService;
+        final service = await container.read(
+          socketServiceManagerProvider.future,
+        ) as _TestSocketService;
         final pendingServerB = Completer<ServerConfig?>();
 
         harness.setServer(container, pendingServerB.future);
@@ -182,18 +182,18 @@ void main() {
           (_, _) {},
           fireImmediately: true,
         );
-        final serviceA =
-            await container.read(socketServiceManagerProvider.future)
-                as _TestSocketService;
+        final serviceA = await container.read(
+          socketServiceManagerProvider.future,
+        ) as _TestSocketService;
 
         harness.setAuth(container, (
           authenticated: true,
           token: 'token-b',
           epoch: Object(),
         ));
-        final serviceB =
-            await container.read(socketServiceManagerProvider.future)
-                as _TestSocketService;
+        final serviceB = await container.read(
+          socketServiceManagerProvider.future,
+        ) as _TestSocketService;
 
         check(serviceA.disposeCalls).equals(1);
         check(serviceB.disposeCalls).equals(0);
@@ -203,9 +203,8 @@ void main() {
         subscription.close();
 
         check(serviceB.disposeCalls).equals(1);
-        check(
-          harness.services,
-        ).deepEquals(<_TestSocketService>[serviceA, serviceB]);
+        check(harness.services)
+            .deepEquals(<_TestSocketService>[serviceA, serviceB]);
       },
     );
 
@@ -220,9 +219,9 @@ void main() {
         (_, _) {},
         fireImmediately: true,
       );
-      final service =
-          await container.read(socketServiceManagerProvider.future)
-              as _TestSocketService;
+      final service = await container.read(
+        socketServiceManagerProvider.future,
+      ) as _TestSocketService;
 
       container.invalidate(socketServiceManagerProvider);
       final rebuiltService = await container.read(

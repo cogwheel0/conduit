@@ -239,9 +239,8 @@ void main() {
       check(combinedLogs).not((value) => value.contains(sessionKey));
       check(combinedLogs).not((value) => value.contains(runId));
       check(combinedLogs).not((value) => value.contains(stackSecret));
-      check(
-        combinedLogs,
-      ).not((value) => value.contains('provider-error-secret'));
+      check(combinedLogs)
+          .not((value) => value.contains('provider-error-secret'));
     });
 
     test('createRun posts explicit history with session headers', () async {
@@ -288,9 +287,8 @@ void main() {
 
         for (final invalidId in invalidIds) {
           final capture = _CaptureInterceptor({'run_id': invalidId});
-          await check(
-            _service(capture).createRun(input: 'hello'),
-          ).throws<FormatException>();
+          await check(_service(capture).createRun(input: 'hello'))
+              .throws<FormatException>();
         }
       },
     );
@@ -396,9 +394,8 @@ void main() {
       });
 
       await check(
-        _service(
-          capture,
-        ).getSessionMessages('session-1', cancelToken: cancelToken),
+        _service(capture)
+            .getSessionMessages('session-1', cancelToken: cancelToken),
       ).throws<HermesStreamGuardException>();
 
       check(cancelToken.isCancelled).isTrue();
@@ -466,9 +463,8 @@ void main() {
           ),
         );
 
-        await check(
-          service.getRun('r1', cancelToken: cancelToken),
-        ).throws<HermesStreamGuardException>();
+        await check(service.getRun('r1', cancelToken: cancelToken))
+            .throws<HermesStreamGuardException>();
 
         check(cancelToken.isCancelled).isTrue();
         check(capture.requests.single.responseType).equals(ResponseType.stream);
@@ -504,9 +500,8 @@ void main() {
         streamLimits: const HermesStreamLimits(maxCharacters: 4),
       );
 
-      await check(
-        service.getRun('r1', cancelToken: cancelToken),
-      ).throws<HermesStreamGuardException>();
+      await check(service.getRun('r1', cancelToken: cancelToken))
+          .throws<HermesStreamGuardException>();
 
       check(cancelToken.isCancelled).isTrue();
     });
@@ -531,9 +526,8 @@ void main() {
       final cancelToken = CancelToken();
 
       await check(
-        _service(
-          _CaptureInterceptor(cyclic),
-        ).getRun('r1', cancelToken: cancelToken),
+        _service(_CaptureInterceptor(cyclic))
+            .getRun('r1', cancelToken: cancelToken),
       ).throws<FormatException>();
 
       check(cancelToken.isCancelled).isTrue();
@@ -550,15 +544,12 @@ void main() {
         ),
       );
 
-      check(
-        (await service.getRun('r1', cancelToken: cancelToken))['output'],
-      ).equals('0123456789');
-      check(
-        (await service.getRun('r1', cancelToken: cancelToken))['output'],
-      ).equals('0123456789');
-      check(
-        (await service.getRun('r1', cancelToken: cancelToken))['output'],
-      ).equals('0123456789');
+      check((await service.getRun('r1', cancelToken: cancelToken))['output'])
+          .equals('0123456789');
+      check((await service.getRun('r1', cancelToken: cancelToken))['output'])
+          .equals('0123456789');
+      check((await service.getRun('r1', cancelToken: cancelToken))['output'])
+          .equals('0123456789');
 
       check(cancelToken.isCancelled).isFalse();
     });
@@ -589,9 +580,8 @@ void main() {
         await check(poll()).throws<HermesStreamGuardException>();
 
         check(capture.requests).length.equals(2);
-        check(
-          capture.requests[1].receiveTimeout,
-        ).equals(const Duration(seconds: 4));
+        check(capture.requests[1].receiveTimeout)
+            .equals(const Duration(seconds: 4));
         check(cancelToken.isCancelled).isTrue();
       });
     }
@@ -973,9 +963,8 @@ void main() {
           final cancelToken = CancelToken();
           final service = _service(_CaptureInterceptor(body));
 
-          await check(
-            _collectEvents(service, endpoint, cancelToken),
-          ).throws<FormatException>();
+          await check(_collectEvents(service, endpoint, cancelToken))
+              .throws<FormatException>();
 
           check(cancelToken.isCancelled).isTrue();
         });
@@ -1063,12 +1052,10 @@ void main() {
         check(
           events.whereType<HermesResponseCreated>().map((e) => e.responseId),
         ).deepEquals(['resp_1', 'resp_1']);
-        check(
-          events.whereType<HermesTokenDelta>().single.content,
-        ).equals('hello');
-        check(
-          events.whereType<HermesFinalOutput>().single.text,
-        ).equals('hello');
+        check(events.whereType<HermesTokenDelta>().single.content)
+            .equals('hello');
+        check(events.whereType<HermesFinalOutput>().single.text)
+            .equals('hello');
         check(events.last).isA<HermesRunDone>();
 
         final req = capture.requests.single;
@@ -1164,24 +1151,21 @@ void main() {
       });
       final cancelToken = CancelToken();
 
-      final response = await _service(
-        capture,
-      ).getResponse('resp/1#fragment', cancelToken: cancelToken);
+      final response = await _service(capture)
+          .getResponse('resp/1#fragment', cancelToken: cancelToken);
 
       check(response['status']).equals('completed');
       final req = capture.requests.single;
-      check(
-        req.path,
-      ).equals('http://host:8642/v1/responses/resp%2F1%23fragment');
+      check(req.path)
+          .equals('http://host:8642/v1/responses/resp%2F1%23fragment');
       check(req.cancelToken).identicalTo(cancelToken);
     });
 
     test('getResponse rejects a non-object payload', () async {
       final capture = _CaptureInterceptor('not an object');
 
-      await check(
-        _service(capture).getResponse('resp_1'),
-      ).throws<FormatException>();
+      await check(_service(capture).getResponse('resp_1'))
+          .throws<FormatException>();
     });
 
     test('getResponse rejects deeply nested recovery JSON safely', () async {
@@ -1270,9 +1254,8 @@ void main() {
           schedule: oversizedSchedule,
         ),
       ).throws<ArgumentError>();
-      await check(
-        service.updateJob('job-1', schedule: oversizedSchedule),
-      ).throws<ArgumentError>();
+      await check(service.updateJob('job-1', schedule: oversizedSchedule))
+          .throws<ArgumentError>();
 
       check(capture.requests).isEmpty();
     });
@@ -1310,9 +1293,8 @@ void main() {
       'resolveApproval posts the official deny choice and legacy fields',
       () async {
         final capture = _CaptureInterceptor({});
-        await _service(
-          capture,
-        ).resolveApproval('r1', approvalId: 'a1', approved: false);
+        await _service(capture)
+            .resolveApproval('r1', approvalId: 'a1', approved: false);
         final req = capture.requests.single;
         check(req.path).equals('http://host:8642/v1/runs/r1/approval');
         check(req.data as Map<String, dynamic>).deepEquals({
@@ -1326,9 +1308,8 @@ void main() {
 
     test('resolveApproval maps approval to the official once choice', () async {
       final capture = _CaptureInterceptor({});
-      await _service(
-        capture,
-      ).resolveApproval('r1', approvalId: 'a1', approved: true);
+      await _service(capture)
+          .resolveApproval('r1', approvalId: 'a1', approved: true);
 
       check(capture.requests.single.data as Map<String, dynamic>).deepEquals({
         'choice': 'once',

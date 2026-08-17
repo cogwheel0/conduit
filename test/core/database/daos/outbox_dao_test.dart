@@ -105,9 +105,8 @@ void main() {
         ),
       ).throws<ArgumentError>();
 
-      await check(
-        enqueue(kind: OutboxKind.createChat, chatId: 'local:c'),
-      ).throws<ArgumentError>();
+      await check(enqueue(kind: OutboxKind.createChat, chatId: 'local:c'))
+          .throws<ArgumentError>();
     });
 
     test('updateChat/deleteChat require empty payloads', () async {
@@ -225,12 +224,10 @@ void main() {
 
         final queued = await dao.watchQueuedCompletionsForChat('c1').first;
 
-        check(
-          queued.map((op) => op.seq).toList(),
-        ).deepEquals([pendingCompletion, failedCompletion]);
-        check(
-          queued.map((op) => op.kind).toSet(),
-        ).deepEquals({OutboxKind.requestCompletion.name});
+        check(queued.map((op) => op.seq).toList())
+            .deepEquals([pendingCompletion, failedCompletion]);
+        check(queued.map((op) => op.kind).toSet())
+            .deepEquals({OutboxKind.requestCompletion.name});
       },
     );
   });
@@ -277,9 +274,8 @@ void main() {
         check(pending).length.equals(1);
         check(pending.single.seq).equals(surviving);
         check(pending.single.kind).equals('createChat');
-        check(
-          pending.single.contentHash,
-        ).equals(createChatContentHash(editedRows));
+        check(pending.single.contentHash)
+            .equals(createChatContentHash(editedRows));
       },
     );
 
@@ -410,9 +406,9 @@ void main() {
         final mergedPayload =
             jsonDecode(pendingUpserts.single.payload) as Map<String, dynamic>;
         check(mergedPayload['name']).equals('n2');
-        check(
-          mergedPayload['meta'],
-        ).isA<Map<String, dynamic>>().deepEquals({'color': 'red'});
+        check(mergedPayload['meta'])
+            .isA<Map<String, dynamic>>()
+            .deepEquals({'color': 'red'});
         check(mergedPayload['createIfAbsent']).equals(true);
 
         // folderDelete over a brand-new local folder create drops both.
@@ -563,9 +559,8 @@ void main() {
       await enqueue(kind: OutboxKind.deleteChat, chatId: 'shared-id');
 
       final pending = await dao.pendingForChat('shared-id');
-      check(
-        pending.map((op) => op.kind).toList(),
-      ).deepEquals(['noteUpdate', 'deleteChat']);
+      check(pending.map((op) => op.kind).toList())
+          .deepEquals(['noteUpdate', 'deleteChat']);
     });
 
     test(
@@ -714,9 +709,8 @@ void main() {
       final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
       await dao.markFailedRetryable(seq, error: 'boom', nextAttemptAt: 200);
 
-      check(
-        await dao.claimNextRunnable(nowEpochSeconds: 150, busyChatIds: {}),
-      ).isNull();
+      check(await dao.claimNextRunnable(nowEpochSeconds: 150, busyChatIds: {}))
+          .isNull();
 
       final due = await dao.claimNextRunnable(
         nowEpochSeconds: 200,
@@ -875,66 +869,59 @@ void main() {
   });
 
   group('resetInFlightToPending (crash recovery §7.2/§11)', () {
-    test(
-      'reclaims a stranded inFlight op back to pending, attempts intact',
-      () async {
-        final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-        await dao.markFailedRetryable(seq, error: 'e', nextAttemptAt: 7);
-        // Simulate a kill mid-push: the op was flipped to inFlight by a claim.
-        final claimed = await dao.claimNextRunnable(
-          nowEpochSeconds: 99,
-          busyChatIds: {},
-        );
-        check(claimed!.status).equals('inFlight');
+    test('reclaims a stranded inFlight op back to pending, attempts intact', () async {
+      final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+      await dao.markFailedRetryable(seq, error: 'e', nextAttemptAt: 7);
+      // Simulate a kill mid-push: the op was flipped to inFlight by a claim.
+      final claimed = await dao.claimNextRunnable(
+        nowEpochSeconds: 99,
+        busyChatIds: {},
+      );
+      check(claimed!.status).equals('inFlight');
 
-        final reclaimed = await dao.resetInFlightToPending();
-        check(reclaimed).equals(1);
-        final pending = await dao.pendingForChat('c1');
-        check(pending.single.status).equals('pending');
-        // attempts/nextAttemptAt preserved so backoff/N=5 survive process death.
-        check(pending.single.attempts).equals(1);
-        check(pending.single.nextAttemptAt).equals(7);
-      },
-    );
+      final reclaimed = await dao.resetInFlightToPending();
+      check(reclaimed).equals(1);
+      final pending = await dao.pendingForChat('c1');
+      check(pending.single.status).equals('pending');
+      // attempts/nextAttemptAt preserved so backoff/N=5 survive process death.
+      check(pending.single.attempts).equals(1);
+      check(pending.single.nextAttemptAt).equals(7);
+    });
 
-    test(
-      'a stranded inFlight op no longer blocks its chat head after reset',
-      () async {
-        // createChat (will be stranded inFlight) then a dependent completion.
-        await enqueue(
-          kind: OutboxKind.createChat,
-          chatId: 'local:c',
-          contentHash: 'h',
-        );
-        await enqueue(
-          kind: OutboxKind.requestCompletion,
-          chatId: 'local:c',
-          payload: {
-            'assistantMessageId': 'a',
-            'model': 'm',
-            'toolIds': <String>[],
-          },
-        );
-        // Claim the create -> inFlight. The completion is now blocked behind it.
-        final create = await dao.claimNextRunnable(
-          nowEpochSeconds: 1,
-          busyChatIds: {},
-        );
-        check(OutboxKind.fromName(create!.kind)).equals(OutboxKind.createChat);
-        // Without reset, the inFlight create blocks the completion forever.
-        check(
-          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
-        ).isNull();
+    test('a stranded inFlight op no longer blocks its chat head after reset', () async {
+      // createChat (will be stranded inFlight) then a dependent completion.
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'h',
+      );
+      await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'local:c',
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
+      );
+      // Claim the create -> inFlight. The completion is now blocked behind it.
+      final create = await dao.claimNextRunnable(
+        nowEpochSeconds: 1,
+        busyChatIds: {},
+      );
+      check(OutboxKind.fromName(create!.kind)).equals(OutboxKind.createChat);
+      // Without reset, the inFlight create blocks the completion forever.
+      check(await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}))
+          .isNull();
 
-        await dao.resetInFlightToPending();
-        // Now the create is the claimable head again (not the completion).
-        final head = await dao.claimNextRunnable(
-          nowEpochSeconds: 1,
-          busyChatIds: {},
-        );
-        check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
-      },
-    );
+      await dao.resetInFlightToPending();
+      // Now the create is the claimable head again (not the completion).
+      final head = await dao.claimNextRunnable(
+        nowEpochSeconds: 1,
+        busyChatIds: {},
+      );
+      check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
+    });
   });
 
   group('pendingCreateForHash (§7.3 crash heal)', () {
@@ -1101,9 +1088,8 @@ void main() {
         // Park the create (terminal 401/403 in the real drainer).
         await dao.markParked(createSeq, error: '403');
         // The completion must NOT become claimable while its predecessor is parked.
-        check(
-          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
-        ).isNull();
+        check(await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}))
+            .isNull();
 
         // Manual retry re-arms the create as the head; it (not the completion)
         // is claimed next.

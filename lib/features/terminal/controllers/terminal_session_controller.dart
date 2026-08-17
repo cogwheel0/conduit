@@ -10,8 +10,10 @@ import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 import 'terminal_controller_gateways.dart';
 
-typedef TerminalContextValidator =
-    bool Function(TerminalServerInfo server, String sessionScopeId);
+typedef TerminalContextValidator = bool Function(
+  TerminalServerInfo server,
+  String sessionScopeId,
+);
 
 /// Owns the interactive terminal session and its WebSocket lifecycle.
 ///

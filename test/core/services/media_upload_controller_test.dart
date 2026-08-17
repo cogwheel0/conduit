@@ -448,9 +448,9 @@ void main() {
       );
       addTearDown(container.dispose);
       final controller = container.read(mediaUploadControllerProvider);
-      final notifier =
-          container.read(attachedFilesProvider.notifier)
-              as _SeededAttachedFilesNotifier;
+      final notifier = container.read(
+        attachedFilesProvider.notifier,
+      ) as _SeededAttachedFilesNotifier;
 
       const successfulPaths = 24;
       for (var index = 0; index < successfulPaths; index++) {
@@ -1454,9 +1454,9 @@ void main() {
       await upload;
 
       final successor = container.read(attachedFilesProvider).single;
-      final notifier =
-          container.read(attachedFilesProvider.notifier)
-              as _SeededAttachedFilesNotifier;
+      final notifier = container.read(
+        attachedFilesProvider.notifier,
+      ) as _SeededAttachedFilesNotifier;
       notifier.replaceAttachments([successor, original]);
       await controller.retireAttachmentOwnership(ownership);
 
@@ -1522,9 +1522,9 @@ void main() {
       );
       await firstEncodingStarted.future.timeout(const Duration(seconds: 1));
 
-      final notifier =
-          container.read(attachedFilesProvider.notifier)
-              as _SeededAttachedFilesNotifier;
+      final notifier = container.read(
+        attachedFilesProvider.notifier,
+      ) as _SeededAttachedFilesNotifier;
       notifier.replaceAttachments(const []);
       await controller.cancelUploadsForFile(image.path);
       await image.writeAsBytes([2]);
@@ -1622,9 +1622,9 @@ void main() {
       );
       await firstEncodingStarted.future.timeout(const Duration(seconds: 1));
 
-      final notifier =
-          container.read(attachedFilesProvider.notifier)
-              as _SeededAttachedFilesNotifier;
+      final notifier = container.read(
+        attachedFilesProvider.notifier,
+      ) as _SeededAttachedFilesNotifier;
       final cancellation = controller.removeAttachment(image.path);
       expect(container.read(attachedFilesProvider), isEmpty);
       await cleanupEntered.future.timeout(const Duration(seconds: 1));
@@ -2009,144 +2009,138 @@ void main() {
     expect(await lookalikeDirectory.exists(), isTrue);
   });
 
-  test(
-    'replacement and terminal cleanup failures recover the durable source on restore',
-    () async {
-      final database = AppDatabase(NativeDatabase.memory());
-      addTearDown(database.close);
-      final stagingDirectory = Directory(
-        '${Directory.systemTemp.path}/conduit-app-intents',
-      );
-      await stagingDirectory.create();
-      final original = File(
-        '${stagingDirectory.path}/'
-        '123e4567-e89b-12d3-a456-426614174102-intent.bmp',
-      );
-      final conversionDirectory = await Directory.systemTemp.createTemp(
-        'conduit_img_',
-      );
-      final converted = File('${conversionDirectory.path}/converted.jpg');
-      await original.writeAsBytes([1, 2, 3]);
-      await converted.writeAsBytes([9, 8, 7]);
-      addTearDown(() async {
-        if (await original.exists()) await original.delete();
-        if (await conversionDirectory.exists()) {
-          await conversionDirectory.delete(recursive: true);
-        }
-      });
-
-      final uploadStarted = Completer<void>();
-      final releaseUpload = Completer<void>();
-      addTearDown(() {
-        if (!releaseUpload.isCompleted) releaseUpload.complete();
-      });
-      String? uploadedPath;
-      final queue = AttachmentUploadQueue();
-      await queue.initialize(
-        onUpload: (filePath, fileName, {cancelToken}) async {
-          uploadedPath = filePath;
-          if (!uploadStarted.isCompleted) uploadStarted.complete();
-          await releaseUpload.future;
-          return 'server-file';
-        },
-        database: () => database,
-      );
-      addTearDown(queue.dispose);
-
-      Future<OwnedStagingConversionReplacementResult> failReplacement({
-        required String originalPath,
-        required String convertedPath,
-        bool Function()? canReplace,
-      }) {
-        return replaceOwnedStagingFileWithConvertedUpload(
-          originalPath: originalPath,
-          convertedPath: convertedPath,
-          canReplace: canReplace,
-          copyFile: (_, _) async {
-            throw const FileSystemException('injected replacement failure');
-          },
-        );
+  test('replacement and terminal cleanup failures recover the durable source on restore', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final stagingDirectory = Directory(
+      '${Directory.systemTemp.path}/conduit-app-intents',
+    );
+    await stagingDirectory.create();
+    final original = File(
+      '${stagingDirectory.path}/'
+      '123e4567-e89b-12d3-a456-426614174102-intent.bmp',
+    );
+    final conversionDirectory = await Directory.systemTemp.createTemp(
+      'conduit_img_',
+    );
+    final converted = File('${conversionDirectory.path}/converted.jpg');
+    await original.writeAsBytes([1, 2, 3]);
+    await converted.writeAsBytes([9, 8, 7]);
+    addTearDown(() async {
+      if (await original.exists()) await original.delete();
+      if (await conversionDirectory.exists()) {
+        await conversionDirectory.delete(recursive: true);
       }
+    });
 
-      final cleanupAttempted = Completer<void>();
-      final container = ProviderContainer(
-        overrides: [
-          apiServiceProvider.overrideWithValue(null),
-          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
-          attachmentUploadQueueProvider.overrideWithValue(queue),
-          imageUploadConverterProvider.overrideWithValue((_) async {
-            return converted.path;
-          }),
-          ownedStagingConversionReplacerProvider.overrideWithValue(
-            failReplacement,
-          ),
-          terminalAttachmentCleanupProvider.overrideWithValue((
-            filePath, {
-            required beforeDeleteAdmission,
-            required canDelete,
-          }) async {
-            await beforeDeleteAdmission();
-            if (!canDelete()) return true;
-            if (!cleanupAttempted.isCompleted) cleanupAttempted.complete();
-            return false;
-          }),
-          attachedFilesProvider.overrideWith(
-            () => _SeededAttachedFilesNotifier([
-              _pendingImage(original, reportedBytes: 3),
-            ]),
-          ),
-        ],
+    final uploadStarted = Completer<void>();
+    final releaseUpload = Completer<void>();
+    addTearDown(() {
+      if (!releaseUpload.isCompleted) releaseUpload.complete();
+    });
+    String? uploadedPath;
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploadedPath = filePath;
+        if (!uploadStarted.isCompleted) uploadStarted.complete();
+        await releaseUpload.future;
+        return 'server-file';
+      },
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+
+    Future<OwnedStagingConversionReplacementResult> failReplacement({
+      required String originalPath,
+      required String convertedPath,
+      bool Function()? canReplace,
+    }) {
+      return replaceOwnedStagingFileWithConvertedUpload(
+        originalPath: originalPath,
+        convertedPath: convertedPath,
+        canReplace: canReplace,
+        copyFile: (_, _) async {
+          throw const FileSystemException('injected replacement failure');
+        },
       );
-      addTearDown(container.dispose);
+    }
 
-      final upload = container
-          .read(mediaUploadControllerProvider)
-          .upload(
-            filePath: original.path,
-            fileName: 'intent.bmp',
-            fileSize: 3,
-            mimeType: 'image/bmp',
-          );
-      await uploadStarted.future.timeout(const Duration(seconds: 1));
-      await Future<void>.delayed(Duration.zero);
-      releaseUpload.complete();
-      await upload.timeout(const Duration(seconds: 1));
-      await cleanupAttempted.future.timeout(const Duration(seconds: 1));
-      await Future<void>.delayed(Duration.zero);
+    final cleanupAttempted = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+        imageUploadConverterProvider.overrideWithValue((_) async {
+          return converted.path;
+        }),
+        ownedStagingConversionReplacerProvider.overrideWithValue(
+          failReplacement,
+        ),
+        terminalAttachmentCleanupProvider.overrideWithValue((
+          filePath, {
+          required beforeDeleteAdmission,
+          required canDelete,
+        }) async {
+          await beforeDeleteAdmission();
+          if (!canDelete()) return true;
+          if (!cleanupAttempted.isCompleted) cleanupAttempted.complete();
+          return false;
+        }),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(original, reportedBytes: 3),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      expect(uploadedPath, original.path);
-      expect(await original.exists(), isTrue);
-      expect(await converted.exists(), isFalse);
-      expect(await conversionDirectory.exists(), isFalse);
-      final retainedRows = await database.attachmentQueueDao.getAll();
-      expect(retainedRows, hasLength(1));
-      expect(retainedRows.single.filePath, original.path);
-      expect(retainedRows.single.status, QueuedAttachmentStatus.completed.name);
-      final retainedId = retainedRows.single.id;
+    final upload = container
+        .read(mediaUploadControllerProvider)
+        .upload(
+          filePath: original.path,
+          fileName: 'intent.bmp',
+          fileSize: 3,
+          mimeType: 'image/bmp',
+        );
+    await uploadStarted.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(Duration.zero);
+    releaseUpload.complete();
+    await upload.timeout(const Duration(seconds: 1));
+    await cleanupAttempted.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(Duration.zero);
 
-      queue.dispose();
-      final restoredQueue = AttachmentUploadQueue();
-      addTearDown(restoredQueue.dispose);
-      await restoredQueue.initialize(
-        onUpload: (filePath, fileName, {cancelToken}) async => 'unused',
-        database: () => database,
-      );
+    expect(uploadedPath, original.path);
+    expect(await original.exists(), isTrue);
+    expect(await converted.exists(), isFalse);
+    expect(await conversionDirectory.exists(), isFalse);
+    final retainedRows = await database.attachmentQueueDao.getAll();
+    expect(retainedRows, hasLength(1));
+    expect(retainedRows.single.filePath, original.path);
+    expect(retainedRows.single.status, QueuedAttachmentStatus.completed.name);
+    final retainedId = retainedRows.single.id;
 
-      expect(restoredQueue.queue, hasLength(1));
-      expect(restoredQueue.queue.single.id, retainedId);
-      expect(
-        restoredQueue.queue.single.status,
-        QueuedAttachmentStatus.completed,
-      );
-      expect(await database.attachmentQueueDao.getAll(), hasLength(1));
-      expect(await original.exists(), isFalse);
+    queue.dispose();
+    final restoredQueue = AttachmentUploadQueue();
+    addTearDown(restoredQueue.dispose);
+    await restoredQueue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async => 'unused',
+      database: () => database,
+    );
 
-      await restoredQueue.acknowledgeTerminal(retainedId);
+    expect(restoredQueue.queue, hasLength(1));
+    expect(restoredQueue.queue.single.id, retainedId);
+    expect(restoredQueue.queue.single.status, QueuedAttachmentStatus.completed);
+    expect(await database.attachmentQueueDao.getAll(), hasLength(1));
+    expect(await original.exists(), isFalse);
 
-      expect(restoredQueue.queue, isEmpty);
-      expect(await database.attachmentQueueDao.getAll(), isEmpty);
-    },
-  );
+    await restoredQueue.acknowledgeTerminal(retainedId);
+
+    expect(restoredQueue.queue, isEmpty);
+    expect(await database.attachmentQueueDao.getAll(), isEmpty);
+  });
 
   test(
     'conversion removes its temp directory after post-create failure',

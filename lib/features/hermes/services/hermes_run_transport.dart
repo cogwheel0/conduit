@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/semantic_details.dart';
 import '../../../core/utils/unicode_prefix.dart';
 import '../models/hermes_run_event.dart';
 import '../providers/hermes_providers.dart';
@@ -761,6 +762,13 @@ void _appendAuthoritativeOutput(
   if (output.length > streamedText.length && output.startsWith(streamedText)) {
     appendContent(output.substring(streamedText.length));
   } else if (output != streamedText) {
+    // An authoritative output that is a strict prefix of the streamed text is
+    // a lagging aggregate (multi-item runs, incomplete recovery) — replacing
+    // with it would truncate content the user already received. Keep the
+    // longer streamed text in that case.
+    if (isStaleServerPrefix(localBody: streamedText, serverBody: output)) {
+      return;
+    }
     // Terminal/recovered output is authoritative even when the server corrected
     // or normalized an earlier delta instead of merely extending it.
     replaceContent?.call(output);

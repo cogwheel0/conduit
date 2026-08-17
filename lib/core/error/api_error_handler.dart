@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+
 import 'api_error.dart';
 import 'error_parser.dart';
 import '../utils/current_localizations.dart';

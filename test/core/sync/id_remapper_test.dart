@@ -198,9 +198,8 @@ void main() {
 
         check(result).equals(ChatRemapResult.sourceMissing);
         check(events).isEmpty();
-        check(
-          await db.syncMetaDao.getChatRemapTarget('local:already-gone'),
-        ).isNull();
+        check(await db.syncMetaDao.getChatRemapTarget('local:already-gone'))
+            .isNull();
         await sub.cancel();
       },
     );
@@ -232,9 +231,8 @@ void main() {
 
         check(result).equals(ChatRemapResult.alreadyCommitted);
         check(await db.chatsDao.getChat(serverId)).isNotNull();
-        check(
-          await db.syncMetaDao.getChatRemapTarget(localId),
-        ).equals(serverId);
+        check(await db.syncMetaDao.getChatRemapTarget(localId))
+            .equals(serverId);
       },
     );
 
@@ -258,12 +256,10 @@ void main() {
       check(await db.chatsDao.getChat(localId)).isNotNull();
       check(await db.chatsDao.getChat(conflictingServerId)).isNull();
       check((await messagesFor(db, localId)).length).equals(2);
-      check(
-        (await allOutbox(db)).map((op) => op.chatId).toSet(),
-      ).deepEquals({localId});
-      check(
-        await db.syncMetaDao.getChatRemapTarget(localId),
-      ).equals(committedServerId);
+      check((await allOutbox(db)).map((op) => op.chatId).toSet())
+          .deepEquals({localId});
+      check(await db.syncMetaDao.getChatRemapTarget(localId))
+          .equals(committedServerId);
     });
 
     test('crash-heal: server stub already present (0 messages) -> local rows '
@@ -342,16 +338,13 @@ void main() {
 
         // Neither distinct conversation is discarded or redirected.
         final allChats = await db.select(db.chats).get();
-        check(
-          allChats.map((c) => c.id).toSet(),
-        ).deepEquals({localId, serverId});
-        check(
-          (await messagesFor(db, serverId)).map((m) => m.id),
-        ).deepEquals(['srv-m1']);
+        check(allChats.map((c) => c.id).toSet())
+            .deepEquals({localId, serverId});
+        check((await messagesFor(db, serverId)).map((m) => m.id))
+            .deepEquals(['srv-m1']);
         check((await messagesFor(db, localId)).length).equals(2);
-        check(
-          (await allOutbox(db)).map((o) => o.chatId).toSet(),
-        ).deepEquals({localId});
+        check((await allOutbox(db)).map((o) => o.chatId).toSet())
+            .deepEquals({localId});
         check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
       },
     );
@@ -388,12 +381,10 @@ void main() {
         check(await db.chatsDao.getChat(localId)).isNull();
         check(await db.chatsDao.getChat(serverId)).isNotNull();
         check((await messagesFor(db, serverId)).length).equals(2);
-        check(
-          (await allOutbox(db)).map((op) => op.chatId).toSet(),
-        ).deepEquals({serverId});
-        check(
-          await db.syncMetaDao.getChatRemapTarget(localId),
-        ).equals(serverId);
+        check((await allOutbox(db)).map((op) => op.chatId).toSet())
+            .deepEquals({serverId});
+        check(await db.syncMetaDao.getChatRemapTarget(localId))
+            .equals(serverId);
       },
     );
 
@@ -425,9 +416,8 @@ void main() {
         ).throws<StateError>();
 
         check(await db.chatsDao.getChat(localId)).isNotNull();
-        check(
-          (await db.chatsDao.getChat(serverId))!.title,
-        ).equals('Legitimate empty chat');
+        check((await db.chatsDao.getChat(serverId))!.title)
+            .equals('Legitimate empty chat');
         check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
       },
     );
@@ -460,9 +450,8 @@ void main() {
 
       check(await db.chatsDao.getChat(localId)).isNotNull();
       check(await db.chatsDao.getChat(serverId)).isNotNull();
-      check(
-        (await allOutbox(db)).map((op) => op.chatId).toSet(),
-      ).deepEquals({serverId});
+      check((await allOutbox(db)).map((op) => op.chatId).toSet())
+          .deepEquals({serverId});
     });
 
     test(
@@ -496,9 +485,8 @@ void main() {
 
         check(await db.chatsDao.getChat(localId)).isNotNull();
         check(await db.chatsDao.getChat(serverId)).isNotNull();
-        check(
-          await db.syncMetaDao.getChatRemapTarget(priorLocalId),
-        ).equals(serverId);
+        check(await db.syncMetaDao.getChatRemapTarget(priorLocalId))
+            .equals(serverId);
         check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
       },
     );
@@ -540,9 +528,8 @@ void main() {
         updatedAt: 60,
       );
 
-      check(
-        createChatContentHash(localRows),
-      ).equals(createChatContentHash(serverRows));
+      check(createChatContentHash(localRows))
+          .equals(createChatContentHash(serverRows));
     });
 
     test('localId == serverId is an idempotent no-op', () async {
@@ -663,9 +650,8 @@ void main() {
         serverUpdatedAt: 2,
       );
 
-      final parked = (await allOutbox(
-        db,
-      )).firstWhere((o) => o.seq == parkedSeq);
+      final parked = (await allOutbox(db))
+          .firstWhere((o) => o.seq == parkedSeq);
       // Parked ops remain terminal, but the UI watches by the surviving server
       // id after remap.
       check(parked.status).equals('failed');
@@ -704,9 +690,8 @@ void main() {
           serverUpdatedAt: 600,
         );
 
-        check(
-          await db.foldersDao.watchFolders().first,
-        ).which((it) => it.length.equals(1));
+        check(await db.foldersDao.watchFolders().first)
+            .which((it) => it.length.equals(1));
         final folders = await db.select(db.folders).get();
         check(folders.map((f) => f.id)).deepEquals([serverId]);
         check(folders.single.updatedAt).equals(600);

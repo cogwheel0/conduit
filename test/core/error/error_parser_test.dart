@@ -106,9 +106,9 @@ void main() {
         },
       });
       check(result.message).equals('Validation failed');
-      check(
-        result.fieldErrors['email'],
-      ).isNotNull().deepEquals(['is required', 'must be valid']);
+      check(result.fieldErrors['email'])
+          .isNotNull()
+          .deepEquals(['is required', 'must be valid']);
       check(result.fieldErrors['name']).isNotNull().deepEquals(['too short']);
     });
 
@@ -125,12 +125,12 @@ void main() {
           },
         ],
       });
-      check(
-        result.fieldErrors['email'],
-      ).isNotNull().deepEquals(['field required']);
-      check(
-        result.fieldErrors['age'],
-      ).isNotNull().deepEquals(['must be positive']);
+      check(result.fieldErrors['email'])
+          .isNotNull()
+          .deepEquals(['field required']);
+      check(result.fieldErrors['age'])
+          .isNotNull()
+          .deepEquals(['must be positive']);
     });
   });
 

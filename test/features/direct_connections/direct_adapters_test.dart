@@ -781,12 +781,11 @@ void main() {
       'supports_max_tokens': false,
       'mandatory': true,
     });
-    check(
-      model('all-efforts').capabilities['reasoning'],
-    ).isA<Map>().deepEquals({'supported_efforts': null, 'mandatory': false});
-    check(
-      model('not-reasoning').capabilities.containsKey('reasoning'),
-    ).isFalse();
+    check(model('all-efforts').capabilities['reasoning'])
+        .isA<Map>()
+        .deepEquals({'supported_efforts': null, 'mandatory': false});
+    check(model('not-reasoning').capabilities.containsKey('reasoning'))
+        .isFalse();
     check(model('malformed').capabilities.containsKey('reasoning')).isFalse();
   });
 
@@ -927,9 +926,8 @@ void main() {
           .toList();
 
       check(http.requests).isEmpty();
-      check(
-        events.whereType<DirectStreamError>().single.message,
-      ).equals('OpenRouter reasoning configuration is invalid.');
+      check(events.whereType<DirectStreamError>().single.message)
+          .equals('OpenRouter reasoning configuration is invalid.');
     },
   );
 
@@ -1571,9 +1569,8 @@ void main() {
         .toList();
 
     check(http.requests).isEmpty();
-    check(
-      events.whereType<DirectStreamError>().single.message,
-    ).equals('The PDF attachment is invalid.');
+    check(events.whereType<DirectStreamError>().single.message)
+        .equals('The PDF attachment is invalid.');
   });
 
   test('OpenRouter deduplicates cumulative streamed extensions', () async {
@@ -3856,124 +3853,121 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
-  test(
-    'OpenAI adapter streams Responses API reasoning and owns routing keys',
-    () async {
-      final completed = {
-        'type': 'response.completed',
-        'response': {
-          'id': 'resp_1',
-          'object': 'response',
-          'created_at': 1,
-          'status': 'completed',
-          'output': <Object>[],
-          'usage': {'input_tokens': 2, 'output_tokens': 3, 'total_tokens': 5},
-        },
-      };
-      final http = _QueuedAdapter([
-        _Reply.stream([
-          utf8.encode(
-            'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary '})}\n\n'
-            'data: ${jsonEncode({'type': 'response.reasoning.delta', 'delta': 'detail'})}\n\n'
-            'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'answer'})}\n\n'
-            'data: ${jsonEncode(completed)}\n\n',
+  test('OpenAI adapter streams Responses API reasoning and owns routing keys', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_1',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': <Object>[],
+        'usage': {'input_tokens': 2, 'output_tokens': 3, 'total_tokens': 5},
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary '})}\n\n'
+          'data: ${jsonEncode({'type': 'response.reasoning.delta', 'delta': 'detail'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'answer'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _openAiProfile(
+        openAiApiMode: DirectOpenAiApiMode.responses,
+        apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
+        apiVersion: '2025-04-01-preview',
+      ),
+      DirectCompletionRequest(
+        remoteModelId: 'trusted-model',
+        messages: [
+          DirectChatMessage(
+            role: 'system',
+            parts: const [
+              DirectImagePart('data:image/png;base64,c3lzdGVtLW9ubHk='),
+            ],
           ),
-        ], contentType: 'text/event-stream'),
-      ]);
-      final adapter = OpenAiCompatibleAdapter(
-        dioFactory: (_) => _dio(http),
-        closeClients: false,
-      );
-      final run = adapter.startCompletion(
-        _openAiProfile(
-          openAiApiMode: DirectOpenAiApiMode.responses,
-          apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
-          apiVersion: '2025-04-01-preview',
-        ),
-        DirectCompletionRequest(
-          remoteModelId: 'trusted-model',
-          messages: [
-            DirectChatMessage(
-              role: 'system',
-              parts: const [
-                DirectImagePart('data:image/png;base64,c3lzdGVtLW9ubHk='),
-              ],
-            ),
-            DirectChatMessage(
-              role: 'assistant',
-              parts: const [
-                DirectImagePart('data:image/png;base64,YXNzaXN0YW50LW9ubHk='),
-              ],
-            ),
-            DirectChatMessage.text(role: 'system', text: 'be concise'),
-            DirectChatMessage.text(
-              role: 'observer',
-              text: 'compatible-provider extension role',
-            ),
-            DirectChatMessage(
-              role: 'assistant',
-              parts: const [
-                DirectTextPart('previous answer'),
-                DirectImagePart('data:image/png;base64,YXNzaXN0YW50'),
-              ],
-            ),
-            DirectChatMessage(
-              role: 'user',
-              parts: const [
-                DirectTextPart('describe'),
-                DirectImagePart('data:image/png;base64,aW1hZ2U='),
-              ],
-            ),
-          ],
-          parameters: const {
-            'model': 'forged-model',
-            'input': 'forged-input',
-            'stream': false,
-            'store': false,
-            'repeat_penalty': 1.1,
-          },
-        ),
-      );
+          DirectChatMessage(
+            role: 'assistant',
+            parts: const [
+              DirectImagePart('data:image/png;base64,YXNzaXN0YW50LW9ubHk='),
+            ],
+          ),
+          DirectChatMessage.text(role: 'system', text: 'be concise'),
+          DirectChatMessage.text(
+            role: 'observer',
+            text: 'compatible-provider extension role',
+          ),
+          DirectChatMessage(
+            role: 'assistant',
+            parts: const [
+              DirectTextPart('previous answer'),
+              DirectImagePart('data:image/png;base64,YXNzaXN0YW50'),
+            ],
+          ),
+          DirectChatMessage(
+            role: 'user',
+            parts: const [
+              DirectTextPart('describe'),
+              DirectImagePart('data:image/png;base64,aW1hZ2U='),
+            ],
+          ),
+        ],
+        parameters: const {
+          'model': 'forged-model',
+          'input': 'forged-input',
+          'stream': false,
+          'store': false,
+          'repeat_penalty': 1.1,
+        },
+      ),
+    );
 
-      final events = await run.events.toList();
+    final events = await run.events.toList();
 
-      expect(
-        events
-            .whereType<DirectReasoningDelta>()
-            .map((event) => event.content)
-            .join(),
-        'summary detail',
-      );
-      expect(events.whereType<DirectContentDelta>().single.content, 'answer');
-      expect(
-        events.whereType<DirectUsageUpdate>().single.usage['total_tokens'],
-        5,
-      );
-      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    expect(
+      events
+          .whereType<DirectReasoningDelta>()
+          .map((event) => event.content)
+          .join(),
+      'summary detail',
+    );
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    expect(
+      events.whereType<DirectUsageUpdate>().single.usage['total_tokens'],
+      5,
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
 
-      final sent = http.requests.single;
-      expect(
-        sent.uri.toString(),
-        'https://api.test/v1/responses?api-version=2025-04-01-preview',
-      );
-      expect(sent.headers['api-key'], 'secret');
-      expect(sent.headers['Authorization'], isNull);
-      final body = sent.data as Map;
-      expect(body['model'], 'trusted-model');
-      expect(body['stream'], isTrue);
-      expect(body['store'], isFalse);
-      expect(body['repeat_penalty'], 1.1);
-      final input = body['input'] as List;
-      expect(input, hasLength(4));
-      expect((input.first as Map)['type'], 'message');
-      expect((input.first as Map)['role'], 'system');
-      expect((input[1] as Map)['role'], 'observer');
-      final assistantContent = (input[2] as Map)['content'] as List;
-      expect((assistantContent.single as Map)['type'], 'output_text');
-      final userContent = (input.last as Map)['content'] as List;
-      expect((userContent.last as Map)['type'], 'input_image');
-    },
-  );
+    final sent = http.requests.single;
+    expect(
+      sent.uri.toString(),
+      'https://api.test/v1/responses?api-version=2025-04-01-preview',
+    );
+    expect(sent.headers['api-key'], 'secret');
+    expect(sent.headers['Authorization'], isNull);
+    final body = sent.data as Map;
+    expect(body['model'], 'trusted-model');
+    expect(body['stream'], isTrue);
+    expect(body['store'], isFalse);
+    expect(body['repeat_penalty'], 1.1);
+    final input = body['input'] as List;
+    expect(input, hasLength(4));
+    expect((input.first as Map)['type'], 'message');
+    expect((input.first as Map)['role'], 'system');
+    expect((input[1] as Map)['role'], 'observer');
+    final assistantContent = (input[2] as Map)['content'] as List;
+    expect((assistantContent.single as Map)['type'], 'output_text');
+    final userContent = (input.last as Map)['content'] as List;
+    expect((userContent.last as Map)['type'], 'input_image');
+  });
 
   test(
     'OpenAI adapter normalizes a non-stream Responses API payload',
@@ -4257,150 +4251,144 @@ void main() {
     },
   );
 
-  test(
-    'Responses completion appends missing text and reasoning suffixes',
-    () async {
-      final completed = {
-        'type': 'response.completed',
-        'response': {
-          'id': 'resp_1',
-          'object': 'response',
-          'created_at': 1,
-          'status': 'completed',
-          'output': [
-            {
-              'type': 'reasoning',
-              'id': 'reason_1',
-              'summary': [
-                {'type': 'summary_text', 'text': 'complete-thought'},
-              ],
-            },
-            {
-              'type': 'message',
-              'id': 'msg_1',
-              'role': 'assistant',
-              'status': 'completed',
-              'content': [
-                {'type': 'output_text', 'text': 'recovered-answer'},
-              ],
-            },
-          ],
-        },
-      };
-      final http = _QueuedAdapter([
-        _Reply.stream([
-          utf8.encode(
-            'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'complete-'})}\n\n'
-            'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 1, 'content_index': 0, 'delta': 'recovered-'})}\n\n'
-            'data: ${jsonEncode(completed)}\n\n',
+  test('Responses completion appends missing text and reasoning suffixes', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_1',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'reasoning',
+            'id': 'reason_1',
+            'summary': [
+              {'type': 'summary_text', 'text': 'complete-thought'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'msg_1',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'recovered-answer'},
+            ],
+          },
+        ],
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'complete-'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 1, 'content_index': 0, 'delta': 'recovered-'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
           ),
-        ], contentType: 'text/event-stream'),
-      ]);
-      final adapter = OpenAiCompatibleAdapter(
-        dioFactory: (_) => _dio(http),
-        closeClients: false,
-      );
+        )
+        .events
+        .toList();
 
-      final events = await adapter
-          .startCompletion(
-            _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
-            DirectCompletionRequest(
-              remoteModelId: 'model',
-              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
-            ),
-          )
-          .events
-          .toList();
+    expect(
+      events
+          .whereType<DirectReasoningDelta>()
+          .map((event) => event.content)
+          .join(),
+      'complete-thought',
+    );
+    expect(
+      events
+          .whereType<DirectContentDelta>()
+          .map((event) => event.content)
+          .join(),
+      'recovered-answer',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
 
-      expect(
-        events
-            .whereType<DirectReasoningDelta>()
-            .map((event) => event.content)
-            .join(),
-        'complete-thought',
-      );
-      expect(
-        events
-            .whereType<DirectContentDelta>()
-            .map((event) => event.content)
-            .join(),
-        'recovered-answer',
-      );
-      expect(events.whereType<DirectStreamDone>(), hasLength(1));
-    },
-  );
+  test('Responses completion keeps reasoning text and summary channels distinct', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_reasoning_channels',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'reasoning',
+            'id': 'reason_channels',
+            'content': [
+              {'type': 'reasoning_text', 'text': 'detail-full'},
+            ],
+            'summary': [
+              {'type': 'summary_text', 'text': 'summary-full'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'msg_channels',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'answer'},
+            ],
+          },
+        ],
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.reasoning_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'detail-full'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary-full'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 1, 'content_index': 0, 'delta': 'answer'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
 
-  test(
-    'Responses completion keeps reasoning text and summary channels distinct',
-    () async {
-      final completed = {
-        'type': 'response.completed',
-        'response': {
-          'id': 'resp_reasoning_channels',
-          'object': 'response',
-          'created_at': 1,
-          'status': 'completed',
-          'output': [
-            {
-              'type': 'reasoning',
-              'id': 'reason_channels',
-              'content': [
-                {'type': 'reasoning_text', 'text': 'detail-full'},
-              ],
-              'summary': [
-                {'type': 'summary_text', 'text': 'summary-full'},
-              ],
-            },
-            {
-              'type': 'message',
-              'id': 'msg_channels',
-              'role': 'assistant',
-              'status': 'completed',
-              'content': [
-                {'type': 'output_text', 'text': 'answer'},
-              ],
-            },
-          ],
-        },
-      };
-      final http = _QueuedAdapter([
-        _Reply.stream([
-          utf8.encode(
-            'data: ${jsonEncode({'type': 'response.reasoning_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'detail-full'})}\n\n'
-            'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary-full'})}\n\n'
-            'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 1, 'content_index': 0, 'delta': 'answer'})}\n\n'
-            'data: ${jsonEncode(completed)}\n\n',
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
           ),
-        ], contentType: 'text/event-stream'),
-      ]);
-      final adapter = OpenAiCompatibleAdapter(
-        dioFactory: (_) => _dio(http),
-        closeClients: false,
-      );
+        )
+        .events
+        .toList();
 
-      final events = await adapter
-          .startCompletion(
-            _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
-            DirectCompletionRequest(
-              remoteModelId: 'model',
-              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
-            ),
-          )
-          .events
-          .toList();
-
-      expect(
-        events
-            .whereType<DirectReasoningDelta>()
-            .map((event) => event.content)
-            .toList(),
-        ['detail-full', 'summary-full'],
-      );
-      expect(events.whereType<DirectContentDelta>().single.content, 'answer');
-      expect(events.whereType<DirectStreamError>(), isEmpty);
-      expect(events.whereType<DirectStreamDone>(), hasLength(1));
-    },
-  );
+    expect(
+      events
+          .whereType<DirectReasoningDelta>()
+          .map((event) => event.content)
+          .toList(),
+      ['detail-full', 'summary-full'],
+    );
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
 
   test('Responses completion preserves streamed reasoning item boundaries', () async {
     final completed = {

@@ -146,12 +146,10 @@ void main() {
 
       check(result.success).isTrue();
       check(offloadCalls).equals(1);
-      check(
-        (await db.messagesDao.getForChat('large')).length,
-      ).equals(kLocalConversationWorkerThreshold + 1);
-      check(
-        (await db.messagesDao.getForChat('threshold')).length,
-      ).equals(kLocalConversationWorkerThreshold);
+      check((await db.messagesDao.getForChat('large')).length)
+          .equals(kLocalConversationWorkerThreshold + 1);
+      check((await db.messagesDao.getForChat('threshold')).length)
+          .equals(kLocalConversationWorkerThreshold);
     });
 
     test('first-run full pull (watermark 0) lands every chat', () async {
@@ -194,9 +192,8 @@ void main() {
       check(await db.syncMetaDao.getPullWatermark()).equals(500);
 
       final rows = {for (final row in await allChats()) row.id: row};
-      check(
-        rows.keys,
-      ).unorderedEquals(['plain', 'pinned', 'foldered', 'archived']);
+      check(rows.keys)
+          .unorderedEquals(['plain', 'pinned', 'foldered', 'archived']);
       check(rows['pinned']!.pinned).isTrue();
       check(rows['foldered']!.folderId).equals('folder-1');
       check(rows['plain']!.bodySynced).isTrue();
@@ -211,9 +208,8 @@ void main() {
       check(messages.where((m) => m.chatId == 'archived')).isEmpty();
 
       // The seeded folder for the foldered chat replicated.
-      check(
-        (await db.foldersDao.watchFolders().first).map((f) => f.id),
-      ).deepEquals(['folder-1']);
+      check((await db.foldersDao.watchFolders().first).map((f) => f.id))
+          .deepEquals(['folder-1']);
     });
 
     test('empty server: success without watermark movement', () async {
@@ -324,18 +320,16 @@ void main() {
       check(result.failedFetches).equals(1);
       check(result.watermarkAdvanced).isFalse();
       check(await db.syncMetaDao.getPullWatermark()).equals(0);
-      check(
-        (await allChats()).map((c) => c.id),
-      ).unorderedEquals(['chat-1', 'chat-3']);
+      check((await allChats()).map((c) => c.id))
+          .unorderedEquals(['chat-1', 'chat-3']);
 
       client.failChatIds.clear();
       final healed = await pull.run();
       check(healed.success).isTrue();
       check(healed.watermarkAdvanced).isTrue();
       check(await db.syncMetaDao.getPullWatermark()).equals(300);
-      check(
-        (await allChats()).map((c) => c.id),
-      ).unorderedEquals(['chat-1', 'chat-2', 'chat-3']);
+      check((await allChats()).map((c) => c.id))
+          .unorderedEquals(['chat-1', 'chat-2', 'chat-3']);
     });
 
     test(
@@ -404,9 +398,8 @@ void main() {
 
         check(result.success).isTrue();
         check(result.changedChats).equals(0);
-        check(
-          (client as _MalformedFullArchivedListClient).pages,
-        ).deepEquals([1]);
+        check((client as _MalformedFullArchivedListClient).pages)
+            .deepEquals([1]);
         check(client.chatFetchStarts).isEmpty();
         check(await db.syncMetaDao.getPullWatermark()).equals(0);
       },
@@ -583,9 +576,8 @@ void main() {
         check(conversation!.id).equals('chat-1');
         check(conversation.title).equals('Title chat-1');
         check(conversation.messages.length).equals(3);
-        check(
-          conversation.updatedAt.millisecondsSinceEpoch ~/ 1000,
-        ).equals(150);
+        check(conversation.updatedAt.millisecondsSinceEpoch ~/ 1000)
+            .equals(150);
 
         final row = (await db.chatsDao.getChat('chat-1'))!;
         check(row.bodySynced).isTrue();
@@ -706,17 +698,16 @@ void main() {
       check(row.dirty).isTrue();
       check(row.serverUpdatedAt).equals(100);
 
-      final ids = (await db.messagesDao.getForChat(
-        'chat-1',
-      )).map((m) => m.id).toList();
+      final ids = (await db.messagesDao.getForChat('chat-1'))
+          .map((m) => m.id)
+          .toList();
       // Server's m3 inserted AND the dirty local message kept.
       check(ids).contains('chat-1-local');
       check(ids).contains('chat-1-m3');
 
       // The local message row stays dirty; server-origin rows are clean.
-      final localMsg = (await db.messagesDao.getForChat(
-        'chat-1',
-      )).firstWhere((m) => m.id == 'chat-1-local');
+      final localMsg = (await db.messagesDao.getForChat('chat-1'))
+          .firstWhere((m) => m.id == 'chat-1-local');
       check(localMsg.dirty).isTrue();
 
       // REQ 4: the divergent merge enqueued exactly one updateChat push.
@@ -870,9 +861,9 @@ void main() {
         final chat = (await db.chatsDao.getChat(chatId))!;
         check(chat.dirty).isTrue();
         check(chat.bodySynced).isTrue();
-        final ids = (await db.messagesDao.getForChat(
-          chatId,
-        )).map((m) => m.id).toSet();
+        final ids = (await db.messagesDao.getForChat(chatId))
+            .map((m) => m.id)
+            .toSet();
         check(ids).contains('migrated-user');
         check(ids).contains('migrated-assistant');
         check(ids).contains('$chatId-m1');
@@ -1041,9 +1032,8 @@ void main() {
       check(await db.chatsDao.getChat(serverId)).isNotNull();
       check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
       check(await db.outboxDao.pendingForChat(localId)).isEmpty();
-      check(
-        (await db.select(db.chats).get()).map((chat) => chat.id),
-      ).deepEquals([serverId]);
+      check((await db.select(db.chats).get()).map((chat) => chat.id))
+          .deepEquals([serverId]);
     });
   });
 }

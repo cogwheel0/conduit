@@ -7,6 +7,7 @@ import '../models/conversation.dart';
 import '../utils/embed_utils.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import '../utils/openwebui_source_parser.dart';
+import '../utils/semantic_details.dart';
 import 'direct_replay_output.dart';
 import 'semantic_message_builder.dart';
 import 'structured_output.dart';
@@ -281,9 +282,8 @@ _parseOpenWebUiFiles(Object? raw) {
       // Handle all URL formats:
       // 1. /api/v1/files/{id} and /api/v1/files/{id}/content (old format)
       // 2. Just a file ID like "abc-123-def" (new OpenWebUI format)
-      final match = RegExp(
-        r'/api/v1/files/([^/]+)(?:/content)?$',
-      ).firstMatch(url);
+      final match = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$')
+          .firstMatch(url);
       if (match != null) {
         attachmentIds.add(match.group(1)!);
       } else if (!url.startsWith('data:') &&
@@ -1019,7 +1019,7 @@ String _mergeContentWithStructuredOutput(
   List<StructuredOutputBlock> outputBlocks,
 ) {
   final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
-  final baseContent = _stripRenderedSemanticDetails(content);
+  final baseContent = stripRenderedSemanticDetails(content);
   final strippedSemanticDetails = baseContent != content;
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
@@ -1050,16 +1050,6 @@ String _mergeContentWithStructuredOutput(
   return '';
 }
 
-String _stripRenderedSemanticDetails(String content) {
-  if (!content.contains('<details')) {
-    return content;
-  }
-  final semanticDetailsPattern = RegExp(
-    r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-  );
-  return content.replaceAll(semanticDetailsPattern, '').trim();
-}
-
 String _stringOr(dynamic value, String fallback) {
   if (value is String && value.isNotEmpty) {
     return value;
@@ -1082,9 +1072,8 @@ bool? _safeBool(dynamic value) {
 }
 
 String _synthesizeToolDetailsFromToolCalls(List<Map> calls) {
-  return renderSemanticMessageBlocks(
-    _semanticToolBlocksFromToolCalls(calls),
-  ).trim();
+  return renderSemanticMessageBlocks(_semanticToolBlocksFromToolCalls(calls))
+      .trim();
 }
 
 List<SemanticMessageBlock> _semanticToolBlocksFromToolCalls(List<Map> calls) {
@@ -1299,9 +1288,9 @@ List<Conversation> parseFolderSummaryModelsWorker(
 List<Map<String, dynamic>> parseConversationSummariesWorker(
   Map<String, dynamic> payload,
 ) {
-  return parseConversationSummaryModels(
-    payload,
-  ).map((conversation) => conversation.toJson()).toList(growable: false);
+  return parseConversationSummaryModels(payload)
+      .map((conversation) => conversation.toJson())
+      .toList(growable: false);
 }
 
 Map<String, dynamic> parseFullConversationWorker(Map<String, dynamic> payload) {
@@ -1313,9 +1302,9 @@ Map<String, dynamic> parseFullConversationWorker(Map<String, dynamic> payload) {
 List<Map<String, dynamic>> parseFolderSummariesWorker(
   Map<String, dynamic> payload,
 ) {
-  return parseFolderSummaryModels(
-    payload,
-  ).map((conversation) => conversation.toJson()).toList(growable: false);
+  return parseFolderSummaryModels(payload)
+      .map((conversation) => conversation.toJson())
+      .toList(growable: false);
 }
 
 Map<String, dynamic> _coerceConversationMap(Object? raw) {

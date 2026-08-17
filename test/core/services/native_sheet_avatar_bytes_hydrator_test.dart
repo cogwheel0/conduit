@@ -27,8 +27,7 @@ void main() {
         NativeSheetModelOption(
           id: 'server-model',
           name: 'Server model',
-          avatarUrl:
-              'https://chat.example.test/api/v1/models/model/profile/image?id=secret',
+          avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=secret',
           avatarHeaders: {'Authorization': 'Bearer secret'},
         ),
         NativeSheetModelOption(
@@ -46,42 +45,45 @@ void main() {
       check(prepared[1].avatarUrl).equals('https://cdn.example.test/logo.png');
     });
 
-    test('hydrates same-server avatar URLs when custom TLS is configured', () async {
-      final adapter = _BytesAdapter([1, 2, 3]);
-      final api = _buildApi(
-        const ServerConfig(
-          id: 'server',
-          name: 'Server',
-          url: 'https://chat.example.test',
-          mtlsCertificateChainPem: _certificatePem,
-          mtlsPrivateKeyPem: _privateKeyPem,
-        ),
-        adapter,
-      );
-
-      final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-        api: api,
-        options: const [
-          NativeSheetModelOption(
-            id: 'server-model',
-            name: 'Server model',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+    test(
+      'hydrates same-server avatar URLs when custom TLS is configured',
+      () async {
+        final adapter = _BytesAdapter([1, 2, 3]);
+        final api = _buildApi(
+          const ServerConfig(
+            id: 'server',
+            name: 'Server',
+            url: 'https://chat.example.test',
+            mtlsCertificateChainPem: _certificatePem,
+            mtlsPrivateKeyPem: _privateKeyPem,
           ),
-          NativeSheetModelOption(
-            id: 'external-model',
-            name: 'External model',
-            avatarUrl: 'https://cdn.example.test/logo.png',
-          ),
-        ],
-      );
+          adapter,
+        );
 
-      check(hydrated[0].avatarBytes!.toList()).deepEquals([1, 2, 3]);
-      check(hydrated[1].avatarBytes).isNull();
-      check(adapter.requestedUris).deepEquals([
-        'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
-      ]);
-    });
+        final hydrated = await NativeSheetAvatarBytesHydrator()
+            .hydrateModelOptions(
+              api: api,
+              options: const [
+                NativeSheetModelOption(
+                  id: 'server-model',
+                  name: 'Server model',
+                  avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+                ),
+                NativeSheetModelOption(
+                  id: 'external-model',
+                  name: 'External model',
+                  avatarUrl: 'https://cdn.example.test/logo.png',
+                ),
+              ],
+            );
+
+        check(hydrated[0].avatarBytes!.toList()).deepEquals([1, 2, 3]);
+        check(hydrated[1].avatarBytes).isNull();
+        check(adapter.requestedUris).deepEquals([
+          'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+        ]);
+      },
+    );
 
     test('leaves avatar URLs untouched for standard TLS servers', () async {
       final adapter = _BytesAdapter([1, 2, 3]);
@@ -94,17 +96,17 @@ void main() {
         adapter,
       );
 
-      final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-        api: api,
-        options: const [
-          NativeSheetModelOption(
-            id: 'server-model',
-            name: 'Server model',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
-          ),
-        ],
-      );
+      final hydrated = await NativeSheetAvatarBytesHydrator()
+          .hydrateModelOptions(
+            api: api,
+            options: const [
+              NativeSheetModelOption(
+                id: 'server-model',
+                name: 'Server model',
+                avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+              ),
+            ],
+          );
 
       check(hydrated.single.avatarBytes).isNull();
       check(adapter.requestedUris).isEmpty();
@@ -176,55 +178,58 @@ void main() {
         adapter,
       );
 
-      final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-        api: api,
-        options: const [
-          NativeSheetModelOption(
-            id: 'large-avatar',
-            name: 'Large avatar',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=large-avatar',
-          ),
-        ],
-      );
+      final hydrated = await NativeSheetAvatarBytesHydrator()
+          .hydrateModelOptions(
+            api: api,
+            options: const [
+              NativeSheetModelOption(
+                id: 'large-avatar',
+                name: 'Large avatar',
+                avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=large-avatar',
+              ),
+            ],
+          );
 
       check(hydrated.single.avatarBytes).isNull();
     });
 
-    test('returns promptly when prefetch exceeds the presentation budget', () async {
-      final adapter = _PendingAdapter();
-      final api = _buildApi(
-        const ServerConfig(
-          id: 'server',
-          name: 'Server',
-          url: 'https://chat.example.test',
-          mtlsCertificateChainPem: _certificatePem,
-          mtlsPrivateKeyPem: _privateKeyPem,
-        ),
-        adapter,
-      );
-
-      final stopwatch = Stopwatch()..start();
-      final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-        api: api,
-        maxWait: const Duration(milliseconds: 10),
-        options: const [
-          NativeSheetModelOption(
-            id: 'server-model',
-            name: 'Server model',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+    test(
+      'returns promptly when prefetch exceeds the presentation budget',
+      () async {
+        final adapter = _PendingAdapter();
+        final api = _buildApi(
+          const ServerConfig(
+            id: 'server',
+            name: 'Server',
+            url: 'https://chat.example.test',
+            mtlsCertificateChainPem: _certificatePem,
+            mtlsPrivateKeyPem: _privateKeyPem,
           ),
-        ],
-      );
-      stopwatch.stop();
+          adapter,
+        );
 
-      check(stopwatch.elapsed).isLessThan(const Duration(seconds: 1));
-      check(hydrated.single.avatarBytes).isNull();
-      check(adapter.requestedUris).deepEquals([
-        'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
-      ]);
-    });
+        final stopwatch = Stopwatch()..start();
+        final hydrated = await NativeSheetAvatarBytesHydrator()
+            .hydrateModelOptions(
+              api: api,
+              maxWait: const Duration(milliseconds: 10),
+              options: const [
+                NativeSheetModelOption(
+                  id: 'server-model',
+                  name: 'Server model',
+                  avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+                ),
+              ],
+            );
+        stopwatch.stop();
+
+        check(stopwatch.elapsed).isLessThan(const Duration(seconds: 1));
+        check(hydrated.single.avatarBytes).isNull();
+        check(adapter.requestedUris).deepEquals([
+          'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+        ]);
+      },
+    );
 
     test('one subscriber timeout does not cancel a shared request', () async {
       final adapter = _ControlledAdapter();
@@ -242,8 +247,7 @@ void main() {
       const option = NativeSheetModelOption(
         id: 'server-model',
         name: 'Server model',
-        avatarUrl:
-            'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+        avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
       );
 
       final first = hydrator.hydrateModelOptions(
@@ -261,9 +265,8 @@ void main() {
       check(adapter.requests.single.cancelled.isCompleted).isFalse();
 
       adapter.requests.single.complete([7, 8, 9]);
-      check(
-        (await longerSubscriber).single.avatarBytes!.toList(),
-      ).deepEquals([7, 8, 9]);
+      check((await longerSubscriber).single.avatarBytes!.toList())
+          .deepEquals([7, 8, 9]);
 
       final cached = await hydrator.hydrateModelOptions(
         api: api,
@@ -295,8 +298,7 @@ void main() {
         const option = NativeSheetModelOption(
           id: 'server-model',
           name: 'Server model',
-          avatarUrl:
-              'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
+          avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=server-model',
         );
 
         final first = await hydrator.hydrateModelOptions(
@@ -315,51 +317,47 @@ void main() {
       },
     );
 
-    test(
-      'keeps fast avatar bytes when another request in the batch times out',
-      () async {
-        final adapter = _MixedLatencyAdapter([4, 5, 6]);
-        final api = _buildApi(
-          const ServerConfig(
-            id: 'server',
-            name: 'Server',
-            url: 'https://chat.example.test',
-            mtlsCertificateChainPem: _certificatePem,
-            mtlsPrivateKeyPem: _privateKeyPem,
-          ),
-          adapter,
-        );
+    test('keeps fast avatar bytes when another request in the batch times out', () async {
+      final adapter = _MixedLatencyAdapter([4, 5, 6]);
+      final api = _buildApi(
+        const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://chat.example.test',
+          mtlsCertificateChainPem: _certificatePem,
+          mtlsPrivateKeyPem: _privateKeyPem,
+        ),
+        adapter,
+      );
 
-        final hydrated = await NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-          api: api,
-          // Leave enough headroom for the synchronous response to traverse
-          // Dio on slower CI hosts while still forcing the pending request to
-          // hit the presentation budget.
-          maxWait: const Duration(milliseconds: 100),
-          options: const [
-            NativeSheetModelOption(
-              id: 'fast',
-              name: 'Fast model',
-              avatarUrl:
-                  'https://chat.example.test/api/v1/models/model/profile/image?id=fast',
-            ),
-            NativeSheetModelOption(
-              id: 'slow',
-              name: 'Slow model',
-              avatarUrl:
-                  'https://chat.example.test/api/v1/models/model/profile/image?id=slow',
-            ),
-          ],
-        );
+      final hydrated = await NativeSheetAvatarBytesHydrator()
+          .hydrateModelOptions(
+            api: api,
+            // Leave enough headroom for the synchronous response to traverse
+            // Dio on slower CI hosts while still forcing the pending request to
+            // hit the presentation budget.
+            maxWait: const Duration(milliseconds: 100),
+            options: const [
+              NativeSheetModelOption(
+                id: 'fast',
+                name: 'Fast model',
+                avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=fast',
+              ),
+              NativeSheetModelOption(
+                id: 'slow',
+                name: 'Slow model',
+                avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=slow',
+              ),
+            ],
+          );
 
-        check(hydrated[0].avatarBytes!.toList()).deepEquals([4, 5, 6]);
-        check(hydrated[1].avatarBytes).isNull();
-        check(adapter.requestedUris).deepEquals([
-          'https://chat.example.test/api/v1/models/model/profile/image?id=fast',
-          'https://chat.example.test/api/v1/models/model/profile/image?id=slow',
-        ]);
-      },
-    );
+      check(hydrated[0].avatarBytes!.toList()).deepEquals([4, 5, 6]);
+      check(hydrated[1].avatarBytes).isNull();
+      check(adapter.requestedUris).deepEquals([
+        'https://chat.example.test/api/v1/models/model/profile/image?id=fast',
+        'https://chat.example.test/api/v1/models/model/profile/image?id=slow',
+      ]);
+    });
 
     test('progress emits only options that gained avatar bytes', () async {
       final adapter = _BytesAdapter([4, 5, 6]);
@@ -381,24 +379,21 @@ void main() {
           NativeSheetModelOption(
             id: 'already-hydrated',
             name: 'Already hydrated',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=already',
+            avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=already',
             avatarBytes: Uint8List.fromList([9]),
           ),
           const NativeSheetModelOption(
             id: 'newly-hydrated',
             name: 'Newly hydrated',
-            avatarUrl:
-                'https://chat.example.test/api/v1/models/model/profile/image?id=new',
+            avatarUrl: 'https://chat.example.test/api/v1/models/model/profile/image?id=new',
           ),
         ],
         onProgress: progress.add,
       );
 
       check(progress).length.equals(1);
-      check(
-        progress.single.map((option) => option.id).toList(),
-      ).deepEquals(['newly-hydrated']);
+      check(progress.single.map((option) => option.id).toList())
+          .deepEquals(['newly-hydrated']);
     });
 
     test('inactive hydration does not launch later batches', () async {
@@ -443,53 +438,50 @@ void main() {
       check(progress).isEmpty();
     });
 
-    test(
-      'one stalled avatar cannot hold later requests behind its batch',
-      () async {
-        final adapter = _ControlledAdapter();
-        final api = _buildApi(
-          const ServerConfig(
-            id: 'server',
-            name: 'Server',
-            url: 'https://chat.example.test',
-            mtlsCertificateChainPem: _certificatePem,
-            mtlsPrivateKeyPem: _privateKeyPem,
+    test('one stalled avatar cannot hold later requests behind its batch', () async {
+      final adapter = _ControlledAdapter();
+      final api = _buildApi(
+        const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://chat.example.test',
+          mtlsCertificateChainPem: _certificatePem,
+          mtlsPrivateKeyPem: _privateKeyPem,
+        ),
+        adapter,
+      );
+      final hydration = NativeSheetAvatarBytesHydrator().hydrateModelOptions(
+        api: api,
+        maxWait: const Duration(seconds: 5),
+        options: List<NativeSheetModelOption>.generate(
+          8,
+          (index) => NativeSheetModelOption(
+            id: 'model-$index',
+            name: 'Model $index',
+            avatarUrl:
+                'https://chat.example.test/api/v1/models/model/profile/image?id=$index',
           ),
-          adapter,
-        );
-        final hydration = NativeSheetAvatarBytesHydrator().hydrateModelOptions(
-          api: api,
-          maxWait: const Duration(seconds: 5),
-          options: List<NativeSheetModelOption>.generate(
-            8,
-            (index) => NativeSheetModelOption(
-              id: 'model-$index',
-              name: 'Model $index',
-              avatarUrl:
-                  'https://chat.example.test/api/v1/models/model/profile/image?id=$index',
-            ),
-          ),
-        );
+        ),
+      );
 
-        await _waitForRequestCount(adapter, 4);
-        // Keep request zero stalled while the other three workers advance.
-        for (final request in adapter.requests.skip(1).take(3)) {
-          request.complete([1, 2, 3]);
-        }
-        await _waitForRequestCount(adapter, 7);
-        for (final request in adapter.requests.skip(4).take(3)) {
-          request.complete([4, 5, 6]);
-        }
-        await _waitForRequestCount(adapter, 8);
+      await _waitForRequestCount(adapter, 4);
+      // Keep request zero stalled while the other three workers advance.
+      for (final request in adapter.requests.skip(1).take(3)) {
+        request.complete([1, 2, 3]);
+      }
+      await _waitForRequestCount(adapter, 7);
+      for (final request in adapter.requests.skip(4).take(3)) {
+        request.complete([4, 5, 6]);
+      }
+      await _waitForRequestCount(adapter, 8);
 
-        check(adapter.requests).length.equals(8);
-        adapter.requests.last.complete([7, 8, 9]);
-        adapter.requests.first.complete([9, 8, 7]);
-        final hydrated = await hydration;
+      check(adapter.requests).length.equals(8);
+      adapter.requests.last.complete([7, 8, 9]);
+      adapter.requests.first.complete([9, 8, 7]);
+      final hydrated = await hydration;
 
-        check(hydrated.every((option) => option.avatarBytes != null)).isTrue();
-      },
-    );
+      check(hydrated.every((option) => option.avatarBytes != null)).isTrue();
+    });
 
     test('an evicted stale request cannot remove its replacement', () async {
       final adapter = _ControlledAdapter();

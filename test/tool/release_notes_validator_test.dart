@@ -30,9 +30,8 @@ void main() {
   }
 
   void writeNotes(String locale, Object document) {
-    File(
-      '${notesDir.path}/$locale.json',
-    ).writeAsStringSync(jsonEncode(document));
+    File('${notesDir.path}/$locale.json')
+        .writeAsStringSync(jsonEncode(document));
   }
 
   Map<String, Object?> validArb() => {
@@ -81,9 +80,8 @@ void main() {
       'notes': [note('3.3.2')],
     });
 
-    check(
-      validate('4.0.0').errors,
-    ).contains('Missing baked release note for 4.0.0.');
+    check(validate('4.0.0').errors)
+        .contains('Missing baked release note for 4.0.0.');
   });
 
   test('fails when a locale is missing a version', () {
@@ -96,9 +94,8 @@ void main() {
       'notes': [note('3.3.2')],
     });
 
-    check(
-      validate('4.0.0').errors,
-    ).contains('de.json is missing version 4.0.0.');
+    check(validate('4.0.0').errors)
+        .contains('de.json is missing version 4.0.0.');
   });
 
   test('fails when an ARB locale has no release-note JSON file', () {
@@ -108,9 +105,8 @@ void main() {
       'notes': [note('4.0.0')],
     });
 
-    check(
-      validate('4.0.0').errors,
-    ).contains('Missing release-note JSON for ARB locale de.');
+    check(validate('4.0.0').errors)
+        .contains('Missing release-note JSON for ARB locale de.');
   });
 
   test('fails when release-note JSON has no matching ARB locale', () {
@@ -122,9 +118,8 @@ void main() {
       'notes': [note('4.0.0')],
     });
 
-    check(
-      validate('4.0.0').errors,
-    ).contains('Missing ARB locale for release-note JSON de.json.');
+    check(validate('4.0.0').errors)
+        .contains('Missing ARB locale for release-note JSON de.json.');
   });
 
   test('fails when a locale has a different bullet count', () {
@@ -137,9 +132,8 @@ void main() {
       'notes': [note('4.0.0', bulletCount: 2)],
     });
 
-    check(
-      validate('4.0.0').errors.single,
-    ).contains('de.json has 2 bullets for 4.0.0, expected 3');
+    check(validate('4.0.0').errors.single)
+        .contains('de.json has 2 bullets for 4.0.0, expected 3');
   });
 
   test('fails on unknown icon names and unsorted versions', () {
@@ -163,9 +157,8 @@ void main() {
       'notes': [note('4.0.0'), note('4.1.0')],
     });
 
-    check(
-      validate('4.0.0').errors.single,
-    ).contains('de.json has version 4.1.0');
+    check(validate('4.0.0').errors.single)
+        .contains('de.json has version 4.1.0');
   });
 
   test('fails when a locale ARB is missing a shell key', () {

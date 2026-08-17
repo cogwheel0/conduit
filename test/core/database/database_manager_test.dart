@@ -74,9 +74,8 @@ void main() {
       await second.customSelect('SELECT 1').get();
 
       check(openedFileNames.toSet().length).equals(2);
-      check(
-        fileFor(DatabaseManager.fileNameFor('alpha')).existsSync(),
-      ).isTrue();
+      check(fileFor(DatabaseManager.fileNameFor('alpha')).existsSync())
+          .isTrue();
       check(fileFor(DatabaseManager.fileNameFor('beta')).existsSync()).isTrue();
     });
 
@@ -117,9 +116,8 @@ void main() {
         final reopenedAlpha = (reopened as DatabaseOpenReady).database;
         check(identical(reopenedAlpha, originalAlpha)).isFalse();
         check(databases[alphaFile]!.length).equals(2);
-        check(
-          (await reopenedAlpha.customSelect('SELECT 1').get()),
-        ).isNotEmpty();
+        check((await reopenedAlpha.customSelect('SELECT 1').get()))
+            .isNotEmpty();
       },
     );
   });
@@ -220,9 +218,8 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         check(closeCompleted).isFalse();
         check((await db.customSelect('SELECT 1').get())).isNotEmpty();
-        check(
-          manager.openForIfReady(_server('alpha')),
-        ).isA<DatabaseOpenDeferred>();
+        check(manager.openForIfReady(_server('alpha')))
+            .isA<DatabaseOpenDeferred>();
         check(manager.tryAcquireLease(db)).isNull();
 
         await lease.release();
@@ -291,9 +288,8 @@ void main() {
         // Deleting C likewise awaits only C's exact executor.
         await manager.deleteFor('gamma');
         check(alphaGate.isCompleted).isFalse();
-        check(
-          fileFor(DatabaseManager.fileNameFor('gamma')).existsSync(),
-        ).isFalse();
+        check(fileFor(DatabaseManager.fileNameFor('gamma')).existsSync())
+            .isFalse();
 
         alphaGate.complete();
         await _waitForClosed(alpha);
@@ -387,64 +383,61 @@ void main() {
       },
     );
 
-    test(
-      'active close joins an older failed executor and every waiter settles both',
-      () async {
-        await manager.closeActive();
-        final databases = <String, GatedCloseDatabase>{};
-        manager = DatabaseManager(
-          databaseDirectory: () async => tempDir,
-          openDatabase: (fileName) {
-            final database = GatedCloseDatabase(
-              NativeDatabase(fileFor(fileName)),
-            );
-            databases[fileName] = database;
-            return database;
-          },
-        );
-        final alphaFile = DatabaseManager.fileNameFor('alpha');
-        final betaFile = DatabaseManager.fileNameFor('beta');
+    test('active close joins an older failed executor and every waiter settles both', () async {
+      await manager.closeActive();
+      final databases = <String, GatedCloseDatabase>{};
+      manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) {
+          final database = GatedCloseDatabase(
+            NativeDatabase(fileFor(fileName)),
+          );
+          databases[fileName] = database;
+          return database;
+        },
+      );
+      final alphaFile = DatabaseManager.fileNameFor('alpha');
+      final betaFile = DatabaseManager.fileNameFor('beta');
 
-        final alpha = manager.openFor(_server('alpha'));
-        await alpha.customSelect('SELECT 1').get();
-        await check(manager.closeActive()).throws<StateError>();
-        final alphaDatabase = databases[alphaFile]!;
+      final alpha = manager.openFor(_server('alpha'));
+      await alpha.customSelect('SELECT 1').get();
+      await check(manager.closeActive()).throws<StateError>();
+      final alphaDatabase = databases[alphaFile]!;
 
-        final beta = manager.openFor(_server('beta'));
-        await beta.customSelect('SELECT 1').get();
-        final betaDatabase = databases[betaFile]!..failClose = false;
-        alphaDatabase.failClose = false;
-        final alphaRetryGate = Completer<void>();
-        final betaCloseGate = Completer<void>();
-        addTearDown(() {
-          if (!alphaRetryGate.isCompleted) alphaRetryGate.complete();
-          if (!betaCloseGate.isCompleted) betaCloseGate.complete();
-        });
-        alphaDatabase.closeGate = alphaRetryGate;
-        betaDatabase.closeGate = betaCloseGate;
+      final beta = manager.openFor(_server('beta'));
+      await beta.customSelect('SELECT 1').get();
+      final betaDatabase = databases[betaFile]!..failClose = false;
+      alphaDatabase.failClose = false;
+      final alphaRetryGate = Completer<void>();
+      final betaCloseGate = Completer<void>();
+      addTearDown(() {
+        if (!alphaRetryGate.isCompleted) alphaRetryGate.complete();
+        if (!betaCloseGate.isCompleted) betaCloseGate.complete();
+      });
+      alphaDatabase.closeGate = alphaRetryGate;
+      betaDatabase.closeGate = betaCloseGate;
 
-        var firstCompleted = false;
-        final first = manager.closeActive().whenComplete(
-          () => firstCompleted = true,
-        );
-        await _waitForCloseAttempts(alphaDatabase, 2);
-        await _waitForCloseAttempts(betaDatabase, 1);
+      var firstCompleted = false;
+      final first = manager.closeActive().whenComplete(
+        () => firstCompleted = true,
+      );
+      await _waitForCloseAttempts(alphaDatabase, 2);
+      await _waitForCloseAttempts(betaDatabase, 1);
 
-        var joinedCompleted = false;
-        final joined = manager.closeActive().whenComplete(
-          () => joinedCompleted = true,
-        );
-        betaCloseGate.complete();
-        await Future<void>.delayed(Duration.zero);
-        check(firstCompleted).isFalse();
-        check(joinedCompleted).isFalse();
+      var joinedCompleted = false;
+      final joined = manager.closeActive().whenComplete(
+        () => joinedCompleted = true,
+      );
+      betaCloseGate.complete();
+      await Future<void>.delayed(Duration.zero);
+      check(firstCompleted).isFalse();
+      check(joinedCompleted).isFalse();
 
-        alphaRetryGate.complete();
-        await Future.wait<void>([first, joined]);
-        check(alphaDatabase.closeAttempts).equals(2);
-        check(betaDatabase.closeAttempts).equals(1);
-      },
-    );
+      alphaRetryGate.complete();
+      await Future.wait<void>([first, joined]);
+      check(alphaDatabase.closeAttempts).equals(2);
+      check(betaDatabase.closeAttempts).equals(1);
+    });
   });
 
   group('deleteFor', () {

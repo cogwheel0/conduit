@@ -144,22 +144,18 @@ void main() {
       () {
         const epochMilliseconds = 1781947724528;
 
-        check(
-          parseHermesTimestamp(1781947724.528)!.millisecondsSinceEpoch,
-        ).equals(epochMilliseconds);
-        check(
-          parseHermesTimestamp(epochMilliseconds)!.millisecondsSinceEpoch,
-        ).equals(epochMilliseconds);
-        check(
-          parseHermesTimestamp('1781947724.528')!.millisecondsSinceEpoch,
-        ).equals(epochMilliseconds);
+        check(parseHermesTimestamp(1781947724.528)!.millisecondsSinceEpoch)
+            .equals(epochMilliseconds);
+        check(parseHermesTimestamp(epochMilliseconds)!.millisecondsSinceEpoch)
+            .equals(epochMilliseconds);
+        check(parseHermesTimestamp('1781947724.528')!.millisecondsSinceEpoch)
+            .equals(epochMilliseconds);
       },
     );
 
     test('parses ISO-8601 values and rejects invalid values', () {
-      check(
-        parseHermesTimestamp('2026-06-20T10:00:00Z'),
-      ).equals(DateTime.utc(2026, 6, 20, 10));
+      check(parseHermesTimestamp('2026-06-20T10:00:00Z'))
+          .equals(DateTime.utc(2026, 6, 20, 10));
       check(parseHermesTimestamp('not-a-timestamp')).isNull();
       check(parseHermesTimestamp(null)).isNull();
     });
@@ -192,9 +188,8 @@ void main() {
 
       for (final invalidId in invalidIds) {
         final capture = _CaptureInterceptor((_) => {'id': invalidId});
-        await check(
-          _service(capture).createSession(),
-        ).throws<FormatException>();
+        await check(_service(capture).createSession())
+            .throws<FormatException>();
       }
     });
 
@@ -215,9 +210,8 @@ void main() {
         ),
       );
 
-      await check(
-        _service(capture).createSession(cancelToken: cancelToken),
-      ).throws<FormatException>();
+      await check(_service(capture).createSession(cancelToken: cancelToken))
+          .throws<FormatException>();
 
       check(cancelToken.isCancelled).isTrue();
       check(hermesCancellationWasInternal(cancelToken)).isTrue();
@@ -230,9 +224,8 @@ void main() {
         },
       );
       final id = await _service(capture).forkSession('s1');
-      check(
-        capture.requests.single.path,
-      ).equals('http://host:8642/api/sessions/s1/fork');
+      check(capture.requests.single.path)
+          .equals('http://host:8642/api/sessions/s1/fork');
       check(id).equals('s2');
     });
 
@@ -243,9 +236,8 @@ void main() {
       await service.renameSession('s1', 'New');
       await service.deleteSession('s1', cancelToken: deleteCancelToken);
       check(capture.requests[0].method).equals('PATCH');
-      check(
-        capture.requests[0].path,
-      ).equals('http://host:8642/api/sessions/s1');
+      check(capture.requests[0].path)
+          .equals('http://host:8642/api/sessions/s1');
       check((capture.requests[0].data as Map)['title']).equals('New');
       check(capture.requests[1].method).equals('DELETE');
       check(capture.requests[1].cancelToken).identicalTo(deleteCancelToken);
@@ -269,19 +261,15 @@ void main() {
       await service.deleteSession(sessionId);
       check(await service.forkSession(sessionId)).equals('branched');
 
-      check(
-        capture.requests[0].path,
-      ).equals('http://host:8642/api/sessions/$encoded/messages');
+      check(capture.requests[0].path)
+          .equals('http://host:8642/api/sessions/$encoded/messages');
       check(capture.requests[0].cancelToken).identicalTo(historyCancelToken);
-      check(
-        capture.requests[1].path,
-      ).equals('http://host:8642/api/sessions/$encoded');
-      check(
-        capture.requests[2].path,
-      ).equals('http://host:8642/api/sessions/$encoded');
-      check(
-        capture.requests[3].path,
-      ).equals('http://host:8642/api/sessions/$encoded/fork');
+      check(capture.requests[1].path)
+          .equals('http://host:8642/api/sessions/$encoded');
+      check(capture.requests[2].path)
+          .equals('http://host:8642/api/sessions/$encoded');
+      check(capture.requests[3].path)
+          .equals('http://host:8642/api/sessions/$encoded/fork');
     });
   });
 
@@ -317,9 +305,9 @@ void main() {
       for (final message in messages.take(3)) {
         check(message.id).isNotEmpty();
       }
-      check(
-        messages.take(3).map((message) => message.id).toSet(),
-      ).has((ids) => ids.length, 'unique generated ids').equals(3);
+      check(messages.take(3).map((message) => message.id).toSet())
+          .has((ids) => ids.length, 'unique generated ids')
+          .equals(3);
       check(messages.last.id).equals('server-id');
     });
 
@@ -387,12 +375,10 @@ void main() {
       );
       check(toolActivity.statusHistory.single.description).equals('web_search');
       check(toolActivity.statusHistory.single.done).equals(true);
-      check(
-        toolActivity.statusHistory.single.occurredAt,
-      ).equals(DateTime.utc(2026, 7, 16, 10, 0, 1));
-      check(
-        toolActivity.statusHistory.single.description!,
-      ).not((value) => value.contains('untrusted provider result'));
+      check(toolActivity.statusHistory.single.occurredAt)
+          .equals(DateTime.utc(2026, 7, 16, 10, 0, 1));
+      check(toolActivity.statusHistory.single.description!)
+          .not((value) => value.contains('untrusted provider result'));
       check(messages.last.content).equals('Here is the answer.');
     });
 
@@ -441,9 +427,8 @@ void main() {
       check(messages).has((m) => m.length, 'length').equals(1);
       final message = messages.single;
       check(message.content).equals('Compare these');
-      check(
-        message.attachmentIds!,
-      ).deepEquals([pngDataUrl, jpegDataUrl, remoteImageUrl]);
+      check(message.attachmentIds!)
+          .deepEquals([pngDataUrl, jpegDataUrl, remoteImageUrl]);
       check(message.files!).deepEquals([
         {'type': 'image', 'url': pngDataUrl, 'content_type': 'image/png'},
         {'type': 'image', 'url': jpegDataUrl, 'content_type': 'image/jpeg'},
@@ -526,9 +511,8 @@ void main() {
       final message = messages.single;
       check(message.content).equals('Summarize the findings.');
       check(message.content).not((value) => value.contains('untrusted'));
-      check(
-        message.content,
-      ).not((value) => value.contains(document.extractedText));
+      check(message.content)
+          .not((value) => value.contains(document.extractedText));
       check(message.attachmentIds).isNull();
       check(message.files!).deepEquals([
         {
@@ -727,12 +711,11 @@ void main() {
 
       check(messages).has((m) => m.length, 'length').equals(1);
       check(messages.single.content).isEmpty();
-      check(
-        messages.single.files!,
-      ).has((files) => files.length, 'length').equals(2);
-      check(
-        messages.single.files!.map((file) => file['id']).toList(),
-      ).deepEquals([first.id, second.id]);
+      check(messages.single.files!)
+          .has((files) => files.length, 'length')
+          .equals(2);
+      check(messages.single.files!.map((file) => file['id']).toList())
+          .deepEquals([first.id, second.id]);
       check(
         messages.single.files!
             .map((file) => file['hermes_extracted_text'])
@@ -836,9 +819,9 @@ void main() {
       {'id': '21', 'role': 'assistant', 'content': 'same answer'},
     ];
 
-    check(
-      alignHermesForkedMessageIds(source, target),
-    ).isNotNull().deepEquals(<String, String>{'10': '20', '11': '21'});
+    check(alignHermesForkedMessageIds(source, target))
+        .isNotNull()
+        .deepEquals(<String, String>{'10': '20', '11': '21'});
     check(
       alignHermesForkedMessageIds(source, <Map<String, dynamic>>[target.first]),
     ).isNull();

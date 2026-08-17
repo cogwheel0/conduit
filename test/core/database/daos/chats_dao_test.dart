@@ -52,9 +52,8 @@ void main() {
         check(chatRow.bodySynced).isTrue();
         check(chatRow.dirty).isFalse();
         check(chatRow.deleted).isFalse();
-        check(
-          chatRow.serverUpdatedAt,
-        ).equals(fixture.envelope['updated_at'] as int);
+        check(chatRow.serverUpdatedAt)
+            .equals(fixture.envelope['updated_at'] as int);
       });
     }
   });
@@ -67,9 +66,8 @@ void main() {
       );
       final rows = rowsFromFixture(fixture);
       await db.chatsDao.upsertServerChat(rows: rows);
-      final firstCount = (await db.messagesDao.getForChat(
-        fixture.chatId,
-      )).length;
+      final firstCount = (await db.messagesDao.getForChat(fixture.chatId))
+          .length;
       await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
       final messageRows = await db.messagesDao.getForChat(fixture.chatId);
       check(messageRows.length).equals(firstCount);
@@ -233,9 +231,8 @@ void main() {
 
         final entries = await db.chatsDao.watchChatList(regularLimit: 2).first;
 
-        check(
-          entries.map((entry) => entry.id).toList(),
-        ).deepEquals(['regular-3', 'regular-2', 'old-pinned']);
+        check(entries.map((entry) => entry.id).toList())
+            .deepEquals(['regular-3', 'regular-2', 'old-pinned']);
       },
     );
 
@@ -308,9 +305,8 @@ void main() {
       final collapsed = await db.chatsDao
           .watchChatList(regularLimit: 2, archivedLimit: 0)
           .first;
-      check(
-        collapsed.map((entry) => entry.id).toList(),
-      ).deepEquals(['active-3', 'active-2', 'old-pinned']);
+      check(collapsed.map((entry) => entry.id).toList())
+          .deepEquals(['active-3', 'active-2', 'old-pinned']);
     });
 
     test('archived count is exact, live, and excludes pinned rows', () async {
@@ -445,30 +441,26 @@ void main() {
         rows: rowsFromFixture(fixture),
         listLastReadAt: 100,
       );
-      check(
-        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
-      ).equals(100);
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
+          .equals(100);
 
       await db.chatsDao.upsertServerChat(
         rows: rowsFromFixture(fixture),
         listLastReadAt: 50,
       );
-      check(
-        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
-      ).equals(100);
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
+          .equals(100);
 
       await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
-      check(
-        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
-      ).equals(100);
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
+          .equals(100);
 
       await db.chatsDao.upsertServerChat(
         rows: rowsFromFixture(fixture),
         listLastReadAt: 200,
       );
-      check(
-        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
-      ).equals(200);
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt)
+          .equals(200);
     });
 
     test('upsertServerChat keeps null when both sides are null', () async {
@@ -565,9 +557,8 @@ void main() {
 
         final after = await db.chatsDao.getChat(fixture.chatId);
         check(after!.title).equals('Renamed via list');
-        check(
-          after.updatedAt,
-        ).equals((fixture.envelope['updated_at'] as int) + 5);
+        check(after.updatedAt)
+            .equals((fixture.envelope['updated_at'] as int) + 5);
         check(after.pinned).isTrue();
         check(after.folderId).equals('f-9');
         // Untouched:

@@ -47,9 +47,8 @@ void main() {
 
     check(decision.type).equals(ReleaseNotesDecisionType.show);
     check(decision.previousVersion).equals('3.3.1');
-    check(
-      decision.notes.map((release) => release.version),
-    ).deepEquals(['3.3.2', '3.4.0']);
+    check(decision.notes.map((release) => release.version))
+        .deepEquals(['3.3.2', '3.4.0']);
   });
 
   test('missing baked note still advances current version', () {

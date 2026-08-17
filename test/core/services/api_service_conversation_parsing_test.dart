@@ -127,9 +127,8 @@ void main() {
         ),
       );
 
-      await check(
-        ApiSyncApiClient(api).probeChatExists('auth-failed'),
-      ).throws<DioException>();
+      await check(ApiSyncApiClient(api).probeChatExists('auth-failed'))
+          .throws<DioException>();
     });
 
     test('getNoteRaw maps 404 to null', () async {
@@ -157,9 +156,8 @@ void main() {
           ),
         );
 
-        await check(
-          api.getNoteRaw('forbidden-note'),
-        ).throws<SyncTerminalException>();
+        await check(api.getNoteRaw('forbidden-note'))
+            .throws<SyncTerminalException>();
       });
     }
 

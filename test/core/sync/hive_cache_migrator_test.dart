@@ -79,17 +79,14 @@ void main() {
 
     await migrator().migrateIfNeeded();
 
-    check(
-      await db.appCacheDao.getValue(HiveStoreKeys.localUser),
-    ).equals(jsonEncode({'id': 'u1', 'name': 'User'}));
-    check(
-      await db.appCacheDao.getValue(HiveStoreKeys.localUserAvatar),
-    ).equals('https://x/a.png');
+    check(await db.appCacheDao.getValue(HiveStoreKeys.localUser))
+        .equals(jsonEncode({'id': 'u1', 'name': 'User'}));
+    check(await db.appCacheDao.getValue(HiveStoreKeys.localUserAvatar))
+        .equals('https://x/a.png');
     check(
       jsonDecode(
-            (await db.appCacheDao.getValue(HiveStoreKeys.localBackendConfig))!,
-          )
-          as Map,
+        (await db.appCacheDao.getValue(HiveStoreKeys.localBackendConfig))!,
+      ) as Map,
     ).deepEquals({'version': '1.2.3'});
     check(
       jsonDecode((await db.appCacheDao.getValue(HiveStoreKeys.localModels))!)
@@ -125,12 +122,10 @@ void main() {
     check(rows.length).equals(1);
     check(rows.single.id).equals('a1');
     check(rows.single.fileName).equals('a.png');
-    check(
-      await db.syncMetaDao.getValue('hive_attachment_queue_migrated'),
-    ).equals('1');
-    check(
-      attachmentQueue.containsKey(HiveStoreKeys.attachmentQueueEntries),
-    ).isFalse();
+    check(await db.syncMetaDao.getValue('hive_attachment_queue_migrated'))
+        .equals('1');
+    check(attachmentQueue.containsKey(HiveStoreKeys.attachmentQueueEntries))
+        .isFalse();
   });
 
   test('is gated: a second run does not re-import deleted keys', () async {
@@ -143,8 +138,7 @@ void main() {
     await caches.put(HiveStoreKeys.localUserAvatar, 'https://x/a.png');
     await migrator().migrateIfNeeded();
 
-    check(
-      await db.appCacheDao.getValue(HiveStoreKeys.localUserAvatar),
-    ).isNull();
+    check(await db.appCacheDao.getValue(HiveStoreKeys.localUserAvatar))
+        .isNull();
   });
 }

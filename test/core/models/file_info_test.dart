@@ -60,12 +60,10 @@ void main() {
         'updated_at': 1713786305987654,
       });
 
-      check(
-        file.createdAt,
-      ).equals(DateTime.fromMicrosecondsSinceEpoch(1713786305123456));
-      check(
-        file.updatedAt,
-      ).equals(DateTime.fromMicrosecondsSinceEpoch(1713786305987654));
+      check(file.createdAt)
+          .equals(DateTime.fromMicrosecondsSinceEpoch(1713786305123456));
+      check(file.updatedAt)
+          .equals(DateTime.fromMicrosecondsSinceEpoch(1713786305987654));
     });
   });
 }

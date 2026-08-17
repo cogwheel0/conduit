@@ -10,9 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('ServerTlsHttpClientFactory', () {
     test('requires custom HttpClient for self-signed or mTLS servers', () {
-      check(
-        ServerTlsHttpClientFactory.requiresCustomHttpClient(_server()),
-      ).isFalse();
+      check(ServerTlsHttpClientFactory.requiresCustomHttpClient(_server()))
+          .isFalse();
       check(
         ServerTlsHttpClientFactory.requiresCustomHttpClient(
           _server(allowSelfSignedCertificates: true),

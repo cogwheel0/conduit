@@ -80,24 +80,21 @@ void main() {
 
         container.read(_activeKnowledgeApiProvider.notifier).set(firstApi);
         await container.read(knowledgeCacheProvider.notifier).ensureBases();
-        check(
-          container.read(knowledgeCacheProvider).bases.single.id,
-        ).equals('kb-a');
+        check(container.read(knowledgeCacheProvider).bases.single.id)
+            .equals('kb-a');
 
         container.read(_activeKnowledgeApiProvider.notifier).set(secondApi);
         await container.read(knowledgeCacheProvider.notifier).ensureBases();
 
-        check(
-          container.read(knowledgeCacheProvider).bases.single.id,
-        ).equals('kb-b');
+        check(container.read(knowledgeCacheProvider).bases.single.id)
+            .equals('kb-b');
         check(secondApi.basesCallCount).equals(1);
 
         container.read(_activeKnowledgeApiProvider.notifier).set(firstApi);
         await container.read(knowledgeCacheProvider.notifier).ensureBases();
 
-        check(
-          container.read(knowledgeCacheProvider).bases.single.id,
-        ).equals('kb-a');
+        check(container.read(knowledgeCacheProvider).bases.single.id)
+            .equals('kb-a');
         check(firstApi.basesCallCount).equals(1);
       },
     );
@@ -296,15 +293,13 @@ void main() {
 
       freshGate.complete();
       await freshRequest;
-      check(
-        container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
-      ).equals('fresh-owner-file');
+      check(container.read(knowledgeCacheProvider).files['kb-1']!.single.id)
+          .equals('fresh-owner-file');
 
       staleGate.complete();
       await staleRequest;
-      check(
-        container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
-      ).equals('fresh-owner-file');
+      check(container.read(knowledgeCacheProvider).files['kb-1']!.single.id)
+          .equals('fresh-owner-file');
       check(api.fileCalls['kb-1']).equals(2);
     });
 
@@ -350,15 +345,13 @@ void main() {
 
         freshGate.complete();
         await freshRequest;
-        check(
-          container.read(knowledgeCacheProvider).bases.single.id,
-        ).equals('fresh-base');
+        check(container.read(knowledgeCacheProvider).bases.single.id)
+            .equals('fresh-base');
 
         staleGate.complete();
         await staleRequest;
-        check(
-          container.read(knowledgeCacheProvider).bases.single.id,
-        ).equals('fresh-base');
+        check(container.read(knowledgeCacheProvider).bases.single.id)
+            .equals('fresh-base');
       });
 
       test('${clearAll ? 'clearAllCaches' : 'clearCache'} fences an older '
@@ -400,15 +393,13 @@ void main() {
 
         freshGate.complete();
         await freshRequest;
-        check(
-          container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
-        ).equals('fresh-file');
+        check(container.read(knowledgeCacheProvider).files['kb-1']!.single.id)
+            .equals('fresh-file');
 
         staleGate.complete();
         await staleRequest;
-        check(
-          container.read(knowledgeCacheProvider).files['kb-1']!.single.id,
-        ).equals('fresh-file');
+        check(container.read(knowledgeCacheProvider).files['kb-1']!.single.id)
+            .equals('fresh-file');
       });
     }
   });

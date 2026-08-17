@@ -17,9 +17,8 @@ void main() {
       resourceId: '  resource-id  ',
     );
     check(existing).isA<WorkspaceExistingEditorTarget>();
-    check(
-      (existing as WorkspaceExistingEditorTarget).resourceId,
-    ).equals('resource-id');
+    check((existing as WorkspaceExistingEditorTarget).resourceId)
+        .equals('resource-id');
 
     check(
       WorkspaceEditorTarget.fromRoute(

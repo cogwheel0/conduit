@@ -58,17 +58,16 @@ void main() {
       check(first.profile.openAiApiMode).equals(DirectOpenAiApiMode.responses);
       check(first.profile.apiVersion).equals('2026-07-01');
       check(first.profile.modelIdPrefix).equals('corp');
-      check(
-        first.profile.manualModelIds,
-      ).deepEquals(['first-model', 'second-model']);
+      check(first.profile.manualModelIds)
+          .deepEquals(['first-model', 'second-model']);
       check(first.profile.tags).deepEquals(['plain', 'object']);
       check(first.profile.enabled).isFalse();
       check(first.profile.apiKey).equals('alpha-secret');
       check(first.profile.customHeaders).deepEquals({'X-Tenant': 'blue'});
       check(first.isCompatible).isTrue();
-      check(
-        first.rawConfig['futureConfig'],
-      ).isA<Map>().deepEquals({'nested': true});
+      check(first.rawConfig['futureConfig'])
+          .isA<Map>()
+          .deepEquals({'nested': true});
 
       check(second.compatibility).equals(
         OpenWebUiDirectConnectionCompatibility.unsupportedAuthentication,
@@ -81,9 +80,8 @@ void main() {
         serverId: 'private-server-id',
         accountId: 'different-account',
       ).decode(settings);
-      check(
-        otherOwner.records.first.profile.id,
-      ).not((it) => it.equals(first.profile.id));
+      check(otherOwner.records.first.profile.id)
+          .not((it) => it.equals(first.profile.id));
       check(first.profile.id).not((it) => it.contains('private-server-id'));
       check(first.profile.id).not((it) => it.contains('private-account-id'));
       check(first.profile.id).not((it) => it.contains('alpha-secret'));
@@ -92,9 +90,8 @@ void main() {
       check(first.toString()).not((it) => it.contains('https://alpha.test'));
       check(snapshot.toString()).not((it) => it.contains('alpha-secret'));
 
-      check(
-        () => (first.rawConfig['futureConfig'] as Map)['nested'] = false,
-      ).throws<UnsupportedError>();
+      check(() => (first.rawConfig['futureConfig'] as Map)['nested'] = false)
+          .throws<UnsupportedError>();
     });
 
     test('supports no-auth records without mapping their key', () {
@@ -172,9 +169,8 @@ void main() {
         ).decode(settings);
 
         check(duplicateIds[0]).not((it) => it.equals(duplicateIds[1]));
-        check(
-          after.records.map((record) => record.profile.id),
-        ).deepEquals(duplicateIds);
+        check(after.records.map((record) => record.profile.id))
+            .deepEquals(duplicateIds);
       },
     );
 
@@ -230,12 +226,10 @@ void main() {
             },
           });
 
-      check(
-        normalized.records.single.profile.id,
-      ).equals(before.records.single.profile.id);
-      check(
-        normalized.records.single.revision,
-      ).not((it) => it.equals(before.records.single.revision));
+      check(normalized.records.single.profile.id)
+          .equals(before.records.single.profile.id);
+      check(normalized.records.single.revision)
+          .not((it) => it.equals(before.records.single.revision));
     });
 
     test('keyed identity rotates for secret and semantic edits', () {
@@ -320,12 +314,10 @@ void main() {
         final before = decode(<String>['tenant-a-key', 'tenant-b-key']);
         final after = decode(<String>['tenant-b-key']);
 
-        check(
-          before.records.first.profile.id,
-        ).not((it) => it.equals(before.records.last.profile.id));
-        check(
-          after.records.single.profile.id,
-        ).equals(before.records.last.profile.id);
+        check(before.records.first.profile.id)
+            .not((it) => it.equals(before.records.last.profile.id));
+        check(after.records.single.profile.id)
+            .equals(before.records.last.profile.id);
       },
     );
 
@@ -345,9 +337,8 @@ void main() {
           });
 
       check(snapshot.records).length.equals(1);
-      check(
-        snapshot.records.single.compatibility,
-      ).equals(OpenWebUiDirectConnectionCompatibility.invalidProfile);
+      check(snapshot.records.single.compatibility)
+          .equals(OpenWebUiDirectConnectionCompatibility.invalidProfile);
       check(snapshot.compatibleProfiles).isEmpty();
     });
   });
@@ -401,20 +392,20 @@ void main() {
         check(server.readCount).equals(3);
         check(server.writeCount).equals(1);
         check(server.lastPayload!.keys).deepEquals(['rootField', 'ui']);
-        check(
-          server.lastPayload!['rootField'],
-        ).isA<Map>().deepEquals({'preserved': true});
-        check(
-          server.settings['rootField'],
-        ).isA<Map>().deepEquals({'preserved': true});
+        check(server.lastPayload!['rootField'])
+            .isA<Map>()
+            .deepEquals({'preserved': true});
+        check(server.settings['rootField'])
+            .isA<Map>()
+            .deepEquals({'preserved': true});
         final postedUi = server.lastPayload!['ui'] as Map<String, dynamic>;
         check(postedUi['theme']).equals('dark');
         check(postedUi['futureUi']).isA<Map>().deepEquals({'keep': true});
         final direct = postedUi['directConnections'] as Map<String, dynamic>;
         check(direct['futureDocumentField']).equals(42);
-        check(
-          direct['OPENAI_API_BASE_URLS'],
-        ).isA<List>().deepEquals(['https://new.test/openai/v1']);
+        check(direct['OPENAI_API_BASE_URLS'])
+            .isA<List>()
+            .deepEquals(['https://new.test/openai/v1']);
         check(direct['OPENAI_API_KEYS']).isA<List>().deepEquals(['new-secret']);
         final config = (direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map;
         check(config['connection_type']).equals('external');
@@ -430,17 +421,15 @@ void main() {
           {'name': 'two'},
         ]);
 
-        check(
-          after.records.single.profile.baseUrl,
-        ).equals('https://new.test/openai/v1');
-        check(
-          after.records.single.profile.id,
-        ).not((it) => it.equals(record.profile.id));
+        check(after.records.single.profile.baseUrl)
+            .equals('https://new.test/openai/v1');
+        check(after.records.single.profile.id)
+            .not((it) => it.equals(record.profile.id));
         check(after.records.single.profile.name).equals('new.test · 1');
         check(after.records.single.profile.apiKey).equals('new-secret');
-        check(
-          after.records.single.rawConfig['futureConfig'],
-        ).isA<Map>().deepEquals({'keep': true});
+        check(after.records.single.rawConfig['futureConfig'])
+            .isA<Map>()
+            .deepEquals({'keep': true});
       },
     );
 
@@ -466,15 +455,12 @@ void main() {
       }
 
       check(server.writeCount).equals(0);
-      check(
-        conflict.currentSnapshot.records.single.profile.apiKey,
-      ).equals('winning-secret');
-      check(
-        conflict.currentSnapshot.records.single.profile.id,
-      ).not((it) => it.equals(stale.profile.id));
-      check(
-        conflict.currentSnapshot.records.single.revision,
-      ).not((it) => it.equals(stale.revision));
+      check(conflict.currentSnapshot.records.single.profile.apiKey)
+          .equals('winning-secret');
+      check(conflict.currentSnapshot.records.single.profile.id)
+          .not((it) => it.equals(stale.profile.id));
+      check(conflict.currentSnapshot.records.single.revision)
+          .not((it) => it.equals(stale.revision));
       for (final secret in <String>['first-secret', 'winning-secret']) {
         check(conflict.toString()).not((it) => it.contains(secret));
       }
@@ -500,9 +486,8 @@ void main() {
 
       final direct = after.ui['directConnections'] as Map;
       check(direct['OPENAI_API_KEYS']).isA<List>().deepEquals(['']);
-      check(
-        ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['auth_type'],
-      ).equals('bearer');
+      check(((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['auth_type'])
+          .equals('bearer');
       check(
         ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map).containsKey(
           'connection_type',
@@ -583,12 +568,12 @@ void main() {
         check(server.writeCount).equals(0);
         final direct =
             (server.settings['ui'] as Map)['directConnections'] as Map;
-        check(
-          direct['OPENAI_API_BASE_URLS'],
-        ).isA<List>().deepEquals(['https://session.test/v1']);
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['opaque-session-key']);
+        check(direct['OPENAI_API_BASE_URLS'])
+            .isA<List>()
+            .deepEquals(['https://session.test/v1']);
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['opaque-session-key']);
       },
     );
 
@@ -619,18 +604,17 @@ void main() {
         );
 
         final direct = after.ui['directConnections'] as Map;
-        check(
-          direct['OPENAI_API_BASE_URLS'],
-        ).isA<List>().deepEquals(['https://different.test/v1']);
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals([conversion.apiKey ?? '']);
-        check(
-          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['auth_type'],
-        ).equals(conversion.authType);
-        check(
-          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'],
-        ).isA<Map>().deepEquals({'preserved': true});
+        check(direct['OPENAI_API_BASE_URLS'])
+            .isA<List>()
+            .deepEquals(['https://different.test/v1']);
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals([conversion.apiKey ?? '']);
+        check(((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['auth_type'])
+            .equals(conversion.authType);
+        check(((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'])
+            .isA<Map>()
+            .deepEquals({'preserved': true});
       });
     }
 
@@ -654,13 +638,13 @@ void main() {
         );
 
         final direct = after.ui['directConnections'] as Map;
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['opaque-session-key']);
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['opaque-session-key']);
         check(after.records.single.authType).equals('session');
-        check(
-          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'],
-        ).isA<Map>().deepEquals({'preserved': true});
+        check(((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'])
+            .isA<Map>()
+            .deepEquals({'preserved': true});
       },
     );
 
@@ -725,23 +709,20 @@ void main() {
         check(server.writeCount).equals(1);
         final committedDirect =
             (server.settings['ui'] as Map)['directConnections'] as Map;
-        check(
-          committedDirect['OPENAI_API_BASE_URLS'],
-        ).isA<List>().deepEquals(['https://new.test/v1']);
-        check(
-          committedDirect['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['committed-secret']);
-        check(
-          uncertain.toString(),
-        ).not((it) => it.contains('committed-secret'));
-        check(
-          uncertain.toString(),
-        ).not((it) => it.contains('reflected-read-error'));
+        check(committedDirect['OPENAI_API_BASE_URLS'])
+            .isA<List>()
+            .deepEquals(['https://new.test/v1']);
+        check(committedDirect['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['committed-secret']);
+        check(uncertain.toString())
+            .not((it) => it.contains('committed-secret'));
+        check(uncertain.toString())
+            .not((it) => it.contains('reflected-read-error'));
 
         final reloaded = await store.load();
-        check(
-          reloaded.records.single.profile.apiKey,
-        ).equals('committed-secret');
+        check(reloaded.records.single.profile.apiKey)
+            .equals('committed-secret');
       },
     );
 
@@ -772,17 +753,16 @@ void main() {
         apiKey: 'committed-secret',
       );
 
-      await check(
-        store.add(profile),
-      ).throws<OpenWebUiDirectConnectionCommitUncertainException>();
+      await check(store.add(profile))
+          .throws<OpenWebUiDirectConnectionCommitUncertainException>();
 
       final direct = (settings['ui'] as Map)['directConnections'] as Map;
-      check(
-        direct['OPENAI_API_BASE_URLS'],
-      ).isA<List>().deepEquals(<String>['https://new.test/v1']);
-      check(
-        direct['OPENAI_API_KEYS'],
-      ).isA<List>().deepEquals(<String>['committed-secret']);
+      check(direct['OPENAI_API_BASE_URLS'])
+          .isA<List>()
+          .deepEquals(<String>['https://new.test/v1']);
+      check(direct['OPENAI_API_KEYS'])
+          .isA<List>()
+          .deepEquals(<String>['committed-secret']);
     });
 
     test(
@@ -820,9 +800,9 @@ void main() {
         final after = await store.add(profile);
 
         final direct = after.ui['directConnections'] as Map;
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['key-a', '', 'key-c']);
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['key-a', '', 'key-c']);
         check(after.records[1].profile.apiKey).isNull();
         check(after.records[2].profile.apiKey).equals('key-c');
 
@@ -847,9 +827,9 @@ void main() {
 
         final afterExtraKey = await extraKeyStore.add(profile);
 
-        check(
-          (afterExtraKey.ui['directConnections'] as Map)['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['key-a', 'key-b', 'key-c']);
+        check((afterExtraKey.ui['directConnections'] as Map)['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['key-a', 'key-b', 'key-c']);
       },
     );
 
@@ -885,12 +865,12 @@ void main() {
 
         final afterDelete = await store.delete(beforeDelete.records[1]);
         var direct = afterDelete.ui['directConnections'] as Map;
-        check(
-          direct['OPENAI_API_BASE_URLS'],
-        ).isA<List>().deepEquals(['https://a.test/v1', 'https://c.test/v1']);
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['key-a', 'key-c']);
+        check(direct['OPENAI_API_BASE_URLS'])
+            .isA<List>()
+            .deepEquals(['https://a.test/v1', 'https://c.test/v1']);
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['key-a', 'key-c']);
         check(direct['OPENAI_API_CONFIGS']).isA<Map>().deepEquals({
           '0': {'marker': 'a'},
           '1': {'marker': 'c'},
@@ -898,9 +878,8 @@ void main() {
         check(direct['documentExtra']).isA<bool>().isTrue();
         check(afterDelete.ui['unrelated']).equals('preserved');
         check(afterDelete.records[1].profile.name).equals('c.test · 2');
-        check(
-          afterDelete.records[1].profile.id,
-        ).equals(beforeDelete.records[2].profile.id);
+        check(afterDelete.records[1].profile.id)
+            .equals(beforeDelete.records[2].profile.id);
 
         final addedProfile = DirectConnectionProfile(
           id: 'temporary-local-form-id',
@@ -919,24 +898,23 @@ void main() {
           'https://c.test/v1',
           'https://d.test/v1',
         ]);
-        check(
-          direct['OPENAI_API_KEYS'],
-        ).isA<List>().deepEquals(['key-a', 'key-c', '']);
-        check((direct['OPENAI_API_CONFIGS'] as Map)['2']).isA<Map>().deepEquals(
-          {
-            'enable': true,
-            'tags': [
-              {'name': 'new'},
-            ],
-            'prefix_id': '',
-            'model_ids': <String>[],
-            'auth_type': 'none',
-            'connection_type': 'external',
-          },
-        );
-        check(
-          afterAdd.records.last.profile.id,
-        ).not((it) => it.equals(addedProfile.id));
+        check(direct['OPENAI_API_KEYS'])
+            .isA<List>()
+            .deepEquals(['key-a', 'key-c', '']);
+        check((direct['OPENAI_API_CONFIGS'] as Map)['2'])
+            .isA<Map>()
+            .deepEquals({
+              'enable': true,
+              'tags': [
+                {'name': 'new'},
+              ],
+              'prefix_id': '',
+              'model_ids': <String>[],
+              'auth_type': 'none',
+              'connection_type': 'external',
+            });
+        check(afterAdd.records.last.profile.id)
+            .not((it) => it.equals(addedProfile.id));
         check(afterAdd.records.last.profile.apiKey).isNull();
         check(afterAdd.records.last.authType).equals('none');
       },

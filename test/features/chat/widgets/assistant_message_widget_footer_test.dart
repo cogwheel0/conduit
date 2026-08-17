@@ -577,35 +577,27 @@ void main() {
     );
   });
 
-  testWidgets('pending-only finished statuses do not leave an empty gap', (
+  testWidgets('pending-only finished statuses keep the last row visible', (
     tester,
   ) async {
-    final baseline = ChatMessage(
-      id: 'assistant-baseline',
+    // Hiding the whole row at settle shifted the bottom-anchored layout by
+    // the row height and lost the only description of what the turn did;
+    // the last update stays visible (without the pending spinner) instead.
+    final pendingOnly = ChatMessage(
+      id: 'assistant-pending',
       role: 'assistant',
       content: 'Visible response body',
       timestamp: DateTime(2024, 1, 1),
-    );
-    final pendingOnly = baseline.copyWith(
-      id: 'assistant-pending',
       statusHistory: const [
         ChatStatusUpdate(description: 'Searching...', done: false),
       ],
     );
 
-    await tester.pumpWidget(_buildAssistantHarness(baseline));
-    await tester.pumpAndSettle();
-    final baselineDy = tester.getTopLeft(find.text('Visible response body')).dy;
-
     await tester.pumpWidget(_buildAssistantHarness(pendingOnly));
     await tester.pumpAndSettle();
 
-    expect(find.byType(StreamingStatusWidget), findsNothing);
-    expect(find.text('Searching...'), findsNothing);
-    expect(
-      tester.getTopLeft(find.text('Visible response body')).dy,
-      closeTo(baselineDy, 0.001),
-    );
+    expect(find.byType(StreamingStatusWidget), findsOneWidget);
+    expect(find.text('Searching...'), findsOneWidget);
   });
 
   testWidgets('finished nullable-done statuses remain visible', (tester) async {

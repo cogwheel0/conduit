@@ -10,6 +10,13 @@ import 'package:markdown/markdown.dart' as md;
 // rendered output (e.g. URLs showing `https:&#47;&#47;`). See issue #549.
 const HtmlEscape _semanticHtmlEscape = HtmlEscape(HtmlEscapeMode.attribute);
 
+// Answer TEXT must not escape quotes: `&quot;` escaped into a context the
+// markdown decoder skips (immediately after a backquote, or inside a code
+// span/fence via the streaming fragment path) surfaces literally on screen.
+// Element mode (`&`, `<`, `>`) is sufficient to neutralize tags; attribute
+// mode stays reserved for `<details>` attribute values via [_escape].
+const HtmlEscape _semanticTextEscape = HtmlEscape(HtmlEscapeMode.element);
+
 /// Semantic assistant-message blocks that can be serialized into the markdown
 /// dialect consumed by Conduit's shared markdown renderer.
 sealed class SemanticMessageBlock {
@@ -45,9 +52,9 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     final normalized = text.trim();
     final display = normalized.isEmpty
         ? ''
-        : LineSplitter.split(
-            normalized,
-          ).map((line) => line.startsWith('>') ? line : '> $line').join('\n');
+        : LineSplitter.split(normalized)
+              .map((line) => line.startsWith('>') ? line : '> $line')
+              .join('\n');
     final resolvedDuration = duration ?? '0';
     return SemanticDetailsBlock._(
       type: 'reasoning',
@@ -123,7 +130,10 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
   for (final block in blocks) {
     switch (block) {
       case SemanticTextBlock(:final text):
-        if (text.trim().isNotEmpty) {
+        // Whitespace-only blocks must survive: dropping them here loses the
+        // blank line between a reasoning/tool section and the answer, and the
+        // streaming append delta never re-emits the swallowed prefix.
+        if (text.isNotEmpty) {
           parts.add(_escapeText(text));
         }
       case SemanticDetailsBlock():
@@ -149,7 +159,7 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
 /// value with [renderSemanticMessageBlocks] so [_escapeText] can parse the
 /// complete Markdown context.
 String renderSemanticPlainTextFragment(String value) =>
-    _semanticHtmlEscape.convert(value);
+    _semanticTextEscape.convert(value);
 
 String _renderDetailsBlock(SemanticDetailsBlock block) {
   final attributes = <String, String>{
@@ -197,13 +207,12 @@ String _formatBodyValue(Object value) {
 }
 
 String _markdownCodeFence(String code, String language) {
-  final longestFence = RegExp(r'`+').allMatches(code).fold<int>(0, (
-    max,
-    match,
-  ) {
-    final length = match.group(0)?.length ?? 0;
-    return length > max ? length : max;
-  });
+  final longestFence = RegExp(r'`+')
+      .allMatches(code)
+      .fold<int>(0, (max, match) {
+        final length = match.group(0)?.length ?? 0;
+        return length > max ? length : max;
+      });
   final fence = '`' * (longestFence >= 3 ? longestFence + 1 : 3);
   return '$fence$language\n$code\n$fence';
 }
@@ -417,7 +426,7 @@ List<_SourceSpan> _parserConfirmedMultilineCodeSpans(String value) {
 String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
   _safeInlineMarkdown,
   onMatch: (match) => match[0] ?? '',
-  onNonMatch: _escape,
+  onNonMatch: _semanticTextEscape.convert,
 );
 
 ({String text, int nextSpanIndex}) _escapeInlineMarkdownLine(

@@ -11,9 +11,8 @@ void main() {
       check(kLocalDocumentPickerExtensions).contains('docx');
       check(isLocalDocumentFileNameSupported('README')).isTrue();
       check(isLocalDocumentFileNameSupported('archive.pdf')).isFalse();
-      check(
-        sanitizeLocalDocumentFilename('../private/bad\nnotes.txt'),
-      ).equals('bad_notes.txt');
+      check(sanitizeLocalDocumentFilename('../private/bad\nnotes.txt'))
+          .equals('bad_notes.txt');
     });
 
     test('extracts text with neutral stable identifiers', () async {
@@ -36,14 +35,13 @@ void main() {
 
     test('supports consumer-specific stable identifier namespaces', () async {
       final document =
-          await LocalDocumentExtractionService(
-            documentIdPrefix: 'consumer_',
-          ).prepare(
-            LocalDocumentSource.fromBytes(
-              name: 'notes.txt',
-              bytes: utf8.encode('Local content'),
-            ),
-          );
+          await LocalDocumentExtractionService(documentIdPrefix: 'consumer_')
+              .prepare(
+                LocalDocumentSource.fromBytes(
+                  name: 'notes.txt',
+                  bytes: utf8.encode('Local content'),
+                ),
+              );
 
       check(document.id).startsWith('consumer_');
     });

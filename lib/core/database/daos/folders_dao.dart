@@ -250,5 +250,4 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       rawExtra: Value(jsonEncode(rawExtra)),
     );
   }
-
 }

@@ -18,8 +18,7 @@ const List<Map<String, dynamic>> kOllamaCloudWebToolDefinitions = [
     'type': 'function',
     'function': {
       'name': 'web_search',
-      'description':
-          'Search the web for current information. Use web_fetch to read a result in detail.',
+      'description': 'Search the web for current information. Use web_fetch to read a result in detail.',
       'parameters': {
         'type': 'object',
         'required': ['query'],

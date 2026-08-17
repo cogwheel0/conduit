@@ -699,6 +699,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     });
   }
 
+  // Deliberately uncached: anchor settlement and pin seeks measure across
+  // intra-frame jumpTo corrections, where a per-frame snapshot would serve a
+  // pre-jump rect and double-apply corrections.
   Rect? _rowRect(String messageId) {
     final key = _rowKeys[messageId];
     return key == null ? null : _globalRectFor(key);
@@ -1059,6 +1062,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         _pinGeometryReported = true;
         widget.onPinEndSpaceChanged(0);
       }
+      return;
+    }
+    // Mid-scroll the pin's fixed pixel target and viewport-sized support
+    // cannot change; once geometry has been reported, skip the global
+    // measurements until the motion settles (drag end re-runs maintenance).
+    if (_pinGeometryReported &&
+        _scrollController.hasClients &&
+        _scrollController.position.isScrollingNotifier.value) {
       return;
     }
     final viewport = _viewportRect;
@@ -1712,12 +1723,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     } else if (notification is ScrollEndNotification) {
       _handleUserDragEnd();
     } else if (notification is UserScrollNotification) {
-      if (notification.direction == ScrollDirection.idle) {
-        _handleUserDragEnd();
-      } else {
-        // Pointer-signal scrolling (mouse wheels and trackpads) has no
-        // dragDetails, but it does publish a non-idle user direction. Driven
-        // animateTo activity does not, so it cannot steal manual ownership.
+      // Pointer-signal scrolling (mouse wheels and trackpads) has no
+      // dragDetails, but it does publish a non-idle user direction. Driven
+      // animateTo activity does not, so it cannot steal manual ownership.
+      //
+      // direction == idle is deliberately NOT treated as drag end: Flutter
+      // publishes it when the ballistic phase STARTS (goBallistic), not when
+      // motion stops. Ending the drag there ran mode flips and jump-to-latest
+      // arming mid-fling; ScrollEndNotification above fires at actual rest
+      // for drags, flings, and pointer-signal scrolling alike.
+      if (notification.direction != ScrollDirection.idle) {
         _handleUserDragStart();
       }
     }
@@ -1859,13 +1874,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   horizontal: widget.horizontalPadding,
                 ),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
+                  delegate: _TimelineRowDelegate(
                     (context, index) =>
                         _buildRow(context, centerIndex - 1 - index),
                     childCount: centerIndex,
-                    addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _olderChildIndexForKey(key, centerIndex),
+                    rowBuilder: widget.rowBuilder,
+                    entries: _timelineEntries,
+                    centerIndex: centerIndex,
                   ),
                 ),
               ),
@@ -1875,12 +1892,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   horizontal: widget.horizontalPadding,
                 ),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
+                  delegate: _TimelineRowDelegate(
                     (context, index) => _buildRow(context, centerIndex + index),
                     childCount: _messageIds.length - centerIndex,
-                    addSemanticIndexes: false,
                     findChildIndexCallback: (key) =>
                         _centerChildIndexForKey(key, centerIndex),
+                    rowBuilder: widget.rowBuilder,
+                    entries: _timelineEntries,
+                    centerIndex: centerIndex,
                   ),
                 ),
               ),
@@ -1966,6 +1985,33 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
           ),
       ],
     );
+  }
+}
+
+/// SliverChildBuilderDelegate whose `shouldRebuild` defaults to true, which
+/// made every shell rebuild (drag-start setState, keyboard insets, pin
+/// transitions) rebuild every mounted row. Row content is derived entirely
+/// from [rowBuilder] and [entries]; per-row Consumers pick up message-level
+/// changes on their own, so identical inputs mean no rebuild is needed.
+class _TimelineRowDelegate extends SliverChildBuilderDelegate {
+  const _TimelineRowDelegate(
+    super.builder, {
+    required super.childCount,
+    required super.findChildIndexCallback,
+    required this.rowBuilder,
+    required this.entries,
+    required this.centerIndex,
+  }) : super(addSemanticIndexes: false);
+
+  final ChatTimelineRowBuilder rowBuilder;
+  final List<({String id, int sourceIndex})> entries;
+  final int centerIndex;
+
+  @override
+  bool shouldRebuild(covariant _TimelineRowDelegate oldDelegate) {
+    return !identical(rowBuilder, oldDelegate.rowBuilder) ||
+        !identical(entries, oldDelegate.entries) ||
+        centerIndex != oldDelegate.centerIndex;
   }
 }
 

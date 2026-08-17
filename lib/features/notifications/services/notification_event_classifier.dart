@@ -100,7 +100,10 @@ class NotificationEventClassifier {
 
   /// Builds the headline: author name, suffixed with `(#channel)` for non-DM
   /// channels, matching upstream's `+layout.svelte` formatting.
-  String _channelTitle(Map<String, dynamic> event, Map<String, dynamic>? author) {
+  String _channelTitle(
+    Map<String, dynamic> event,
+    Map<String, dynamic>? author,
+  ) {
     final authorName = _asString(author?['name']);
     final channel = _asMap(event['channel']);
     final channelType = _asString(channel?['type']);

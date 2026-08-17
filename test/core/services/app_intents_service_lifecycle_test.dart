@@ -268,9 +268,8 @@ void main() {
       final original = lifecycle.register(_FakeAppIntentHandler());
       await lifecycle.settled;
 
-      check(
-        () => lifecycle.register(_FakeAppIntentHandler()),
-      ).throws<StateError>();
+      check(() => lifecycle.register(_FakeAppIntentHandler()))
+          .throws<StateError>();
       await lifecycle.unregister(original);
 
       check(events).deepEquals([
@@ -559,9 +558,8 @@ void main() {
 
       check(retryExecutions).equals(0);
       check(retry.success).isFalse();
-      check(
-        retry.error,
-      ).equals('The earlier request may not have completed. Please retry.');
+      check(retry.error)
+          .equals('The earlier request may not have completed. Please retry.');
       check(retry.ownedFilePath).isNull();
       releaseOriginal.complete();
       await original;
@@ -607,9 +605,8 @@ void main() {
       return PlatformAppIntentResponse(success: true);
     });
     check(activeRetry.success).isFalse();
-    check(
-      activeRetry.error,
-    ).equals('The earlier request may not have completed. Please retry.');
+    check(activeRetry.error)
+        .equals('The earlier request may not have completed. Please retry.');
     check(activeRetryExecutions).equals(0);
 
     releaseActive.complete();
@@ -657,9 +654,8 @@ void main() {
       return PlatformAppIntentResponse(success: true);
     });
     check(retained.success).isFalse();
-    check(
-      retained.error,
-    ).equals('The earlier request may not have completed. Please retry.');
+    check(retained.error)
+        .equals('The earlier request may not have completed. Please retry.');
     check(retryExecutions).equals(0);
 
     release.complete();

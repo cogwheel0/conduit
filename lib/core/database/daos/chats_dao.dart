@@ -182,9 +182,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
   @visibleForTesting
   Future<List<String>> debugExplainArchivedChatCount() async {
-    final rows = await customSelect(
-      'EXPLAIN QUERY PLAN $_archivedChatCountSql',
-    ).get();
+    final rows = await customSelect('EXPLAIN QUERY PLAN $_archivedChatCountSql')
+        .get();
     return rows
         .map((row) => row.read<String>('detail'))
         .toList(growable: false);

@@ -337,20 +337,24 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
 
   @override
   Widget build(BuildContext context) {
-    final taskKey = PerformanceProfiler.instance.startTask(
-      'markdown_build',
-      scope: 'markdown',
-      data: {
-        'length': widget.document.normalizedContentLength,
-        'tier': widget.document.renderTier,
-        'heavyBlocks': widget.document.heavyBlockCount,
-      },
-    );
+    final profiler = PerformanceProfiler.instance;
+    // Skip the per-build data map allocations entirely when profiling is off
+    // (release builds); this runs for every markdown block on every rebuild.
+    final taskKey = PerformanceProfiler.isEnabled
+        ? profiler.startTask(
+            'markdown_build',
+            scope: 'markdown',
+            data: {
+              'length': widget.document.normalizedContentLength,
+              'tier': widget.document.renderTier,
+              'heavyBlocks': widget.document.heavyBlockCount,
+            },
+          )
+        : null;
     if (widget.document.isEmpty) {
-      PerformanceProfiler.instance.finishTask(
-        taskKey,
-        data: const {'status': 'empty'},
-      );
+      if (taskKey != null) {
+        profiler.finishTask(taskKey, data: const {'status': 'empty'});
+      }
       return const SizedBox.shrink();
     }
 
@@ -373,14 +377,16 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       }
       return _cachedView!;
     } finally {
-      PerformanceProfiler.instance.finishTask(
-        taskKey,
-        data: {
-          'tier': widget.document.renderTier,
-          'nodeCount': widget.document.nodes.length,
-          'blockCount': widget.document.blocks.length,
-        },
-      );
+      if (taskKey != null) {
+        profiler.finishTask(
+          taskKey,
+          data: {
+            'tier': widget.document.renderTier,
+            'nodeCount': widget.document.nodes.length,
+            'blockCount': widget.document.blocks.length,
+          },
+        );
+      }
     }
   }
 

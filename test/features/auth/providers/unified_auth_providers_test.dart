@@ -20,9 +20,8 @@ void main() {
       events.add('returned');
 
       check(result).isTrue();
-      check(
-        events,
-      ).deepEquals(['authenticated', 'preference-persisted', 'returned']);
+      check(events)
+          .deepEquals(['authenticated', 'preference-persisted', 'returned']);
     });
 
     test('does not persist the preference after a rejected attempt', () async {

@@ -79,6 +79,64 @@ class _GatedChatCompletedApi extends ApiService {
   }
 }
 
+class _RecordingChatCompletedApi extends ApiService {
+  _RecordingChatCompletedApi({this.responseMessages})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'completion-recorder',
+          name: 'Completion recorder',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'account-a',
+      );
+
+  /// When null, echoes the sent messages back like the server outlet handler.
+  final List<Map<String, dynamic>>? responseMessages;
+  List<Map<String, dynamic>>? capturedMessages;
+
+  @override
+  Future<Map<String, dynamic>?> sendChatCompleted({
+    required String chatId,
+    required String messageId,
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    Map<String, dynamic>? modelItem,
+    String? sessionId,
+    List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    capturedMessages = messages;
+    return {'messages': responseMessages ?? messages};
+  }
+}
+
+/// A callback log that mirrors the real notifier's buffering: streamed
+/// deltas are NOT visible in [messages] until [flushStreamingBuffer] runs.
+class _BufferedCallbackLog extends _CallbackLog {
+  final streamingBuffer = StringBuffer();
+
+  @override
+  void appendToLastMessage(String c) {
+    appendedChunks.add(c);
+    streamingBuffer.write(c);
+  }
+
+  @override
+  void flushStreamingBuffer() {
+    flushCount++;
+    if (streamingBuffer.isEmpty) return;
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final last = messages.last;
+      messages = [
+        ...messages.sublist(0, messages.length - 1),
+        last.copyWith(content: last.content + streamingBuffer.toString()),
+      ];
+    }
+    streamingBuffer.clear();
+  }
+}
+
 /// Adapter that optionally returns a canned poll response.
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter({this.pollResponse, this.pollResponses});
@@ -688,9 +746,100 @@ void main() {
 
       check(log.appendedChunks).deepEquals(['Hello', ' world']);
       check(log.finishCount).equals(1);
-      check(
-        adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
-      ).equals(1);
+      check(adapter.requestCount(method: 'POST', path: '/api/chat/completed'))
+          .equals(1);
+    });
+
+    test('httpStream sends the fully flushed content to /api/chat/completed '
+        'and its echo does not truncate it', () async {
+      final log = _BufferedCallbackLog();
+      final api = _RecordingChatCompletedApi();
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'content': 'Hello'},
+            },
+          ],
+        }),
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'content': ' world'},
+            },
+          ],
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // The streamed buffer must be folded into message state before the
+      // completed payload is built; a stale prefix here previously came
+      // back in the echo and truncated the message.
+      final assistantPayload = api.capturedMessages
+          ?.where((m) => m['id'] == 'msg-1')
+          .toList();
+      check(assistantPayload).isNotNull();
+      check(assistantPayload!.single['content']).equals('Hello world');
+      check(log.messages.last.content).equals('Hello world');
+    });
+
+    test('a completed echo carrying a stale prefix does not truncate content, '
+        'while a genuine outlet rewrite still applies', () async {
+      Future<_BufferedCallbackLog> run(String echoContent) async {
+        final log = _BufferedCallbackLog();
+        final api = _RecordingChatCompletedApi(
+          responseMessages: [
+            {'id': 'msg-1', 'content': echoContent},
+          ],
+        );
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': 'Hello world'},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+        );
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return log;
+      }
+
+      final stalePrefix = await run('Hello');
+      check(stalePrefix.messages.last.content).equals('Hello world');
+
+      final rewrite = await run('REWRITTEN BY OUTLET');
+      check(rewrite.messages.last.content).equals('REWRITTEN BY OUTLET');
     });
 
     test('httpStream renders output-only structured snapshots', () async {
@@ -733,9 +882,8 @@ void main() {
       await pumpMicrotasks();
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      check(
-        log.replacedContents,
-      ).deepEquals(['Partial stream', 'Structured stream']);
+      check(log.replacedContents)
+          .deepEquals(['Partial stream', 'Structured stream']);
       check(log.messages.last.content).equals('Structured stream');
       check(log.finishCount).equals(1);
     });
@@ -777,8 +925,178 @@ void main() {
         await pumpMicrotasks();
         await Future<void>.delayed(const Duration(milliseconds: 10));
 
-        check(log.appendedChunks).deepEquals(['Hel']);
+        // Upstream contract: an output snapshot in the frame supersedes its
+        // own delta, so the delta is not applied at all.
+        check(log.appendedChunks).deepEquals([]);
         check(log.messages.last.content).equals('Hello');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'an output snapshot after a mid-stream plain delta still renders',
+      () async {
+        final log = _CallbackLog();
+        // First snapshot disables the append fast path (backtick); the second
+        // defers under the geometric threshold; the delta-only frame forces a
+        // projection sync; the final snapshot must still render rather than
+        // deferring against a re-armed 2x-full-length threshold.
+        final part1 =
+            'Intro with `code` marker. ${List.filled(60, 'x').join()}';
+        const middle = ' MIDDLE-SEGMENT';
+        final more = ' TAIL-${List.filled(60, 'y').join()}';
+        Map<String, dynamic> outputFrame(String text) => {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': text},
+              ],
+            },
+          ],
+        };
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame(outputFrame(part1)),
+          _sseFrame(outputFrame('$part1$middle')),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': ' plug-in delta'},
+              },
+            ],
+          }),
+          _sseFrame(outputFrame('$part1$middle$more')),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        check(log.messages.last.content).contains(more);
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test('a plain delta after a deferred structured projection does not drop '
+        'the deferred middle of the response', () async {
+      final log = _CallbackLog();
+      // First snapshot contains a backtick, which permanently disables the
+      // projector's plain-append fast path; the second snapshot is under
+      // the geometric re-projection threshold (2x), so it is deferred and
+      // the visible content stays at the first snapshot.
+      final part1 = 'Intro with `code` marker. ${List.filled(60, 'x').join()}';
+      const middle = ' MIDDLE-SEGMENT-THAT-MUST-SURVIVE';
+      const delta = ' FINAL-DELTA';
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': part1},
+              ],
+            },
+          ],
+        }),
+        _sseFrame({
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '$part1$middle'},
+              ],
+            },
+          ],
+        }),
+        _sseFrame({
+          'choices': [
+            {
+              'delta': {'content': delta},
+            },
+          ],
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      check(log.messages.last.content).equals('$part1$middle$delta');
+      check(log.finishCount).equals(1);
+    });
+
+    test(
+      'a snapshot deferred after a plain delta is still applied at done',
+      () async {
+        final log = _CallbackLog();
+        // Snapshot 1 (backtick => additive schedule, appends disabled) is the
+        // applied projection; the plain delta flips the content basis; the
+        // final snapshot's tail stays under the re-projection threshold and
+        // DEFERS. The terminal finalize must reconcile to the authoritative
+        // snapshot instead of bailing — bailing permanently dropped the tail.
+        final part1 =
+            'Intro with `code` marker. ${List.filled(60, 'x').join()}';
+        const tail = ' TAIL-MUST-SURVIVE-THE-DEFERRAL';
+        Map<String, dynamic> outputFrame(String text) => {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': text},
+              ],
+            },
+          ],
+        };
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame(outputFrame(part1)),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': ' d'},
+              },
+            ],
+          }),
+          _sseFrame(outputFrame('$part1$tail')),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        check(log.messages.last.content).contains(tail);
         check(log.finishCount).equals(1);
       },
     );
@@ -875,9 +1193,8 @@ void main() {
       check(lastMsg.content).equals('Hello world!');
       check(lastMsg.statusHistory.length).equals(2);
       check(lastMsg.statusHistory.first.description).equals('Searching');
-      check(
-        lastMsg.statusHistory.last.description,
-      ).equals('Generating image...');
+      check(lastMsg.statusHistory.last.description)
+          .equals('Generating image...');
       check(lastMsg.metadata).isNotNull();
       check(lastMsg.metadata!['status']).equals('Generating image...');
       check(log.messageByIdUpdates.length).equals(2);
@@ -1265,15 +1582,14 @@ void main() {
         }
         await pumpMicrotasks();
 
-        check(
-          log.replacedContents,
-        ).has((it) => it.length, 'length').isLessOrEqual(12);
-        check(
-          log.appendedChunks,
-        ).has((it) => it.length, 'length').isGreaterThan(snapshotCount - 20);
-        check(
-          log.messages.last.content,
-        ).equals(List.filled(snapshotCount, 'x').join());
+        check(log.replacedContents)
+            .has((it) => it.length, 'length')
+            .isLessOrEqual(12);
+        check(log.appendedChunks)
+            .has((it) => it.length, 'length')
+            .isGreaterThan(snapshotCount - 20);
+        check(log.messages.last.content)
+            .equals(List.filled(snapshotCount, 'x').join());
       },
     );
 
@@ -1326,9 +1642,9 @@ void main() {
         check(log.messages.last.content).contains('Visible answer');
         check(log.messages.last.content).contains('<details type="tool_calls"');
         check(log.messages.last.content).contains('name="search"');
-        check(
-          log.messages.last.output,
-        ).has((it) => it?.length, 'length').equals(2);
+        check(log.messages.last.output)
+            .has((it) => it?.length, 'length')
+            .equals(2);
       },
     );
 
@@ -1367,7 +1683,9 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
-        check(log.appendedChunks).deepEquals(['Hel']);
+        // Upstream contract: the output snapshot supersedes the same-frame
+        // delta, so only the snapshot is applied.
+        check(log.appendedChunks).deepEquals([]);
         check(log.messages.last.content).equals('Hello');
         check(log.messages.last.output).isNotNull();
       },
@@ -1495,48 +1813,44 @@ void main() {
       },
     );
 
-    test(
-      'chat:completion same-payload output suppresses transient tool placeholder',
-      () async {
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
+    test('chat:completion same-payload output suppresses transient tool placeholder', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
 
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          socketService: _MockSocketService(registrar),
-        );
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
 
-        await pumpMicrotasks();
+      await pumpMicrotasks();
 
-        registrar.emitChatEvent('chat:completion', {
-          'tool_calls': [
-            {
-              'id': 'call-1',
-              'function': {'name': 'search'},
-            },
-          ],
-          'output': [
-            {
-              'type': 'function_call',
-              'call_id': 'call-1',
-              'name': 'search',
-              'arguments': {'query': 'docs'},
-            },
-          ],
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+        'output': [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'search',
+            'arguments': {'query': 'docs'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
 
-        check(
-          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
-        ).isFalse();
-        check(log.messages.last.content).contains('<details type="tool_calls"');
-      },
-    );
+      check(log.appendedChunks.any((chunk) => chunk.contains('Executing...')))
+          .isFalse();
+      check(log.messages.last.content).contains('<details type="tool_calls"');
+    });
 
     test(
       'chat:completion preserves a different same-name pending tool call',
@@ -1574,13 +1888,12 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
+        check(log.appendedChunks.any((chunk) => chunk.contains('Executing...')))
+            .isTrue();
         check(
-          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
-        ).isTrue();
-        check(
-          RegExp(
-            '<details type="tool_calls"',
-          ).allMatches(log.messages.last.content).length,
+          RegExp('<details type="tool_calls"')
+              .allMatches(log.messages.last.content)
+              .length,
         ).equals(2);
 
         registrar.emitChatEvent('chat:completion', {
@@ -1608,9 +1921,9 @@ void main() {
 
         final updatedContent = log.messages.last.content;
         check(
-          RegExp(
-            '<details type="tool_calls"',
-          ).allMatches(updatedContent).length,
+          RegExp('<details type="tool_calls"')
+              .allMatches(updatedContent)
+              .length,
         ).equals(2);
         check(updatedContent).contains('updated result');
         check(updatedContent).contains('Executing...');
@@ -1651,9 +1964,8 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
-        check(
-          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
-        ).isFalse();
+        check(log.appendedChunks.any((chunk) => chunk.contains('Executing...')))
+            .isFalse();
         check(log.messages.last.content).contains('<details type="tool_calls"');
       },
     );
@@ -1706,9 +2018,8 @@ void main() {
         await pumpMicrotasks();
 
         final content = log.messages.last.content;
-        check(
-          '<details type="tool_calls"'.allMatches(content).length,
-        ).equals(1);
+        check('<details type="tool_calls"'.allMatches(content).length)
+            .equals(1);
         check(content).contains('<summary>Tool Executed</summary>');
         check(content).contains('tool result');
         check(content).not((it) => it.contains('Executing...'));
@@ -1819,9 +2130,8 @@ void main() {
         emitOutput('Hello structured world');
         await pumpMicrotasks();
         check(log.messages.last.content).equals('Hello structured world');
-        check(
-          log.messages.last.content,
-        ).not((it) => it.contains('Executing...'));
+        check(log.messages.last.content)
+            .not((it) => it.contains('Executing...'));
 
         registrar.emitChatEvent(
           'chat:completion',
@@ -1852,8 +2162,7 @@ void main() {
         await pumpMicrotasks();
 
         registrar.emitChatEvent('chat:completion', {
-          'content':
-              '<details><summary>User details</summary>Keep me</details>\nFinal answer',
+          'content': '<details><summary>User details</summary>Keep me</details>\nFinal answer',
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
@@ -1936,52 +2245,47 @@ void main() {
       check(log.messages.last.content).equals('Final answer');
     });
 
-    test(
-      'chat:completion structured tool snapshot suppresses duplicate pending status',
-      () async {
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
+    test('chat:completion structured tool snapshot suppresses duplicate pending status', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
 
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          socketService: _MockSocketService(registrar),
-        );
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
 
-        await pumpMicrotasks();
+      await pumpMicrotasks();
 
-        registrar.emitChatEvent('chat:completion', {
-          'output': [
-            {
-              'type': 'function_call',
-              'call_id': 'call-1',
-              'name': 'search',
-              'arguments': {'query': 'docs'},
-            },
-          ],
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
+      registrar.emitChatEvent('chat:completion', {
+        'output': [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'search',
+            'arguments': {'query': 'docs'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
 
-        registrar.emitChatEvent('chat:completion', {
-          'tool_calls': [
-            {
-              'id': 'call-1',
-              'function': {'name': 'search'},
-            },
-          ],
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
 
-        final content = log.messages.last.content;
-        check(
-          '<details type="tool_calls"'.allMatches(content).length,
-        ).equals(1);
-      },
-    );
+      final content = log.messages.last.content;
+      check('<details type="tool_calls"'.allMatches(content).length).equals(1);
+    });
 
     test(
       'chat:completion output snapshot keeps answer after reasoning-only state',
@@ -2091,9 +2395,8 @@ void main() {
         await pumpMicrotasks();
 
         final content = log.messages.last.content;
-        check(
-          '<details type="tool_calls"'.allMatches(content).length,
-        ).equals(1);
+        check('<details type="tool_calls"'.allMatches(content).length)
+            .equals(1);
         check(content).contains('Visible answer');
         check(content).contains('second result');
         check(content).not((it) => it.contains('&lt;details'));
@@ -2149,62 +2452,58 @@ void main() {
       },
     );
 
-    test(
-      'snapshot pull released after teardown never falls back through the retired API',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: [
-            ChatMessage(
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Answer',
-              timestamp: DateTime.now(),
-              isStreaming: true,
-            ),
-          ],
-        );
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'must not fetch')],
+    test('snapshot pull released after teardown never falls back through the retired API', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Answer',
+            timestamp: DateTime.now(),
+            isStreaming: true,
           ),
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
-        final pullStarted = Completer<void>();
-        final releasePull = Completer<void>();
-        var ownsContext = true;
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'must not fetch')],
+        ),
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
+      final pullStarted = Completer<void>();
+      final releasePull = Completer<void>();
+      var ownsContext = true;
 
-        final activeStream = _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          ownsStreamContext: () => ownsContext,
-          pullChatSnapshot: (_) async {
-            if (!pullStarted.isCompleted) pullStarted.complete();
-            await releasePull.future;
-            return null;
-          },
-        );
+      final activeStream = _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        ownsStreamContext: () => ownsContext,
+        pullChatSnapshot: (_) async {
+          if (!pullStarted.isCompleted) pullStarted.complete();
+          await releasePull.future;
+          return null;
+        },
+      );
 
-        await pullStarted.future.timeout(const Duration(seconds: 1));
-        ownsContext = false;
-        activeStream.disposeWatchdog();
-        releasePull.complete();
-        for (var i = 0; i < 10; i++) {
-          await pumpMicrotasks();
-        }
+      await pullStarted.future.timeout(const Duration(seconds: 1));
+      ownsContext = false;
+      activeStream.disposeWatchdog();
+      releasePull.complete();
+      for (var i = 0; i < 10; i++) {
+        await pumpMicrotasks();
+      }
 
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(0);
-      },
-    );
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(0);
+    });
 
     test(
       'chatCompleted released after ownership loss cannot mutate local state',
@@ -2274,90 +2573,83 @@ void main() {
       stream.disposeWatchdog();
     });
 
-    test(
-      'taskSocket navigation or stop teardown cancels local recovery and ignores queued events once',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 5);
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-        });
+    test('taskSocket navigation or stop teardown cancels local recovery and ignores queued events once', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 5);
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+      });
 
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final socket = _MockSocketService(registrar);
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              _serverAssistantMessage(
-                content: 'Late server answer',
-                done: true,
-              ),
-            ],
-          ),
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
-        var abortCount = 0;
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final socket = _MockSocketService(registrar);
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
+            _serverAssistantMessage(content: 'Late server answer', done: true),
+          ],
+        ),
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
+      var abortCount = 0;
 
-        final activeStream = _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            taskId: 'task-1',
-            abort: () async => abortCount++,
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          socketService: socket,
-        );
-
-        // Let the empty HTTP initiation side complete and arm terminal poll
-        // recovery while the task remains owned by the server.
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-
-        // Conversation switches and explicit local stops both call this same
-        // aggregate hook. Repeated lifecycle signals must be harmless.
-        activeStream.disposeWatchdog();
-        activeStream.disposeWatchdog();
-
-        // Model an already queued socket callback that escaped subscription
-        // cancellation. The retired helper must still reject it.
-        registrar.emitQueuedChatEvent(
-          'chat:completion',
-          {
-            'choices': [
-              {
-                'delta': {'content': 'late chunk'},
-              },
-            ],
-          },
+      final activeStream = _attach(
+        session: ChatCompletionSession.taskSocket(
           messageId: 'msg-1',
           sessionId: 'sess-1',
-        );
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+          abort: () async => abortCount++,
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: socket,
+      );
 
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        await pumpMicrotasks();
+      // Let the empty HTTP initiation side complete and arm terminal poll
+      // recovery while the task remains owned by the server.
+      await pumpMicrotasks();
+      await pumpMicrotasks();
 
-        check(log.appendedChunks).isEmpty();
-        check(log.replacedContents).isEmpty();
-        check(log.finishCount).equals(0);
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(0);
-        check(socket.chatSubscriptionDisposeCount).equals(1);
-        check(socket.channelSubscriptionDisposeCount).equals(1);
-        check(socket.channelOffCount).equals(0);
-        check(registrar.hasChatHandler).isFalse();
-        check(registrar.channelHandlerCount).equals(0);
+      // Conversation switches and explicit local stops both call this same
+      // aggregate hook. Repeated lifecycle signals must be harmless.
+      activeStream.disposeWatchdog();
+      activeStream.disposeWatchdog();
 
-        // Local teardown must not broaden into a remote/task abort. The stop
-        // coordinator owns that separate policy.
-        check(abortCount).equals(0);
-      },
-    );
+      // Model an already queued socket callback that escaped subscription
+      // cancellation. The retired helper must still reject it.
+      registrar.emitQueuedChatEvent(
+        'chat:completion',
+        {
+          'choices': [
+            {
+              'delta': {'content': 'late chunk'},
+            },
+          ],
+        },
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await pumpMicrotasks();
+
+      check(log.appendedChunks).isEmpty();
+      check(log.replacedContents).isEmpty();
+      check(log.finishCount).equals(0);
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(0);
+      check(socket.chatSubscriptionDisposeCount).equals(1);
+      check(socket.channelSubscriptionDisposeCount).equals(1);
+      check(socket.channelOffCount).equals(0);
+      check(registrar.hasChatHandler).isFalse();
+      check(registrar.channelHandlerCount).equals(0);
+
+      // Local teardown must not broaden into a remote/task abort. The stop
+      // coordinator owns that separate policy.
+      check(abortCount).equals(0);
+    });
 
     test('taskSocket keeps streaming open after terminal finish_reason '
         'until done arrives', () async {
@@ -2499,9 +2791,51 @@ void main() {
       },
     );
 
+    test('taskSocket HTTP completion starts poll recovery when socket events are missing', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+      });
+
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Recovered from poll')],
+        ),
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .isGreaterThan(0);
+      check(log.messages.last.content).equals('Recovered from poll');
+      check(log.finishCount).equals(1);
+    });
+
     test(
-      'taskSocket HTTP completion starts poll recovery when socket events are missing',
+      'poll recovery renders output[] when the persisted content is empty',
       () async {
+        // OWUI 0.11 never persists a flat content string for a normal
+        // completion — a reasoning turn's raw content is '' and the durable
+        // body lives in output[]. Recovery must render it, or a socket that
+        // missed the final frames finishes the turn with the partial local
+        // text (tail chunks permanently missing).
         final previousDelay = debugTaskSocketTerminalRecoveryDelay;
         debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
         addTearDown(() {
@@ -2512,10 +2846,35 @@ void main() {
         final registrar = FakeSocketInjector();
         final api = _buildFakeApi(
           pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'Recovered from poll')],
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': true,
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'content': [
+                      {'type': 'output_text', 'text': 'thinking hard'},
+                    ],
+                    'duration': 3,
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {
+                        'type': 'output_text',
+                        'text': 'Full answer with the tail intact.',
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
           ),
         );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
 
         _attach(
           session: ChatCompletionSession.taskSocket(
@@ -2532,344 +2891,327 @@ void main() {
 
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).isGreaterThan(0);
-        check(log.messages.last.content).equals('Recovered from poll');
+        check(log.messages.last.content)
+            .contains('Full answer with the tail intact.');
         check(log.finishCount).equals(1);
       },
     );
 
-    test(
-      'taskSocket terminal recovery keeps streaming open when polled snapshot is not done',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
-        debugTaskSocketStableNonTerminalRecoveryLimit = 4;
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
-        });
+    test('taskSocket terminal recovery keeps streaming open when polled snapshot is not done', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketStableNonTerminalRecoveryLimit = 4;
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+      });
 
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              {
-                'id': 'msg-1',
-                'role': 'assistant',
-                'content': 'Hello there.',
-                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                'done': false,
-                'isStreaming': true,
-              },
-            ],
-          ),
-        );
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
             {
-              'delta': {'content': 'Hello there.'},
-              'finish_reason': 'stop',
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hello there.',
+              'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              'done': false,
+              'isStreaming': true,
             },
           ],
-        }, messageId: 'msg-1');
+        ),
+      );
 
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello there.'},
+            'finish_reason': 'stop',
+          },
+        ],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.finishCount).equals(0);
-        check(log.messages.last.isStreaming).isTrue();
-        expect(log.messages.last.metadata?['responseDone'], isTrue);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
 
-        registrar.emitChatEvent('chat:message:follow_ups', {
-          'follow_ups': ['Ask a follow-up'],
-        }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message:follow_ups', {
+        'follow_ups': ['Ask a follow-up'],
+      }, messageId: 'msg-1');
 
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+
+      registrar.emitChatEvent('chat:completion', {
+        'done': true,
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(1);
+      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+    });
+
+    test('taskSocket terminal recovery keeps streaming open when poll is unavailable and follow-ups arrive late', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketStableNonTerminalRecoveryLimit = 6;
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+      });
+
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'local:temp',
+          taskId: 'task-1',
+        ),
+        log: log,
+        activeConversationId: 'local:temp',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello there.'},
+            'finish_reason': 'stop',
+          },
+        ],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
+      }
 
-        check(log.finishCount).equals(0);
-        check(log.messages.last.isStreaming).isTrue();
-        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      expect(log.messages.last.metadata?['responseDone'], isTrue);
 
-        registrar.emitChatEvent('chat:completion', {
-          'done': true,
-        }, messageId: 'msg-1');
+      registrar.emitChatEvent('chat:message:follow_ups', {
+        'follow_ups': ['Ask a follow-up'],
+      }, messageId: 'msg-1');
 
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
+      check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+
+      registrar.emitChatEvent('chat:completion', {
+        'done': true,
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(1);
+      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
+    });
+
+    test('taskSocket terminal recovery finishes once the poll-miss retry limit is exhausted', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketStableNonTerminalRecoveryLimit = 1;
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+      });
+
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'local:temp',
+          taskId: 'task-1',
+        ),
+        log: log,
+        activeConversationId: 'local:temp',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello there.'},
+            'finish_reason': 'stop',
+          },
+        ],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      for (var i = 0; i < 20; i++) {
         await pumpMicrotasks();
+      }
 
-        check(log.finishCount).equals(1);
-        check(log.messages.last.isStreaming).isFalse();
-        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
-      },
-    );
+      check(log.finishCount).equals(1);
+      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.content).equals('Hello there.');
+    });
 
-    test(
-      'taskSocket terminal recovery keeps streaming open when poll is unavailable and follow-ups arrive late',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
-        debugTaskSocketStableNonTerminalRecoveryLimit = 6;
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
-        });
+    test('taskSocket terminal recovery eventually finishes after a stable non-terminal snapshot repeats', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketStableNonTerminalRecoveryLimit = 2;
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+      });
 
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'local:temp',
-            taskId: 'task-1',
-          ),
-          log: log,
-          activeConversationId: 'local:temp',
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
             {
-              'delta': {'content': 'Hello there.'},
-              'finish_reason': 'stop',
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hello there.',
+              'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              'done': false,
+              'isStreaming': true,
             },
           ],
-        }, messageId: 'msg-1');
+        ),
+      );
 
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Hello there.'},
+            'finish_reason': 'stop',
+          },
+        ],
+      }, messageId: 'msg-1');
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      for (var i = 0; i < 6; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.finishCount).equals(0);
-        check(log.messages.last.isStreaming).isTrue();
-        expect(log.messages.last.metadata?['responseDone'], isTrue);
+      check(log.finishCount).equals(1);
+      check(log.messages.last.isStreaming).isFalse();
+      check(log.messages.last.content).equals('Hello there.');
+    });
 
-        registrar.emitChatEvent('chat:message:follow_ups', {
-          'follow_ups': ['Ask a follow-up'],
-        }, messageId: 'msg-1');
+    test('taskSocket HTTP completion recovery does not locally finish stable partial snapshots', () async {
+      final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+      debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketStableNonTerminalRecoveryLimit = 2;
+      addTearDown(() {
+        debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+      });
 
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(0);
-        check(log.messages.last.isStreaming).isTrue();
-        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
-
-        registrar.emitChatEvent('chat:completion', {
-          'done': true,
-        }, messageId: 'msg-1');
-
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(1);
-        check(log.messages.last.isStreaming).isFalse();
-        check(log.messages.last.followUps).deepEquals(['Ask a follow-up']);
-      },
-    );
-
-    test(
-      'taskSocket terminal recovery finishes once the poll-miss retry limit is exhausted',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
-        debugTaskSocketStableNonTerminalRecoveryLimit = 1;
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
-        });
-
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'local:temp',
-            taskId: 'task-1',
-          ),
-          log: log,
-          activeConversationId: 'local:temp',
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
             {
-              'delta': {'content': 'Hello there.'},
-              'finish_reason': 'stop',
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Partial answer',
+              'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              'done': false,
+              'isStreaming': true,
             },
           ],
-        }, messageId: 'msg-1');
+        ),
+      );
 
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      for (var i = 0; i < 8; i += 1) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        for (var i = 0; i < 20; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.finishCount).equals(1);
-        check(log.messages.last.isStreaming).isFalse();
-        check(log.messages.last.content).equals('Hello there.');
-      },
-    );
+      check(log.messages.last.content).equals('Partial answer');
+      check(log.finishCount).equals(0);
+      check(log.messages.last.isStreaming).isTrue();
 
-    test(
-      'taskSocket terminal recovery eventually finishes after a stable non-terminal snapshot repeats',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
-        debugTaskSocketStableNonTerminalRecoveryLimit = 2;
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
-        });
+      registrar.emitChatEvent('chat:completion', {
+        'done': true,
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
 
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              {
-                'id': 'msg-1',
-                'role': 'assistant',
-                'content': 'Hello there.',
-                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                'done': false,
-                'isStreaming': true,
-              },
-            ],
-          ),
-        );
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('chat:completion', {
-          'choices': [
-            {
-              'delta': {'content': 'Hello there.'},
-              'finish_reason': 'stop',
-            },
-          ],
-        }, messageId: 'msg-1');
-
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        for (var i = 0; i < 6; i++) {
-          await pumpMicrotasks();
-        }
-
-        check(log.finishCount).equals(1);
-        check(log.messages.last.isStreaming).isFalse();
-        check(log.messages.last.content).equals('Hello there.');
-      },
-    );
-
-    test(
-      'taskSocket HTTP completion recovery does not locally finish stable partial snapshots',
-      () async {
-        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
-        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
-        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
-        debugTaskSocketStableNonTerminalRecoveryLimit = 2;
-        addTearDown(() {
-          debugTaskSocketTerminalRecoveryDelay = previousDelay;
-          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
-        });
-
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              {
-                'id': 'msg-1',
-                'role': 'assistant',
-                'content': 'Partial answer',
-                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                'done': false,
-                'isStreaming': true,
-              },
-            ],
-          ),
-        );
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        for (var i = 0; i < 8; i += 1) {
-          await pumpMicrotasks();
-        }
-
-        check(log.messages.last.content).equals('Partial answer');
-        check(log.finishCount).equals(0);
-        check(log.messages.last.isStreaming).isTrue();
-
-        registrar.emitChatEvent('chat:completion', {
-          'done': true,
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(1);
-      },
-    );
+      check(log.finishCount).equals(1);
+    });
 
     test(
       'taskSocket binds alternate server message ids for the active session',
@@ -3183,9 +3525,8 @@ void main() {
         check(log.messages.last.content).equals('');
         check(log.messages.last.isStreaming).isTrue();
         check(log.finishCount).equals(0);
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(0);
+        check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+            .equals(0);
       },
     );
 
@@ -3325,9 +3666,8 @@ void main() {
 
       check(log.messages.last.content).contains('<details type="reasoning"');
       check(log.messages.last.content).contains('Direct reply');
-      check(
-        'Direct reply'.allMatches(log.messages.last.content).length,
-      ).equals(1);
+      check('Direct reply'.allMatches(log.messages.last.content).length)
+          .equals(1);
       check(log.messages.last.output).isNotNull();
       check(log.finishCount).equals(1);
     });
@@ -3414,9 +3754,9 @@ void main() {
 
       check(log.messageByIdMutationCount).equals(1);
       check(log.sourceReferences).isEmpty();
-      check(
-        log.messages.last.sources,
-      ).has((it) => it.length, 'length').equals(1);
+      check(log.messages.last.sources)
+          .has((it) => it.length, 'length')
+          .equals(1);
       check(log.messages.last.sources.single.url).equals('https://example.com');
     });
 
@@ -3529,9 +3869,9 @@ void main() {
       );
       check(log.messages.last.content).equals('Structured with usage');
       check(log.messages.last.output).isNotNull();
-      check(
-        log.messages.last.output!,
-      ).has((it) => it.length, 'length').equals(1);
+      check(log.messages.last.output!)
+          .has((it) => it.length, 'length')
+          .equals(1);
     });
 
     test('httpStream applies selected model update', () async {
@@ -3591,9 +3931,9 @@ void main() {
 
       check(log.messageByIdMutationCount).equals(1);
       check(log.sourceReferences).isEmpty();
-      check(
-        log.messages.last.sources,
-      ).has((it) => it.length, 'length').equals(1);
+      check(log.messages.last.sources)
+          .has((it) => it.length, 'length')
+          .equals(1);
       check(log.messages.last.sources.single.url).equals('https://a.com');
     });
 
@@ -3657,81 +3997,77 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test(
-      'httpStream done recovery backfills delayed persisted error and snapshot state',
-      () async {
-        final log = _CallbackLog();
-        final incompleteResponse = _serverConversationResponse(
-          messages: [_serverAssistantMessage(content: '', followUps: const [])],
-        );
-        final persistedResponse = _serverConversationResponse(
-          messages: [
-            _serverAssistantMessage(
-              content: '',
-              error: const {'content': 'Persisted backend error'},
-              followUps: const ['Ask again'],
-              statusHistory: const [
-                {'description': 'Searching', 'done': true},
-              ],
-              sources: const [
-                {
-                  'source': {'name': 'doc', 'url': 'https://example.com/doc'},
-                  'document': ['snippet'],
-                },
-              ],
-              usage: const {'prompt_tokens': 7, 'completion_tokens': 11},
-              metadata: const {'serverFlag': true},
-            ),
-          ],
-        );
-        final api = _buildFakeApi(
-          pollResponses: [
-            incompleteResponse,
-            persistedResponse,
-            persistedResponse,
-          ],
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
+    test('httpStream done recovery backfills delayed persisted error and snapshot state', () async {
+      final log = _CallbackLog();
+      final incompleteResponse = _serverConversationResponse(
+        messages: [_serverAssistantMessage(content: '', followUps: const [])],
+      );
+      final persistedResponse = _serverConversationResponse(
+        messages: [
+          _serverAssistantMessage(
+            content: '',
+            error: const {'content': 'Persisted backend error'},
+            followUps: const ['Ask again'],
+            statusHistory: const [
+              {'description': 'Searching', 'done': true},
+            ],
+            sources: const [
+              {
+                'source': {'name': 'doc', 'url': 'https://example.com/doc'},
+                'document': ['snippet'],
+              },
+            ],
+            usage: const {'prompt_tokens': 7, 'completion_tokens': 11},
+            metadata: const {'serverFlag': true},
           ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponses: [
+          incompleteResponse,
+          persistedResponse,
+          persistedResponse,
+        ],
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
 
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 2600));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        final lastMsg = log.messages.last;
-        check(lastMsg.error).isNotNull();
-        check(lastMsg.error!.content).equals('Persisted backend error');
-        check(lastMsg.followUps).deepEquals(['Ask again']);
-        check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
-        check(lastMsg.statusHistory.single.description).equals('Searching');
-        check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
-        check(lastMsg.sources.single.url).equals('https://example.com/doc');
-        expect(
-          lastMsg.usage,
-          equals({'prompt_tokens': 7, 'completion_tokens': 11}),
-        );
-        check(lastMsg.metadata).isNotNull();
-        check(lastMsg.metadata!['serverFlag']).equals(true);
-        check(log.finishCount).equals(1);
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(3);
-      },
-    );
+      final lastMsg = log.messages.last;
+      check(lastMsg.error).isNotNull();
+      check(lastMsg.error!.content).equals('Persisted backend error');
+      check(lastMsg.followUps).deepEquals(['Ask again']);
+      check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
+      check(lastMsg.statusHistory.single.description).equals('Searching');
+      check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
+      check(lastMsg.sources.single.url).equals('https://example.com/doc');
+      expect(
+        lastMsg.usage,
+        equals({'prompt_tokens': 7, 'completion_tokens': 11}),
+      );
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['serverFlag']).equals(true);
+      check(log.finishCount).equals(1);
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(3);
+    });
 
     test(
       'httpStream artifact-only done backfills delayed persisted text',
@@ -3795,343 +4131,167 @@ void main() {
       },
     );
 
-    test(
-      'httpStream event completion done avoids premature-end recovery without [DONE]',
-      () async {
-        final log = _CallbackLog();
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'Recovered answer')],
-          ),
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+    test('httpStream event completion done avoids premature-end recovery without [DONE]', () async {
+      final log = _CallbackLog();
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Recovered answer')],
+        ),
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
 
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([
-              _sseFrame({
-                'type': 'chat:completion',
-                'data': {'done': true},
-              }),
-            ]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'type': 'chat:completion',
+              'data': {'done': true},
+            }),
+          ]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
 
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pumpMicrotasks();
+
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(0);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.content).equals('');
+
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
+      }
+
+      check(log.messages.last.content).equals('Recovered answer');
+      check(log.finishCount).equals(1);
+    });
+
+    test('httpStream event completion done trusts visible streaming content before empty recovery checks', () async {
+      final log = _CallbackLog();
+      const visibleStreamingContent = 'Visible streamed answer';
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Recovered answer')],
+        ),
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'type': 'chat:completion',
+              'data': {'done': true},
+            }),
+          ]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        getVisibleStreamingContent: () => visibleStreamingContent,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pumpMicrotasks();
+
+      check(log.finishCount).equals(1);
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(0);
+    });
+
+    test('httpStream event completion done plus [DONE] only schedules completion side effects once', () async {
+      final log = _CallbackLog();
+      final incompleteResponse = _serverConversationResponse(
+        messages: [_serverAssistantMessage(content: '')],
+      );
+      final persistedResponse = _serverConversationResponse(
+        messages: [_serverAssistantMessage(content: 'Final answer')],
+      );
+      final api = _buildFakeApi(
+        pollResponses: [
+          incompleteResponse,
+          persistedResponse,
+          persistedResponse,
+        ],
+      );
+      final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'type': 'chat:completion',
+              'data': {'done': true},
+            }),
+            _sseDone(),
+          ]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pumpMicrotasks();
+
+      check(adapter.requestCount(method: 'POST', path: '/api/chat/completed'))
+          .equals(1);
+      check(log.finishCount).equals(0);
+      check(log.messages.last.content).equals('');
+
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        await pumpMicrotasks();
+      }
 
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(0);
-        check(log.finishCount).equals(0);
-        check(log.messages.last.content).equals('');
+      check(adapter.requestCount(method: 'POST', path: '/api/chat/completed'))
+          .equals(1);
+      check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
+          .equals(3);
+      check(log.messages.last.content).equals('Final answer');
+      check(log.finishCount).equals(1);
+    });
 
-        await Future<void>.delayed(const Duration(milliseconds: 2600));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
-
-        check(log.messages.last.content).equals('Recovered answer');
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    test(
-      'httpStream event completion done trusts visible streaming content before empty recovery checks',
-      () async {
-        final log = _CallbackLog();
-        const visibleStreamingContent = 'Visible streamed answer';
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'Recovered answer')],
-          ),
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([
-              _sseFrame({
-                'type': 'chat:completion',
-                'data': {'done': true},
-              }),
-            ]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          getVisibleStreamingContent: () => visibleStreamingContent,
-        );
-
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(1);
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(0);
-      },
-    );
-
-    test(
-      'httpStream event completion done plus [DONE] only schedules completion side effects once',
-      () async {
-        final log = _CallbackLog();
-        final incompleteResponse = _serverConversationResponse(
-          messages: [_serverAssistantMessage(content: '')],
-        );
-        final persistedResponse = _serverConversationResponse(
-          messages: [_serverAssistantMessage(content: 'Final answer')],
-        );
-        final api = _buildFakeApi(
-          pollResponses: [
-            incompleteResponse,
-            persistedResponse,
-            persistedResponse,
-          ],
-        );
-        final adapter = api.dio.httpClientAdapter as _StubAdapter;
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([
-              _sseFrame({
-                'type': 'chat:completion',
-                'data': {'done': true},
-              }),
-              _sseDone(),
-            ]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
-
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        await pumpMicrotasks();
-
-        check(
-          adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
-        ).equals(1);
-        check(log.finishCount).equals(0);
-        check(log.messages.last.content).equals('');
-
-        await Future<void>.delayed(const Duration(milliseconds: 2600));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
-
-        check(
-          adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
-        ).equals(1);
-        check(
-          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
-        ).equals(3);
-        check(log.messages.last.content).equals('Final answer');
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    test(
-      'httpStream latest blank assistant does not adopt prior persisted answer when server has not created the new assistant yet',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: [
-            ChatMessage(
-              id: 'user-1',
-              role: 'user',
-              content: 'Old prompt',
-              timestamp: DateTime.now(),
-            ),
-            ChatMessage(
-              id: 'assistant-old',
-              role: 'assistant',
-              content: 'Old answer',
-              timestamp: DateTime.now(),
-            ),
-            ChatMessage(
-              id: 'user-2',
-              role: 'user',
-              content: 'New prompt',
-              timestamp: DateTime.now(),
-            ),
-            ChatMessage(
-              id: 'msg-2',
-              role: 'assistant',
-              content: '',
-              timestamp: DateTime.now(),
-              isStreaming: true,
-            ),
-          ],
-        );
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
-              _serverAssistantMessage(
-                id: 'server-assistant-old',
-                content: 'Old answer',
-                followUps: const ['Old follow-up'],
-                statusHistory: const [
-                  {'description': 'Old status'},
-                ],
-              ),
-              _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
-            ],
-          ),
-        );
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-2',
-            sessionId: 'sess-2',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          assistantMessageId: 'msg-2',
-        );
-
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 2600));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
-
-        check(log.messages[1].content).equals('Old answer');
-        check(log.messages[3].id).equals('msg-2');
-        check(log.messages[3].content).equals('');
-        check(log.messages[3].followUps).isEmpty();
-        check(log.messages[3].statusHistory).isEmpty();
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    test(
-      'httpStream artifact-only done recovers original assistant after new prompt starts with partial local history and re-keyed ids',
-      () async {
-        final log = _CallbackLog();
-        final incompleteResponse = _serverConversationResponse(
-          messages: [_serverAssistantMessage(id: 'server-msg-1', content: '')],
-        );
-        final persistedResponse = _serverConversationResponse(
-          messages: [
-            _serverAssistantMessage(
-              id: 'server-old-1',
-              content: 'Older persisted answer that should stay untouched',
-              followUps: const ['Older follow-up'],
-              statusHistory: const [
-                {'description': 'Older status'},
-              ],
-              sources: const [
-                {
-                  'source': {
-                    'name': 'Older doc',
-                    'url': 'https://example.com/older',
-                  },
-                  'document': ['Older snippet'],
-                },
-              ],
-            ),
-            _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
-            _serverAssistantMessage(
-              id: 'server-msg-1',
-              content: 'Recovered A',
-              followUps: const ['Recovered follow-up'],
-              statusHistory: const [
-                {'description': 'Recovered status'},
-              ],
-              sources: const [
-                {
-                  'source': {
-                    'name': 'Recovered doc',
-                    'url': 'https://example.com/recovered',
-                  },
-                  'document': ['Recovered snippet'],
-                },
-              ],
-            ),
-            _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
-            _serverAssistantMessage(
-              id: 'server-msg-2',
-              content: 'Newer reply',
-              followUps: const ['Newer follow-up'],
-            ),
-          ],
-        );
-        final api = _buildFakeApi(
-          pollResponses: [
-            incompleteResponse,
-            persistedResponse,
-            persistedResponse,
-          ],
-        );
-
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([
-              _sseFrame({
-                'output': [
-                  {
-                    'type': 'message',
-                    'id': 'out-1',
-                    'status': 'complete',
-                    'role': 'assistant',
-                    'content': [
-                      {'type': 'output_text', 'text': 'tool output'},
-                    ],
-                  },
-                ],
-              }),
-              _sseDone(),
-            ]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
-
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-
-        log.messages = [
+    test('httpStream latest blank assistant does not adopt prior persisted answer when server has not created the new assistant yet', () async {
+      final log = _CallbackLog(
+        initialMessages: [
           ChatMessage(
-            id: 'msg-1',
-            role: 'assistant',
-            content: '',
+            id: 'user-1',
+            role: 'user',
+            content: 'Old prompt',
             timestamp: DateTime.now(),
-            isStreaming: true,
           ),
           ChatMessage(
-            id: 'user-2-local',
+            id: 'assistant-old',
+            role: 'assistant',
+            content: 'Old answer',
+            timestamp: DateTime.now(),
+          ),
+          ChatMessage(
+            id: 'user-2',
             role: 'user',
             content: 'New prompt',
             timestamp: DateTime.now(),
@@ -4143,137 +4303,282 @@ void main() {
             timestamp: DateTime.now(),
             isStreaming: true,
           ),
-        ];
-
-        await Future<void>.delayed(const Duration(milliseconds: 2600));
-        for (var i = 0; i < 5; i++) {
-          await pumpMicrotasks();
-        }
-
-        check(log.messages[0].id).equals('msg-1');
-        check(log.messages[0].content).equals('Recovered A');
-        check(log.messages[0].followUps).deepEquals(['Recovered follow-up']);
-        check(
-          log.messages[0].statusHistory,
-        ).has((it) => it.length, 'length').equals(1);
-        check(
-          log.messages[0].statusHistory.single.description,
-        ).equals('Recovered status');
-        check(
-          log.messages[0].sources,
-        ).has((it) => it.length, 'length').equals(1);
-        check(
-          log.messages[0].sources.single.url,
-        ).equals('https://example.com/recovered');
-        check(log.messages[1].role).equals('user');
-        check(log.messages[1].content).equals('New prompt');
-        check(log.messages[2].id).equals('msg-2');
-        check(log.messages[2].content).equals('');
-        check(log.messages[2].followUps).isEmpty();
-        check(log.messages[2].statusHistory).isEmpty();
-        check(log.messages[2].sources).isEmpty();
-        check(log.messages[2].isStreaming).isTrue();
-      },
-    );
-
-    test(
-      'httpStream snapshot refresh drops stale pending status rows after finish',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: [
-            ChatMessage(
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Answer',
-              timestamp: DateTime.now(),
-              isStreaming: true,
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
+            _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
+            _serverAssistantMessage(
+              id: 'server-assistant-old',
+              content: 'Old answer',
+              followUps: const ['Old follow-up'],
               statusHistory: const [
-                ChatStatusUpdate(description: 'Searching...', done: false),
+                {'description': 'Old status'},
               ],
             ),
+            _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
           ],
-        );
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'Answer')],
-          ),
-        );
+        ),
+      );
 
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-2',
+          sessionId: 'sess-2',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        assistantMessageId: 'msg-2',
+      );
 
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        for (var i = 0; i < 3; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.finishCount).equals(1);
-        check(log.messages.last.statusHistory).isEmpty();
-      },
-    );
+      check(log.messages[1].content).equals('Old answer');
+      check(log.messages[3].id).equals('msg-2');
+      check(log.messages[3].content).equals('');
+      check(log.messages[3].followUps).isEmpty();
+      check(log.messages[3].statusHistory).isEmpty();
+      check(log.finishCount).equals(1);
+    });
 
-    test(
-      'httpStream snapshot refresh keeps status rows with unspecified done after finish',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: [
-            ChatMessage(
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Answer',
-              timestamp: DateTime.now(),
-              isStreaming: true,
-              statusHistory: const [
-                ChatStatusUpdate(description: 'Generating image...'),
+    test('httpStream artifact-only done recovers original assistant after new prompt starts with partial local history and re-keyed ids', () async {
+      final log = _CallbackLog();
+      final incompleteResponse = _serverConversationResponse(
+        messages: [_serverAssistantMessage(id: 'server-msg-1', content: '')],
+      );
+      final persistedResponse = _serverConversationResponse(
+        messages: [
+          _serverAssistantMessage(
+            id: 'server-old-1',
+            content: 'Older persisted answer that should stay untouched',
+            followUps: const ['Older follow-up'],
+            statusHistory: const [
+              {'description': 'Older status'},
+            ],
+            sources: const [
+              {
+                'source': {
+                  'name': 'Older doc',
+                  'url': 'https://example.com/older',
+                },
+                'document': ['Older snippet'],
+              },
+            ],
+          ),
+          _serverUserMessage(id: 'server-user-1', content: 'Old prompt'),
+          _serverAssistantMessage(
+            id: 'server-msg-1',
+            content: 'Recovered A',
+            followUps: const ['Recovered follow-up'],
+            statusHistory: const [
+              {'description': 'Recovered status'},
+            ],
+            sources: const [
+              {
+                'source': {
+                  'name': 'Recovered doc',
+                  'url': 'https://example.com/recovered',
+                },
+                'document': ['Recovered snippet'],
+              },
+            ],
+          ),
+          _serverUserMessage(id: 'server-user-2', content: 'New prompt'),
+          _serverAssistantMessage(
+            id: 'server-msg-2',
+            content: 'Newer reply',
+            followUps: const ['Newer follow-up'],
+          ),
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponses: [
+          incompleteResponse,
+          persistedResponse,
+          persistedResponse,
+        ],
+      );
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'output': [
+                {
+                  'type': 'message',
+                  'id': 'out-1',
+                  'status': 'complete',
+                  'role': 'assistant',
+                  'content': [
+                    {'type': 'output_text', 'text': 'tool output'},
+                  ],
+                },
               ],
-            ),
-          ],
-        );
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [_serverAssistantMessage(content: 'Answer')],
-          ),
-        );
+            }),
+            _sseDone(),
+          ]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
 
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
+      await pumpMicrotasks();
+      await pumpMicrotasks();
 
+      log.messages = [
+        ChatMessage(
+          id: 'msg-1',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+        ChatMessage(
+          id: 'user-2-local',
+          role: 'user',
+          content: 'New prompt',
+          timestamp: DateTime.now(),
+        ),
+        ChatMessage(
+          id: 'msg-2',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+      ];
+
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      for (var i = 0; i < 5; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        for (var i = 0; i < 3; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.finishCount).equals(1);
-        check(
-          log.messages.last.statusHistory,
-        ).has((it) => it.length, 'length').equals(1);
-        check(
-          log.messages.last.statusHistory.single.description,
-        ).equals('Generating image...');
-      },
-    );
+      check(log.messages[0].id).equals('msg-1');
+      check(log.messages[0].content).equals('Recovered A');
+      check(log.messages[0].followUps).deepEquals(['Recovered follow-up']);
+      check(log.messages[0].statusHistory)
+          .has((it) => it.length, 'length')
+          .equals(1);
+      check(log.messages[0].statusHistory.single.description)
+          .equals('Recovered status');
+      check(log.messages[0].sources).has((it) => it.length, 'length').equals(1);
+      check(log.messages[0].sources.single.url)
+          .equals('https://example.com/recovered');
+      check(log.messages[1].role).equals('user');
+      check(log.messages[1].content).equals('New prompt');
+      check(log.messages[2].id).equals('msg-2');
+      check(log.messages[2].content).equals('');
+      check(log.messages[2].followUps).isEmpty();
+      check(log.messages[2].statusHistory).isEmpty();
+      check(log.messages[2].sources).isEmpty();
+      check(log.messages[2].isStreaming).isTrue();
+    });
+
+    test('httpStream snapshot refresh drops stale pending status rows after finish', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Answer',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+            statusHistory: const [
+              ChatStatusUpdate(description: 'Searching...', done: false),
+            ],
+          ),
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Answer')],
+        ),
+      );
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      for (var i = 0; i < 3; i++) {
+        await pumpMicrotasks();
+      }
+
+      check(log.finishCount).equals(1);
+      check(log.messages.last.statusHistory).isEmpty();
+    });
+
+    test('httpStream snapshot refresh keeps status rows with unspecified done after finish', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Answer',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+            statusHistory: const [
+              ChatStatusUpdate(description: 'Generating image...'),
+            ],
+          ),
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [_serverAssistantMessage(content: 'Answer')],
+        ),
+      );
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      for (var i = 0; i < 3; i++) {
+        await pumpMicrotasks();
+      }
+
+      check(log.finishCount).equals(1);
+      check(log.messages.last.statusHistory)
+          .has((it) => it.length, 'length')
+          .equals(1);
+      check(log.messages.last.statusHistory.single.description)
+          .equals('Generating image...');
+    });
 
     test(
       'httpStream snapshot refresh clears stale sources after finish',
@@ -4325,77 +4630,74 @@ void main() {
       },
     );
 
-    test(
-      'httpStream snapshot refresh batches follow-ups and metadata into one mutation',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: [
-            ChatMessage(
-              id: 'msg-1',
-              role: 'assistant',
+    test('httpStream snapshot refresh batches follow-ups and metadata into one mutation', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Answer',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
+            _serverAssistantMessage(
               content: 'Answer',
-              timestamp: DateTime.now(),
-              isStreaming: true,
+              followUps: const ['Ask again'],
+              statusHistory: const [
+                {'description': 'Searching', 'done': true},
+              ],
+              sources: const [
+                {
+                  'source': {'name': 'doc', 'url': 'https://example.com/doc'},
+                  'document': ['snippet'],
+                },
+              ],
+              usage: const {'prompt_tokens': 5, 'completion_tokens': 8},
+              metadata: const {'serverFlag': true},
             ),
           ],
-        );
-        final api = _buildFakeApi(
-          pollResponse: _serverConversationResponse(
-            messages: [
-              _serverAssistantMessage(
-                content: 'Answer',
-                followUps: const ['Ask again'],
-                statusHistory: const [
-                  {'description': 'Searching', 'done': true},
-                ],
-                sources: const [
-                  {
-                    'source': {'name': 'doc', 'url': 'https://example.com/doc'},
-                    'document': ['snippet'],
-                  },
-                ],
-                usage: const {'prompt_tokens': 5, 'completion_tokens': 8},
-                metadata: const {'serverFlag': true},
-              ),
-            ],
-          ),
-        );
+        ),
+      );
 
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-        );
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
 
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      for (var i = 0; i < 3; i++) {
         await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        for (var i = 0; i < 3; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        final lastMsg = log.messages.last;
-        check(log.finishCount).equals(1);
-        check(log.messageByIdMutationCount).equals(1);
-        check(lastMsg.followUps).deepEquals(['Ask again']);
-        check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
-        check(lastMsg.statusHistory.single.description).equals('Searching');
-        check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
-        check(lastMsg.sources.single.url).equals('https://example.com/doc');
-        expect(
-          lastMsg.usage,
-          equals({'prompt_tokens': 5, 'completion_tokens': 8}),
-        );
-        check(lastMsg.metadata).isNotNull();
-        check(lastMsg.metadata!['serverFlag']).equals(true);
-      },
-    );
+      final lastMsg = log.messages.last;
+      check(log.finishCount).equals(1);
+      check(log.messageByIdMutationCount).equals(1);
+      check(lastMsg.followUps).deepEquals(['Ask again']);
+      check(lastMsg.statusHistory).has((it) => it.length, 'length').equals(1);
+      check(lastMsg.statusHistory.single.description).equals('Searching');
+      check(lastMsg.sources).has((it) => it.length, 'length').equals(1);
+      check(lastMsg.sources.single.url).equals('https://example.com/doc');
+      expect(
+        lastMsg.usage,
+        equals({'prompt_tokens': 5, 'completion_tokens': 8}),
+      );
+      check(lastMsg.metadata).isNotNull();
+      check(lastMsg.metadata!['serverFlag']).equals(true);
+    });
 
     // -----------------------------------------------------------------------
     // 7. httpStream premature end recovers from newer server state
@@ -4549,62 +4851,59 @@ void main() {
       check(lastContent.length).isGreaterThan('short'.length);
     });
 
-    test(
-      'httpStream recovery preserves longer visible streaming content than stale server snapshots',
-      () async {
-        final log = _CallbackLog(
-          initialMessages: fakeStreamingAssistantMessages(content: 'lagging'),
-        );
-        const visibleStreamingContent =
-            'I am the newer visible streaming content';
+    test('httpStream recovery preserves longer visible streaming content than stale server snapshots', () async {
+      final log = _CallbackLog(
+        initialMessages: fakeStreamingAssistantMessages(content: 'lagging'),
+      );
+      const visibleStreamingContent =
+          'I am the newer visible streaming content';
 
-        final byteStream = Stream<List<int>>.empty();
-        final api = _buildFakeApi(
-          pollResponse: {
-            'chat': {
-              'messages': [
-                {'id': 'msg-1', 'content': 'short stale', 'done': true},
-              ],
-            },
+      final byteStream = Stream<List<int>>.empty();
+      final api = _buildFakeApi(
+        pollResponse: {
+          'chat': {
+            'messages': [
+              {'id': 'msg-1', 'content': 'short stale', 'done': true},
+            ],
           },
-        );
+        },
+      );
 
-        void flushVisibleStreamingBuffer() {
-          log.flushStreamingBuffer();
-          if (log.messages.isEmpty || log.messages.last.role != 'assistant') {
-            return;
-          }
-          final last = log.messages.last;
-          log.messages = [
-            ...log.messages.sublist(0, log.messages.length - 1),
-            last.copyWith(content: visibleStreamingContent),
-          ];
+      void flushVisibleStreamingBuffer() {
+        log.flushStreamingBuffer();
+        if (log.messages.isEmpty || log.messages.last.role != 'assistant') {
+          return;
         }
+        final last = log.messages.last;
+        log.messages = [
+          ...log.messages.sublist(0, log.messages.length - 1),
+          last.copyWith(content: visibleStreamingContent),
+        ];
+      }
 
-        _attach(
-          session: ChatCompletionSession.httpStream(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            byteStream: byteStream,
-            abort: () async {},
-          ),
-          log: log,
-          api: api,
-          activeConversationId: 'conv-1',
-          getVisibleStreamingContent: () => visibleStreamingContent,
-          flushStreamingBuffer: flushVisibleStreamingBuffer,
-        );
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+        getVisibleStreamingContent: () => visibleStreamingContent,
+        flushStreamingBuffer: flushVisibleStreamingBuffer,
+      );
 
+      await pumpMicrotasks();
+      for (var i = 0; i < 10; i++) {
         await pumpMicrotasks();
-        for (var i = 0; i < 10; i++) {
-          await pumpMicrotasks();
-        }
+      }
 
-        check(log.messages.last.content).equals(visibleStreamingContent);
-        check(log.replacedContents).isEmpty();
-      },
-    );
+      check(log.messages.last.content).equals(visibleStreamingContent);
+      check(log.replacedContents).isEmpty();
+    });
 
     // -----------------------------------------------------------------------
     // 10. Rename: ActiveChatStream replaces ActiveSocketStream
@@ -4662,12 +4961,10 @@ void main() {
       // Should have exactly 2 images (deduplicated), both normalized
       // to {type: 'image', url: ...}
       check(lastMsg.files!.length).equals(2);
-      check(
-        lastMsg.files![0],
-      ).deepEquals({'type': 'image', 'url': 'https://example.com/img1.png'});
-      check(
-        lastMsg.files![1],
-      ).deepEquals({'type': 'image', 'url': 'https://example.com/img2.png'});
+      check(lastMsg.files![0])
+          .deepEquals({'type': 'image', 'url': 'https://example.com/img1.png'});
+      check(lastMsg.files![1])
+          .deepEquals({'type': 'image', 'url': 'https://example.com/img2.png'});
     });
 
     // -----------------------------------------------------------------------
@@ -4702,12 +4999,10 @@ void main() {
       final lastMsg = log.messages.last;
       check(lastMsg.files).isNotNull();
       check(lastMsg.files!.length).equals(2);
-      check(
-        lastMsg.files![0],
-      ).deepEquals({'type': 'image', 'url': 'https://example.com/a.png'});
-      check(
-        lastMsg.files![1],
-      ).deepEquals({'type': 'image', 'url': 'https://example.com/b.png'});
+      check(lastMsg.files![0])
+          .deepEquals({'type': 'image', 'url': 'https://example.com/a.png'});
+      check(lastMsg.files![1])
+          .deepEquals({'type': 'image', 'url': 'https://example.com/b.png'});
     });
 
     // -----------------------------------------------------------------------

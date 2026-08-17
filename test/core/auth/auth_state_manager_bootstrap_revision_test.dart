@@ -42,23 +42,20 @@ void main() {
       ).isFalse();
     });
 
-    test(
-      'suppressed when a newer auth attempt bumped the revision mid-flight',
-      () {
-        // e.g. a log, logout, or token-invalidation started while the background
-        // login was running: the revision moved on, so this stale bootstrap task
-        // must not publish unauthenticated over the newer attempt.
-        check(
-          bootstrapShouldFallbackToUnauthenticated(
-            committed: false,
-            capturedRevision: capturedRevision,
-            currentRevision: capturedRevision + 1,
-            status: AuthStatus.loading,
-            hasValidToken: false,
-          ),
-        ).isFalse();
-      },
-    );
+    test('suppressed when a newer auth attempt bumped the revision mid-flight', () {
+      // e.g. a log, logout, or token-invalidation started while the background
+      // login was running: the revision moved on, so this stale bootstrap task
+      // must not publish unauthenticated over the newer attempt.
+      check(
+        bootstrapShouldFallbackToUnauthenticated(
+          committed: false,
+          capturedRevision: capturedRevision,
+          currentRevision: capturedRevision + 1,
+          status: AuthStatus.loading,
+          hasValidToken: false,
+        ),
+      ).isFalse();
+    });
 
     test(
       'suppressed once a session has been published (status off loading)',

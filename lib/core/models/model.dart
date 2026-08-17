@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+
 import 'toggle_filter.dart';
 
 part 'model.freezed.dart';

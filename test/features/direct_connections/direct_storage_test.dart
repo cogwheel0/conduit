@@ -91,12 +91,10 @@ void main() {
 
       check(loaded.ollamaKeepAliveFor('llama3.2:latest')).equals('30m');
       check(loaded.ollamaKeepAliveFor('qwen3:latest')).equals('-1');
-      check(
-        loaded.ollamaThinkingFor('gpt-oss:120b'),
-      ).equals(OllamaThinkingSetting.medium);
-      check(
-        loaded.ollamaThinkingFor('qwen3:latest'),
-      ).equals(OllamaThinkingSetting.high);
+      check(loaded.ollamaThinkingFor('gpt-oss:120b'))
+          .equals(OllamaThinkingSetting.medium);
+      check(loaded.ollamaThinkingFor('qwen3:latest'))
+          .equals(OllamaThinkingSetting.high);
       check(sameDirectConnectionProfileValues(profile, loaded)).isTrue();
     },
   );

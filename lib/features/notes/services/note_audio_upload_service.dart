@@ -120,9 +120,8 @@ class PendingNoteAudioUpload {
         !RegExp(r'^recording\.[a-z0-9]{1,8}$').hasMatch(localFileName) ||
         (sourceCacheFileName != null &&
             (path.basename(sourceCacheFileName) != sourceCacheFileName ||
-                !RegExp(
-                  r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$',
-                ).hasMatch(sourceCacheFileName)))) {
+                !RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+                    .hasMatch(sourceCacheFileName)))) {
       throw const FormatException('Invalid note audio manifest');
     }
 
@@ -147,10 +146,14 @@ class PendingNoteAudioUpload {
   }
 }
 
-typedef NoteAudioUploadCallback =
-    Future<String> Function(PendingNoteAudioUpload item, File file);
-typedef NoteAudioAttachCallback =
-    Future<void> Function(PendingNoteAudioUpload item, String fileId);
+typedef NoteAudioUploadCallback = Future<String> Function(
+  PendingNoteAudioUpload item,
+  File file,
+);
+typedef NoteAudioAttachCallback = Future<void> Function(
+  PendingNoteAudioUpload item,
+  String fileId,
+);
 typedef NoteAudioUploadChanged = void Function(PendingNoteAudioUpload? item);
 
 /// Durable, account-scoped storage for note recordings awaiting upload.

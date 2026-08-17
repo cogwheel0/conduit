@@ -20,9 +20,8 @@ void main() {
       );
 
       check(merged['X-Proxy']).equals('preserved');
-      check(
-        merged.keys.where((key) => key.toLowerCase() == 'cookie').toList(),
-      ).deepEquals(['Cookie']);
+      check(merged.keys.where((key) => key.toLowerCase() == 'cookie').toList())
+          .deepEquals(['Cookie']);
       check(
         merged['Cookie'],
       ).equals('session=fresh; theme=dark; token=old=payload; csrf=fresh-csrf');

@@ -57,8 +57,9 @@ enum DirectHistoryPolicy {
       syncWithOpenWebUI;
 }
 
-typedef DirectHistoryPolicyWriter =
-    Future<void> Function(DirectHistoryPolicy policy);
+typedef DirectHistoryPolicyWriter = Future<void> Function(
+  DirectHistoryPolicy policy,
+);
 
 /// Persistence seam kept separate so ordering can be verified without relying
 /// on platform-specific preference write timing.
@@ -115,9 +116,9 @@ final directConnectionProfileStoreProvider =
 /// provider-facing model id for server-backed chats, so this device-local key
 /// does not affect cross-device history/model rebinding.
 final directDeviceTrustKeyProvider = FutureProvider<List<int>>(
-  (ref) => SecureCredentialStorage(
-    instance: ref.watch(secureStorageProvider),
-  ).getOrCreateOpenWebUiDirectIdentityKey(),
+  (ref) =>
+      SecureCredentialStorage(instance: ref.watch(secureStorageProvider))
+          .getOrCreateOpenWebUiDirectIdentityKey(),
 );
 
 /// Compatibility name retained for the Open WebUI record-identity callers.
@@ -774,9 +775,8 @@ class OllamaModelLifecycle extends _$OllamaModelLifecycle {
     final previous = state.value ?? OllamaModelLifecycleState();
     try {
       final profile = await _readProfile();
-      final loaded = await _requireLifecycleAdapter(
-        profile,
-      ).listRunningModelIds(profile);
+      final loaded = await _requireLifecycleAdapter(profile)
+          .listRunningModelIds(profile);
       if (ref.mounted && generation == _operationGeneration) {
         final latest = state.value ?? previous;
         state = AsyncData(latest.copyWith(loadedModelIds: loaded));

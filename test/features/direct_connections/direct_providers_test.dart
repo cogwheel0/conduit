@@ -472,9 +472,8 @@ void main() {
     () async {
       final old = _profile(apiKey: 'old-secret');
       FlutterSecureStorage.setMockInitialValues({
-        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
-          old,
-        ]).encode(),
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([old])
+            .encode(),
       });
       final container = _container(_QueuedAdapter());
       addTearDown(container.dispose);

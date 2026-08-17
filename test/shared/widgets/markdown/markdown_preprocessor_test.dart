@@ -268,9 +268,8 @@ after''';
       );
       check(result).contains('Before');
       check(result).contains('after');
-      check(
-        result,
-      ).contains('<details><summary>Hidden</summary>tool output</details>');
+      check(result)
+          .contains('<details><summary>Hidden</summary>tool output</details>');
     });
 
     test('preserves generic html content to mirror OpenWebUI', () {

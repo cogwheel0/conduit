@@ -101,8 +101,9 @@ Conversation assembleConversation(ChatRow chat, List<MessageRow> messages) {
 /// Closure type for offloading a pre-built envelope to a worker isolate.
 /// The caller is responsible for routing through [parseFullConversationModelWorker]
 /// via [WorkerManager.schedule].
-typedef ConversationParseOffload =
-    Future<Conversation> Function(Object? envelope);
+typedef ConversationParseOffload = Future<Conversation> Function(
+  Object? envelope,
+);
 
 /// Contract-enforcing wrapper around [assembleConversation]: offloads via
 /// [offload] when `messages.length` exceeds [kLocalConversationWorkerThreshold],

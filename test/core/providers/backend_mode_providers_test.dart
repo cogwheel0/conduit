@@ -28,41 +28,36 @@ void main() {
   group('preferredBackendProvider', () {
     test('defaults to unset when nothing is persisted', () {
       final container = makeContainer();
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.unset);
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.unset);
     });
 
     test('parses a persisted owui value at build time', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'owui');
       final container = makeContainer();
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.owui);
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.owui);
     });
 
     test('parses a persisted hermes value at build time', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'hermes');
       final container = makeContainer();
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.hermes);
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.hermes);
     });
 
     test('parses a persisted direct value at build time', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'direct');
       final container = makeContainer();
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.direct);
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.direct);
     });
 
     test('falls back to unset for an unrecognized persisted value', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'garbage');
       final container = makeContainer();
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.unset);
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.unset);
     });
 
     test('set() updates state and persists the enum name', () async {
@@ -71,12 +66,10 @@ void main() {
           .read(preferredBackendProvider.notifier)
           .set(PreferredBackend.direct);
 
-      check(
-        container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.direct);
-      check(
-        PreferencesStore.getString(PreferenceKeys.preferredBackend),
-      ).equals('direct');
+      check(container.read(preferredBackendProvider))
+          .equals(PreferredBackend.direct);
+      check(PreferencesStore.getString(PreferenceKeys.preferredBackend))
+          .equals('direct');
     });
 
     test('set() round-trips through a fresh container (persistence)', () async {
@@ -88,9 +81,8 @@ void main() {
       // A new container rebuilds the controller from persisted prefs.
       final second = ProviderContainer();
       addTearDown(second.dispose);
-      check(
-        second.read(preferredBackendProvider),
-      ).equals(PreferredBackend.owui);
+      check(second.read(preferredBackendProvider))
+          .equals(PreferredBackend.owui);
     });
   });
 }

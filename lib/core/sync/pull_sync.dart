@@ -27,8 +27,9 @@ const int kOpenWebUiChatListPageSize = 60;
 
 /// Worker-isolate seam for decomposing a full Open WebUI chat blob into
 /// normalized rows before the database transaction begins.
-typedef ChatRowsParseOffload =
-    Future<ChatRows> Function(Map<String, dynamic> response);
+typedef ChatRowsParseOffload = Future<ChatRows> Function(
+  Map<String, dynamic> response,
+);
 
 /// Top-level callback used by [WorkerManager] through the injected
 /// [ChatRowsParseOffload]. Keeping this pure also makes it directly testable.

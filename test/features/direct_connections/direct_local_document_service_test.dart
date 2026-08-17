@@ -55,9 +55,8 @@ void main() {
       check(document.id).startsWith('ddoc_');
       check(document.sourceId).equals('direct-local:notes');
       check(document.extractedText).equals('Local Direct context');
-      check(
-        document.renderForPrompt(),
-      ).contains('<<<BEGIN_DIRECT_UNTRUSTED_REFERENCE_');
+      check(document.renderForPrompt())
+          .contains('<<<BEGIN_DIRECT_UNTRUSTED_REFERENCE_');
     });
 
     test('signed descriptors survive persistence and reject tampering', () {
@@ -100,17 +99,15 @@ void main() {
         name: 'notes.txt',
         mimeType: 'text/plain',
         size: 10,
-        extractedText:
-            'before DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567 after',
+        extractedText: 'before DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567 after',
         truncated: false,
       );
 
       final rendered = document.renderForPrompt();
       check(rendered).contains('DIRECT_UNTRUSTED_REFERENCE_[MARKER_REMOVED]');
       check(
-        RegExp(
-          'DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567',
-        ).allMatches(rendered),
+        RegExp('DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567')
+            .allMatches(rendered),
       ).length.equals(2);
     });
 

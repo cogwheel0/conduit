@@ -403,41 +403,38 @@ void main() {
     },
   );
 
-  test(
-    'resume reconciles an already-connected background lease without replacing it',
-    () async {
-      final socketFactory = _RecordingSocketFactory();
-      final service = SocketService(
-        serverConfig: _serverConfig,
-        socketFactory: socketFactory.create,
-      );
-      addTearDown(service.dispose);
-      var reconnectCount = 0;
-      final reconnectSub = service.onReconnect.listen((_) => reconnectCount++);
-      addTearDown(reconnectSub.cancel);
+  test('resume reconciles an already-connected background lease without replacing it', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+    var reconnectCount = 0;
+    final reconnectSub = service.onReconnect.listen((_) => reconnectCount++);
+    addTearDown(reconnectSub.cancel);
 
-      await service.connect();
-      final socket = socketFactory.sockets.single;
-      socket.connected = true;
-      socket.id = 'leased-background-session';
-      socket.emitReserved('connect');
-      await _flushMicrotasks(2);
-      final lease = service.acquireBackgroundActivityLease();
-      addTearDown(lease.dispose);
+    await service.connect();
+    final socket = socketFactory.sockets.single;
+    socket.connected = true;
+    socket.id = 'leased-background-session';
+    socket.emitReserved('connect');
+    await _flushMicrotasks(2);
+    final lease = service.acquireBackgroundActivityLease();
+    addTearDown(lease.dispose);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      expect(socket.connected, isTrue);
-      expect(socket.io.reconnection, isTrue);
+    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    expect(socket.connected, isTrue);
+    expect(socket.io.reconnection, isTrue);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
-      await _flushMicrotasks(2);
+    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await _flushMicrotasks(2);
 
-      expect(socketFactory.sockets, hasLength(1));
-      expect(service.socket, same(socket));
-      expect(service.isConnected, isTrue);
-      expect(reconnectCount, 1);
-    },
-  );
+    expect(socketFactory.sockets, hasLength(1));
+    expect(service.socket, same(socket));
+    expect(service.isConnected, isTrue);
+    expect(reconnectCount, 1);
+  });
 
   test('background disables reconnect for an idle socket', () async {
     final socketFactory = _RecordingSocketFactory();

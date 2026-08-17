@@ -22,7 +22,8 @@ void main() {
 
   group('note vs chat watermark isolation (R-09)', () {
     test('the two watermarks live under DISTINCT sync_meta keys', () {
-      check(SyncMetaDao.kNotesPullWatermarkKey).not((k) => k.equals('pull_watermark'));
+      check(SyncMetaDao.kNotesPullWatermarkKey)
+          .not((k) => k.equals('pull_watermark'));
     });
 
     test('the two overlap windows are distinct and in their own units', () {
@@ -31,8 +32,7 @@ void main() {
       check(kNotePullOverlapNs).not((o) => o.equals(kPullOverlapSeconds));
     });
 
-    test(
-        'a nanosecond note watermark and a seconds chat watermark round-trip '
+    test('a nanosecond note watermark and a seconds chat watermark round-trip '
         'independently — neither leaks into the other', () async {
       // A real time_ns()-scale value (~2024 in ns) must survive byte-for-byte.
       const noteNs = 1718000000000000000;
@@ -50,12 +50,14 @@ void main() {
       check(await db.syncMetaDao.getNotesPullWatermark()).equals(noteNs);
     });
 
-    test('the nanosecond watermark is not silently truncated to seconds',
-        () async {
-      const noteNs = 1718000000123456789; // sub-second precision present
-      await db.syncMetaDao.setNotesPullWatermark(noteNs);
-      // A lossy /1000000000 normalization would drop the low digits.
-      check(await db.syncMetaDao.getNotesPullWatermark()).equals(noteNs);
-    });
+    test(
+      'the nanosecond watermark is not silently truncated to seconds',
+      () async {
+        const noteNs = 1718000000123456789; // sub-second precision present
+        await db.syncMetaDao.setNotesPullWatermark(noteNs);
+        // A lossy /1000000000 normalization would drop the low digits.
+        check(await db.syncMetaDao.getNotesPullWatermark()).equals(noteNs);
+      },
+    );
   });
 }

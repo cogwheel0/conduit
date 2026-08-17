@@ -107,9 +107,8 @@ class SidebarTabletWidth extends _$SidebarTabletWidth {
   double build() {
     ref.onDispose(() => _persistTimer?.cancel());
     return _clamp(
-      PreferencesStore.get<num>(
-            PreferenceKeys.sidebarTabletWidth,
-          )?.toDouble() ??
+      PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth)
+              ?.toDouble() ??
           defaultSidebarTabletWidth,
     );
   }

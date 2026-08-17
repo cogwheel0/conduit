@@ -305,9 +305,8 @@ void main() {
       check(fixture.pendingMarker.existsSync()).isFalse();
       check(fixture.dartOwnedMarker.existsSync()).isTrue();
       check(attachments).length.equals(1);
-      check(
-        attachments.single.file.path,
-      ).equals(fixture.item.resolveSymbolicLinksSync());
+      check(attachments.single.file.path)
+          .equals(fixture.item.resolveSymbolicLinksSync());
     });
 
     check(callbackCalls).equals(1);

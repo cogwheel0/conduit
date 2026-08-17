@@ -126,9 +126,9 @@ typedef _WarmupNotifiers = ({
 
 _WarmupNotifiers _readWarmupNotifiers(ProviderContainer container) {
   return (
-    conversations:
-        container.read(conversationsProvider.notifier)
-            as _RecordingWarmupConversations,
+    conversations: container.read(
+      conversationsProvider.notifier,
+    ) as _RecordingWarmupConversations,
     folders: container.read(foldersProvider.notifier) as _TrackingWarmupFolders,
   );
 }
@@ -221,9 +221,8 @@ void main() {
     container.read(_authOwnerSignalProvider.notifier).signOut();
     await _flushMicrotasks(2);
     check(container.read(authTokenProvider3)).isNull();
-    check(
-      container.read(authNavigationStateProvider),
-    ).equals(AuthNavigationState.needsLogin);
+    check(container.read(authNavigationStateProvider))
+        .equals(AuthNavigationState.needsLogin);
 
     for (var attempt = 0; attempt < 50; attempt++) {
       if (container.read(attachedFilesProvider).isEmpty &&
@@ -328,9 +327,8 @@ void main() {
       authOwner.signOut();
       await _flushMicrotasks();
       check(container.read(authTokenProvider3)).isNull();
-      check(
-        container.read(authNavigationStateProvider),
-      ).equals(AuthNavigationState.needsLogin);
+      check(container.read(authNavigationStateProvider))
+          .equals(AuthNavigationState.needsLogin);
       authOwner.signIn(token: 'test-token');
       container.read(attachedFilesProvider.notifier).addFiles([
         LocalAttachment(file: replacementImage, displayName: 'new.png'),
@@ -469,9 +467,8 @@ void main() {
       authOwner.signOut();
       await _flushMicrotasks(2);
       check(container.read(authTokenProvider3)).isNull();
-      check(
-        container.read(authNavigationStateProvider),
-      ).equals(AuthNavigationState.needsLogin);
+      check(container.read(authNavigationStateProvider))
+          .equals(AuthNavigationState.needsLogin);
       await cleanupStarted.future.timeout(const Duration(seconds: 1));
       authOwner.signIn();
       final replacementConversation = _conversation('replacement-chat');
@@ -482,9 +479,8 @@ void main() {
       await _waitForFileDeletion(oldImage);
 
       check(container.read(authTokenProvider3)).equals('replacement-token');
-      check(
-        container.read(activeConversationProvider),
-      ).identicalTo(replacementConversation);
+      check(container.read(activeConversationProvider))
+          .identicalTo(replacementConversation);
       check(await oldImage.exists()).isFalse();
     },
   );
@@ -509,39 +505,36 @@ void main() {
     },
   );
 
-  test(
-    'forced warmup queued during an in-flight warmup reruns after folders finish',
-    () async {
-      final conversations = _RecordingWarmupConversations();
-      final folders = _BlockingWarmupFolders();
-      final container = await _createAuthenticatedWarmupContainer(
-        conversationsOverride: conversationsProvider.overrideWith(
-          () => conversations,
-        ),
-        foldersOverride: foldersProvider.overrideWith(() => folders),
-      );
+  test('forced warmup queued during an in-flight warmup reruns after folders finish', () async {
+    final conversations = _RecordingWarmupConversations();
+    final folders = _BlockingWarmupFolders();
+    final container = await _createAuthenticatedWarmupContainer(
+      conversationsOverride: conversationsProvider.overrideWith(
+        () => conversations,
+      ),
+      foldersOverride: foldersProvider.overrideWith(() => folders),
+    );
 
-      container
-          .read(appStartupFlowProvider.notifier)
-          .scheduleConversationWarmup();
-      await _flushMicrotasks(2);
+    container
+        .read(appStartupFlowProvider.notifier)
+        .scheduleConversationWarmup();
+    await _flushMicrotasks(2);
 
-      expect(folders.warmIfNeededCalls, 1);
-      expect(conversations.refreshCalls, 0);
+    expect(folders.warmIfNeededCalls, 1);
+    expect(conversations.refreshCalls, 0);
 
-      container
-          .read(appStartupFlowProvider.notifier)
-          .scheduleConversationWarmup(force: true);
-      await _flushMicrotasks();
+    container
+        .read(appStartupFlowProvider.notifier)
+        .scheduleConversationWarmup(force: true);
+    await _flushMicrotasks();
 
-      expect(conversations.refreshCalls, 0);
+    expect(conversations.refreshCalls, 0);
 
-      folders.completeFirstWarmup();
-      await _flushMicrotasks(3);
+    folders.completeFirstWarmup();
+    await _flushMicrotasks(3);
 
-      _expectForcedWarmup(conversations, folders, warmIfNeededCalls: 2);
-    },
-  );
+    _expectForcedWarmup(conversations, folders, warmIfNeededCalls: 2);
+  });
 
   test(
     'already-authenticated startup runs post-auth warmup on start',
@@ -595,66 +588,60 @@ void main() {
     },
   );
 
-  test(
-    'already-authenticated startup retries when api service becomes ready after the initial wait',
-    () async {
-      ApiService? currentApi;
-      final container = await _createAuthenticatedWarmupContainer(
-        apiOverride: apiServiceProvider.overrideWith((ref) => currentApi),
-      );
+  test('already-authenticated startup retries when api service becomes ready after the initial wait', () async {
+    ApiService? currentApi;
+    final container = await _createAuthenticatedWarmupContainer(
+      apiOverride: apiServiceProvider.overrideWith((ref) => currentApi),
+    );
 
-      container
-          .read(appStartupFlowProvider.notifier)
-          .activateForTesting(apiWaitTimeout: const Duration(milliseconds: 40));
+    container
+        .read(appStartupFlowProvider.notifier)
+        .activateForTesting(apiWaitTimeout: const Duration(milliseconds: 40));
 
-      final notifiers = _readWarmupNotifiers(container);
+    final notifiers = _readWarmupNotifiers(container);
 
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      expect(notifiers.conversations.refreshCalls, 0);
-      expect(notifiers.folders.warmIfNeededCalls, 0);
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(notifiers.conversations.refreshCalls, 0);
+    expect(notifiers.folders.warmIfNeededCalls, 0);
 
-      currentApi = _StubApiService();
-      container.invalidate(apiServiceProvider);
+    currentApi = _StubApiService();
+    container.invalidate(apiServiceProvider);
 
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      await _flushMicrotasks();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await _flushMicrotasks();
 
-      _expectForcedWarmup(
-        notifiers.conversations,
-        notifiers.folders,
-        warmIfNeededCalls: 1,
-      );
-    },
-  );
+    _expectForcedWarmup(
+      notifiers.conversations,
+      notifiers.folders,
+      warmIfNeededCalls: 1,
+    );
+  });
 
-  test(
-    'post-auth startup cancels delayed model preload after leaving authenticated flow',
-    () async {
-      var navState = AuthNavigationState.authenticated;
-      var defaultModelLoads = 0;
-      final container = await _createAuthenticatedWarmupContainer(
-        authNavigationOverride: authNavigationStateProvider.overrideWith(
-          (ref) => navState,
-        ),
-        extraOverrides: [
-          defaultModelProvider.overrideWith((ref) async {
-            defaultModelLoads += 1;
-            return null;
-          }),
-        ],
-      );
+  test('post-auth startup cancels delayed model preload after leaving authenticated flow', () async {
+    var navState = AuthNavigationState.authenticated;
+    var defaultModelLoads = 0;
+    final container = await _createAuthenticatedWarmupContainer(
+      authNavigationOverride: authNavigationStateProvider.overrideWith(
+        (ref) => navState,
+      ),
+      extraOverrides: [
+        defaultModelProvider.overrideWith((ref) async {
+          defaultModelLoads += 1;
+          return null;
+        }),
+      ],
+    );
 
-      container.read(appStartupFlowProvider.notifier).activateForTesting();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+    container.read(appStartupFlowProvider.notifier).activateForTesting();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      navState = AuthNavigationState.needsLogin;
-      container.invalidate(authNavigationStateProvider);
+    navState = AuthNavigationState.needsLogin;
+    container.invalidate(authNavigationStateProvider);
 
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
 
-      expect(defaultModelLoads, 0);
-    },
-  );
+    expect(defaultModelLoads, 0);
+  });
 
   test(
     'direct completion relay is owned only by an authenticated session',
@@ -714,9 +701,8 @@ void main() {
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
     final api = _StubApiService(
       conversations: {
-        'active-chat': _conversation(
-          'active-chat',
-        ).copyWith(title: 'Server copy'),
+        'active-chat': _conversation('active-chat')
+            .copyWith(title: 'Server copy'),
       },
     );
     final container = await _createAuthenticatedWarmupContainer(
@@ -773,9 +759,8 @@ void main() {
     final getConversationGate = Completer<void>();
     final api = _StubApiService(
       conversations: {
-        'active-chat': _conversation(
-          'active-chat',
-        ).copyWith(title: 'Server copy'),
+        'active-chat': _conversation('active-chat')
+            .copyWith(title: 'Server copy'),
       },
       getConversationGate: getConversationGate,
     );
@@ -807,9 +792,8 @@ void main() {
       final binding = TestWidgetsFlutterBinding.ensureInitialized();
       final api = _StubApiService(
         conversations: {
-          'active-chat': _conversation(
-            'active-chat',
-          ).copyWith(title: 'Server copy'),
+          'active-chat': _conversation('active-chat')
+              .copyWith(title: 'Server copy'),
         },
       );
       final container = await _createAuthenticatedWarmupContainer(

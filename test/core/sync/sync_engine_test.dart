@@ -331,9 +331,8 @@ void main() {
         check(identical(result, results.first)).isTrue();
         check(result!.success).isTrue();
       }
-      check(
-        container.read(syncEngineProvider).lastSuccessUpdatedAtWatermark,
-      ).equals(100);
+      check(container.read(syncEngineProvider).lastSuccessUpdatedAtWatermark)
+          .equals(100);
       check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
     });
 
@@ -621,9 +620,8 @@ void main() {
       check(result!.success).isTrue();
       check(interceptor.pullWatermarkReads).equals(3);
       check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
-      check(
-        container.read(syncEngineProvider).lastSuccessUpdatedAtWatermark,
-      ).isNull();
+      check(container.read(syncEngineProvider).lastSuccessUpdatedAtWatermark)
+          .isNull();
       check(await db.syncMetaDao.getPullWatermark()).equals(100);
     });
 
@@ -681,9 +679,8 @@ void main() {
           metadata: emptyHiveBox(),
         );
         final storage = _MockOptimizedStorageService();
-        when(
-          () => storage.getActiveServerId(),
-        ).thenAnswer((_) async => 'server-1');
+        when(() => storage.getActiveServerId())
+            .thenAnswer((_) async => 'server-1');
         final clockProvider =
             NotifierProvider<_MutableValue<SyncClock>, SyncClock>(
               () => _MutableValue<SyncClock>(const _FixedClock(1)),
@@ -792,9 +789,8 @@ void main() {
           metadata: emptyHiveBox(),
         );
         final storage = _MockOptimizedStorageService();
-        when(
-          () => storage.getActiveServerId(),
-        ).thenAnswer((_) async => 'server-1');
+        when(() => storage.getActiveServerId())
+            .thenAnswer((_) async => 'server-1');
         final container = ProviderContainer(
           overrides: [
             appDatabaseProvider.overrideWith(
@@ -831,12 +827,10 @@ void main() {
         await secondDrain;
 
         check(secondMigrationGate.taskMigrationFlagReads).equals(1);
-        check(
-          await firstDb.syncMetaDao.getValue('hive_caches_migrated'),
-        ).isNull();
-        check(
-          await secondDb.syncMetaDao.getValue('hive_caches_migrated'),
-        ).equals('1');
+        check(await firstDb.syncMetaDao.getValue('hive_caches_migrated'))
+            .isNull();
+        check(await secondDb.syncMetaDao.getValue('hive_caches_migrated'))
+            .equals('1');
       },
     );
 
@@ -897,9 +891,8 @@ void main() {
         await engine.drainNow();
 
         check(client.createChatCalls).equals(1);
-        check(
-          await secondDb.outboxDao.pendingForChat('local:after-switch'),
-        ).isEmpty();
+        check(await secondDb.outboxDao.pendingForChat('local:after-switch'))
+            .isEmpty();
       },
     );
 
@@ -1059,9 +1052,8 @@ void main() {
 
         await engine.drainOutbox();
 
-        final failed = (await db.outboxDao.pendingForChat(
-          'backing-off-chat',
-        )).single;
+        final failed = (await db.outboxDao.pendingForChat('backing-off-chat'))
+            .single;
         check(failed.attempts).equals(1);
         check(failed.nextAttemptAt).isNotNull();
         check(failed.nextAttemptAt!).isGreaterThan(1000);
@@ -1254,132 +1246,123 @@ void main() {
       check(completionRunner.calls).isEmpty();
     });
 
-    test(
-      'completion runner rebind keeps preserved drainer from using stale runner',
-      () async {
-        await seedLocalCreate(
-          'local:runner-rebind',
-          contentHash: 'h-runner-rebind',
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'assistant-1',
-            model: 'model-1',
+    test('completion runner rebind keeps preserved drainer from using stale runner', () async {
+      await seedLocalCreate(
+        'local:runner-rebind',
+        contentHash: 'h-runner-rebind',
+        completion: const RequestCompletionPayload(
+          assistantMessageId: 'assistant-1',
+          model: 'model-1',
+        ),
+      );
+      final firstRunner = _RecordingCompletionRunner();
+      final secondRunner = _RecordingCompletionRunner();
+      final completionProvider =
+          NotifierProvider<
+            _MutableValue<RequestCompletionRunner>,
+            RequestCompletionRunner
+          >(() => _MutableValue<RequestCompletionRunner>(firstRunner));
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          syncApiClientProvider.overrideWith((ref) => client),
+          isAuthenticatedProvider2.overrideWith((ref) => true),
+          isOnlineProvider.overrideWith((ref) => true),
+          requestCompletionRunnerProvider.overrideWith(
+            (ref) => ref.watch(completionProvider),
           ),
-        );
-        final firstRunner = _RecordingCompletionRunner();
-        final secondRunner = _RecordingCompletionRunner();
-        final completionProvider =
-            NotifierProvider<
-              _MutableValue<RequestCompletionRunner>,
-              RequestCompletionRunner
-            >(() => _MutableValue<RequestCompletionRunner>(firstRunner));
-        final container = ProviderContainer(
-          overrides: [
-            appDatabaseProvider.overrideWith((ref) => db),
-            syncApiClientProvider.overrideWith((ref) => client),
-            isAuthenticatedProvider2.overrideWith((ref) => true),
-            isOnlineProvider.overrideWith((ref) => true),
-            requestCompletionRunnerProvider.overrideWith(
-              (ref) => ref.watch(completionProvider),
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-        final engine = container.read(syncEngineProvider.notifier);
+        ],
+      );
+      addTearDown(container.dispose);
+      final engine = container.read(syncEngineProvider.notifier);
 
-        final gate = Completer<void>();
-        client.createChatGate = gate.future;
-        final drain = engine.drainOutbox();
-        await waitFor(() => client.createChatStarts.isNotEmpty);
+      final gate = Completer<void>();
+      client.createChatGate = gate.future;
+      final drain = engine.drainOutbox();
+      await waitFor(() => client.createChatStarts.isNotEmpty);
 
-        container.read(completionProvider.notifier).set(secondRunner);
-        container.read(syncEngineProvider);
-        gate.complete();
-        await drain;
+      container.read(completionProvider.notifier).set(secondRunner);
+      container.read(syncEngineProvider);
+      gate.complete();
+      await drain;
 
-        check(firstRunner.calls).isEmpty();
-        check(secondRunner.calls).isEmpty();
+      check(firstRunner.calls).isEmpty();
+      check(secondRunner.calls).isEmpty();
 
-        await engine.drainNow();
+      await engine.drainNow();
 
-        check(firstRunner.calls).isEmpty();
-        check(secondRunner.calls).length.equals(1);
-      },
-    );
+      check(firstRunner.calls).isEmpty();
+      check(secondRunner.calls).length.equals(1);
+    });
 
-    test(
-      'disposing during an active create keeps remap forwarding until drain ends',
-      () async {
-        await seedLocalCreate(
-          'local:dispose-remap',
-          contentHash: 'h-dispose-remap',
-        );
-        final container = ProviderContainer(
-          overrides: [
-            appDatabaseProvider.overrideWith((ref) => db),
-            syncApiClientProvider.overrideWith((ref) => client),
-            isAuthenticatedProvider2.overrideWith((ref) => true),
-            isOnlineProvider.overrideWith((ref) => true),
-          ],
-        );
-        final engine = container.read(syncEngineProvider.notifier);
-        final remapEvents = <RemapEvent>[];
-        final remapSub = engine.remapEvents.listen(remapEvents.add);
-        addTearDown(remapSub.cancel);
+    test('disposing during an active create keeps remap forwarding until drain ends', () async {
+      await seedLocalCreate(
+        'local:dispose-remap',
+        contentHash: 'h-dispose-remap',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          syncApiClientProvider.overrideWith((ref) => client),
+          isAuthenticatedProvider2.overrideWith((ref) => true),
+          isOnlineProvider.overrideWith((ref) => true),
+        ],
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+      final remapEvents = <RemapEvent>[];
+      final remapSub = engine.remapEvents.listen(remapEvents.add);
+      addTearDown(remapSub.cancel);
 
-        final gate = Completer<void>();
-        client.createChatGate = gate.future;
-        final drain = engine.drainOutbox();
-        await waitFor(() => client.createChatStarts.isNotEmpty);
+      final gate = Completer<void>();
+      client.createChatGate = gate.future;
+      final drain = engine.drainOutbox();
+      await waitFor(() => client.createChatStarts.isNotEmpty);
 
-        container.dispose();
-        gate.complete();
-        await drain;
+      container.dispose();
+      gate.complete();
+      await drain;
 
-        check(remapEvents).length.equals(1);
-        check(remapEvents.single.fromId).equals('local:dispose-remap');
-        check(engine.hasCachedDrainerForTesting).isFalse();
-        check(engine.hasCachedRemapperForTesting).isFalse();
-      },
-    );
+      check(remapEvents).length.equals(1);
+      check(remapEvents.single.fromId).equals('local:dispose-remap');
+      check(engine.hasCachedDrainerForTesting).isFalse();
+      check(engine.hasCachedRemapperForTesting).isFalse();
+    });
 
-    test(
-      'disposing after auth flip keeps retired remap forwarding until drain ends',
-      () async {
-        await seedLocalCreate(
-          'local:auth-dispose-remap',
-          contentHash: 'h-auth-dispose-remap',
-        );
-        final authProvider = NotifierProvider<_MutableValue<bool>, bool>(
-          () => _MutableValue<bool>(true),
-        );
-        final container = makeContainer(
-          authBuilder: (ref) => ref.watch(authProvider),
-        );
-        final engine = container.read(syncEngineProvider.notifier);
-        final remapEvents = <RemapEvent>[];
-        final remapSub = engine.remapEvents.listen(remapEvents.add);
-        addTearDown(remapSub.cancel);
+    test('disposing after auth flip keeps retired remap forwarding until drain ends', () async {
+      await seedLocalCreate(
+        'local:auth-dispose-remap',
+        contentHash: 'h-auth-dispose-remap',
+      );
+      final authProvider = NotifierProvider<_MutableValue<bool>, bool>(
+        () => _MutableValue<bool>(true),
+      );
+      final container = makeContainer(
+        authBuilder: (ref) => ref.watch(authProvider),
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+      final remapEvents = <RemapEvent>[];
+      final remapSub = engine.remapEvents.listen(remapEvents.add);
+      addTearDown(remapSub.cancel);
 
-        final gate = Completer<void>();
-        client.createChatGate = gate.future;
-        final drain = engine.drainOutbox();
-        await waitFor(() => client.createChatStarts.isNotEmpty);
+      final gate = Completer<void>();
+      client.createChatGate = gate.future;
+      final drain = engine.drainOutbox();
+      await waitFor(() => client.createChatStarts.isNotEmpty);
 
-        container.read(authProvider.notifier).set(false);
-        container.read(syncEngineProvider);
-        check(engine.hasCachedDrainerForTesting).isFalse();
-        check(engine.hasCachedRemapperForTesting).isFalse();
+      container.read(authProvider.notifier).set(false);
+      container.read(syncEngineProvider);
+      check(engine.hasCachedDrainerForTesting).isFalse();
+      check(engine.hasCachedRemapperForTesting).isFalse();
 
-        container.dispose();
-        gate.complete();
-        await drain;
+      container.dispose();
+      gate.complete();
+      await drain;
 
-        check(remapEvents).length.equals(1);
-        check(remapEvents.single.fromId).equals('local:auth-dispose-remap');
-        check(engine.hasCachedDrainerForTesting).isFalse();
-        check(engine.hasCachedRemapperForTesting).isFalse();
-      },
-    );
+      check(remapEvents).length.equals(1);
+      check(remapEvents.single.fromId).equals('local:auth-dispose-remap');
+      check(engine.hasCachedDrainerForTesting).isFalse();
+      check(engine.hasCachedRemapperForTesting).isFalse();
+    });
 
     test(
       'pull-cycle drain clears a stale drainer after dependency refresh',

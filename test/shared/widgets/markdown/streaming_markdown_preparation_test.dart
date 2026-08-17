@@ -113,43 +113,40 @@ void main() {
     );
   });
 
-  test(
-    'hidden incomplete tool call trims retained whitespace without parity checks',
-    () {
-      final engine = StreamingMarkdownPreparationEngine();
-      var prepared = const PreparedMarkdownText.empty();
+  test('hidden incomplete tool call trims retained whitespace without parity checks', () {
+    final engine = StreamingMarkdownPreparationEngine();
+    var prepared = const PreparedMarkdownText.empty();
 
-      final first = engine.prepare(
-        _request(
-          sessionId: 'message-1',
-          revision: 1,
-          baseRevision: 0,
-          content: 'Visible\n\nDraft',
-          verifyParity: false,
-        ),
-      );
-      prepared = prepared.applyPatch(first);
+    final first = engine.prepare(
+      _request(
+        sessionId: 'message-1',
+        revision: 1,
+        baseRevision: 0,
+        content: 'Visible\n\nDraft',
+        verifyParity: false,
+      ),
+    );
+    prepared = prepared.applyPatch(first);
 
-      const content = 'Visible\n\n<details type="tool_calls" name="search">';
-      final second = engine.prepare(
-        _request(
-          sessionId: 'message-1',
-          revision: 2,
-          baseRevision: 1,
-          content: content,
-          verifyParity: false,
-        ),
-      );
-      prepared = prepared.applyPatch(second);
+    const content = 'Visible\n\n<details type="tool_calls" name="search">';
+    final second = engine.prepare(
+      _request(
+        sessionId: 'message-1',
+        revision: 2,
+        baseRevision: 1,
+        content: content,
+        verifyParity: false,
+      ),
+    );
+    prepared = prepared.applyPatch(second);
 
-      expect(second.mode, MarkdownPreparationMode.incremental);
-      expect(prepared.materialize(), 'Visible');
-      expect(
-        prepared.materialize(),
-        prepareMarkdownContentCanonical(content, streaming: true),
-      );
-    },
-  );
+    expect(second.mode, MarkdownPreparationMode.incremental);
+    expect(prepared.materialize(), 'Visible');
+    expect(
+      prepared.materialize(),
+      prepareMarkdownContentCanonical(content, streaming: true),
+    );
+  });
 
   test('completed tool call restores its separator without parity checks', () {
     final engine = StreamingMarkdownPreparationEngine();

@@ -52,9 +52,8 @@ void main() {
     check(result.profile).isNull();
     check(result.errors.name).equals(DirectDraftValidationIssue.nameRequired);
     check(result.errors.url).equals(DirectDraftValidationIssue.invalidUrl);
-    check(
-      result.errors.apiKey,
-    ).equals(DirectDraftValidationIssue.apiKeyRequired);
+    check(result.errors.apiKey)
+        .equals(DirectDraftValidationIssue.apiKeyRequired);
   });
 
   test('custom-header validation is typed and case-insensitive', () {
@@ -63,9 +62,8 @@ void main() {
 
     editor.form.headerName.text = 'Authorization';
     check(editor.form.addCustomHeader()).isFalse();
-    check(
-      editor.form.headerError?.issue,
-    ).equals(DirectHeaderValidationIssue.reservedName);
+    check(editor.form.headerError?.issue)
+        .equals(DirectHeaderValidationIssue.reservedName);
 
     editor.form.headerName.text = 'X-Tenant';
     editor.form.headerValue.text = 'one';
@@ -73,9 +71,8 @@ void main() {
     editor.form.headerName.text = 'x-tenant';
     editor.form.headerValue.text = 'two';
     check(editor.form.addCustomHeader()).isFalse();
-    check(
-      editor.form.headerError?.issue,
-    ).equals(DirectHeaderValidationIssue.duplicateName);
+    check(editor.form.headerError?.issue)
+        .equals(DirectHeaderValidationIssue.duplicateName);
   });
 
   test('custom-header validation publishes only through the owning form', () {
@@ -151,9 +148,8 @@ void main() {
         messages: _messages,
         confirmCredentialTransfer: (_) async => true,
       );
-      check(
-        editor.workflow.state.operation,
-      ).equals(DirectEditorOperation.testing);
+      check(editor.workflow.state.operation)
+          .equals(DirectEditorOperation.testing);
 
       final concurrentSave = await editor.workflow.save(
         messages: _messages,
@@ -189,9 +185,8 @@ void main() {
     check(target.savedProfile).isNotNull();
     check(target.savedProfile!.name).equals('My provider');
     check(target.savedIntent).isNotNull();
-    check(
-      target.savedIntent!.authentication,
-    ).equals(DirectAuthenticationMode.none);
+    check(target.savedIntent!.authentication)
+        .equals(DirectAuthenticationMode.none);
   });
 
   test('owner identity is captured once and includes auth epoch identity', () {
@@ -274,9 +269,8 @@ void main() {
         DirectConnectionProfileConflictException(currentProfiles: const []),
       );
 
-      check(
-        (await result).outcome,
-      ).equals(DirectEditorActionOutcome.unavailable);
+      check((await result).outcome)
+          .equals(DirectEditorActionOutcome.unavailable);
     },
   );
 }

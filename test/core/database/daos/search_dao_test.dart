@@ -368,9 +368,8 @@ void main() {
             'ORDER BY kind',
           )
           .get();
-      check(
-        rows.map((row) => row.read<String>('kind')).toList(),
-      ).deepEquals(['note_text', 'note_title']);
+      check(rows.map((row) => row.read<String>('kind')).toList())
+          .deepEquals(['note_text', 'note_title']);
       check(rows.first.read<String>('text')).equals('clementine markdown body');
 
       final noteHits = await db.searchDao.searchNotes('clementine');

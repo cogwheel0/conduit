@@ -29,9 +29,8 @@ void main() {
 
       final memories = await _loadMemories(container);
 
-      check(
-        memories.map((memory) => memory.id).toList(),
-      ).deepEquals(['memory-2', 'memory-1']);
+      check(memories.map((memory) => memory.id).toList())
+          .deepEquals(['memory-2', 'memory-1']);
     });
 
     test('add, update, and delete keep local state sorted', () async {
@@ -68,15 +67,13 @@ void main() {
 
       final updated = await notifier.updateItem('memory-1', 'revise first');
       check(updated.content).equals('First updated');
-      check(
-        api.updatedRequests,
-      ).deepEquals([(memoryId: 'memory-1', content: 'revise first')]);
+      check(api.updatedRequests)
+          .deepEquals([(memoryId: 'memory-1', content: 'revise first')]);
       final currentAfterUpdate = container
           .read(userMemoriesProvider)
           .requireValue;
-      check(
-        currentAfterUpdate.map((it) => it.id),
-      ).deepEquals(['memory-1', 'memory-3', 'memory-2']);
+      check(currentAfterUpdate.map((it) => it.id))
+          .deepEquals(['memory-1', 'memory-3', 'memory-2']);
       check(currentAfterUpdate.first.content).equals('First updated');
 
       await notifier.deleteItem('memory-2');
@@ -107,9 +104,8 @@ void main() {
           .updateItem('missing', 'ignored locally');
 
       final memories = container.read(userMemoriesProvider).requireValue;
-      check(
-        memories.map((memory) => memory.id).toList(),
-      ).deepEquals(['memory-1']);
+      check(memories.map((memory) => memory.id).toList())
+          .deepEquals(['memory-1']);
     });
 
     test(

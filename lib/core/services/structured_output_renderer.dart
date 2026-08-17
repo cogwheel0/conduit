@@ -232,6 +232,41 @@ final class StructuredOutputStreamingProjector {
     return null;
   }
 
+  /// Materializes the latest observed snapshot as a full replacement when the
+  /// current projection is stale — i.e. a deferred [project] call left the
+  /// visible content behind the logical content. Returns null when the
+  /// projection is already up to date (or nothing was observed yet).
+  ///
+  /// Callers use this before switching the visible content basis away from
+  /// the projector (e.g. appending a plain delta), so the deferred middle of
+  /// the response cannot be silently dropped.
+  StructuredOutputStreamingReplace? syncProjectionToLatest() {
+    if (_finished || !_hasLatestSnapshot) return null;
+    // Only the projector's own projections can be stale. When snapshots were
+    // merely observed (observe-only basis: the caller kept visible content
+    // that may be a superset of the snapshot render), materializing the
+    // snapshot here would SHRINK the visible content and drop that surplus.
+    if (!_hasProjection) return null;
+    if (identical(_projectedBlocks, _latestBlocks) &&
+        _projectedReplacementText == _latestReplacementText) {
+      return null;
+    }
+    // This sync materializes deferred content before the caller switches the
+    // visible basis away from the projector. It must not re-arm the geometric
+    // backoff to 2x the full length: with the append path disabled after a
+    // plain chunk, subsequent snapshots would all defer until the response
+    // doubled — freezing the visible tail for the rest of the turn.
+    final preservedThreshold = _nextFullProjectionLength;
+    final projection = _replace(
+      _latestBlocks,
+      _latestReplacementText,
+      _logicalLength(_latestBlocks, _latestReplacementText),
+      reason: StructuredOutputReplacementReason.forced,
+    );
+    _nextFullProjectionLength = preservedThreshold;
+    return projection;
+  }
+
   void observeLatest(
     List<StructuredOutputBlock> blocks, {
     String? replacementText,
@@ -293,7 +328,16 @@ final class StructuredOutputStreamingProjector {
     _projectedReplacementText = replacementText;
     _hasProjection = true;
     _appendIsPlain = !plainContent.contains('`') && !plainContent.contains('~');
-    _nextFullProjectionLength = logicalLength == 0 ? 1 : logicalLength * 2;
+    // With appends available, geometric backoff is safe — appends carry the
+    // tail between full renders. Once a backtick/tilde disables appends for
+    // the rest of the turn, doubling would leave the visible tail up to 50%
+    // behind until completion; fall back to a bounded additive step instead.
+    _nextFullProjectionLength = logicalLength == 0
+        ? 1
+        : _appendIsPlain
+        ? logicalLength * 2
+        : logicalLength +
+              ((logicalLength >> 3) > 64 ? (logicalLength >> 3) : 64);
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
     switch (reason) {

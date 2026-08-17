@@ -74,10 +74,7 @@ class ChatTimelineRenderModel {
     if (duplicateCount > 0) {
       final newlyObservedIds = <String>[];
       for (final messageId in duplicateMessageIds) {
-        final reportKey = (
-          scope: duplicateReportScope,
-          messageId: messageId,
-        );
+        final reportKey = (scope: duplicateReportScope, messageId: messageId);
         if (_reportedDuplicateMessageIds.remove(reportKey)) {
           _reportedDuplicateMessageIds.add(reportKey);
           continue;

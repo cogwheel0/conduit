@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+
 import 'chat_message.dart';
 
 // Freezed applies JsonKey to constructor parameters.

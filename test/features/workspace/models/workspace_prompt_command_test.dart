@@ -14,7 +14,8 @@ void main() {
     });
 
     test('leaves a bare token untouched', () {
-      check(WorkspacePromptCommand.strip('translate-now')).equals('translate-now');
+      check(WorkspacePromptCommand.strip('translate-now'))
+          .equals('translate-now');
     });
   });
 
@@ -45,7 +46,8 @@ void main() {
 
   group('WorkspacePromptCommand.slugify', () {
     test('lowercases and hyphenates whitespace', () {
-      check(WorkspacePromptCommand.slugify('Summarize This')).equals('summarize-this');
+      check(WorkspacePromptCommand.slugify('Summarize This'))
+          .equals('summarize-this');
     });
 
     test('strips accents and illegal characters', () {
@@ -53,7 +55,8 @@ void main() {
     });
 
     test('keeps hyphens and underscores', () {
-      check(WorkspacePromptCommand.slugify('multi_word-name')).equals('multi_word-name');
+      check(WorkspacePromptCommand.slugify('multi_word-name'))
+          .equals('multi_word-name');
     });
   });
 }

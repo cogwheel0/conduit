@@ -49,9 +49,8 @@ void main() {
       when(
         () => service.isTerminalFeatureEnabled(server, sessionScopeId: 'scope'),
       ).thenAnswer((_) async => true);
-      when(
-        () => service.getCwd(server, sessionScopeId: 'scope'),
-      ).thenAnswer((_) async => '/workspace');
+      when(() => service.getCwd(server, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => '/workspace');
       when(
         () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope'),
       ).thenAnswer(
@@ -63,9 +62,8 @@ void main() {
           ),
         ],
       );
-      when(
-        () => service.getListeningPorts(server, sessionScopeId: 'scope'),
-      ).thenAnswer((_) async => const [TerminalListeningPort(port: 8080)]);
+      when(() => service.getListeningPorts(server, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const [TerminalListeningPort(port: 8080)]);
       final harness = _TerminalControllerHarness(gateway);
       addTearDown(harness.dispose);
 
@@ -211,9 +209,8 @@ void main() {
     when(
       () => service.listFiles(server, '/workspace/', sessionScopeId: 'scope-a'),
     ).thenAnswer((_) async => const []);
-    when(
-      () => service.getListeningPorts(server, sessionScopeId: 'scope-a'),
-    ).thenAnswer((_) async => const []);
+    when(() => service.getListeningPorts(server, sessionScopeId: 'scope-a'))
+        .thenAnswer((_) async => const []);
 
     await harness.browser.renameEntry(capturedContext, entry, 'renamed.md');
     await harness.browser.deleteEntry(capturedContext, entry);

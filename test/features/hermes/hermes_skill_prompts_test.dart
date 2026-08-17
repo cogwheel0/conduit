@@ -44,33 +44,36 @@ void main() {
     check(skills.single['name']).equals('gif-search');
   });
 
-  test('hermesSkillPromptsProvider maps skills to slash-command prompts', () async {
-    final capture = _CaptureInterceptor({
-      'skills': [
-        {'name': 'gif-search', 'description': 'Find GIFs'},
-        {'name': 'plan', 'description': 'Plan a rollout'},
-        {'description': 'no name — skipped'},
-      ],
-    });
-    final dio = Dio()..interceptors.add(capture);
-    final service = HermesApiService(
-      config: const HermesConfig(
-        enabled: true,
-        baseUrl: 'http://host:8642',
-        apiKey: 'k',
-      ),
-      dio: dio,
-    );
+  test(
+    'hermesSkillPromptsProvider maps skills to slash-command prompts',
+    () async {
+      final capture = _CaptureInterceptor({
+        'skills': [
+          {'name': 'gif-search', 'description': 'Find GIFs'},
+          {'name': 'plan', 'description': 'Plan a rollout'},
+          {'description': 'no name — skipped'},
+        ],
+      });
+      final dio = Dio()..interceptors.add(capture);
+      final service = HermesApiService(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://host:8642',
+          apiKey: 'k',
+        ),
+        dio: dio,
+      );
 
-    final container = ProviderContainer(
-      overrides: [hermesApiServiceProvider.overrideWithValue(service)],
-    );
-    addTearDown(container.dispose);
+      final container = ProviderContainer(
+        overrides: [hermesApiServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
 
-    final prompts = await container.read(hermesSkillPromptsProvider.future);
-    check(prompts).has((p) => p.length, 'length').equals(2);
-    check(prompts.first.command).equals('/gif-search');
-    check(prompts.first.title).equals('Find GIFs');
-    check(prompts.first.content).equals('/gif-search ');
-  });
+      final prompts = await container.read(hermesSkillPromptsProvider.future);
+      check(prompts).has((p) => p.length, 'length').equals(2);
+      check(prompts.first.command).equals('/gif-search');
+      check(prompts.first.title).equals('Find GIFs');
+      check(prompts.first.content).equals('/gif-search ');
+    },
+  );
 }

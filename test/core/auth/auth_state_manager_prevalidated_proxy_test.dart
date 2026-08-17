@@ -77,9 +77,8 @@ void main() {
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     final firstEntered = Completer<void>();
     final releaseFirst = Completer<void>();
@@ -127,9 +126,8 @@ void main() {
     await olderSelection;
 
     check(publishedServerIds).deepEquals([candidate.id]);
-    check(
-      container.read(authStateManagerProvider).requireValue.status,
-    ).equals(AuthStatus.unauthenticated);
+    check(container.read(authStateManagerProvider).requireValue.status)
+        .equals(AuthStatus.unauthenticated);
   });
 
   test('a rolled-back login publication restores in-memory auth', () async {
@@ -138,9 +136,8 @@ void main() {
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(
       () => storage.captureServerSessionOwnership(
@@ -202,9 +199,8 @@ void main() {
 
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
       when(
         () =>
@@ -283,9 +279,8 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
       when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
         (_) async => (
@@ -348,13 +343,11 @@ void main() {
   test('prevalidated proxy publishes only after token persistence', () async {
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-    when(
-      () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-    ).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
     when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
       (_) async => (
         configs: const [previousConfig],
@@ -429,85 +422,79 @@ void main() {
     );
   });
 
-  test(
-    'authenticated publication replaced synchronously cannot cache a stale user',
-    () async {
-      final storage = _Storage();
-      when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
-      when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
-        (_) async => (
-          configs: const [previousConfig],
-          activeServerId: previousConfig.id,
-          transactionId: 13,
-        ),
-      );
-      when(
-        () => storage.commitServerConfigCandidateSession(
-          candidate: candidate,
-          transactionId: 13,
-          token: token,
-          canCommit: any(named: 'canCommit'),
-          publish: any(named: 'publish'),
-          onRollbackUncertain: any(named: 'onRollbackUncertain'),
-        ),
-      ).thenAnswer((invocation) async {
-        final publish =
-            invocation.namedArguments[#publish] as FutureOr<void> Function();
-        await publish();
-        return true;
-      });
+  test('authenticated publication replaced synchronously cannot cache a stale user', () async {
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
+      (_) async => (
+        configs: const [previousConfig],
+        activeServerId: previousConfig.id,
+        transactionId: 13,
+      ),
+    );
+    when(
+      () => storage.commitServerConfigCandidateSession(
+        candidate: candidate,
+        transactionId: 13,
+        token: token,
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return true;
+    });
 
-      final container = ProviderContainer(
-        overrides: [
-          optimizedStorageServiceProvider.overrideWithValue(storage),
-          apiServiceProvider.overrideWithValue(null),
-          defaultModelProvider.overrideWith((ref) async => null),
-        ],
-      );
-      addTearDown(container.dispose);
-      await container.read(authStateManagerProvider.future);
-      await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
 
-      var replaced = false;
-      final subscription = container.listen(authStateManagerProvider, (
-        previous,
-        next,
-      ) {
-        if (replaced || next.asData?.value.isAuthenticated != true) return;
-        replaced = true;
-        container.read(authStateManagerProvider.notifier).onAuthIssue();
-      });
-      addTearDown(subscription.close);
+    var replaced = false;
+    final subscription = container.listen(authStateManagerProvider, (
+      previous,
+      next,
+    ) {
+      if (replaced || next.asData?.value.isAuthenticated != true) return;
+      replaced = true;
+      container.read(authStateManagerProvider.notifier).onAuthIssue();
+    });
+    addTearDown(subscription.close);
 
-      check(
-        await container
-            .read(authStateManagerProvider.notifier)
-            .commitPrevalidatedProxySession(
-              serverConfig: candidate,
-              token: token,
-              user: user,
-            ),
-      ).isTrue();
-      await Future<void>.delayed(Duration.zero);
+    check(
+      await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: candidate,
+            token: token,
+            user: user,
+          ),
+    ).isTrue();
+    await Future<void>.delayed(Duration.zero);
 
-      check(replaced).isTrue();
-      check(
-        container.read(authStateManagerProvider).requireValue.status,
-      ).equals(AuthStatus.error);
-      verifyNever(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null));
-    },
-  );
+    check(replaced).isTrue();
+    check(container.read(authStateManagerProvider).requireValue.status)
+        .equals(AuthStatus.error);
+    verifyNever(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null));
+  });
 
   test('overlapping failures restore the last settled auth state', () async {
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     var stageCall = 0;
     when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
@@ -587,13 +574,11 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       var stageCall = 17;
       when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
         (_) async => (
@@ -656,9 +641,8 @@ void main() {
           user: user,
         ),
       ).isTrue();
-      check(
-        container.read(authStateManagerProvider).requireValue.status,
-      ).equals(AuthStatus.authenticated);
+      check(container.read(authStateManagerProvider).requireValue.status)
+          .equals(AuthStatus.authenticated);
 
       await expectLater(
         notifier.commitPrevalidatedProxySession(
@@ -683,13 +667,11 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       var stageCall = 29;
       when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
         (_) async => (
@@ -798,13 +780,11 @@ void main() {
       for (final mode in _MixedAuthMode.values) {
         final storage = _Storage();
         when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-        when(
-          () => storage.getSavedCredentialsStrict(),
-        ).thenAnswer((_) async => null);
+        when(() => storage.getSavedCredentialsStrict())
+            .thenAnswer((_) async => null);
         when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-        when(
-          () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-        ).thenAnswer((_) async {});
+        when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+            .thenAnswer((_) async {});
         when(
           () => storage.captureServerSessionOwnership(
             validatedConfig: any(named: 'validatedConfig'),
@@ -860,9 +840,8 @@ void main() {
   test('logout supersedes a login before its first network request', () async {
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => storage.clearAuthData()).thenAnswer((_) async {});
     _routeConditionalAuthClearToLegacyMock(storage);
@@ -914,13 +893,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -998,13 +975,11 @@ void main() {
     addTearDown(PreferencesStore.debugReset);
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-    when(
-      () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-    ).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
     _routeConditionalAuthClearToLegacyMock(storage);
     when(
       () => storage.captureServerSessionOwnership(
@@ -1073,13 +1048,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1156,19 +1129,15 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       String? storedToken;
-      when(
-        () => storage.getAuthTokenStrict(),
-      ).thenAnswer((_) async => storedToken ?? '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
-      when(
-        () => storage.getLocalUserWithAvatar(),
-      ).thenAnswer((_) async => user);
+      when(() => storage.getAuthTokenStrict())
+          .thenAnswer((_) async => storedToken ?? '');
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
+      when(() => storage.getLocalUserWithAvatar())
+          .thenAnswer((_) async => user);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1245,13 +1214,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1300,9 +1267,8 @@ void main() {
 
       final logout = notifier.logout();
       await logoutEntered.future;
-      await check(
-        notifier.login('same-token-user', 'password'),
-      ).throws<Exception>();
+      await check(notifier.login('same-token-user', 'password'))
+          .throws<Exception>();
       releaseLogout.complete();
       await logout;
 
@@ -1324,13 +1290,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1380,9 +1344,8 @@ void main() {
 
       final logout = notifier.logout();
       await logoutEntered.future;
-      await check(
-        notifier.login('same-token-user', 'password'),
-      ).throws<Exception>();
+      await check(notifier.login('same-token-user', 'password'))
+          .throws<Exception>();
       releaseLogout.complete();
       await logout;
 
@@ -1404,13 +1367,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1476,13 +1437,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1574,9 +1533,8 @@ void main() {
 
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => storage.clearAuthData()).thenAnswer((_) async {});
     _routeConditionalAuthClearToLegacyMock(storage);
@@ -1631,9 +1589,8 @@ void main() {
     await _waitForAuthStatus(container, AuthStatus.unauthenticated);
     final notifier = container.read(authStateManagerProvider.notifier);
     check(await notifier.login('account-a', 'password')).isTrue();
-    check(
-      container.read(authStateManagerProvider).requireValue.user,
-    ).equals(user);
+    check(container.read(authStateManagerProvider).requireValue.user)
+        .equals(user);
     api.loginFailure = StateError('new login rejected');
 
     final logout = notifier.logout();
@@ -1666,13 +1623,11 @@ void main() {
       addTearDown(PreferencesStore.debugReset);
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -1763,13 +1718,11 @@ void main() {
 
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.clearAuthData(),
-      ).thenThrow(StateError('secure config rewrite failed'));
+      when(() => storage.clearAuthData())
+          .thenThrow(StateError('secure config rewrite failed'));
       _routeConditionalAuthClearToLegacyMock(storage);
       const cookieConfig = ServerConfig(
         id: 'proxy',
@@ -1793,9 +1746,8 @@ void main() {
 
       await container.read(authStateManagerProvider.notifier).logout();
 
-      check(
-        PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-      ).equals(true);
+      check(PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence))
+          .equals(true);
       check(container.read(incompleteLogoutFenceProvider)).isTrue();
       final liveAdapter = _RecordingAdapter();
       api.dio.httpClientAdapter = liveAdapter;
@@ -1912,9 +1864,8 @@ void main() {
 
       final storage = _Storage();
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.clearAuthData(),
-      ).thenThrow(StateError('Keychain still unavailable'));
+      when(() => storage.clearAuthData())
+          .thenThrow(StateError('Keychain still unavailable'));
       final container = ProviderContainer(
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
@@ -1942,9 +1893,8 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => null);
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenThrow(PlatformException(code: 'keychain-unavailable'));
+      when(() => storage.getSavedCredentialsStrict())
+          .thenThrow(PlatformException(code: 'keychain-unavailable'));
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
       final container = ProviderContainer(
         overrides: [
@@ -1977,16 +1927,13 @@ void main() {
         role: 'user',
       );
       final storage = _Storage();
-      when(
-        () => storage.getAuthTokenStrict(),
-      ).thenAnswer((_) async => storedToken);
-      when(
-        () => storage.getLocalUserWithAvatar(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getAuthTokenStrict())
+          .thenAnswer((_) async => storedToken);
+      when(() => storage.getLocalUserWithAvatar())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
         (_) async => (
           configs: const [previousConfig],
@@ -2060,13 +2007,11 @@ void main() {
       await releaseRefreshRead.future;
       return null;
     });
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-    when(
-      () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-    ).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
     when(
       () => storage.captureServerSessionOwnership(
         validatedConfig: any(named: 'validatedConfig'),
@@ -2132,24 +2077,21 @@ void main() {
         tokenReads++;
         return tokenReads == 1 ? token : rejectedApiKey;
       });
-      when(
-        () => storage.getLocalUserWithAvatar(),
-      ).thenAnswer((_) async => user);
+      when(() => storage.getLocalUserWithAvatar())
+          .thenAnswer((_) async => user);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       final cleanupEntered = Completer<void>();
       final releaseCleanup = Completer<void>();
-      when(
-        () => storage.clearAuthDataIf(canClear: any(named: 'canClear')),
-      ).thenAnswer((invocation) async {
-        cleanupEntered.complete();
-        await releaseCleanup.future;
-        final canClear =
-            invocation.namedArguments[#canClear] as bool Function();
-        return canClear();
-      });
+      when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
+          .thenAnswer((invocation) async {
+            cleanupEntered.complete();
+            await releaseCleanup.future;
+            final canClear =
+                invocation.namedArguments[#canClear] as bool Function();
+            return canClear();
+          });
 
       final api = _SuccessfulAuthApi();
       final container = ProviderContainer(
@@ -2197,9 +2139,8 @@ void main() {
       };
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => null);
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => savedCredentials);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => savedCredentials);
       when(
         () => storage.captureSavedServerSessionOwnership(previousConfig.id),
       ).thenAnswer(
@@ -2221,9 +2162,8 @@ void main() {
         await publish();
         return true;
       });
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       final tempApis = <_SuccessfulAuthApi>[];
       final container = ProviderContainer(
         overrides: [
@@ -2304,9 +2244,8 @@ void main() {
           (_) async =>
               (revision: 1, serverConfig: previousConfig, requireActive: false),
         );
-        when(
-          () => storage.deleteSavedCredentialsIfMatches(savedCredentials),
-        ).thenAnswer((_) async => true);
+        when(() => storage.deleteSavedCredentialsIfMatches(savedCredentials))
+            .thenAnswer((_) async => true);
 
         final tempApis = <_SuccessfulAuthApi>[];
         final container = ProviderContainer(
@@ -2399,9 +2338,8 @@ void main() {
 
         final storage = _Storage();
         when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-        when(
-          () => storage.getSavedCredentialsStrict(),
-        ).thenAnswer((_) async => null);
+        when(() => storage.getSavedCredentialsStrict())
+            .thenAnswer((_) async => null);
         when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
         when(
           () => storage.captureServerSessionOwnership(
@@ -2466,9 +2404,8 @@ void main() {
           check(settled.user).isNull();
           check(settled.isLoading).isFalse();
           check(container.read(incompleteLogoutFenceProvider)).isTrue();
-          check(
-            PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-          ).equals(true);
+          check(PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence))
+              .equals(true);
         } finally {
           container.dispose();
           api.dispose();
@@ -2487,13 +2424,11 @@ void main() {
 
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -2573,9 +2508,8 @@ void main() {
         check(
           container.read(authStateManagerProvider).requireValue.isAuthenticated,
         ).isFalse();
-        check(
-          PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-        ).equals(true);
+        check(PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence))
+            .equals(true);
 
         releaseLogout.complete();
         await logout;
@@ -2598,13 +2532,11 @@ void main() {
 
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(() => storage.clearAuthData()).thenAnswer((_) async {});
       _routeConditionalAuthClearToLegacyMock(storage);
       when(
@@ -2671,9 +2603,8 @@ void main() {
 
         check(await login).isTrue();
         await logoutEntered.future;
-        check(
-          PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-        ).isNull();
+        check(PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence))
+            .isNull();
         releaseLogout.complete();
         await logout;
 
@@ -2681,9 +2612,8 @@ void main() {
         check(settled.status).equals(AuthStatus.authenticated);
         check(settled.token).equals(token);
         check(settled.user).equals(user);
-        check(
-          PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
-        ).isNull();
+        check(PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence))
+            .isNull();
       } finally {
         if (!releaseTrueWrite.isCompleted) releaseTrueWrite.complete();
         if (!releaseLogout.isCompleted) releaseLogout.complete();
@@ -2697,13 +2627,11 @@ void main() {
   test('stale token invalidation cannot overwrite a newer login', () async {
     final storage = _Storage();
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-    when(
-      () => storage.getSavedCredentialsStrict(),
-    ).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-    when(
-      () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-    ).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
     when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
       (_) async => (
         configs: const [previousConfig],
@@ -2804,18 +2732,15 @@ void main() {
     () async {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-      when(
-        () => storage.getSavedCredentialsStrict(),
-      ).thenAnswer((_) async => null);
+      when(() => storage.getSavedCredentialsStrict())
+          .thenAnswer((_) async => null);
       when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
-      when(
-        () => storage.deleteAuthTokenIfMatches(token),
-      ).thenAnswer((_) async => true);
+      when(() => storage.deleteAuthTokenIfMatches(token))
+          .thenAnswer((_) async => true);
       when(() => storage.clearUserScopedAuthData()).thenAnswer((_) async {});
       when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-      when(
-        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-      ).thenAnswer((_) async {});
+      when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+          .thenAnswer((_) async {});
       when(
         () => storage.captureServerSessionOwnership(
           validatedConfig: any(named: 'validatedConfig'),
@@ -2876,13 +2801,11 @@ void main() {
       for (final mode in _MixedAuthMode.values) {
         final storage = _Storage();
         when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
-        when(
-          () => storage.getSavedCredentialsStrict(),
-        ).thenAnswer((_) async => null);
+        when(() => storage.getSavedCredentialsStrict())
+            .thenAnswer((_) async => null);
         when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-        when(
-          () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-        ).thenAnswer((_) async {});
+        when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+            .thenAnswer((_) async {});
         var stageCall = 39;
         when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
           (_) async => (
@@ -3029,15 +2952,13 @@ void main() {
       return strictCredentialReads == 1 ? null : savedCredentials;
     });
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
-    when(
-      () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
-    ).thenAnswer((_) async {});
-    when(
-      () => storage.captureSavedServerSessionOwnership(previousConfig.id),
-    ).thenAnswer(
-      (_) async =>
-          (revision: 1, serverConfig: previousConfig, requireActive: false),
-    );
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(() => storage.captureSavedServerSessionOwnership(previousConfig.id))
+        .thenAnswer(
+          (_) async =>
+              (revision: 1, serverConfig: previousConfig, requireActive: false),
+        );
     var stageCall = 49;
     when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
       (_) async => (
@@ -3340,7 +3261,6 @@ Future<void> _waitForAuthStatus(
     if (state?.status == expected) return;
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
-  check(
-    container.read(authStateManagerProvider).requireValue.status,
-  ).equals(expected);
+  check(container.read(authStateManagerProvider).requireValue.status)
+      .equals(expected);
 }

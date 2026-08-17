@@ -30,21 +30,24 @@ void main() {
     check(container.read(terminalTabVisibleProvider)).isTrue();
   });
 
-  test('live: an empty server list hides the tab (terminal disabled)', () async {
-    final container = ProviderContainer(
-      overrides: [
-        terminalAvailableServersProvider.overrideWith(
-          (ref) async => const <TerminalServerInfo>[],
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
+  test(
+    'live: an empty server list hides the tab (terminal disabled)',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          terminalAvailableServersProvider.overrideWith(
+            (ref) async => const <TerminalServerInfo>[],
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    await container.read(terminalAvailableServersProvider.future);
-    // Let the deferred cache write-back microtask run while alive.
-    await Future<void>.delayed(Duration.zero);
-    check(container.read(terminalTabVisibleProvider)).isFalse();
-  });
+      await container.read(terminalAvailableServersProvider.future);
+      // Let the deferred cache write-back microtask run while alive.
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(terminalTabVisibleProvider)).isFalse();
+    },
+  );
 
   test(
     'offline (server list unresolved): falls back to the cached flag — a '
