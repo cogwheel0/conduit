@@ -21,7 +21,14 @@ List<ChatStatusUpdate> filterVisibleStatusUpdates(
   if (isStreaming) {
     return visible;
   }
-  return visible.where((u) => u.done != false).toList(growable: false);
+  final settled = visible.where((u) => u.done != false).toList(growable: false);
+  if (settled.isEmpty && visible.isNotEmpty) {
+    // A turn whose only status updates never reported done would drop the
+    // whole status row at settle — a visible layout jump — and lose the best
+    // description of what the turn did. Keep the last update instead.
+    return [visible.last];
+  }
+  return settled;
 }
 
 /// A minimal, unobtrusive streaming status widget inspired by OpenWebUI.
