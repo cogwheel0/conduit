@@ -613,6 +613,12 @@ class _StreamingMarkdownWidgetState
         generation != _snapshotGeneration ||
         widget.isStreaming ||
         widget.content != content) {
+      // A stale refresh must not leave the pending flag set forever: when no
+      // newer settled snapshot is queued to clear it, a blank snapshot would
+      // otherwise render an indefinite loading skeleton.
+      if (mounted && _pendingSettledSnapshot == null) {
+        _settledPreparationPending = false;
+      }
       return;
     }
 

@@ -761,6 +761,14 @@ void _appendAuthoritativeOutput(
   if (output.length > streamedText.length && output.startsWith(streamedText)) {
     appendContent(output.substring(streamedText.length));
   } else if (output != streamedText) {
+    // An authoritative output that is a strict prefix of the streamed text is
+    // a lagging aggregate (multi-item runs, incomplete recovery) — replacing
+    // with it would truncate content the user already received. Keep the
+    // longer streamed text in that case.
+    if (output.length < streamedText.length &&
+        streamedText.startsWith(output)) {
+      return;
+    }
     // Terminal/recovered output is authoritative even when the server corrected
     // or normalized an earlier delta instead of merely extending it.
     replaceContent?.call(output);

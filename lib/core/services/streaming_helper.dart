@@ -1926,8 +1926,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       );
     }
 
+    // Compare answer bodies with rendered semantic <details> wrappers
+    // stripped: local and server renders carry different attributes (for
+    // example a real reasoning duration vs the locally injected duration="0"),
+    // so raw lengths can grow while the actual answer shrinks — a mid-write
+    // server body with a long reasoning block and a partial answer must not
+    // replace a complete local answer.
+    final localComparableBody = stripRenderedSemanticDetails(
+      comparisonSnapshot.comparisonContent,
+    );
+    final serverComparableBody = stripRenderedSemanticDetails(content);
     final shouldAdoptContent =
-        content.isNotEmpty && content.length >= comparisonLength;
+        content.isNotEmpty &&
+        serverComparableBody.length >= localComparableBody.length;
     if (shouldAdoptContent) {
       DebugLogger.log(
         '$source: adopting server content (${content.length} chars)',
@@ -1939,9 +1950,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
     }
 
-    if (content.isNotEmpty &&
-        isVisibleTarget &&
-        content.length < comparisonLength) {
+    if (content.isNotEmpty && isVisibleTarget && !shouldAdoptContent) {
       DebugLogger.log(
         '$source: keeping fresher visible content '
         '($comparisonLength > ${content.length})',
@@ -2086,12 +2095,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               !authoritativeTerminal &&
               (preserveActiveLocalStream || assistant.isStreaming);
           // Replay-gap recovery can race the server's own persistence of the
-          // turn: a snapshot whose body is a strict prefix of the local
+          // turn: a snapshot whose answer body is a strict prefix of the local
           // streamed content is mid-write, not authoritative. Keep the local
-          // body then (mirrors applyServerContent's length guard).
+          // body then. Rendered semantic <details> wrappers are stripped
+          // before comparing — their attributes (reasoning duration, done
+          // flags) differ between local and server renders and would defeat
+          // the prefix check.
+          final localRecoveryBody = stripRenderedSemanticDetails(
+            current.content,
+          );
+          final serverRecoveryBody = stripRenderedSemanticDetails(
+            assistant.content,
+          );
           final keepLocalContent =
-              assistant.content.length < current.content.length &&
-              current.content.startsWith(assistant.content);
+              serverRecoveryBody.length < localRecoveryBody.length &&
+              localRecoveryBody.startsWith(serverRecoveryBody);
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -2718,10 +2736,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             if (newContent == null) return current;
             if (current.content == newContent) return current;
             // A server echo of the (possibly stale) payload we sent must not
-            // truncate streamed content: a strict prefix is our own snapshot
-            // coming back, not an outlet-filter rewrite.
-            if (newContent.length < current.content.length &&
-                current.content.startsWith(newContent)) {
+            // truncate streamed content: compare answer bodies with rendered
+            // semantic <details> stripped (attribute differences such as the
+            // reasoning duration would otherwise defeat the prefix check),
+            // and skip echoes that only differ by those wrappers or are a
+            // strict prefix of the streamed body.
+            final currentBody = stripRenderedSemanticDetails(current.content);
+            final newBody = stripRenderedSemanticDetails(newContent);
+            if (newBody == currentBody) return current;
+            if (newBody.length < currentBody.length &&
+                currentBody.startsWith(newBody)) {
               return current;
             }
             // Preserve original content before filter modification
@@ -3165,13 +3189,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
           if (completionTargetId != null && payload.containsKey('content')) {
             final raw = payload['content']?.toString() ?? '';
-            final currentRendered = renderedStreamingContent.value;
             // Cumulative content snapshots must never shrink streamed
             // content: a strict prefix is a stale/out-of-order frame, and
             // adopting it would rebase later deltas onto a shortened buffer.
+            // Rendered semantic <details> wrappers are stripped before the
+            // comparison; their attributes differ between renders.
+            final currentBody = stripRenderedSemanticDetails(
+              renderedStreamingContent.value,
+            );
+            final rawBody = stripRenderedSemanticDetails(raw);
             final isStalePrefix =
-                raw.length < currentRendered.length &&
-                currentRendered.startsWith(raw);
+                rawBody.length < currentBody.length &&
+                currentBody.startsWith(rawBody);
             if (raw.isNotEmpty && !isStalePrefix) {
               replaceVisibleAssistantContent(raw);
             }

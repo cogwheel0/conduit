@@ -3,6 +3,27 @@ import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('comparable assistant body strips semantic details with divergent '
+      'attributes', () {
+    const localRender =
+        '<details type="reasoning" done="true" duration="0">'
+        '<summary>Thought for 0 seconds</summary>\nthinking\n</details>\n'
+        'The answer body.';
+    const serverRender =
+        '<details type="reasoning" done="true" duration="7">'
+        '<summary>Thought for 7 seconds</summary>\nthinking\n</details>\n'
+        'The answer body.';
+
+    check(debugComparableAssistantBodyForTesting(localRender))
+        .equals(debugComparableAssistantBodyForTesting(serverRender));
+    check(debugComparableAssistantBodyForTesting(localRender))
+        .equals('The answer body.');
+    // Ordinary user-authored details blocks are content and must survive.
+    const plainDetails = '<details><summary>FAQ</summary>body</details>';
+    check(debugComparableAssistantBodyForTesting(plainDetails))
+        .equals(plainDetails);
+  });
+
   test('parses the server follow-ups envelope', () {
     final parsed = debugParseFollowUpsSocketEventForTesting({
       'chat_id': 'chat-1',

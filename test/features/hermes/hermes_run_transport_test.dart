@@ -533,6 +533,38 @@ void main() {
       check(content.toString()).equals('Hello world');
     });
 
+    test('a final output that is a strict prefix of the streamed text does not '
+        'truncate it', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-prefix'),
+          HermesTokenDelta('Hello'),
+          HermesTokenDelta(' world, full streamed answer'),
+          HermesFinalOutput('Hello'),
+          HermesRunDone(),
+        ],
+      );
+      final content = StringBuffer();
+      String? replaced;
+
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        appendContent: content.write,
+        replaceContent: (value) => replaced = value,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(replaced).isNull();
+      check(content.toString()).equals('Hello world, full streamed answer');
+    });
+
     test('many tiny response deltas reconcile in exact order', () async {
       const deltaCount = 20000;
       final expected = List<String>.filled(deltaCount, 'x').join();

@@ -82,6 +82,25 @@ part 'chat_composer_providers.dart';
 part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
+/// The message body with rendered semantic `<details>` blocks removed, for
+/// content comparisons between local and server renders of the same turn.
+/// Their attributes (reasoning duration, done flags) differ between renders
+/// and would defeat prefix/length checks on otherwise identical answers.
+final RegExp _semanticDetailsBlockPattern = RegExp(
+  r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+);
+
+String _comparableAssistantBody(String content) {
+  if (!content.contains('<details')) {
+    return content.trim();
+  }
+  return content.replaceAll(_semanticDetailsBlockPattern, '').trim();
+}
+
+@visibleForTesting
+String debugComparableAssistantBodyForTesting(String content) =>
+    _comparableAssistantBody(content);
+
 /// Parses the Open WebUI `chat:message:follow_ups` socket envelope:
 /// `{chat_id, message_id, data: {type, data: {follow_ups: [...]}}}`.
 /// Returns null when the event is not a usable follow-ups push.
@@ -3261,12 +3280,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     if (!_hasLocalStreamingProvenance(localMessage)) {
       return false;
     }
-    final localContent = localMessage.content;
-    final serverContent = serverMessage.content;
-    if (localContent.trim().isEmpty) {
-      return false;
+    // Compare answer bodies with rendered semantic <details> wrappers
+    // stripped. Local and server renders of the same turn carry different
+    // details attributes (e.g. the locally injected reasoning duration="0"
+    // vs the server's real duration), which would otherwise defeat both the
+    // length and the prefix checks and let a mid-write server body replace a
+    // complete local answer on every reasoning turn.
+    final localContent = _comparableAssistantBody(localMessage.content);
+    final serverContent = _comparableAssistantBody(serverMessage.content);
+    if (localContent.isEmpty) {
+      return localMessage.content.trim().isNotEmpty &&
+          serverMessage.content.trim().isEmpty;
     }
-    if (serverContent.trim().isEmpty) {
+    if (serverContent.isEmpty) {
       return true;
     }
     if (localContent.length <= serverContent.length) {
@@ -6245,12 +6271,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     return null;
   }
 
-  /// Minimal history-message shape (`{id, parentId, childrenIds, role,
-  /// content, timestamp, model?}`) — explicitly a local echo.
+  /// History-message shape for the local turn echo.
   ///
   /// The `parentId` written here is only a placeholder for the payload map:
   /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
   /// rewriting both the row and `payload['parentId']` to the branch tip.
+  ///
+  /// The payload must carry every durable server-shape field the message has:
+  /// the sync outbox rebuilds the full chat blob from these rows and the
+  /// server's merge replaces each message object wholesale, so any field
+  /// omitted here (`output`, `sources`, `usage`, …) would be wiped from the
+  /// server copy on the next push.
   MessageRowData _localEchoRow(String chatId, ChatMessage message) {
     final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
     final resolvedParentId = message_tree.chatMessageParentId(message);
@@ -6279,6 +6310,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         if (message.model != null) 'model': message.model,
         if (message.metadata != null && message.metadata!.isNotEmpty)
           'metadata': message.metadata,
+        if (message.output != null && message.output!.isNotEmpty)
+          'output': message.output,
+        if (message.files != null && message.files!.isNotEmpty)
+          'files': message.files,
+        if (message.embeds != null && message.embeds!.isNotEmpty)
+          'embeds': message.embeds,
+        if (message.usage != null) 'usage': message.usage,
+        if (message.sources.isNotEmpty)
+          'sources': message.sources
+              .map((source) => source.toJson())
+              .toList(growable: false),
+        if (message.statusHistory.isNotEmpty)
+          'statusHistory': message.statusHistory
+              .map((status) => status.toJson())
+              .toList(growable: false),
+        if (message.followUps.isNotEmpty)
+          'followUps': List<String>.from(message.followUps),
+        if (message.error != null) 'error': message.error!.toJson(),
       },
     );
   }
