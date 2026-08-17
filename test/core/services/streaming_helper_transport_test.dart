@@ -940,6 +940,69 @@ void main() {
     );
 
     test(
+      'a plain delta after a deferred structured projection does not drop '
+      'the deferred middle of the response',
+      () async {
+        final log = _CallbackLog();
+        // First snapshot contains a backtick, which permanently disables the
+        // projector's plain-append fast path; the second snapshot is under
+        // the geometric re-projection threshold (2x), so it is deferred and
+        // the visible content stays at the first snapshot.
+        final part1 =
+            'Intro with `code` marker. ${List.filled(60, 'x').join()}';
+        const middle = ' MIDDLE-SEGMENT-THAT-MUST-SURVIVE';
+        const delta = ' FINAL-DELTA';
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': part1},
+                ],
+              },
+            ],
+          }),
+          _sseFrame({
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': '$part1$middle'},
+                ],
+              },
+            ],
+          }),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': delta},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        check(log.messages.last.content).equals('$part1$middle$delta');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
       'chat:completion tracks tool placeholders without string scans',
       () async {
         final log = _CallbackLog();

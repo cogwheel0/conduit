@@ -1196,6 +1196,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     if (chunk.isEmpty) return;
     if (includeInPlainContent) {
+      // The projector defers full re-projections (geometric backoff), so the
+      // visible content can trail the logical structured content. Appending a
+      // plain chunk onto that stale prefix would permanently drop the
+      // deferred middle: this flip of structuredOutputIsLatest also makes the
+      // terminal finalizeStructuredOutputProjection bail. Materialize the
+      // full projection first so the chunk lands on complete content.
+      if (structuredOutputIsLatest) {
+        final syncProjection = structuredOutputProjector
+            .syncProjectionToLatest();
+        if (syncProjection != null) {
+          replaceVisibleAssistantContent(
+            syncProjection.content,
+            fromStructuredOutput: true,
+            plainContent: syncProjection.plainContent,
+          );
+        }
+      }
       renderedFromStructuredOutput = false;
       structuredProjectionIsVisible = false;
       structuredOutputIsLatest = false;
@@ -2935,8 +2952,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     // the notifier, so without this the payload carries a stale prefix of a
     // long response — and the server's echo of that payload then truncates
     // the full content when merged back (the HTTP/SSE transport reaches here
-    // without any earlier terminal flush).
+    // without any earlier terminal flush). The projector must materialize its
+    // exact terminal render first for the same reason: a deferred projection
+    // leaves the visible content up to ~50% behind the logical content.
     finalizeStreamingReasoning();
+    finalizeStructuredOutputProjection();
     flushStreamingBuffer();
 
     try {

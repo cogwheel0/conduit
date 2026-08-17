@@ -232,6 +232,28 @@ final class StructuredOutputStreamingProjector {
     return null;
   }
 
+  /// Materializes the latest observed snapshot as a full replacement when the
+  /// current projection is stale — i.e. a deferred [project] call left the
+  /// visible content behind the logical content. Returns null when the
+  /// projection is already up to date (or nothing was observed yet).
+  ///
+  /// Callers use this before switching the visible content basis away from
+  /// the projector (e.g. appending a plain delta), so the deferred middle of
+  /// the response cannot be silently dropped.
+  StructuredOutputStreamingReplace? syncProjectionToLatest() {
+    if (_finished || !_hasLatestSnapshot) return null;
+    if (identical(_projectedBlocks, _latestBlocks) &&
+        _projectedReplacementText == _latestReplacementText) {
+      return null;
+    }
+    return _replace(
+      _latestBlocks,
+      _latestReplacementText,
+      _logicalLength(_latestBlocks, _latestReplacementText),
+      reason: StructuredOutputReplacementReason.forced,
+    );
+  }
+
   void observeLatest(
     List<StructuredOutputBlock> blocks, {
     String? replacementText,

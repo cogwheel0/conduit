@@ -3731,6 +3731,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       unawaited(controller.cancel());
     }
     cancelSocketSubscriptions();
+    // Fold any un-flushed streamed content into state before dropping the
+    // buffer — it is not periodically synced, so clearing it here would
+    // silently discard the whole tail of an in-flight response (e.g. on
+    // conversation switch or message deletion mid-stream). Skipped during
+    // provider dispose, where touching state is forbidden and pointless.
+    if (!_disposed) {
+      _syncStreamingBufferToState();
+    }
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
