@@ -196,10 +196,14 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _removeMatchesOutsideCode(
-      sanitized,
-      _toolCallBlocks,
-    ).replaceAll(_multipleNewlines, '\n\n').trim();
+    return _removeMatchesOutsideCode(sanitized, _toolCallBlocks)
+        // Stored assistant content is HTML-escaped for the renderer; the
+        // clipboard needs the literal text back (`"` not `&quot;`). API
+        // replay deliberately does NOT decode — it cannot distinguish
+        // model-typed entities from presentation escaping.
+        .transform(_htmlUnescape.convert)
+        .replaceAll(_multipleNewlines, '\n\n')
+        .trim();
   }
 
   /// Converts markdown to plain text for text-to-speech.
@@ -239,7 +243,9 @@ class ConduitMarkdownPreprocessor {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return '';
 
-    return _openWebUiCleanText(trimmed).trim();
+    // Presentation content is HTML-escaped for the renderer; TTS must speak
+    // the literal text (`"` not "ampersand quot semicolon").
+    return _htmlUnescape.convert(_openWebUiCleanText(trimmed)).trim();
   }
 
   /// Removes all `<details>` blocks the way OpenWebUI does outside code spans.

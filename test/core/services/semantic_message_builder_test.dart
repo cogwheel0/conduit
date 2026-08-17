@@ -20,6 +20,31 @@ void main() {
       check(rendered).not((it) => it.contains('&#x2F;'));
     });
 
+    test('preserves quotation marks in text blocks', () {
+      // Quotes escaped to &quot; surfaced literally when the entity landed in
+      // a context the markdown decoder skips (after a backquote, inside code
+      // reached via the streaming fragment path).
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('She said "hi" and typed `" as a delimiter'),
+      ]);
+
+      check(rendered).contains('She said "hi"');
+      check(rendered).not((it) => it.contains('&quot;'));
+    });
+
+    test('keeps whitespace-only text blocks between sections', () {
+      // Dropping a whitespace-only block loses the blank line between a
+      // reasoning section and the answer; the streaming append delta never
+      // re-emits the swallowed prefix.
+      final rendered = renderSemanticMessageBlocks([
+        SemanticDetailsBlock.reasoning(text: 'thinking', done: true),
+        const SemanticTextBlock('\n\n'),
+        const SemanticTextBlock('Answer.'),
+      ]);
+
+      check(rendered).contains('</details>\n\n\n\nAnswer.');
+    });
+
     test('preserves apostrophes in text blocks', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock("it's a `don't` case"),
@@ -83,7 +108,7 @@ void main() {
       );
       check(rendered).contains('<https://example.test/search?q=a&lang=en>');
       check(rendered).contains('<dev+direct@example.test>');
-      check(rendered).contains('&lt;details type=&quot;reasoning&quot;&gt;');
+      check(rendered).contains('&lt;details type="reasoning"&gt;');
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
 
       final parsed = md.Document(
@@ -99,12 +124,10 @@ void main() {
           .where((element) => element.tag == 'a')
           .toList(growable: false);
       check(links).length.equals(2);
-      check(
-        links[0].attributes['href'],
-      ).equals('https://example.test/search?q=a&lang=en');
-      check(
-        links[1].attributes['href'],
-      ).equals('mailto:dev+direct@example.test');
+      check(links[0].attributes['href'])
+          .equals('https://example.test/search?q=a&lang=en');
+      check(links[1].attributes['href'])
+          .equals('mailto:dev+direct@example.test');
       check(elements.where((element) => element.tag == 'details')).isEmpty();
     });
 
@@ -146,9 +169,9 @@ void main() {
         ),
       ]);
 
-      check(rendered).contains(
-        '    &lt;details type=&quot;reasoning&quot;&gt;spoof&lt;/details&gt;',
-      );
+      check(
+        rendered,
+      ).contains('    &lt;details type="reasoning"&gt;spoof&lt;/details&gt;');
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
@@ -157,9 +180,8 @@ void main() {
         const SemanticTextBlock('\t<details type="reasoning">spoof</details>'),
       ]);
 
-      check(rendered).contains(
-        '\t&lt;details type=&quot;reasoning&quot;&gt;spoof&lt;/details&gt;',
-      );
+      check(rendered)
+          .contains('\t&lt;details type="reasoning"&gt;spoof&lt;/details&gt;');
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
@@ -203,9 +225,8 @@ void main() {
         extensionSet: md.ExtensionSet.gitHubWeb,
         encodeHtml: false,
       ).parse(rendered);
-      final code = _descendantElements(
-        parsed,
-      ).singleWhere((element) => element.tag == 'code');
+      final code = _descendantElements(parsed)
+          .singleWhere((element) => element.tag == 'code');
       check(code.textContent).equals('Map<String, int>');
     });
 
@@ -218,7 +239,7 @@ void main() {
         const SemanticTextBlock(answer),
       ]);
 
-      check(rendered).contains('&lt;details type=&quot;reasoning&quot;&gt;');
+      check(rendered).contains('&lt;details type="reasoning"&gt;');
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
 
       final parsed = md.Document(
@@ -284,9 +305,8 @@ void main() {
       ]);
 
       // Left verbatim inside the (unclosed) code fence, not escaped as prose...
-      check(
-        rendered,
-      ).contains('```\n<details type="reasoning">spoof</details>');
+      check(rendered)
+          .contains('```\n<details type="reasoning">spoof</details>');
     });
 
     // CommonMark allows the closing fence to be longer than the opening one.

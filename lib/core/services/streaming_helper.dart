@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
+import 'package:html_unescape/html_unescape.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../auth/api_auth_interceptor.dart';
@@ -793,14 +794,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function() syncImages = () {};
   void Function() updateImagesFromCurrentContent = () {};
 
+  // Rendered content is HTML-escaped; the plain accumulator must hold the
+  // UNESCAPED text, or the next full render escapes it a second time and the
+  // user sees literal entities (`&amp;quot;` decoding once to `&quot;`).
+  final plainContentUnescape = HtmlUnescape();
   String initialPlainStreamingContent(String content) {
-    if (!content.contains('<details')) {
-      return content;
+    var plain = content;
+    if (plain.contains('<details')) {
+      final semanticDetailsPattern = RegExp(
+        r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+      );
+      plain = plain.replaceAll(semanticDetailsPattern, '').trim();
     }
-    final semanticDetailsPattern = RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-    );
-    return content.replaceAll(semanticDetailsPattern, '').trim();
+    return plain.contains('&') ? plainContentUnescape.convert(plain) : plain;
   }
 
   final renderedStreamingContent = _StreamingTextAccumulator(
@@ -877,7 +883,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             visibleContent.length >= renderedStreamingContent.length)) {
       renderedStreamingContent.replace(visibleContent);
       if (!renderedFromStructuredOutput) {
-        plainStreamingContent.replace(visibleContent);
+        plainStreamingContent.replace(
+          initialPlainStreamingContent(visibleContent),
+        );
       }
       return;
     }
@@ -889,7 +897,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     renderedStreamingContent.replace(messages.last.content);
     if (!renderedFromStructuredOutput) {
-      plainStreamingContent.replace(messages.last.content);
+      plainStreamingContent.replace(
+        initialPlainStreamingContent(messages.last.content),
+      );
     }
   }
 
@@ -4045,7 +4055,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 .replaceAll('[/SEARCHING]', '');
           }
 
-          if (effectiveChunk.trim().isNotEmpty) {
+          // Whitespace-only chunks are real content: dropping a " " or
+          // "\n\n" delta glues words together and loses paragraph breaks.
+          if (effectiveChunk.isNotEmpty) {
             appendVisibleAssistantChunk(effectiveChunk);
           }
         },

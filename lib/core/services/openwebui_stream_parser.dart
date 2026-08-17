@@ -188,9 +188,15 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
   // Upstream contract (Chat.svelte): a frame carrying an `output` snapshot
   // supersedes its own choices deltas — the snapshot already contains the
   // delta's text (and its reasoning as an output item), so applying both
-  // duplicates content.
+  // duplicates content. Mute only when the snapshot parses into renderable
+  // blocks (matching the socket path's predicate): an output whose items all
+  // parse away would otherwise mute the delta AND render nothing.
   final output = parsed['output'];
-  final hasOutputSnapshot = output is List && output.isNotEmpty;
+  final outputUpdate = output is List && output.isNotEmpty
+      ? OpenWebUIOutputUpdate(output)
+      : null;
+  final hasOutputSnapshot =
+      outputUpdate != null && outputUpdate.blocks.isNotEmpty;
 
   final choices = parsed['choices'];
   if (!hasOutputSnapshot && choices is List && choices.isNotEmpty) {
@@ -212,8 +218,8 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     }
   }
 
-  if (hasOutputSnapshot) {
-    yield OpenWebUIOutputUpdate(output);
+  if (outputUpdate != null) {
+    yield outputUpdate;
   }
 }
 

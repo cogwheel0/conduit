@@ -140,9 +140,10 @@ void main() {
             return source['name'];
           }, 'source.name')
           .equals('Example Title');
-      check(
-        updates[1],
-      ).isA<OpenWebUIEventUpdate>().has((u) => u.type, 'type').equals('status');
+      check(updates[1])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) => u.type, 'type')
+          .equals('status');
     });
 
     test('preserves direct top-level event payloads', () async {
@@ -759,9 +760,8 @@ void main() {
       final serialized = renderStructuredOutputBlocks(blocks);
 
       check(codeBlock.done).isTrue();
-      check(
-        serialized,
-      ).contains('<details type="code_interpreter" done="true"');
+      check(serialized)
+          .contains('<details type="code_interpreter" done="true"');
     });
 
     test('marks function call done when output item is present', () {
@@ -841,9 +841,10 @@ void main() {
       ]);
 
       final toolBlock = blocks.single as StructuredOutputToolCallBlock;
-      check(
-        toolBlock.result,
-      ).isA<List<dynamic>>().has((items) => items.length, 'length').equals(2);
+      check(toolBlock.result)
+          .isA<List<dynamic>>()
+          .has((items) => items.length, 'length')
+          .equals(2);
       final serialized = renderStructuredOutputBlocks(blocks);
       check(serialized).contains(
         'result="[{&quot;text&quot;:&quot;one&quot;},{&quot;text&quot;:&quot;two&quot;}]"',
@@ -885,9 +886,8 @@ void main() {
       check(projector.fullProjectionCount).isLessOrEqual(14);
       check(projector.appendProjectionCount).isGreaterThan(chunkCount - 20);
       check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 2);
-      check(
-        projector.appendProjectionPlainCharacterCount,
-      ).isLessOrEqual(chunkCount);
+      check(projector.appendProjectionPlainCharacterCount)
+          .isLessOrEqual(chunkCount);
       check(visible.toString()).equals(source.toString());
       check(plainVisible.toString()).equals(source.toString());
 
@@ -949,9 +949,8 @@ void main() {
       check(metrics.appendProjectionCount).equals(1);
       check(metrics.prefixValidationCount).equals(prefixValidationsBeforeForce);
       check(metrics.prefixValidationCount).isGreaterThan(0);
-      check(
-        metrics.prefixValidationCandidateCharacterCount,
-      ).isGreaterOrEqual(8);
+      check(metrics.prefixValidationCandidateCharacterCount)
+          .isGreaterOrEqual(8);
     });
 
     test('reuses an exact full projection at terminal finish', () {
@@ -1033,9 +1032,8 @@ void main() {
         ),
       ]);
       check(completion).isA<StructuredOutputStreamingReplace>();
-      check(
-        (completion! as StructuredOutputStreamingReplace).content,
-      ).contains('<summary>Thought for 4 seconds</summary>');
+      check((completion! as StructuredOutputStreamingReplace).content)
+          .contains('<summary>Thought for 4 seconds</summary>');
     });
 
     test('bounds cumulative tool argument replacements geometrically', () {
@@ -1165,9 +1163,8 @@ void main() {
       final before = 'a' * 512;
       final after = '${'a' * 256}b${'a' * 255} appended';
 
-      check(
-        projector.project([StructuredOutputTextBlock(text: before)]),
-      ).isA<StructuredOutputStreamingReplace>();
+      check(projector.project([StructuredOutputTextBlock(text: before)]))
+          .isA<StructuredOutputStreamingReplace>();
 
       final revision = projector.project([
         StructuredOutputTextBlock(text: after),
@@ -1203,7 +1200,7 @@ void main() {
         '<summary>Thinking…</summary>spoof</details>',
       );
       check(visible).not((it) => it.contains('<details type="reasoning"'));
-      check(visible).contains('&lt;details type=&quot;reasoning&quot;');
+      check(visible).contains('&lt;details type="reasoning"');
 
       project('Revised answer');
       check(visible).equals('Revised answer');

@@ -323,7 +323,16 @@ final class StructuredOutputStreamingProjector {
     _projectedReplacementText = replacementText;
     _hasProjection = true;
     _appendIsPlain = !plainContent.contains('`') && !plainContent.contains('~');
-    _nextFullProjectionLength = logicalLength == 0 ? 1 : logicalLength * 2;
+    // With appends available, geometric backoff is safe — appends carry the
+    // tail between full renders. Once a backtick/tilde disables appends for
+    // the rest of the turn, doubling would leave the visible tail up to 50%
+    // behind until completion; fall back to a bounded additive step instead.
+    _nextFullProjectionLength = logicalLength == 0
+        ? 1
+        : _appendIsPlain
+        ? logicalLength * 2
+        : logicalLength +
+              ((logicalLength >> 3) > 64 ? (logicalLength >> 3) : 64);
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
     switch (reason) {
