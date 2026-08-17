@@ -157,6 +157,40 @@ void main() {
     },
   );
 
+  test('an unmatched fence inside a details body does not hide a later '
+      'reference definition', () {
+    const content =
+        'See [docs][d].\n\n<details>\nsome text\n```\nunmatched\n'
+        '</details>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test(
+    'a closed details block with no unsafe lines still freezes normally',
+    () {
+      const content =
+          '<details type="reasoning" done="true">\n<summary>Thought'
+          '</summary>\nbody\n</details>\n\nTail';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(
+        split['frozenPrefix'],
+        '<details type="reasoning" done="true">\n<summary>Thought'
+        '</summary>\nbody\n</details>\n\n',
+      );
+      expect(split['mutableTail'], 'Tail');
+      expect(split['canIncrementallyCompile'], isTrue);
+      expect(split['fallbackReason'], isNull);
+    },
+  );
+
   test(
     'backtick lines inside raw HTML do not hide a later reference definition',
     () {

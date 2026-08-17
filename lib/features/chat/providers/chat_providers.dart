@@ -6325,6 +6325,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           'statusHistory': message.statusHistory
               .map((status) => status.toJson())
               .toList(growable: false),
+        if (message.codeExecutions.isNotEmpty)
+          'codeExecutions': message.codeExecutions
+              .map((execution) => execution.toJson())
+              .toList(growable: false),
         if (message.followUps.isNotEmpty)
           'followUps': List<String>.from(message.followUps),
         if (message.error != null) 'error': message.error!.toJson(),

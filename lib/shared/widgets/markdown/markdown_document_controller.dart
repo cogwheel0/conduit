@@ -43,9 +43,12 @@ final RegExp _streamingRawHtmlBlockPattern = RegExp(
   multiLine: true,
 );
 // Labels may contain backslash-escaped brackets ("[a\]b]:"), so escaped
-// pairs are consumed before the closing bracket.
+// pairs are consumed before the closing bracket. The character class
+// excludes the backslash so the two branches cannot overlap — an overlap
+// backtracks exponentially on long malformed labels, and this pattern runs
+// on the UI isolate during streamed flushes.
 final RegExp _streamingReferenceDefinitionPattern = RegExp(
-  r'^\s{0,3}\[(?:\\.|[^\]\n])+\]:',
+  r'^\s{0,3}\[(?:\\.|[^\]\\\n])+\]:',
   multiLine: true,
 );
 
@@ -910,6 +913,7 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
 ) {
   String? fenceCharacter;
   var fenceLength = 0;
+  var detailsDepth = 0;
   int? firstRawHtmlOffset;
 
   // Reference definitions must be detected across the whole region — one
@@ -923,6 +927,11 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
   // that point every line is checked for a definition regardless of fence
   // state — at worst more conservative than the pre-split whole-document
   // check this replaced.
+  //
+  // <details> bodies are treated the same way the block scanner treats them:
+  // as opaque content tracked by open/close depth. An unmatched backtick line
+  // inside a details body must not open a phantom outer fence that would hide
+  // a definition appearing after the block.
   for (final line in lines) {
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
@@ -936,10 +945,35 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
       continue;
     }
 
+    if (detailsDepth > 0) {
+      detailsDepth += _streamingDetailsOpenPattern.allMatches(candidate).length;
+      detailsDepth -= _streamingDetailsClosePattern
+          .allMatches(candidate)
+          .length;
+      if (detailsDepth < 0) {
+        detailsDepth = 0;
+      }
+      if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
+        return (offset: line.start, isReferenceDefinition: true);
+      }
+      continue;
+    }
+
     if (fenceCharacter != null) {
       if (_isStreamingFenceClose(candidate, fenceCharacter, fenceLength)) {
         fenceCharacter = null;
         fenceLength = 0;
+      }
+      continue;
+    }
+
+    if (_streamingDetailsOpenPattern.hasMatch(candidate)) {
+      detailsDepth = _streamingDetailsOpenPattern.allMatches(candidate).length;
+      detailsDepth -= _streamingDetailsClosePattern
+          .allMatches(candidate)
+          .length;
+      if (detailsDepth < 0) {
+        detailsDepth = 0;
       }
       continue;
     }
