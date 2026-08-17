@@ -1107,19 +1107,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void finalizeStructuredOutputProjection() {
+    // Every applied OR deferred output snapshot sets structuredOutputIsLatest
+    // back to true, so this bail only holds when a plain chunk was the very
+    // last content-affecting operation with no snapshot after it — where the
+    // accumulated visible text (full projection + chunk, kept complete by
+    // syncProjectionToLatest) is the right terminal value.
+    if (!structuredOutputIsLatest) return;
     final projection = structuredOutputProjector.finish();
     if (projection == null) return;
-    if (!structuredOutputIsLatest) {
-      // A plain chunk was the last content-affecting operation and no output
-      // snapshot followed it. Upstream (Chat.svelte) treats every output
-      // snapshot as a wholesale replacement of content, so the terminal
-      // render is authoritative; keep the accumulated visible text only when
-      // it is longer (hybrid backends deliver some text solely through plain
-      // deltas the snapshot never contains).
-      if (projection.plainContent.length < plainStreamingContent.length) {
-        return;
-      }
-    }
     if (projection.content == renderedStreamingContent.value) {
       plainStreamingContent.replace(projection.plainContent);
       return;
