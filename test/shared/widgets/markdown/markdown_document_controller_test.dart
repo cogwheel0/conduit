@@ -188,6 +188,25 @@ void main() {
     expect(split['fallbackReason'], 'referenceDefinitions');
   });
 
+  test('an inline nested details open inside the body does not hide a later '
+      'reference definition', () {
+    // The details parser counts `<details ...>` opens anywhere in a line;
+    // counting only line-anchored opens missed the nested inline open, so
+    // the first close exited details tracking early and the body backtick
+    // opened a phantom fence that swallowed the definition after the block.
+    const content =
+        'See [docs][d].\n\n<details>\nintro <details type="tool_calls" '
+        'done="true">\n</details>\n```\n</details>\n\n'
+        '[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
   test(
     'a closed details block with no unsafe lines still freezes normally',
     () {

@@ -1094,8 +1094,7 @@ void main() {
 
       final completion = projector.finish();
       check(completion).isA<StructuredOutputStreamingReplace>();
-      check(completion!.content).endsWith('x');
-      check(completion.content.length).isGreaterOrEqual(chunkCount);
+      check(completion!.content).equals(text.toString());
     });
 
     test('bounds cumulative tool argument replacements geometrically', () {

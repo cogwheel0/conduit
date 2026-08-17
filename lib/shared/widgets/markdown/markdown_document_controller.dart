@@ -30,6 +30,26 @@ final RegExp _streamingDetailsOpenPattern = RegExp(
   r'^<details\b',
   caseSensitive: false,
 );
+// The details parser counts nested opens ANYWHERE in a line with the
+// complete-tag pattern (details_block_syntax.dart _openingTagPattern), not
+// just at line starts. Depth counting must match it, or an inline nested
+// open makes the first close exit scanner details mode one level early.
+final RegExp _streamingDetailsInlineOpenPattern = RegExp(
+  r'<details(?:\s+[^>]*)?>',
+  caseSensitive: false,
+);
+
+int _streamingDetailsOpenCount(String candidate) {
+  final count = _streamingDetailsInlineOpenPattern.allMatches(candidate).length;
+  if (count == 0 && _streamingDetailsOpenPattern.hasMatch(candidate)) {
+    // A line-leading `<details` whose tag is still incomplete (no `>` yet)
+    // must still open scanner details mode: the parser will once the tag
+    // completes, and closing here would freeze an unterminated block.
+    return 1;
+  }
+  return count;
+}
+
 // Must match exactly what the details parser recognizes as a close
 // (details_block_syntax.dart uses the literal `</details>`): counting a
 // looser `</details >` as a close exits details tracking early, and a
@@ -951,7 +971,7 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     }
 
     if (detailsDepth > 0) {
-      detailsDepth += _streamingDetailsOpenPattern.allMatches(candidate).length;
+      detailsDepth += _streamingDetailsOpenCount(candidate);
       detailsDepth -= _streamingDetailsClosePattern
           .allMatches(candidate)
           .length;
@@ -973,7 +993,7 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     }
 
     if (_streamingDetailsOpenPattern.hasMatch(candidate)) {
-      detailsDepth = _streamingDetailsOpenPattern.allMatches(candidate).length;
+      detailsDepth = _streamingDetailsOpenCount(candidate);
       detailsDepth -= _streamingDetailsClosePattern
           .allMatches(candidate)
           .length;
@@ -1067,9 +1087,7 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
         currentLine.text,
       );
       if (currentCandidate != null) {
-        depth += _streamingDetailsOpenPattern
-            .allMatches(currentCandidate)
-            .length;
+        depth += _streamingDetailsOpenCount(currentCandidate);
         depth -= _streamingDetailsClosePattern
             .allMatches(currentCandidate)
             .length;
