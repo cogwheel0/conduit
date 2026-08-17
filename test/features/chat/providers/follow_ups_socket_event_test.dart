@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,9 +15,9 @@ void main() {
       },
     });
 
-    expect(parsed, isNotNull);
-    expect(parsed!.messageId, 'msg-1');
-    expect(parsed.followUps, ['One?', 'Two?']);
+    check(parsed).isNotNull();
+    check(parsed!.messageId).equals('msg-1');
+    check(parsed.followUps).deepEquals(['One?', 'Two?']);
   });
 
   test('accepts camelCase payload key and nested message_id', () {
@@ -30,13 +31,13 @@ void main() {
       },
     });
 
-    expect(parsed, isNotNull);
-    expect(parsed!.messageId, 'msg-2');
-    expect(parsed.followUps, ['A?']);
+    check(parsed).isNotNull();
+    check(parsed!.messageId).equals('msg-2');
+    check(parsed.followUps).deepEquals(['A?']);
   });
 
   test('rejects other event types, missing ids, and empty lists', () {
-    expect(
+    check(
       debugParseFollowUpsSocketEventForTesting({
         'message_id': 'msg-1',
         'data': {
@@ -46,9 +47,8 @@ void main() {
           },
         },
       }),
-      isNull,
-    );
-    expect(
+    ).isNull();
+    check(
       debugParseFollowUpsSocketEventForTesting({
         'data': {
           'type': 'chat:message:follow_ups',
@@ -57,9 +57,8 @@ void main() {
           },
         },
       }),
-      isNull,
-    );
-    expect(
+    ).isNull();
+    check(
       debugParseFollowUpsSocketEventForTesting({
         'message_id': 'msg-1',
         'data': {
@@ -69,7 +68,6 @@ void main() {
           },
         },
       }),
-      isNull,
-    );
+    ).isNull();
   });
 }

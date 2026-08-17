@@ -42,8 +42,10 @@ final RegExp _streamingRawHtmlBlockPattern = RegExp(
   caseSensitive: false,
   multiLine: true,
 );
+// Labels may contain backslash-escaped brackets ("[a\]b]:"), so escaped
+// pairs are consumed before the closing bracket.
 final RegExp _streamingReferenceDefinitionPattern = RegExp(
-  r'^\s{0,3}\[[^\]\n]+\]:',
+  r'^\s{0,3}\[(?:\\.|[^\]\n])+\]:',
   multiLine: true,
 );
 

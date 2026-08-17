@@ -87,7 +87,12 @@ part 'chat_providers.g.dart';
 /// Returns null when the event is not a usable follow-ups push.
 @visibleForTesting
 ({String messageId, List<String> followUps})?
-debugParseFollowUpsSocketEventForTesting(Map<String, dynamic> event) {
+debugParseFollowUpsSocketEventForTesting(Map<String, dynamic> event) =>
+    _parseFollowUpsSocketEvent(event);
+
+({String messageId, List<String> followUps})? _parseFollowUpsSocketEvent(
+  Map<String, dynamic> event,
+) {
   final data = event['data'];
   if (data is! Map || data['type'] != 'chat:message:follow_ups') {
     return null;
@@ -2533,8 +2538,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   /// Applies a pushed `chat:message:follow_ups` payload straight to the
   /// target message. Returns true when the event was consumed.
   bool _applyPassiveFollowUpsEvent(Map<String, dynamic> event) {
-    final parsed = debugParseFollowUpsSocketEventForTesting(event);
+    final parsed = _parseFollowUpsSocketEvent(event);
     if (parsed == null) {
+      return false;
+    }
+    // An unknown message id must fall through to the debounced refetch —
+    // consuming the event here would silently drop the payload.
+    if (!state.any((message) => message.id == parsed.messageId)) {
       return false;
     }
     DebugLogger.log(
