@@ -801,10 +801,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   String initialPlainStreamingContent(String content) {
     var plain = content;
     if (plain.contains('<details')) {
+      // Consume only the wrapper's own trailing newline: broader \s* (plus a
+      // trim) would eat whitespace belonging to the answer, such as the
+      // indentation of a leading indented code block.
       final semanticDetailsPattern = RegExp(
-        r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+        r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\n?''',
       );
-      plain = plain.replaceAll(semanticDetailsPattern, '').trim();
+      plain = plain.replaceAll(semanticDetailsPattern, '');
     }
     return plain.contains('&') ? plainContentUnescape.convert(plain) : plain;
   }

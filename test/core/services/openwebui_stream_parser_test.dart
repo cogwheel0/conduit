@@ -379,6 +379,45 @@ void main() {
       check(updates[1]).isA<OpenWebUIStreamDone>();
     });
 
+    test(
+      'a non-renderable output snapshot does not mute the same-frame delta',
+      () async {
+        // A whitespace-only message item parses into zero blocks; muting the
+        // delta on the raw list would render nothing for the frame.
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode(
+              'data: ${jsonEncode({
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': '   '},
+                    ],
+                  },
+                ],
+                'choices': [
+                  {
+                    'delta': {'content': 'hi'},
+                  },
+                ],
+              })}\n\n',
+            ),
+          ]),
+        ).toList();
+
+        check(updates).has((it) => it.length, 'length').equals(2);
+        check(updates[0])
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('hi');
+        check(updates[1])
+            .isA<OpenWebUIOutputUpdate>()
+            .has((u) => u.blocks, 'blocks')
+            .isEmpty();
+      },
+    );
+
     test('output supersedes the same-frame delta for mixed chunks', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([
@@ -1034,6 +1073,29 @@ void main() {
       check(completion).isA<StructuredOutputStreamingReplace>();
       check((completion! as StructuredOutputStreamingReplace).content)
           .contains('<summary>Thought for 4 seconds</summary>');
+    });
+
+    test('code-bearing streams re-render on the bounded additive schedule', () {
+      // Once a backtick disables the append fast path, the schedule
+      // deliberately switches from geometric doubling (which would leave
+      // the tail up to 50% stale until completion) to additive steps of
+      // max(64, length / 8): denser than geometric, still bounded.
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+
+      for (var index = 0; index < chunkCount; index++) {
+        text.write('x');
+        projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      }
+
+      check(projector.fullProjectionCount).isGreaterThan(14);
+      check(projector.fullProjectionCount).isLessOrEqual(64);
+
+      final completion = projector.finish();
+      check(completion).isA<StructuredOutputStreamingReplace>();
+      check(completion!.content).endsWith('x');
+      check(completion.content.length).isGreaterOrEqual(chunkCount);
     });
 
     test('bounds cumulative tool argument replacements geometrically', () {
