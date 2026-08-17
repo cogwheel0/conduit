@@ -145,6 +145,36 @@ void main() {
   );
 
   test(
+    'backtick lines inside raw HTML do not hide a later reference definition',
+    () {
+      const content =
+          'See [docs][d].\n\n<pre>\n```\ncontent\n</pre>\n\n'
+          '[d]: https://example.com';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], isEmpty);
+      expect(split['mutableTail'], content);
+      expect(split['canIncrementallyCompile'], isFalse);
+      expect(split['fallbackReason'], 'referenceDefinitions');
+    },
+  );
+
+  test(
+    'definition-shaped lines inside raw HTML fall back conservatively',
+    () {
+      const content = 'Intro.\n\n<pre>\n[d]: https://example.com\n</pre>';
+
+      final split = debugSplitStreamingPreparedContentForTesting(content);
+
+      expect(split['frozenPrefix'], isEmpty);
+      expect(split['mutableTail'], content);
+      expect(split['canIncrementallyCompile'], isFalse);
+      expect(split['fallbackReason'], 'referenceDefinitions');
+    },
+  );
+
+  test(
     'reference-definition-shaped lines inside fenced code do not disable '
     'incremental splitting',
     () {

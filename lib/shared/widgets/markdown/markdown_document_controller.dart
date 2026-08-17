@@ -914,9 +914,23 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
   // after a raw HTML block still rebinds links before it — so the scan never
   // stops at the first raw HTML line; only its offset is recorded as the
   // freeze cap.
+  //
+  // Once a raw HTML block has started, fence tracking is unreliable: backtick
+  // lines inside raw HTML are content, not fences, and an odd count would
+  // leave the tracker "inside" a fence and skip a later real definition. From
+  // that point every line is checked for a definition regardless of fence
+  // state — at worst more conservative than the pre-split whole-document
+  // check this replaced.
   for (final line in lines) {
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
+      continue;
+    }
+
+    if (firstRawHtmlOffset != null) {
+      if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
+        return (offset: line.start, isReferenceDefinition: true);
+      }
       continue;
     }
 
@@ -939,8 +953,7 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
       return (offset: line.start, isReferenceDefinition: true);
     }
-    if (firstRawHtmlOffset == null &&
-        _streamingRawHtmlBlockPattern.hasMatch(candidate)) {
+    if (_streamingRawHtmlBlockPattern.hasMatch(candidate)) {
       firstRawHtmlOffset = line.start;
     }
   }
