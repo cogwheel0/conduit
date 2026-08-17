@@ -30,8 +30,13 @@ final RegExp _streamingDetailsOpenPattern = RegExp(
   r'^<details\b',
   caseSensitive: false,
 );
+// Must match exactly what the details parser recognizes as a close
+// (details_block_syntax.dart uses the literal `</details>`): counting a
+// looser `</details >` as a close exits details tracking early, and a
+// subsequent backtick line inside the still-open body then poisons fence
+// state and hides later reference definitions.
 final RegExp _streamingDetailsClosePattern = RegExp(
-  r'</details\s*>',
+  r'</details>',
   caseSensitive: false,
 );
 final RegExp _streamingRawHtmlBlockPattern = RegExp(

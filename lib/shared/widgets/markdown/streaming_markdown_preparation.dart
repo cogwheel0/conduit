@@ -856,8 +856,11 @@ int _lastSafeRawBoundary(String input) {
       r'<details\b',
       caseSensitive: false,
     ).allMatches(line).length;
+    // Exactly the close the details parser recognizes; a looser match would
+    // let the checkpoint think it left a details block the parser is still
+    // inside, splitting prepared content mid-block.
     detailsDepth -= RegExp(
-      r'</details\s*>',
+      r'</details>',
       caseSensitive: false,
     ).allMatches(line).length;
     if (detailsDepth < 0) detailsDepth = 0;

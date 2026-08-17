@@ -171,6 +171,23 @@ void main() {
     expect(split['fallbackReason'], 'referenceDefinitions');
   });
 
+  test('a details-close lookalike inside the body does not hide a later '
+      'reference definition', () {
+    // `</details >` is NOT a close for the details parser; treating it as
+    // one exited details tracking early, and the body backtick then opened
+    // a phantom outer fence that swallowed the definition after the block.
+    const content =
+        'See [docs][d].\n\n<details>\nbody with </details > lookalike\n'
+        '```\n</details>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
   test(
     'a closed details block with no unsafe lines still freezes normally',
     () {
