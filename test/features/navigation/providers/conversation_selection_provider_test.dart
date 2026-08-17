@@ -197,9 +197,8 @@ void main() {
       final container = await _createContainer(
         activeConversation: previous,
         extraOverrides: [
-          loadConversationProvider(
-            conversationScopedId(summary),
-          ).overrideWith((ref) async => full),
+          loadConversationProvider(conversationScopedId(summary))
+              .overrideWith((ref) async => full),
         ],
       );
       container
@@ -239,9 +238,8 @@ void main() {
       final container = await _createContainer(
         activeConversation: previous,
         extraOverrides: [
-          loadConversationProvider(
-            conversationScopedId(summary),
-          ).overrideWith((ref) async => full),
+          loadConversationProvider(conversationScopedId(summary))
+              .overrideWith((ref) async => full),
         ],
       );
       container
@@ -342,9 +340,8 @@ void main() {
               () => _PendingAccountStorageIsolation(isolationGate.future),
             ),
         extraOverrides: [
-          loadConversationProvider(
-            conversationScopedId(second),
-          ).overrideWith((ref) async => secondFull),
+          loadConversationProvider(conversationScopedId(second))
+              .overrideWith((ref) async => secondFull),
         ],
       );
 
@@ -390,9 +387,8 @@ void main() {
       );
       final container = await _createContainer(
         extraOverrides: [
-          loadConversationProvider(
-            conversationScopedId(second),
-          ).overrideWith((ref) async => secondFull),
+          loadConversationProvider(conversationScopedId(second))
+              .overrideWith((ref) async => secondFull),
         ],
       );
 
@@ -431,12 +427,10 @@ void main() {
     final secondGate = Completer<Conversation>();
     final container = await _createContainer(
       extraOverrides: [
-        loadConversationProvider(
-          conversationScopedId(first),
-        ).overrideWith((ref) => firstGate.future),
-        loadConversationProvider(
-          conversationScopedId(second),
-        ).overrideWith((ref) => secondGate.future),
+        loadConversationProvider(conversationScopedId(first))
+            .overrideWith((ref) => firstGate.future),
+        loadConversationProvider(conversationScopedId(second))
+            .overrideWith((ref) => secondGate.future),
       ],
     );
 
@@ -497,9 +491,8 @@ void main() {
     final container = await _createContainer(
       activeConversation: previous,
       extraOverrides: [
-        loadConversationProvider(
-          scopedId,
-        ).overrideWith((ref) => loadGate.future),
+        loadConversationProvider(scopedId)
+            .overrideWith((ref) => loadGate.future),
       ],
     );
     _certifyOpenWebUiStorage(container);
@@ -536,9 +529,8 @@ void main() {
     final container = await _createContainer(
       activeConversation: previous,
       extraOverrides: [
-        loadConversationProvider(
-          conversationScopedId(summary),
-        ).overrideWith((ref) => loadGate.future),
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) => loadGate.future),
       ],
     );
     _certifyOpenWebUiStorage(container);
@@ -578,9 +570,8 @@ void main() {
     final container = await _createContainer(
       activeConversation: previous,
       extraOverrides: [
-        loadConversationProvider(
-          conversationScopedId(summary),
-        ).overrideWith((ref) => loadGate.future),
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) => loadGate.future),
       ],
     );
     _certifyOpenWebUiStorage(container);
@@ -621,9 +612,8 @@ void main() {
       activeConversation: previous,
       timeout: const Duration(milliseconds: 50),
       extraOverrides: [
-        loadConversationProvider(
-          conversationScopedId(summary),
-        ).overrideWith((ref) => loadGate.future),
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) => loadGate.future),
       ],
     );
     _certifyOpenWebUiStorage(container);
@@ -647,9 +637,8 @@ void main() {
     final loadGate = Completer<Conversation>();
     final container = await _createContainer(
       extraOverrides: [
-        loadConversationProvider(
-          conversationScopedId(summary),
-        ).overrideWith((ref) => loadGate.future),
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) => loadGate.future),
       ],
     );
 
@@ -720,17 +709,15 @@ void main() {
     final container = await _createContainer(
       timeout: const Duration(seconds: 1),
       extraOverrides: [
-        loadConversationProvider(conversationScopedId(first)).overrideWith((
-          ref,
-        ) async {
-          attempts += 1;
-          throw OpenWebUiConversationOwnershipException(
-            OpenWebUiConversationOwnershipFailureReason.changedWhileLoading,
-          );
-        }),
-        loadConversationProvider(
-          conversationScopedId(second),
-        ).overrideWith((ref) async => secondFull),
+        loadConversationProvider(conversationScopedId(first))
+            .overrideWith((ref) async {
+              attempts += 1;
+              throw OpenWebUiConversationOwnershipException(
+                OpenWebUiConversationOwnershipFailureReason.changedWhileLoading,
+              );
+            }),
+        loadConversationProvider(conversationScopedId(second))
+            .overrideWith((ref) async => secondFull),
       ],
     );
     _certifyOpenWebUiStorage(container);

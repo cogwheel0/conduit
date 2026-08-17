@@ -26,8 +26,10 @@ final RegExp _directOpenWebUiFileReferencePattern = RegExp(
   r'/api/v1/files/([^/]+)(?:/content)?/?$',
 );
 
-typedef DirectImageResolver =
-    Future<String?> Function(String fileId, int maxDecodedBytes);
+typedef DirectImageResolver = Future<String?> Function(
+  String fileId,
+  int maxDecodedBytes,
+);
 
 final class DirectChatInputException implements Exception {
   const DirectChatInputException(this.message);

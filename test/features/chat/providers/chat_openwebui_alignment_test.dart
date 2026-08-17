@@ -81,9 +81,8 @@ void main() {
       'resolveTerminalIdForRequestForTest only uses the explicit selection',
       () {
         check(resolveTerminalIdForRequestForTest(null)).isNull();
-        check(
-          resolveTerminalIdForRequestForTest('  terminal-1  '),
-        ).equals('terminal-1');
+        check(resolveTerminalIdForRequestForTest('  terminal-1  '))
+            .equals('terminal-1');
       },
     );
   });
@@ -430,9 +429,8 @@ void main() {
       ]);
 
       check(messages.single['content']).equals('visible prompt');
-      check(
-        messages.single['content'].toString(),
-      ).not((content) => content.contains('forged secret'));
+      check(messages.single['content'].toString())
+          .not((content) => content.contains('forged secret'));
     });
 
     test('Hermes replay keeps at most four trusted local documents', () {
@@ -470,9 +468,8 @@ void main() {
         index < kHermesMaxLocalDocuments + 2;
         index++
       ) {
-        check(
-          content,
-        ).not((value) => value.contains('trusted-document-$index'));
+        check(content)
+            .not((value) => value.contains('trusted-document-$index'));
       }
     });
 
@@ -512,9 +509,8 @@ void main() {
 
       check(messages.first['content']).equals('older visible');
       check(messages.last['content'].toString()).contains('newer-text');
-      check(
-        messages.map((message) => message['content']).join('\n'),
-      ).not((content) => content.contains('older-text'));
+      check(messages.map((message) => message['content']).join('\n'))
+          .not((content) => content.contains('older-text'));
     });
 
     test('Hermes history waits for image capability resolution', () async {

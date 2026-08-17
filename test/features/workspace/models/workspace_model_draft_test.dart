@@ -116,15 +116,12 @@ void main() {
       (copy.extraMeta['custom'] as Map)['enabled'] = false;
 
       check(copy.description).equals('  unsaved spacing  ');
-      check(
-        ((draft.advancedParams['nested'] as Map)['values'] as List),
-      ).deepEquals([1]);
-      check(
-        ((draft.builtinTools['search'] as Map)['options'] as List),
-      ).deepEquals(['safe']);
-      check(
-        ((draft.knowledge.single.raw['metadata'] as Map)['labels'] as List),
-      ).deepEquals(['one']);
+      check(((draft.advancedParams['nested'] as Map)['values'] as List))
+          .deepEquals([1]);
+      check(((draft.builtinTools['search'] as Map)['options'] as List))
+          .deepEquals(['safe']);
+      check(((draft.knowledge.single.raw['metadata'] as Map)['labels'] as List))
+          .deepEquals(['one']);
       check((draft.extraMeta['custom'] as Map)['enabled']).equals(true);
     });
 

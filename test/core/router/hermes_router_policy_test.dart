@@ -143,9 +143,8 @@ final _usableDirectProfile = DirectConnectionProfile(
 
 void main() {
   test('native-sheet destinations suppress the second page transition', () {
-    check(
-      usesNoTransitionForNativeSheet(const NativeSheetNavigationOrigin()),
-    ).isTrue();
+    check(usesNoTransitionForNativeSheet(const NativeSheetNavigationOrigin()))
+        .isTrue();
     check(usesNoTransitionForNativeSheet(null)).isFalse();
     check(usesNoTransitionForNativeSheet(true)).isFalse();
   });
@@ -182,12 +181,10 @@ void main() {
     });
 
     test('settled incomplete Hermes config opens settings, not splash', () {
-      check(
-        incompleteHermesDestination(secretsLoading: false),
-      ).equals(Routes.hermesSettings);
-      check(
-        incompleteHermesDestination(secretsLoading: true),
-      ).equals(Routes.splash);
+      check(incompleteHermesDestination(secretsLoading: false))
+          .equals(Routes.hermesSettings);
+      check(incompleteHermesDestination(secretsLoading: true))
+          .equals(Routes.splash);
     });
 
     test('incomplete Hermes waits while the active server is loading', () {
@@ -309,14 +306,13 @@ void main() {
 
         check(notifier.redirect(_MockBuildContext(), state)).isNull();
 
-        (container.read(hermesConfigProvider.notifier)
-                as _FixedHermesConfigController)
-            .publish(_usableHermes);
+        (container.read(
+          hermesConfigProvider.notifier,
+        ) as _FixedHermesConfigController).publish(_usableHermes);
         container.read(hermesSecretsLoadingProvider.notifier).set(false);
 
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals(Routes.chat);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.chat);
       },
     );
 
@@ -399,9 +395,8 @@ void main() {
         }
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.splash));
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals(Routes.hermesSettings);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.hermesSettings);
       },
     );
 
@@ -497,12 +492,12 @@ void main() {
         final state = _MockGoRouterState();
         final notifier = container.read(routerNotifierProvider);
         when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
-        check(notifier.redirect(_MockBuildContext(), state)).equals(Routes.chat);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.chat);
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals(Routes.connectionIssue);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.connectionIssue);
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.connectionIssue));
         check(notifier.redirect(_MockBuildContext(), state)).isNull();
@@ -611,9 +606,8 @@ void main() {
         check(notifier.redirect(_MockBuildContext(), state)).isNull();
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.notes));
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals(Routes.chat);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.chat);
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
         check(notifier.redirect(_MockBuildContext(), state)).isNull();
@@ -756,9 +750,8 @@ void main() {
       final state = _MockGoRouterState();
       final notifier = container.read(routerNotifierProvider);
       when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
-      check(
-        notifier.redirect(_MockBuildContext(), state),
-      ).equals(Routes.splash);
+      check(notifier.redirect(_MockBuildContext(), state))
+          .equals(Routes.splash);
 
       profiles.complete([_usableDirectProfile]);
       await container.read(directConnectionProfilesProvider.future);
@@ -844,9 +837,8 @@ void main() {
         check(refreshing.isLoading).isTrue();
         check(refreshing.hasValue).isTrue();
         when(() => state.uri).thenReturn(Uri.parse(Routes.chat));
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals(Routes.splash);
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals(Routes.splash);
 
         pending.complete([_usableDirectProfile]);
         await container.read(directConnectionProfilesProvider.future);
@@ -860,9 +852,8 @@ void main() {
         final failed = container.read(directConnectionProfilesProvider);
         check(failed.hasError).isTrue();
         check(failed.hasValue).isTrue();
-        check(
-          notifier.redirect(_MockBuildContext(), state),
-        ).equals('${Routes.directConnections}?onboarding=true');
+        check(notifier.redirect(_MockBuildContext(), state))
+            .equals('${Routes.directConnections}?onboarding=true');
       },
     );
   });

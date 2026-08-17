@@ -113,9 +113,8 @@ void main() {
       check(activeConversation!.messages).length.equals(2);
       check(activeConversation.messages.last.isStreaming).isFalse();
       check(activeConversation.messages.last.error).isNotNull();
-      check(
-        activeConversation.messages.last.error!.content,
-      ).equals('Transport setup failed');
+      check(activeConversation.messages.last.error!.content)
+          .equals('Transport setup failed');
     });
   });
 }

@@ -851,14 +851,13 @@ class SyncEngine extends _$SyncEngine {
       }
 
       late final Future<void> migration;
-      migration = _runLegacyTaskQueueMigration(migrationDb: db).whenComplete(
-        () {
-          if (identical(_migrationInFlight, migration)) {
-            _migrationInFlight = null;
-            _migrationDb = null;
-          }
-        },
-      );
+      migration = _runLegacyTaskQueueMigration(migrationDb: db)
+          .whenComplete(() {
+            if (identical(_migrationInFlight, migration)) {
+              _migrationInFlight = null;
+              _migrationDb = null;
+            }
+          });
       _migrationInFlight = migration;
       _migrationDb = db;
       await migration;

@@ -7,15 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('ConduitUserAgent', () {
     test('builds a product and app-version token', () {
-      check(
-        ConduitUserAgent.build(appVersion: ' 3.4.3 '),
-      ).equals('Conduit/3.4.3');
+      check(ConduitUserAgent.build(appVersion: ' 3.4.3 '))
+          .equals('Conduit/3.4.3');
     });
 
     test('sanitizes characters that are invalid in a product token', () {
-      check(
-        ConduitUserAgent.build(appVersion: '3.4 beta/1'),
-      ).equals('Conduit/3.4-beta-1');
+      check(ConduitUserAgent.build(appVersion: '3.4 beta/1'))
+          .equals('Conduit/3.4-beta-1');
     });
 
     test('falls back to the product name when the version is empty', () {
@@ -46,9 +44,8 @@ void main() {
       final merged = ConduitUserAgent.mergeHeaders(original);
 
       check(merged[ConduitUserAgent.headerName]).equals(ConduitUserAgent.value);
-      check(
-        merged.keys.where(ConduitUserAgent.isHeaderName),
-      ).deepEquals([ConduitUserAgent.headerName]);
+      check(merged.keys.where(ConduitUserAgent.isHeaderName))
+          .deepEquals([ConduitUserAgent.headerName]);
       check(merged['X-Custom']).equals('value');
       check(original['user-agent']).equals('spoofed');
     });

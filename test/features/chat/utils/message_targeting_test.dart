@@ -63,9 +63,8 @@ void main() {
         includeTarget: true,
       );
 
-      check(
-        truncated.map((message) => message.id).toList(),
-      ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+      check(truncated.map((message) => message.id).toList())
+          .deepEquals(['u1', 'a1', 'u2', 'a2']);
     });
 
     test('drops the target when includeTarget is false', () {
@@ -75,9 +74,8 @@ void main() {
         includeTarget: false,
       );
 
-      check(
-        truncated.map((message) => message.id).toList(),
-      ).deepEquals(['u1', 'a1']);
+      check(truncated.map((message) => message.id).toList())
+          .deepEquals(['u1', 'a1']);
     });
   });
 }

@@ -16,9 +16,8 @@ void main() {
         'name': 'Samantha',
       };
 
-      check(
-        ttsVoiceIdFor(TtsEngine.device, voice),
-      ).equals('com.apple.voice.enhanced.en-US.Samantha');
+      check(ttsVoiceIdFor(TtsEngine.device, voice))
+          .equals('com.apple.voice.enhanced.en-US.Samantha');
     });
 
     test('selected option resolves legacy saved names to native ids', () {
@@ -32,9 +31,8 @@ void main() {
       ];
       final settings = const AppSettings().copyWith(ttsVoice: 'Samantha');
 
-      check(
-        selectedTtsVoiceOptionId(settings, voices),
-      ).equals('com.apple.voice.enhanced.en-US.Samantha');
+      check(selectedTtsVoiceOptionId(settings, voices))
+          .equals('com.apple.voice.enhanced.en-US.Samantha');
       check(ttsVoiceMatchesSettings(settings, voices.single)).isTrue();
     });
 
@@ -69,9 +67,8 @@ void main() {
 
       check(options).length.equals(1);
       check(options.single.label).equals('Example (Personal Voice)');
-      check(
-        options.single.subtitle,
-      ).equals('English (United States) · Premium · Personal Voice');
+      check(options.single.subtitle)
+          .equals('English (United States) · Premium · Personal Voice');
     });
   });
 }

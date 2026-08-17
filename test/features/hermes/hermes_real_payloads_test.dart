@@ -129,12 +129,12 @@ void main() {
         'data: {"event":"run.completed","output":"hi"}\n\n',
       );
       final uint8Stream = Stream<Uint8List>.value(Uint8List.fromList(bytes));
-      final events = await parseHermesRunStream(
-        uint8Stream.cast<List<int>>(),
-      ).toList();
-      check(
-        events.first,
-      ).isA<HermesTokenDelta>().has((e) => e.content, 'content').equals('hi');
+      final events = await parseHermesRunStream(uint8Stream.cast<List<int>>())
+          .toList();
+      check(events.first)
+          .isA<HermesTokenDelta>()
+          .has((e) => e.content, 'content')
+          .equals('hi');
       check(events.last).isA<HermesRunDone>();
     },
   );
@@ -157,25 +157,29 @@ void main() {
       ..has((e) => e.done, 'done').isTrue();
   });
 
-  test('SSE: real message.delta / reasoning.available / run.completed', () async {
-    final frames = [
-      'data: {"event":"message.delta","run_id":"r","delta":"pong"}\n\n',
-      'data: {"event":"reasoning.available","run_id":"r","text":"pong"}\n\n',
-      'data: {"event":"run.completed","run_id":"r","output":"pong","usage":{"total_tokens":1}}\n\n',
-    ];
-    final events = await parseHermesRunStream(
-      Stream<List<int>>.fromIterable(frames.map(utf8.encode)),
-    ).toList();
+  test(
+    'SSE: real message.delta / reasoning.available / run.completed',
+    () async {
+      final frames = [
+        'data: {"event":"message.delta","run_id":"r","delta":"pong"}\n\n',
+        'data: {"event":"reasoning.available","run_id":"r","text":"pong"}\n\n',
+        'data: {"event":"run.completed","run_id":"r","output":"pong","usage":{"total_tokens":1}}\n\n',
+      ];
+      final events = await parseHermesRunStream(
+        Stream<List<int>>.fromIterable(frames.map(utf8.encode)),
+      ).toList();
 
-    // message.delta → token; reasoning.available skipped (would duplicate);
-    // run.completed → final output fallback + done.
-    check(
-      events[0],
-    ).isA<HermesTokenDelta>().has((e) => e.content, 'content').equals('pong');
-    check(events.any((e) => e is HermesReasoningDelta)).isFalse();
-    check(events.whereType<HermesFinalOutput>().single.text).equals('pong');
-    check(events.last).isA<HermesRunDone>();
-  });
+      // message.delta → token; reasoning.available skipped (would duplicate);
+      // run.completed → final output fallback + done.
+      check(events[0])
+          .isA<HermesTokenDelta>()
+          .has((e) => e.content, 'content')
+          .equals('pong');
+      check(events.any((e) => e is HermesReasoningDelta)).isFalse();
+      check(events.whereType<HermesFinalOutput>().single.text).equals('pong');
+      check(events.last).isA<HermesRunDone>();
+    },
+  );
 
   test('SSE: real Responses created / delta / completed envelopes', () async {
     final created = {
@@ -233,9 +237,8 @@ void main() {
       Stream<List<int>>.fromIterable(frames.map(utf8.encode)),
     ).toList();
 
-    check(
-      events.whereType<HermesResponseCreated>().map((e) => e.responseId),
-    ).deepEquals(['resp_123', 'resp_123']);
+    check(events.whereType<HermesResponseCreated>().map((e) => e.responseId))
+        .deepEquals(['resp_123', 'resp_123']);
     check(events.whereType<HermesLifecycle>().single.status).equals('created');
     check(events.whereType<HermesTokenDelta>().single.content).equals('hello');
     check(events.whereType<HermesFinalOutput>().single.text).equals('hello');

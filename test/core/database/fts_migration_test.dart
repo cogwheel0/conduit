@@ -186,9 +186,8 @@ void main() {
     final outboxColumns = await db
         .customSelect('PRAGMA table_info(outbox_ops)')
         .get();
-    check(
-      outboxColumns.map((row) => row.read<String>('name')).toList(),
-    ).contains('content_hash');
+    check(outboxColumns.map((row) => row.read<String>('name')).toList())
+        .contains('content_hash');
 
     final noteTable = await db
         .customSelect(

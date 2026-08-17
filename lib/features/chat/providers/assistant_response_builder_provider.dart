@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
 
-typedef AssistantResponseBuilder =
-    Widget Function(BuildContext context, AssistantResponseContext response);
+typedef AssistantResponseBuilder = Widget Function(
+  BuildContext context,
+  AssistantResponseContext response,
+);
 
 class AssistantResponseContext {
   const AssistantResponseContext({

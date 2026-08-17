@@ -8,7 +8,8 @@ import 'package:conduit/features/notifications/services/notification_sound_servi
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-class _MockLocalNotifications extends Mock implements LocalNotificationService {}
+class _MockLocalNotifications extends Mock
+    implements LocalNotificationService {}
 
 class _MockSound extends Mock implements NotificationSoundService {}
 
@@ -56,7 +57,8 @@ void main() {
     sound = _MockSound();
     banners = [];
     unreads = [];
-    when(() => local.show(any(), playSound: any(named: 'playSound'))).thenAnswer((_) async {});
+    when(() => local.show(any(), playSound: any(named: 'playSound')))
+        .thenAnswer((_) async {});
     when(() => sound.play()).thenAnswer((_) async {});
   });
 
@@ -97,46 +99,43 @@ void main() {
       final router = build(
         settings: allOn.copyWith(notificationChannelEnabled: false),
       );
-      check(
-        await router.route(_channel()),
-      ).equals(NotificationSurface.suppressed);
+      check(await router.route(_channel()))
+          .equals(NotificationSurface.suppressed);
     });
 
     test('duplicate dedupKey is suppressed on the second delivery', () async {
       final router = build();
-      check(await router.route(_chat(key: 'dup'))).equals(
-        NotificationSurface.banner,
-      );
-      check(
-        await router.route(_chat(key: 'dup')),
-      ).equals(NotificationSurface.suppressed);
+      check(await router.route(_chat(key: 'dup')))
+          .equals(NotificationSurface.banner);
+      check(await router.route(_chat(key: 'dup')))
+          .equals(NotificationSurface.suppressed);
     });
 
     test('currently viewing the chat suppresses its completion', () async {
       final router = build(view: const ActiveView(chatId: 'chat-1'));
-      check(
-        await router.route(_chat(id: 'chat-1')),
-      ).equals(NotificationSurface.suppressed);
+      check(await router.route(_chat(id: 'chat-1')))
+          .equals(NotificationSurface.suppressed);
     });
 
     test('currently viewing the channel suppresses its message', () async {
       final router = build(view: const ActiveView(channelId: 'chan-1'));
-      check(
-        await router.route(_channel(id: 'chan-1')),
-      ).equals(NotificationSurface.suppressed);
+      check(await router.route(_channel(id: 'chan-1')))
+          .equals(NotificationSurface.suppressed);
     });
 
-    test('backgrounded, the active chat still notifies (not suppressed)', () async {
-      // Start a chat (it is the active view), then background the app: the
-      // completion must still fire an OS notification.
-      final router = build(
-        foreground: false,
-        view: const ActiveView(chatId: 'chat-1'),
-      );
-      check(
-        await router.route(_chat(id: 'chat-1')),
-      ).equals(NotificationSurface.system);
-    });
+    test(
+      'backgrounded, the active chat still notifies (not suppressed)',
+      () async {
+        // Start a chat (it is the active view), then background the app: the
+        // completion must still fire an OS notification.
+        final router = build(
+          foreground: false,
+          view: const ActiveView(chatId: 'chat-1'),
+        );
+        check(await router.route(_chat(id: 'chat-1')))
+            .equals(NotificationSurface.system);
+      },
+    );
   });
 
   group('surface selection', () {
@@ -160,22 +159,29 @@ void main() {
       final router = build(foreground: false);
       check(await router.route(_chat())).equals(NotificationSurface.system);
       check(banners).isEmpty();
-      verify(() => local.show(any(), playSound: any(named: 'playSound'))).called(1);
+      verify(() => local.show(any(), playSound: any(named: 'playSound')))
+          .called(1);
     });
 
-    test('system notification sound follows the notificationSound pref', () async {
-      final router = build(
-        foreground: false,
-        settings: allOn.copyWith(notificationSound: false),
-      );
-      await router.route(_chat());
-      final played =
-          verify(
-                () => local.show(any(), playSound: captureAny(named: 'playSound')),
-              ).captured.single
-              as bool;
-      check(played).isFalse();
-    });
+    test(
+      'system notification sound follows the notificationSound pref',
+      () async {
+        final router = build(
+          foreground: false,
+          settings: allOn.copyWith(notificationSound: false),
+        );
+        await router.route(_chat());
+        final played =
+            verify(
+                  () => local.show(
+                    any(),
+                    playSound: captureAny(named: 'playSound'),
+                  ),
+                ).captured.single
+                as bool;
+        check(played).isFalse();
+      },
+    );
 
     test('background with system off is silent', () async {
       final router = build(

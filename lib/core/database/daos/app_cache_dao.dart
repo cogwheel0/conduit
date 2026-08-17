@@ -8,7 +8,8 @@ part 'app_cache_dao.g.dart';
 /// Accessor for the per-server [AppCache] key-value table (offline-fallback
 /// caches: local user, avatar, backend config, tools, default model, models).
 @DriftAccessor(tables: [AppCache])
-class AppCacheDao extends DatabaseAccessor<AppDatabase> with _$AppCacheDaoMixin {
+class AppCacheDao extends DatabaseAccessor<AppDatabase>
+    with _$AppCacheDaoMixin {
   AppCacheDao(super.db);
 
   Future<String?> getValue(String key) async {
@@ -20,7 +21,11 @@ class AppCacheDao extends DatabaseAccessor<AppDatabase> with _$AppCacheDaoMixin 
 
   Future<void> setValue(String key, String value, {int updatedAt = 0}) {
     return into(appCache).insertOnConflictUpdate(
-      AppCacheCompanion.insert(key: key, value: value, updatedAt: Value(updatedAt)),
+      AppCacheCompanion.insert(
+        key: key,
+        value: value,
+        updatedAt: Value(updatedAt),
+      ),
     );
   }
 

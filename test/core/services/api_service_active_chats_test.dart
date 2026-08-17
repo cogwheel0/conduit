@@ -173,9 +173,8 @@ void main() {
       );
       final api = _buildApiService(adapter);
 
-      await check(
-        api.checkActiveChats(['regular', 'archived']),
-      ).throws<DioException>();
+      await check(api.checkActiveChats(['regular', 'archived']))
+          .throws<DioException>();
     });
 
     test('0.11 pagination continues after a full 60-row page', () async {

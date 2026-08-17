@@ -178,9 +178,8 @@ void main() {
       await firstStarted.future.timeout(const Duration(seconds: 1));
       await queue.retry(id);
       releaseFirst.complete();
-      final terminal = (await completed.timeout(
-        const Duration(seconds: 1),
-      )).single;
+      final terminal = (await completed.timeout(const Duration(seconds: 1)))
+          .single;
 
       check(uploadCalls).equals(1);
       check(terminal.fileId).equals('server-1');
@@ -220,9 +219,8 @@ void main() {
         );
         await cancelSettled.future.timeout(const Duration(seconds: 1));
 
-        check(
-          queue.queue.single.status,
-        ).equals(QueuedAttachmentStatus.completed);
+        check(queue.queue.single.status)
+            .equals(QueuedAttachmentStatus.completed);
         check(queue.queue.single.fileId).equals('server-file-id');
         final row =
             (await resolveLiveDatabase().attachmentQueueDao.getAll()).single;
@@ -323,9 +321,8 @@ void main() {
           async.flushMicrotasks();
 
           check(callCount).equals(1);
-          check(
-            queue.queue.single.status,
-          ).equals(QueuedAttachmentStatus.pending);
+          check(queue.queue.single.status)
+              .equals(QueuedAttachmentStatus.pending);
           check(queue.queue.single.retryCount).equals(0);
           check(queue.queue.single.nextRetryAt).isNotNull();
 
@@ -333,9 +330,8 @@ void main() {
           async.elapse(const Duration(seconds: 7));
           async.flushMicrotasks();
           check(callCount).equals(2);
-          check(
-            queue.queue.single.status,
-          ).equals(QueuedAttachmentStatus.pending);
+          check(queue.queue.single.status)
+              .equals(QueuedAttachmentStatus.pending);
           check(queue.queue.single.retryCount).equals(0);
           queue.dispose();
         });
@@ -507,9 +503,8 @@ void main() {
           fileName: 'terminal-gap',
           fileSize: 1,
         );
-        final completed = (await terminal.timeout(
-          const Duration(seconds: 1),
-        )).single;
+        final completed = (await terminal.timeout(const Duration(seconds: 1)))
+            .single;
 
         check(completed.fileId).equals('remote-id');
         check(uploadCalls).equals(1);
@@ -533,12 +528,11 @@ void main() {
 
         check(restoredUploadCalls).equals(0);
         check(restored.queue).length.equals(1);
-        check(
-          restored.queue.single.status,
-        ).equals(QueuedAttachmentStatus.failed);
-        check(
-          restored.queue.single.lastError,
-        ).isNotNull().contains('outcome is unknown');
+        check(restored.queue.single.status)
+            .equals(QueuedAttachmentStatus.failed);
+        check(restored.queue.single.lastError)
+            .isNotNull()
+            .contains('outcome is unknown');
       },
     );
 
@@ -806,16 +800,14 @@ void main() {
           fileName: 'failed-gap',
           fileSize: 1,
         );
-        final failed = (await terminal.timeout(
-          const Duration(seconds: 1),
-        )).single;
+        final failed = (await terminal.timeout(const Duration(seconds: 1)))
+            .single;
         await Future<void>.delayed(Duration.zero);
 
         check(uploadCalls).equals(1);
         check(failed.status).equals(QueuedAttachmentStatus.failed);
-        check(
-          (await database.attachmentQueueDao.getAll()).single.status,
-        ).equals(QueuedAttachmentStatus.uploading.name);
+        check((await database.attachmentQueueDao.getAll()).single.status)
+            .equals(QueuedAttachmentStatus.uploading.name);
       },
     );
 
@@ -886,9 +878,8 @@ void main() {
         check(cleanupCalls).equals(1);
         check(queue.queue).length.equals(1);
         check(queue.queue.single.id).equals('cleanup-failed');
-        check(
-          queue.queue.single.status,
-        ).equals(QueuedAttachmentStatus.completed);
+        check(queue.queue.single.status)
+            .equals(QueuedAttachmentStatus.completed);
         check(await database.attachmentQueueDao.getAll()).length.equals(1);
       },
     );
@@ -1258,9 +1249,8 @@ void main() {
 
         await check(queue.clearAll()).throws<Exception>();
         check(queue.queue.map((item) => item.id)).deepEquals([id]);
-        check(
-          (await database.attachmentQueueDao.getAll()).map((row) => row.id),
-        ).deepEquals([id]);
+        check((await database.attachmentQueueDao.getAll()).map((row) => row.id))
+            .deepEquals([id]);
 
         queue.releaseOwnerHold(id);
         await queue.processQueue();
@@ -1326,9 +1316,8 @@ void main() {
       await processing;
 
       check(uploaded).deepEquals(['first']);
-      check(
-        (await database.attachmentQueueDao.getAll()).map((row) => row.id),
-      ).deepEquals(['first']);
+      check((await database.attachmentQueueDao.getAll()).map((row) => row.id))
+          .deepEquals(['first']);
     });
 
     test(
@@ -1475,9 +1464,8 @@ void main() {
         await Future.wait([first, second]);
 
         final rows = await database.attachmentQueueDao.getAll();
-        check(
-          rows.map((row) => row.fileName).toSet(),
-        ).deepEquals({'first-owned', 'second-owned'});
+        check(rows.map((row) => row.fileName).toSet())
+            .deepEquals({'first-owned', 'second-owned'});
       },
     );
 
@@ -1671,40 +1659,37 @@ void main() {
       check(threw).isTrue();
     });
 
-    test(
-      'ready rejects on load failure and preserves the existing snapshot',
-      () async {
-        final queue = AttachmentUploadQueue();
-        queue.initialize(
-          onUpload: (filePath, fileName, {cancelToken}) async => 'id',
-          database: resolveLiveDatabase,
-        );
-        await queue.ready;
-        await queue.enqueue(
-          filePath: '/tmp/kept.txt',
-          fileName: 'kept.txt',
-          fileSize: 1,
-        );
-        final before = queue.queue.map((e) => e.id).toList();
+    test('ready rejects on load failure and preserves the existing snapshot', () async {
+      final queue = AttachmentUploadQueue();
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: resolveLiveDatabase,
+      );
+      await queue.ready;
+      await queue.enqueue(
+        filePath: '/tmp/kept.txt',
+        fileName: 'kept.txt',
+        fileSize: 1,
+      );
+      final before = queue.queue.map((e) => e.id).toList();
 
-        // Re-initialize with a resolver that fails before the DAO read. The
-        // failure must remain visible through `ready`, and staging the load means
-        // the previous in-memory snapshot is not cleared on the failed attempt.
-        queue.initialize(
-          onUpload: (filePath, fileName, {cancelToken}) async => 'id',
-          database: () => throw StateError('load failed'),
-        );
-        var threw = false;
-        try {
-          await queue.ready;
-        } on StateError {
-          threw = true;
-        }
-        check(threw).isTrue();
-        check(queue.queue.map((e) => e.id).toList()).deepEquals(before);
-        queue.dispose();
-      },
-    );
+      // Re-initialize with a resolver that fails before the DAO read. The
+      // failure must remain visible through `ready`, and staging the load means
+      // the previous in-memory snapshot is not cleared on the failed attempt.
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: () => throw StateError('load failed'),
+      );
+      var threw = false;
+      try {
+        await queue.ready;
+      } on StateError {
+        threw = true;
+      }
+      check(threw).isTrue();
+      check(queue.queue.map((e) => e.id).toList()).deepEquals(before);
+      queue.dispose();
+    });
   });
 }
 

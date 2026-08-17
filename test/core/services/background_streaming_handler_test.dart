@@ -66,9 +66,9 @@ void main() {
         ),
       );
 
-      check(
-        failedStreamIds,
-      ).isNotNull().deepEquals(const <String>['chat-stream-assistant-1']);
+      check(failedStreamIds)
+          .isNotNull()
+          .deepEquals(const <String>['chat-stream-assistant-1']);
     },
   );
 }

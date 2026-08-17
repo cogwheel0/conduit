@@ -19,9 +19,8 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    check(
-      container.read(sidebarActiveTabProvider),
-    ).equals(SidebarTabId.channels);
+    check(container.read(sidebarActiveTabProvider))
+        .equals(SidebarTabId.channels);
   });
 
   test('set persists the selected tab identity', () async {
@@ -32,12 +31,10 @@ void main() {
     final controller = container.read(sidebarActiveTabProvider.notifier);
 
     controller.set(SidebarTabId.channels);
-    check(
-      container.read(sidebarActiveTabProvider),
-    ).equals(SidebarTabId.channels);
-    check(
-      PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
-    ).equals(SidebarTabId.channels.name);
+    check(container.read(sidebarActiveTabProvider))
+        .equals(SidebarTabId.channels);
+    check(PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab))
+        .equals(SidebarTabId.channels.name);
   });
 
   test('legacy numeric tab positions resolve against visible tabs', () async {
@@ -64,12 +61,10 @@ void main() {
     // user selection completes the migration to a stable identity.
     check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(2);
     controller.set(selected);
-    check(
-      container.read(sidebarActiveTabProvider),
-    ).equals(SidebarTabId.channels);
-    check(
-      PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab),
-    ).equals(SidebarTabId.channels.name);
+    check(container.read(sidebarActiveTabProvider))
+        .equals(SidebarTabId.channels);
+    check(PreferencesStore.get<String>(PreferenceKeys.sidebarActiveTab))
+        .equals(SidebarTabId.channels.name);
   });
 
   test('legacy selection is not persisted during capability changes', () async {
@@ -135,40 +130,33 @@ void main() {
     final controller = container.read(sidebarTabletWidthProvider.notifier);
 
     controller.setWidth(600);
-    check(
-      container.read(sidebarTabletWidthProvider),
-    ).equals(maximumSidebarTabletWidth);
+    check(container.read(sidebarTabletWidthProvider))
+        .equals(maximumSidebarTabletWidth);
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    check(
-      PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth),
-    ).equals(maximumSidebarTabletWidth);
+    check(PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth))
+        .equals(maximumSidebarTabletWidth);
 
     controller.setWidth(120);
-    check(
-      container.read(sidebarTabletWidthProvider),
-    ).equals(minimumSidebarTabletWidth);
+    check(container.read(sidebarTabletWidthProvider))
+        .equals(minimumSidebarTabletWidth);
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    check(
-      PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth),
-    ).equals(minimumSidebarTabletWidth);
+    check(PreferencesStore.get<num>(PreferenceKeys.sidebarTabletWidth))
+        .equals(minimumSidebarTabletWidth);
 
     final clampedContainer = ProviderContainer();
     addTearDown(clampedContainer.dispose);
-    check(
-      clampedContainer.read(sidebarTabletWidthProvider),
-    ).equals(minimumSidebarTabletWidth);
+    check(clampedContainer.read(sidebarTabletWidthProvider))
+        .equals(minimumSidebarTabletWidth);
 
     controller.reset();
-    check(
-      container.read(sidebarTabletWidthProvider),
-    ).equals(defaultSidebarTabletWidth);
+    check(container.read(sidebarTabletWidthProvider))
+        .equals(defaultSidebarTabletWidth);
     await Future<void>.delayed(const Duration(milliseconds: 250));
 
     final restoredContainer = ProviderContainer();
     addTearDown(restoredContainer.dispose);
-    check(
-      restoredContainer.read(sidebarTabletWidthProvider),
-    ).equals(defaultSidebarTabletWidth);
+    check(restoredContainer.read(sidebarTabletWidthProvider))
+        .equals(defaultSidebarTabletWidth);
   });
 
   test('legacy tablet widths below 320 restore at the new minimum', () async {
@@ -179,9 +167,8 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    check(
-      container.read(sidebarTabletWidthProvider),
-    ).equals(minimumSidebarTabletWidth);
+    check(container.read(sidebarTabletWidthProvider))
+        .equals(minimumSidebarTabletWidth);
     check(minimumSidebarTabletWidth).equals(320);
   });
 }

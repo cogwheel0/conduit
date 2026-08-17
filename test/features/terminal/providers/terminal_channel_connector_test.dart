@@ -60,10 +60,8 @@ Future<List<String>> _captureHandshakeUserAgents(
     final userAgents = await captured.future.timeout(
       const Duration(seconds: 5),
     );
-    await Future.wait([
-      readyFinished,
-      streamFinished,
-    ]).timeout(const Duration(seconds: 5));
+    await Future.wait([readyFinished, streamFinished])
+        .timeout(const Duration(seconds: 5));
     return userAgents;
   } finally {
     await server.close(force: true);

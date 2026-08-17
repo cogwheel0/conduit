@@ -15,7 +15,8 @@ import 'package:path_provider/path_provider.dart';
 import '../models/server_config.dart';
 import '../services/server_tls_http_client_factory.dart';
 
-typedef SelfSignedImageCacheBaseDirectoryProvider = Future<Directory> Function();
+typedef SelfSignedImageCacheBaseDirectoryProvider =
+    Future<Directory> Function();
 
 @visibleForTesting
 String? buildSelfSignedImageCacheNamespace(ServerConfig server) {

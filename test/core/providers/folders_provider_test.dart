@@ -124,9 +124,8 @@ void main() {
         final state = container.read(foldersProvider);
         return (state.asData?.value ?? const <Folder>[]).length == 2;
       });
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Archive', 'Work']);
+      check(namesOf(container.read(foldersProvider).requireValue))
+          .deepEquals(['Archive', 'Work']);
     });
 
     test(
@@ -147,9 +146,8 @@ void main() {
             );
 
         // Synchronous in-memory upsert.
-        check(
-          namesOf(container.read(foldersProvider).requireValue),
-        ).deepEquals(['Fresh']);
+        check(namesOf(container.read(foldersProvider).requireValue))
+            .deepEquals(['Fresh']);
 
         // Row write lands and the next emission agrees (no flicker revert).
         await waitFor(() async {
@@ -157,9 +155,8 @@ void main() {
           return rows.any((row) => row.name == 'Fresh');
         });
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        check(
-          namesOf(container.read(foldersProvider).requireValue),
-        ).deepEquals(['Fresh']);
+        check(namesOf(container.read(foldersProvider).requireValue))
+            .deepEquals(['Fresh']);
       },
     );
 
@@ -182,18 +179,16 @@ void main() {
               ),
             );
 
-        check(
-          namesOf(container.read(foldersProvider).requireValue),
-        ).deepEquals(['Renamed']);
+        check(namesOf(container.read(foldersProvider).requireValue))
+            .deepEquals(['Renamed']);
 
         await waitFor(() async {
           final rows = await folderRows();
           return rows.any((row) => row.name == 'Renamed');
         });
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        check(
-          namesOf(container.read(foldersProvider).requireValue),
-        ).deepEquals(['Renamed']);
+        check(namesOf(container.read(foldersProvider).requireValue))
+            .deepEquals(['Renamed']);
       },
     );
 
@@ -247,18 +242,16 @@ void main() {
 
       container.read(foldersProvider.notifier).removeFolderFromRemote('f1');
 
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Play']);
+      check(namesOf(container.read(foldersProvider).requireValue))
+          .deepEquals(['Play']);
 
       await waitFor(() async {
         final rows = await folderRows();
         return rows.every((row) => row.id != 'f1');
       });
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(
-        namesOf(container.read(foldersProvider).requireValue),
-      ).deepEquals(['Play']);
+      check(namesOf(container.read(foldersProvider).requireValue))
+          .deepEquals(['Play']);
     });
 
     test('warmIfNeeded and refresh converge on the sync engine pull', () async {

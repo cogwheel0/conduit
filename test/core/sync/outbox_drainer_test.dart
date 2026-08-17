@@ -435,9 +435,8 @@ void main() {
         await buildDrainer().drain();
 
         check(client.calls).contains('updateFolder:$serverId');
-        check(
-          client.calls,
-        ).not((calls) => calls.contains('updateFolder:$localId'));
+        check(client.calls)
+            .not((calls) => calls.contains('updateFolder:$localId'));
         check(server.getFolders().single['name']).equals('Renamed');
         check((await db.foldersDao.getFolder(serverId))!.dirty).isFalse();
         check(await dao.pendingForChat(serverId)).isEmpty();
@@ -478,9 +477,8 @@ void main() {
         await buildDrainer().drain();
 
         check(client.calls).contains('deleteFolder:$serverId');
-        check(
-          client.calls,
-        ).not((calls) => calls.contains('deleteFolder:$localId'));
+        check(client.calls)
+            .not((calls) => calls.contains('deleteFolder:$localId'));
         check(server.getFolders()).isEmpty();
         check(await db.foldersDao.getFolder(serverId)).isNull();
         check(await dao.pendingForChat(serverId)).isEmpty();
@@ -623,9 +621,8 @@ void main() {
         )..where((t) => t.seq.equals(seq))).getSingle();
         check(row.status).equals(OutboxStatus.failed);
         check(row.attempts).equals(1);
-        check(
-          row.lastError!,
-        ).contains('malformed requestCompletion op: missing chatId');
+        check(row.lastError!)
+            .contains('malformed requestCompletion op: missing chatId');
       },
     );
   });
@@ -666,9 +663,8 @@ void main() {
       final drainer = buildDrainer(backoff: Backoff(jitter: () => 0.999999));
 
       await drainer.drain();
-      check(
-        (await dao.pendingForChat('c1')).single.nextAttemptAt,
-      ).equals(clock.now + 2);
+      check((await dao.pendingForChat('c1')).single.nextAttemptAt)
+          .equals(clock.now + 2);
 
       // Regain connectivity WITHOUT advancing the clock: backoff is reset to
       // now so the op runs immediately and (no more failures) completes.

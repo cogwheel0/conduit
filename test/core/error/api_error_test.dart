@@ -17,9 +17,9 @@ void main() {
       );
       check(error.type).equals(ApiErrorType.timeout);
       check(error.isRetryable).isTrue();
-      check(
-        error.timeoutDuration,
-      ).isNotNull().equals(const Duration(seconds: 30));
+      check(error.timeoutDuration)
+          .isNotNull()
+          .equals(const Duration(seconds: 30));
     });
 
     test('authentication is not retryable', () {

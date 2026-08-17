@@ -123,9 +123,8 @@ List<Model> reconcileDirectModelsForDisplay({
       .toList(growable: false);
   final activeDirectIds = activeDirectModels.map((model) => model.id).toSet();
   return List.unmodifiable([
-    ...sanitizeRemoteDirectModels(
-      remoteModels,
-    ).where((model) => !activeDirectIds.contains(model.id)),
+    ...sanitizeRemoteDirectModels(remoteModels)
+        .where((model) => !activeDirectIds.contains(model.id)),
     ...activeDirectModels,
   ]);
 }

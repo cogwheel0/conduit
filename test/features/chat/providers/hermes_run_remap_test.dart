@@ -313,9 +313,8 @@ void main() {
     check(destinationCancelled).equals(0);
     check(destinationToken.isCancelled).isFalse();
     check(registry.runIdFor(destinationKey)).equals('destination-run');
-    check(
-      registry.owns(destinationKey, cancelToken: destinationToken),
-    ).isTrue();
+    check(registry.owns(destinationKey, cancelToken: destinationToken))
+        .isTrue();
   });
 
   test(

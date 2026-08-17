@@ -156,9 +156,8 @@ void main() {
           toolIds: <String>[],
         ),
       );
-      check(
-        (await db.outboxDao.pendingForChat(localId)).map((op) => op.kind),
-      ).deepEquals(['createChat', 'requestCompletion']);
+      check((await db.outboxDao.pendingForChat(localId)).map((op) => op.kind))
+          .deepEquals(['createChat', 'requestCompletion']);
       check(await db.messagesDao.getForChat(localId)).isNotEmpty();
 
       await db.chatsDao.tombstoneWithOutbox(localId);
@@ -193,52 +192,49 @@ void main() {
   });
 
   group('insertLocalChatWithCreateOp', () {
-    test(
-      'writes local chat + messages dirty, createChat then completion op',
-      () async {
-        const localId = 'local:new';
-        final rows = newLocalRows(localId);
-        await db.chatsDao.insertLocalChatWithCreateOp(
-          chat: rows.chat,
-          messages: rows.messages,
-          blobRows: rows,
-          contentHash: 'hash-1',
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'a1',
-            model: 'gpt',
-            toolIds: <String>['tool-a'],
-            filterIds: <String>['filter-a'],
-            terminalId: 'terminal-a',
-            enableWebSearch: true,
-            enableImageGeneration: true,
-          ),
-        );
+    test('writes local chat + messages dirty, createChat then completion op', () async {
+      const localId = 'local:new';
+      final rows = newLocalRows(localId);
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: 'hash-1',
+        completion: const RequestCompletionPayload(
+          assistantMessageId: 'a1',
+          model: 'gpt',
+          toolIds: <String>['tool-a'],
+          filterIds: <String>['filter-a'],
+          terminalId: 'terminal-a',
+          enableWebSearch: true,
+          enableImageGeneration: true,
+        ),
+      );
 
-        final chat = await db.chatsDao.getChat(localId);
-        check(chat!.dirty).isTrue();
-        check(chat.bodySynced).isTrue();
-        check(chat.serverUpdatedAt).isNull();
-        final msgs = await db.messagesDao.getForChat(localId);
-        check(msgs.length).equals(2);
-        check(msgs.every((m) => m.dirty)).isTrue();
+      final chat = await db.chatsDao.getChat(localId);
+      check(chat!.dirty).isTrue();
+      check(chat.bodySynced).isTrue();
+      check(chat.serverUpdatedAt).isNull();
+      final msgs = await db.messagesDao.getForChat(localId);
+      check(msgs.length).equals(2);
+      check(msgs.every((m) => m.dirty)).isTrue();
 
-        final ops = await db.outboxDao.pendingForChat(localId);
-        check(ops.length).equals(2);
-        // createChat seq < requestCompletion seq (drainer creates+remaps first).
-        check(ops[0].kind).equals('createChat');
-        check(ops[0].contentHash).equals('hash-1');
-        check(ops[1].kind).equals('requestCompletion');
-        check(ops[1].seq).isGreaterThan(ops[0].seq);
-        final completionPayload = RequestCompletionPayload.fromJson(
-          jsonDecode(ops[1].payload) as Map<String, dynamic>,
-        );
-        check(completionPayload.toolIds).deepEquals(['tool-a']);
-        check(completionPayload.filterIds).deepEquals(['filter-a']);
-        check(completionPayload.terminalId).equals('terminal-a');
-        check(completionPayload.enableWebSearch).isTrue();
-        check(completionPayload.enableImageGeneration).isTrue();
-      },
-    );
+      final ops = await db.outboxDao.pendingForChat(localId);
+      check(ops.length).equals(2);
+      // createChat seq < requestCompletion seq (drainer creates+remaps first).
+      check(ops[0].kind).equals('createChat');
+      check(ops[0].contentHash).equals('hash-1');
+      check(ops[1].kind).equals('requestCompletion');
+      check(ops[1].seq).isGreaterThan(ops[0].seq);
+      final completionPayload = RequestCompletionPayload.fromJson(
+        jsonDecode(ops[1].payload) as Map<String, dynamic>,
+      );
+      check(completionPayload.toolIds).deepEquals(['tool-a']);
+      check(completionPayload.filterIds).deepEquals(['filter-a']);
+      check(completionPayload.terminalId).equals('terminal-a');
+      check(completionPayload.enableWebSearch).isTrue();
+      check(completionPayload.enableImageGeneration).isTrue();
+    });
 
     test('no completion payload enqueues only createChat', () async {
       const localId = 'local:nocomp';
@@ -323,9 +319,8 @@ void main() {
         check(a2.dirty).isTrue();
 
         final ops = await db.outboxDao.pendingForChat('c1');
-        check(
-          ops.map((o) => o.kind).toList(),
-        ).deepEquals(['updateChat', 'requestCompletion']);
+        check(ops.map((o) => o.kind).toList())
+            .deepEquals(['updateChat', 'requestCompletion']);
       },
     );
 
@@ -393,15 +388,14 @@ void main() {
         final blobMessages = history['messages'] as Map<String, dynamic>;
         check(blobMessages.containsKey('a2')).isFalse();
         final parentPayload = blobMessages['u2'] as Map<String, dynamic>;
-        check(
-          parentPayload['childrenIds'] as List<dynamic>,
-        ).deepEquals(<String>[]);
+        check(parentPayload['childrenIds'] as List<dynamic>)
+            .deepEquals(<String>[]);
         final metadata = parentPayload['metadata'] as Map<String, dynamic>;
         check(metadata['childrenIds'] as List<dynamic>).deepEquals(<String>[]);
         check(
-          (await db.outboxDao.pendingForChat(
-            'c1',
-          )).map((op) => op.kind).toList(),
+          (await db.outboxDao.pendingForChat('c1'))
+              .map((op) => op.kind)
+              .toList(),
         ).deepEquals(['updateChat']);
       },
     );
@@ -457,9 +451,9 @@ void main() {
             model: 'gpt',
           ),
         );
-        final completionOp = (await db.outboxDao.pendingForChat(
-          'c1',
-        )).where((op) => op.kind == OutboxKind.requestCompletion.name).single;
+        final completionOp = (await db.outboxDao.pendingForChat('c1'))
+            .where((op) => op.kind == OutboxKind.requestCompletion.name)
+            .single;
         await db.outboxDao.markParked(completionOp.seq, error: 'boom');
 
         final removed = await db.chatsDao.cancelQueuedCompletion(
@@ -471,239 +465,222 @@ void main() {
         final messages = await db.messagesDao.getForChat('c1');
         check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
         check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('u2');
+        check(await db.outboxDao.watchQueuedCompletionsForChat('c1').first)
+            .isEmpty();
         check(
-          await db.outboxDao.watchQueuedCompletionsForChat('c1').first,
-        ).isEmpty();
-        check(
-          (await db.outboxDao.pendingForChat(
-            'c1',
-          )).map((op) => op.kind).toList(),
+          (await db.outboxDao.pendingForChat('c1'))
+              .map((op) => op.kind)
+              .toList(),
         ).deepEquals(['updateChat']);
       },
     );
 
-    test(
-      'cancelQueuedCompletion enqueues an update after a failed partial response',
-      () async {
-        await seedServerChat('c1');
-        await db.chatsDao.appendMessagesWithUpdateOp(
-          chatId: 'c1',
-          currentMessageId: 'a2',
-          updatedAt: 500,
-          messages: <MessageRowData>[
-            MessageRowData(
-              id: 'u2',
-              chatId: 'c1',
-              parentId: 'm1',
-              role: 'user',
-              content: 'next',
-              createdAt: 400,
-              orderIndex: 0,
-              payload: const <String, dynamic>{
-                'id': 'u2',
-                'parentId': 'm1',
+    test('cancelQueuedCompletion enqueues an update after a failed partial response', () async {
+      await seedServerChat('c1');
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'c1',
+        currentMessageId: 'a2',
+        updatedAt: 500,
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'u2',
+            chatId: 'c1',
+            parentId: 'm1',
+            role: 'user',
+            content: 'next',
+            createdAt: 400,
+            orderIndex: 0,
+            payload: const <String, dynamic>{
+              'id': 'u2',
+              'parentId': 'm1',
+              'childrenIds': <String>['a2'],
+              'role': 'user',
+              'content': 'next',
+              'metadata': <String, dynamic>{
                 'childrenIds': <String>['a2'],
-                'role': 'user',
-                'content': 'next',
-                'metadata': <String, dynamic>{
-                  'childrenIds': <String>['a2'],
-                },
               },
-            ),
-            MessageRowData(
-              id: 'a2',
-              chatId: 'c1',
-              parentId: 'u2',
-              role: 'assistant',
-              content: '',
-              createdAt: 401,
-              orderIndex: 0,
-              payload: const <String, dynamic>{
-                'id': 'a2',
-                'parentId': 'u2',
-                'childrenIds': <String>[],
-                'role': 'assistant',
-                'content': '',
-              },
-            ),
-          ],
-          enqueueCompletion: true,
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'a2',
-            model: 'gpt',
+            },
           ),
-        );
-        final initialOps = await db.outboxDao.pendingForChat('c1');
-        final updateSeq = initialOps
-            .where((op) => op.kind == OutboxKind.updateChat.name)
-            .single
-            .seq;
-        final completionSeq = initialOps
-            .where((op) => op.kind == OutboxKind.requestCompletion.name)
-            .single
-            .seq;
-        await db.outboxDao.markDone(updateSeq);
-        await (db.update(db.messages)..where((t) => t.id.equals('a2'))).write(
-          const MessagesCompanion(
-            content: Value('partial'),
-            payload: Value(
-              '{"id":"a2","role":"assistant","content":"partial"}',
-            ),
+          MessageRowData(
+            id: 'a2',
+            chatId: 'c1',
+            parentId: 'u2',
+            role: 'assistant',
+            content: '',
+            createdAt: 401,
+            orderIndex: 0,
+            payload: const <String, dynamic>{
+              'id': 'a2',
+              'parentId': 'u2',
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': '',
+            },
           ),
-        );
-        await db.outboxDao.markParked(completionSeq, error: 'boom');
-
-        final removed = await db.chatsDao.cancelQueuedCompletion(
-          'c1',
+        ],
+        enqueueCompletion: true,
+        completion: const RequestCompletionPayload(
           assistantMessageId: 'a2',
-        );
+          model: 'gpt',
+        ),
+      );
+      final initialOps = await db.outboxDao.pendingForChat('c1');
+      final updateSeq = initialOps
+          .where((op) => op.kind == OutboxKind.updateChat.name)
+          .single
+          .seq;
+      final completionSeq = initialOps
+          .where((op) => op.kind == OutboxKind.requestCompletion.name)
+          .single
+          .seq;
+      await db.outboxDao.markDone(updateSeq);
+      await (db.update(db.messages)..where((t) => t.id.equals('a2'))).write(
+        const MessagesCompanion(
+          content: Value('partial'),
+          payload: Value('{"id":"a2","role":"assistant","content":"partial"}'),
+        ),
+      );
+      await db.outboxDao.markParked(completionSeq, error: 'boom');
 
-        check(removed).equals(1);
-        final messages = await db.messagesDao.getForChat('c1');
-        check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
-        final chat = (await db.chatsDao.getChat('c1'))!;
-        check(chat.currentMessageId).equals('u2');
-        check(chat.dirty).isTrue();
-        check(messages.singleWhere((m) => m.id == 'u2').dirty).isTrue();
-        final blob = await rebuiltBlob('c1');
-        final history = blob['history'] as Map<String, dynamic>;
-        final blobMessages = history['messages'] as Map<String, dynamic>;
-        check(blobMessages.containsKey('a2')).isFalse();
-        final parentPayload = blobMessages['u2'] as Map<String, dynamic>;
-        check(
-          parentPayload['childrenIds'] as List<dynamic>,
-        ).deepEquals(<String>[]);
-        final metadata = parentPayload['metadata'] as Map<String, dynamic>;
-        check(metadata['childrenIds'] as List<dynamic>).deepEquals(<String>[]);
-        check(
-          (await db.outboxDao.pendingForChat(
-            'c1',
-          )).map((op) => op.kind).toList(),
-        ).deepEquals(['updateChat']);
-      },
-    );
+      final removed = await db.chatsDao.cancelQueuedCompletion(
+        'c1',
+        assistantMessageId: 'a2',
+      );
 
-    test(
-      'cancelQueuedCompletion enqueues an update after a pending response was pushed',
-      () async {
-        await seedServerChat('c1');
-        await db.chatsDao.appendMessagesWithUpdateOp(
-          chatId: 'c1',
-          currentMessageId: 'a2',
-          updatedAt: 500,
-          messages: <MessageRowData>[
-            MessageRowData(
-              id: 'u2',
-              chatId: 'c1',
-              parentId: 'm1',
-              role: 'user',
-              content: 'next',
-              createdAt: 400,
-              orderIndex: 0,
-              payload: const <String, dynamic>{
-                'id': 'u2',
-                'parentId': 'm1',
+      check(removed).equals(1);
+      final messages = await db.messagesDao.getForChat('c1');
+      check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u2');
+      check(chat.dirty).isTrue();
+      check(messages.singleWhere((m) => m.id == 'u2').dirty).isTrue();
+      final blob = await rebuiltBlob('c1');
+      final history = blob['history'] as Map<String, dynamic>;
+      final blobMessages = history['messages'] as Map<String, dynamic>;
+      check(blobMessages.containsKey('a2')).isFalse();
+      final parentPayload = blobMessages['u2'] as Map<String, dynamic>;
+      check(parentPayload['childrenIds'] as List<dynamic>)
+          .deepEquals(<String>[]);
+      final metadata = parentPayload['metadata'] as Map<String, dynamic>;
+      check(metadata['childrenIds'] as List<dynamic>).deepEquals(<String>[]);
+      check(
+        (await db.outboxDao.pendingForChat('c1')).map((op) => op.kind).toList(),
+      ).deepEquals(['updateChat']);
+    });
+
+    test('cancelQueuedCompletion enqueues an update after a pending response was pushed', () async {
+      await seedServerChat('c1');
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'c1',
+        currentMessageId: 'a2',
+        updatedAt: 500,
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'u2',
+            chatId: 'c1',
+            parentId: 'm1',
+            role: 'user',
+            content: 'next',
+            createdAt: 400,
+            orderIndex: 0,
+            payload: const <String, dynamic>{
+              'id': 'u2',
+              'parentId': 'm1',
+              'childrenIds': <String>['a2'],
+              'role': 'user',
+              'content': 'next',
+              'metadata': <String, dynamic>{
                 'childrenIds': <String>['a2'],
-                'role': 'user',
-                'content': 'next',
-                'metadata': <String, dynamic>{
-                  'childrenIds': <String>['a2'],
-                },
               },
-            ),
-            MessageRowData(
-              id: 'a2',
-              chatId: 'c1',
-              parentId: 'u2',
-              role: 'assistant',
-              content: '',
-              createdAt: 401,
-              orderIndex: 0,
-              payload: const <String, dynamic>{
-                'id': 'a2',
-                'parentId': 'u2',
-                'childrenIds': <String>[],
-                'role': 'assistant',
-                'content': '',
-              },
-            ),
-          ],
-          enqueueCompletion: true,
-          completion: const RequestCompletionPayload(
-            assistantMessageId: 'a2',
-            model: 'gpt',
+            },
           ),
-        );
-        final updateSeq = (await db.outboxDao.pendingForChat(
-          'c1',
-        )).where((op) => op.kind == OutboxKind.updateChat.name).single.seq;
-        await db.outboxDao.markDone(updateSeq);
-
-        final removed = await db.chatsDao.cancelQueuedCompletion(
-          'c1',
+          MessageRowData(
+            id: 'a2',
+            chatId: 'c1',
+            parentId: 'u2',
+            role: 'assistant',
+            content: '',
+            createdAt: 401,
+            orderIndex: 0,
+            payload: const <String, dynamic>{
+              'id': 'a2',
+              'parentId': 'u2',
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': '',
+            },
+          ),
+        ],
+        enqueueCompletion: true,
+        completion: const RequestCompletionPayload(
           assistantMessageId: 'a2',
-        );
+          model: 'gpt',
+        ),
+      );
+      final updateSeq = (await db.outboxDao.pendingForChat('c1'))
+          .where((op) => op.kind == OutboxKind.updateChat.name)
+          .single
+          .seq;
+      await db.outboxDao.markDone(updateSeq);
 
-        check(removed).equals(1);
-        final messages = await db.messagesDao.getForChat('c1');
-        check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
-        final chat = (await db.chatsDao.getChat('c1'))!;
-        check(chat.currentMessageId).equals('u2');
-        check(chat.dirty).isTrue();
-        check(messages.singleWhere((m) => m.id == 'u2').dirty).isTrue();
-        final blob = await rebuiltBlob('c1');
-        final history = blob['history'] as Map<String, dynamic>;
-        final blobMessages = history['messages'] as Map<String, dynamic>;
-        check(blobMessages.containsKey('a2')).isFalse();
-        final parentPayload = blobMessages['u2'] as Map<String, dynamic>;
-        check(
-          parentPayload['childrenIds'] as List<dynamic>,
-        ).deepEquals(<String>[]);
-        final metadata = parentPayload['metadata'] as Map<String, dynamic>;
-        check(metadata['childrenIds'] as List<dynamic>).deepEquals(<String>[]);
-        check(
-          (await db.outboxDao.pendingForChat(
-            'c1',
-          )).map((op) => op.kind).toList(),
-        ).deepEquals(['updateChat']);
-      },
-    );
+      final removed = await db.chatsDao.cancelQueuedCompletion(
+        'c1',
+        assistantMessageId: 'a2',
+      );
+
+      check(removed).equals(1);
+      final messages = await db.messagesDao.getForChat('c1');
+      check(messages.map((m) => m.id).toSet()).deepEquals({'m1', 'u2'});
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u2');
+      check(chat.dirty).isTrue();
+      check(messages.singleWhere((m) => m.id == 'u2').dirty).isTrue();
+      final blob = await rebuiltBlob('c1');
+      final history = blob['history'] as Map<String, dynamic>;
+      final blobMessages = history['messages'] as Map<String, dynamic>;
+      check(blobMessages.containsKey('a2')).isFalse();
+      final parentPayload = blobMessages['u2'] as Map<String, dynamic>;
+      check(parentPayload['childrenIds'] as List<dynamic>)
+          .deepEquals(<String>[]);
+      final metadata = parentPayload['metadata'] as Map<String, dynamic>;
+      check(metadata['childrenIds'] as List<dynamic>).deepEquals(<String>[]);
+      check(
+        (await db.outboxDao.pendingForChat('c1')).map((op) => op.kind).toList(),
+      ).deepEquals(['updateChat']);
+    });
   });
 
   group('R2: rollback leaves NEITHER rows nor op', () {
-    test(
-      'a throw inside insertLocalChatWithCreateOp rolls back rows + op',
-      () async {
-        const localId = 'local:dup';
-        final rows = newLocalRows(localId);
-        // Pre-insert the chat row so the in-txn insert hits a PK conflict and
-        // throws — AFTER which the op enqueue must never persist (txn rollback).
-        await db
-            .into(db.chats)
-            .insert(
-              ChatsCompanion.insert(
-                id: localId,
-                title: 'pre',
-                createdAt: 1,
-                updatedAt: 1,
-              ),
-            );
+    test('a throw inside insertLocalChatWithCreateOp rolls back rows + op', () async {
+      const localId = 'local:dup';
+      final rows = newLocalRows(localId);
+      // Pre-insert the chat row so the in-txn insert hits a PK conflict and
+      // throws — AFTER which the op enqueue must never persist (txn rollback).
+      await db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: localId,
+              title: 'pre',
+              createdAt: 1,
+              updatedAt: 1,
+            ),
+          );
 
-        await check(
-          db.chatsDao.insertLocalChatWithCreateOp(
-            chat: rows.chat,
-            messages: rows.messages,
-            blobRows: rows,
-            contentHash: 'h',
-          ),
-        ).throws<Object>();
+      await check(
+        db.chatsDao.insertLocalChatWithCreateOp(
+          chat: rows.chat,
+          messages: rows.messages,
+          blobRows: rows,
+          contentHash: 'h',
+        ),
+      ).throws<Object>();
 
-        // No messages inserted, no outbox op — both rolled back.
-        check(await db.messagesDao.getForChat(localId)).isEmpty();
-        check(await db.outboxDao.pendingForChat(localId)).isEmpty();
-        // The pre-existing stub row is untouched (title still 'pre').
-        check((await db.chatsDao.getChat(localId))!.title).equals('pre');
-      },
-    );
+      // No messages inserted, no outbox op — both rolled back.
+      check(await db.messagesDao.getForChat(localId)).isEmpty();
+      check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+      // The pre-existing stub row is untouched (title still 'pre').
+      check((await db.chatsDao.getChat(localId))!.title).equals('pre');
+    });
   });
 }

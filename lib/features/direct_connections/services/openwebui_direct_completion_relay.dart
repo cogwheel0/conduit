@@ -9,8 +9,10 @@ import '../models/direct_connection_profile.dart';
 import 'direct_adapter_helpers.dart';
 import 'direct_http_client.dart';
 
-typedef OpenWebUiDirectChannelEmitter =
-    bool Function(String channel, Object payload);
+typedef OpenWebUiDirectChannelEmitter = bool Function(
+  String channel,
+  Object payload,
+);
 typedef OpenWebUiDirectRpcAcknowledgement = void Function(Object? payload);
 
 /// Executes Open WebUI's client-side half of a direct chat completion RPC.

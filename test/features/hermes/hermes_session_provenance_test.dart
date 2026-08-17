@@ -45,9 +45,8 @@ void main() {
         ),
       ),
     ).isTrue();
-    check(
-      isNativeHermesConversation(native.copyWith(title: 'Untrusted copy')),
-    ).isFalse();
+    check(isNativeHermesConversation(native.copyWith(title: 'Untrusted copy')))
+        .isFalse();
   });
 
   test(

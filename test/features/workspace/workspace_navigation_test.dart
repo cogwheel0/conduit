@@ -14,39 +14,31 @@ void main() {
 
     final permitted = permittedWorkspaceSections(capabilities);
 
-    check(
-      permitted,
-    ).deepEquals([WorkspaceSection.prompts, WorkspaceSection.tools]);
+    check(permitted)
+        .deepEquals([WorkspaceSection.prompts, WorkspaceSection.tools]);
     check(permitted.first.path).equals('/workspace/prompts');
   });
 
   test('detail and edit paths resolve to their protected section', () {
-    check(
-      workspaceSectionForPath('/workspace/models/model-1/edit'),
-    ).equals(WorkspaceSection.models);
-    check(
-      workspaceSectionForPath('/workspace/knowledge/kb-1'),
-    ).equals(WorkspaceSection.knowledge);
+    check(workspaceSectionForPath('/workspace/models/model-1/edit'))
+        .equals(WorkspaceSection.models);
+    check(workspaceSectionForPath('/workspace/knowledge/kb-1'))
+        .equals(WorkspaceSection.knowledge);
     check(workspaceSectionForPath('/profile')).isNull();
   });
 
   test('descriptors are the source for production paths and names', () {
     check(Routes.workspace).equals('/workspace');
-    check(
-      WorkspaceSection.models.routes.createPattern,
-    ).equals('/workspace/models/create');
-    check(
-      WorkspaceSection.knowledge.routes.detailPattern,
-    ).equals('/workspace/knowledge/:id');
-    check(
-      WorkspaceSection.prompts.routes.editPattern,
-    ).equals('/workspace/prompts/:id/edit');
-    check(
-      WorkspaceSection.tools.routes.collectionName,
-    ).equals('workspace-tools');
-    check(
-      WorkspaceSection.skills.routes.editName,
-    ).equals('workspace-skill-edit');
+    check(WorkspaceSection.models.routes.createPattern)
+        .equals('/workspace/models/create');
+    check(WorkspaceSection.knowledge.routes.detailPattern)
+        .equals('/workspace/knowledge/:id');
+    check(WorkspaceSection.prompts.routes.editPattern)
+        .equals('/workspace/prompts/:id/edit');
+    check(WorkspaceSection.tools.routes.collectionName)
+        .equals('workspace-tools');
+    check(WorkspaceSection.skills.routes.editName)
+        .equals('workspace-skill-edit');
   });
 
   test('resource locations encode IDs without changing route matching', () {
@@ -55,13 +47,11 @@ void main() {
     );
     final edit = WorkspaceSection.models.routes.editLocation('model/one');
 
-    check(
-      detail,
-    ).equals('/workspace/knowledge/folder%2Fid%20with%20spaces%3F%23');
+    check(detail)
+        .equals('/workspace/knowledge/folder%2Fid%20with%20spaces%3F%23');
     check(edit).equals('/workspace/models/model%2Fone/edit');
-    check(
-      workspaceSectionForPath('$detail?tab=files'),
-    ).equals(WorkspaceSection.knowledge);
+    check(workspaceSectionForPath('$detail?tab=files'))
+        .equals(WorkspaceSection.knowledge);
     check(workspaceSectionForPath('/workspace/models-extra/id')).isNull();
   });
 }

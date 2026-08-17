@@ -92,9 +92,8 @@ final class _ModelDetailsAdapter implements HttpClientAdapter {
     if (!requested.isCompleted) requested.complete();
     check(options.method).equals('GET');
     check(options.path).equals('/api/v1/models/model');
-    check(
-      options.queryParameters,
-    ).deepEquals(<String, dynamic>{'id': 'workspace-reasoning-model'});
+    check(options.queryParameters)
+        .deepEquals(<String, dynamic>{'id': 'workspace-reasoning-model'});
     if (requestCount <= failuresBeforeSuccess) {
       return ResponseBody.fromString(
         '{"detail":"temporary failure"}',
@@ -165,9 +164,8 @@ void main() {
 
     await setReasoningEffortForModel(container.read, models.last, 'high');
 
-    check(
-      reasoningEffortForModel(container.read, models.first),
-    ).equals('automatic');
+    check(reasoningEffortForModel(container.read, models.first))
+        .equals('automatic');
     check(reasoningEffortForModel(container.read, models.last)).equals('high');
     check(container.read(selectedModelProvider)).identicalTo(models.first);
   });
@@ -259,9 +257,8 @@ void main() {
       await container.read(serverModelReasoningEffortProvider(model).future);
 
       check(adapter.requestCount).equals(1);
-      check(
-        container.read(configuredReasoningEffortProvider),
-      ).equals('vendor_ultra');
+      check(container.read(configuredReasoningEffortProvider))
+          .equals('vendor_ultra');
     },
   );
 
@@ -297,15 +294,13 @@ void main() {
     addTearDown(container.dispose);
 
     check(
-      (await container.read(
-        serverModelReasoningEffortProvider(model).future,
-      )).value,
+      (await container.read(serverModelReasoningEffortProvider(model).future))
+          .value,
     ).isNull();
     await container.pump();
     check(
-      (await container.read(
-        serverModelReasoningEffortProvider(model).future,
-      )).value,
+      (await container.read(serverModelReasoningEffortProvider(model).future))
+          .value,
     ).equals('vendor_ultra');
     check(adapter.requestCount).equals(2);
   });
@@ -374,21 +369,18 @@ void main() {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    check(
-      reasoningEffortPolicyForModel(container.read, unsupported).visible,
-    ).isFalse();
+    check(reasoningEffortPolicyForModel(container.read, unsupported).visible)
+        .isFalse();
     check(
       reasoningEffortPolicyForModel(
         container.read,
         explicitlyUnsupported,
       ).visible,
     ).isFalse();
-    check(
-      reasoningEffortPolicyForModel(container.read, supported).visible,
-    ).isTrue();
-    check(
-      reasoningEffortPolicyForModel(container.read, hermes).visible,
-    ).isTrue();
+    check(reasoningEffortPolicyForModel(container.read, supported).visible)
+        .isTrue();
+    check(reasoningEffortPolicyForModel(container.read, hermes).visible)
+        .isTrue();
   });
 
   test('chat payload omits effort for unsupported server models', () {
@@ -466,9 +458,9 @@ void main() {
 
     final configuredModelItem = buildLocalModelItemForTest(configuredModel);
     final aliasModelItem = buildLocalModelItemForTest(aliasModel);
-    check(configuredModelItem['params']).isA<Map<String, dynamic>>().deepEquals(
-      <String, dynamic>{'reasoning_effort': 'vendor_ultra'},
-    );
+    check(configuredModelItem['params'])
+        .isA<Map<String, dynamic>>()
+        .deepEquals(<String, dynamic>{'reasoning_effort': 'vendor_ultra'});
     check(aliasModelItem['base_model_id']).equals('gpt-5');
     check(
       (build(configuredModel, 'vendor_ultra')['params']
@@ -493,9 +485,8 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      check(
-        container.read(localReasoningEffortsProvider),
-      ).deepEquals({'hermes:valid': 'high'});
+      check(container.read(localReasoningEffortsProvider))
+          .deepEquals({'hermes:valid': 'high'});
     },
   );
 
@@ -626,9 +617,8 @@ void main() {
     addTearDown(container.dispose);
 
     final policy = reasoningEffortPolicyForModel(container.read, model);
-    check(
-      policy.options,
-    ).deepEquals(['automatic', ...kOpenRouterReasoningEfforts]);
+    check(policy.options)
+        .deepEquals(['automatic', ...kOpenRouterReasoningEfforts]);
   });
 
   test(
@@ -662,15 +652,12 @@ void main() {
           .read(localReasoningEffortsProvider.notifier)
           .set(key, 'medium');
 
-      check(
-        reasoningEffortPolicyForModel(container.read, models.first).visible,
-      ).isFalse();
-      check(
-        reasoningEffortForModel(container.read, models.last),
-      ).equals('automatic');
-      check(
-        container.read(localReasoningEffortsProvider)[key],
-      ).equals('medium');
+      check(reasoningEffortPolicyForModel(container.read, models.first).visible)
+          .isFalse();
+      check(reasoningEffortForModel(container.read, models.last))
+          .equals('automatic');
+      check(container.read(localReasoningEffortsProvider)[key])
+          .equals('medium');
       await check(
         setReasoningEffortForModel(container.read, models.last, 'medium'),
       ).throws<FormatException>();

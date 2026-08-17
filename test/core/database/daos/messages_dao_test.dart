@@ -57,9 +57,8 @@ void main() {
         'window-120',
         before: middle.olderCursor,
       );
-      check(
-        oldest.primaryRows.map((row) => row.id).toList(),
-      ).deepEquals([for (var index = 0; index < 20; index += 1) 'm$index']);
+      check(oldest.primaryRows.map((row) => row.id).toList())
+          .deepEquals([for (var index = 0; index < 20; index += 1) 'm$index']);
       check(oldest.hasOlder).isFalse();
 
       final allIds = [
@@ -68,9 +67,8 @@ void main() {
         ...newest.primaryRows,
       ].map((row) => row.id).toList();
       check(allIds.toSet().length).equals(120);
-      check(
-        allIds,
-      ).deepEquals([for (var index = 0; index < 120; index += 1) 'm$index']);
+      check(allIds)
+          .deepEquals([for (var index = 0; index < 120; index += 1) 'm$index']);
     });
 
     test(
@@ -149,18 +147,16 @@ void main() {
 
       final cycle = await db.messagesDao.getActiveBranchPage('window-cycle');
       check(cycle.primaryRows.length).equals(2);
-      check(
-        cycle.primaryRows.map((row) => row.id).toSet(),
-      ).deepEquals({'m1', 'm2'});
+      check(cycle.primaryRows.map((row) => row.id).toSet())
+          .deepEquals({'m1', 'm2'});
 
       await (db.update(db.messages)..where(
             (row) => row.chatId.equals('window-cycle') & row.id.equals('m1'),
           ))
           .write(const MessagesCompanion(parentId: Value('missing')));
       final missing = await db.messagesDao.getActiveBranchPage('window-cycle');
-      check(
-        missing.primaryRows.map((row) => row.id).toList(),
-      ).deepEquals(['m1', 'm2']);
+      check(missing.primaryRows.map((row) => row.id).toList())
+          .deepEquals(['m1', 'm2']);
     });
 
     test('cursor rooted at the oldest row returns an empty page', () async {
@@ -248,9 +244,8 @@ void main() {
           if (byCreatedAt != 0) return byCreatedAt;
           return a.orderIndex.compareTo(b.orderIndex);
         });
-      check(
-        fetched.map((m) => m.id).toList(),
-      ).deepEquals(expectedOrder.map((m) => m.id).toList());
+      check(fetched.map((m) => m.id).toList())
+          .deepEquals(expectedOrder.map((m) => m.id).toList());
 
       // The three regenerated siblings share one timestamp second; their
       // relative order must be their original map iteration order.
@@ -273,9 +268,8 @@ void main() {
 
       final watched = await db.messagesDao.watchForChat(fixture.chatId).first;
       final fetched = await db.messagesDao.getForChat(fixture.chatId);
-      check(
-        watched.map((m) => m.id).toList(),
-      ).deepEquals(fetched.map((m) => m.id).toList());
+      check(watched.map((m) => m.id).toList())
+          .deepEquals(fetched.map((m) => m.id).toList());
     });
 
     test('only returns rows of the requested chat', () async {
@@ -425,9 +419,8 @@ void main() {
         final rows = await db.messagesDao.getForChat('chat-turn');
         check(rows.singleWhere((m) => m.id == 'u-2').parentId).equals('prev-a');
         check(rows.singleWhere((m) => m.id == 'a-2').parentId).equals('u-2');
-        check(
-          (await db.chatsDao.getChat('chat-turn'))!.currentMessageId,
-        ).equals('a-2');
+        check((await db.chatsDao.getChat('chat-turn'))!.currentMessageId)
+            .equals('a-2');
       },
     );
 
@@ -478,9 +471,8 @@ void main() {
         final assistantRow = rows.singleWhere((m) => m.id == 'a-2');
         check(assistantRow.parentId).equals('u-2');
         check(assistantRow.content).equals('final answer');
-        check(
-          (await db.chatsDao.getChat('chat-replay'))!.currentMessageId,
-        ).equals('a-2');
+        check((await db.chatsDao.getChat('chat-replay'))!.currentMessageId)
+            .equals('a-2');
       },
     );
 
@@ -547,12 +539,10 @@ void main() {
         final payload = jsonDecode(row.payload) as Map<String, dynamic>;
         check(payload['isStreaming']).equals(false);
         check(payload['done']).equals(true);
-        check(
-          (payload['metadata'] as Map<String, dynamic>)['responseDone'],
-        ).equals(true);
-        check(
-          (payload['metadata'] as Map<String, dynamic>)['checkpoint'],
-        ).equals(true);
+        check((payload['metadata'] as Map<String, dynamic>)['responseDone'])
+            .equals(true);
+        check((payload['metadata'] as Map<String, dynamic>)['checkpoint'])
+            .equals(true);
         check(payload.containsKey('error')).isFalse();
         check(row.content).equals('');
         check(row.dirty).isFalse();

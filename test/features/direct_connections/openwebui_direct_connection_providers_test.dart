@@ -66,42 +66,39 @@ void main() {
     expect(second, first);
   });
 
-  test(
-    'effective profiles merge compatible server records and exclude unsupported auth',
-    () async {
-      final local = _localProfile();
-      final store = _storeFor(
-        _settings(
-          urls: const [
-            'https://compatible.example/v1',
-            'https://session.example/v1',
-          ],
-          authTypes: const ['bearer', 'session'],
-        ),
-      );
-      final container = _container(local: [local], store: store);
-      addTearDown(container.dispose);
+  test('effective profiles merge compatible server records and exclude unsupported auth', () async {
+    final local = _localProfile();
+    final store = _storeFor(
+      _settings(
+        urls: const [
+          'https://compatible.example/v1',
+          'https://session.example/v1',
+        ],
+        authTypes: const ['bearer', 'session'],
+      ),
+    );
+    final container = _container(local: [local], store: store);
+    addTearDown(container.dispose);
 
-      final snapshot = await container.read(
-        openWebUiDirectConnectionsProvider.future,
-      );
-      final effective = await container.read(
-        effectiveDirectConnectionProfilesFutureProvider.future,
-      );
+    final snapshot = await container.read(
+      openWebUiDirectConnectionsProvider.future,
+    );
+    final effective = await container.read(
+      effectiveDirectConnectionProfilesFutureProvider.future,
+    );
 
-      expect(snapshot, isNotNull);
-      expect(snapshot!.records, hasLength(2));
-      expect(
-        snapshot.records.last.compatibility,
-        OpenWebUiDirectConnectionCompatibility.unsupportedAuthentication,
-      );
-      expect(effective.map((profile) => profile.id), [
-        local.id,
-        snapshot.records.first.profile.id,
-      ]);
-      expect(effective, isNot(contains(snapshot.records.last.profile)));
-    },
-  );
+    expect(snapshot, isNotNull);
+    expect(snapshot!.records, hasLength(2));
+    expect(
+      snapshot.records.last.compatibility,
+      OpenWebUiDirectConnectionCompatibility.unsupportedAuthentication,
+    );
+    expect(effective.map((profile) => profile.id), [
+      local.id,
+      snapshot.records.first.profile.id,
+    ]);
+    expect(effective, isNot(contains(snapshot.records.last.profile)));
+  });
 
   test('server load errors fail open to healthy local profiles', () async {
     final local = _localProfile();

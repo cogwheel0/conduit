@@ -26,8 +26,10 @@ class WorkspaceEditorArgs {
   final String? resourceId;
 }
 
-typedef WorkspaceSectionEditorBuilder =
-    Widget Function(BuildContext context, WorkspaceEditorArgs args);
+typedef WorkspaceSectionEditorBuilder = Widget Function(
+  BuildContext context,
+  WorkspaceEditorArgs args,
+);
 
 /// Registry mapping a [WorkspaceSection] to the widget that renders its
 /// create/detail/edit editor.

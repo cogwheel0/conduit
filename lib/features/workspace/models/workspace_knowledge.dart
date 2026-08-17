@@ -178,23 +178,23 @@ class WorkspaceKnowledgeFilePage {
 
   factory WorkspaceKnowledgeFilePage.fromJson(dynamic json) {
     if (json is List) {
-      final items = workspaceJsonList(
-        json,
-      ).map(WorkspaceKnowledgeFile.fromJson).toList(growable: false);
+      final items = workspaceJsonList(json)
+          .map(WorkspaceKnowledgeFile.fromJson)
+          .toList(growable: false);
       return WorkspaceKnowledgeFilePage(items: items, total: items.length);
     }
     final map = workspaceJsonMap(json);
-    final items = workspaceJsonList(
-      map['items'] ?? map['files'],
-    ).map(WorkspaceKnowledgeFile.fromJson).toList(growable: false);
+    final items = workspaceJsonList(map['items'] ?? map['files'])
+        .map(WorkspaceKnowledgeFile.fromJson)
+        .toList(growable: false);
     return WorkspaceKnowledgeFilePage(
       items: items,
-      directories: workspaceJsonList(
-        map['directories'],
-      ).map(WorkspaceKnowledgeDirectory.fromJson).toList(growable: false),
-      breadcrumbs: workspaceJsonList(
-        map['breadcrumbs'],
-      ).map(WorkspaceKnowledgeDirectory.fromJson).toList(growable: false),
+      directories: workspaceJsonList(map['directories'])
+          .map(WorkspaceKnowledgeDirectory.fromJson)
+          .toList(growable: false),
+      breadcrumbs: workspaceJsonList(map['breadcrumbs'])
+          .map(WorkspaceKnowledgeDirectory.fromJson)
+          .toList(growable: false),
       total: workspaceInt(map['total'], items.length),
     );
   }
@@ -238,9 +238,9 @@ class WorkspaceKnowledgeDetail {
   factory WorkspaceKnowledgeDetail.fromJson(Map<String, dynamic> json) =>
       WorkspaceKnowledgeDetail(
         summary: WorkspaceKnowledgeSummary.fromJson(json),
-        files: workspaceJsonList(
-          json['files'],
-        ).map(WorkspaceKnowledgeFile.fromJson).toList(growable: false),
+        files: workspaceJsonList(json['files'])
+            .map(WorkspaceKnowledgeFile.fromJson)
+            .toList(growable: false),
       );
 }
 

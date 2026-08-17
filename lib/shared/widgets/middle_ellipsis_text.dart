@@ -34,9 +34,8 @@ class MiddleEllipsisText extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final TextStyle effectiveStyle = DefaultTextStyle.of(
-          context,
-        ).style.merge(style);
+        final TextStyle effectiveStyle = DefaultTextStyle.of(context).style
+            .merge(style);
         final TextDirection direction = Directionality.of(context);
         final TextScaler textScaler = MediaQuery.textScalerOf(context);
         final double maxWidth = constraints.maxWidth;

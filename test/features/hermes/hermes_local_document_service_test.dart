@@ -12,9 +12,8 @@ void main() {
     test('production picker offers text and DOCX but not PDF', () {
       check(kHermesLocalDocumentPickerExtensions).contains('txt');
       check(kHermesLocalDocumentPickerExtensions).contains('docx');
-      check(
-        kHermesLocalDocumentPickerExtensions,
-      ).not((it) => it.contains('pdf'));
+      check(kHermesLocalDocumentPickerExtensions)
+          .not((it) => it.contains('pdf'));
     });
 
     test(
@@ -63,9 +62,8 @@ void main() {
 
         check(prepared.name).equals('local-secret.txt');
         check(prepared.extractedText).equals('on-device only');
-        check(
-          prepared.renderForPrompt(),
-        ).not((value) => value.contains(directory.path));
+        check(prepared.renderForPrompt())
+            .not((value) => value.contains(directory.path));
       },
     );
 
@@ -80,9 +78,8 @@ void main() {
 
       check(error.code).equals(HermesLocalDocumentError.readFailed);
       check(error.documentName).equals(missingName);
-      check(
-        error.toString(),
-      ).not((value) => value.contains(Directory.systemTemp.path));
+      check(error.toString())
+          .not((value) => value.contains(Directory.systemTemp.path));
     });
 
     test('accepts safe hidden UTF-8 configuration filenames', () async {
@@ -132,9 +129,8 @@ void main() {
           bytes: utf8.encode('text'),
         );
 
-        check(
-          (await _failureOf(service.prepareAll([small, small]))).code,
-        ).equals(HermesLocalDocumentError.tooManyFiles);
+        check((await _failureOf(service.prepareAll([small, small]))).code)
+            .equals(HermesLocalDocumentError.tooManyFiles);
         check(
           (await _failureOf(
             service.prepare(
@@ -239,9 +235,11 @@ void main() {
         check(prepared.extractedText).equals('Page text');
 
         final tooLong = HermesLocalDocumentService(
-          pdfExtractor:
-              (bytes, {required maxPages, required maxCharacters}) async =>
-                  const HermesPdfExtraction(text: '', pageCount: 4),
+          pdfExtractor: (
+            bytes, {
+            required maxPages,
+            required maxCharacters,
+          }) async => const HermesPdfExtraction(text: '', pageCount: 4),
           limits: const HermesLocalDocumentLimits(maxPdfPages: 3),
         );
         check(
@@ -346,8 +344,7 @@ void main() {
       final prepared = await HermesLocalDocumentService().prepare(
         HermesLocalDocumentSource.fromBytes(
           name: 'notes.docx',
-          mimeType:
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           bytes: docx,
         ),
       );
@@ -636,9 +633,9 @@ void main() {
       final rendered = prepared.renderForPrompt();
       check(rendered).contains('HERMES_UNTRUSTED_REFERENCE_[MARKER_REMOVED]');
       check(
-        RegExp(
-          'HERMES_UNTRUSTED_REFERENCE_HDOC_TEST',
-        ).allMatches(rendered).length,
+        RegExp('HERMES_UNTRUSTED_REFERENCE_HDOC_TEST')
+            .allMatches(rendered)
+            .length,
       ).equals(2);
     });
   });

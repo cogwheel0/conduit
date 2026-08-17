@@ -215,9 +215,9 @@ OpenWebUiDeletePlan? buildOpenWebUiDeletePlan<T>(
     return null;
   }
 
-  final childIds = childrenIdsOf(
-    message,
-  ).where(messagesById.containsKey).toList(growable: false);
+  final childIds = childrenIdsOf(message)
+      .where(messagesById.containsKey)
+      .toList(growable: false);
   final grandchildIds = <String>[];
   for (final childId in childIds) {
     final child = messagesById[childId];
@@ -310,9 +310,9 @@ Set<String>? deleteOpenWebUiMessageFromRawMessages(
   for (final entry in messagesById.entries) {
     final id = entry.key;
     final message = entry.value;
-    final children = rawMessageChildrenIds(
-      message,
-    ).where((id) => !plan.deletedIds.contains(id)).toList(growable: true);
+    final children = rawMessageChildrenIds(message)
+        .where((id) => !plan.deletedIds.contains(id))
+        .toList(growable: true);
     if (plan.deletedParentId != null && id == plan.deletedParentId) {
       for (final grandchildId in plan.grandchildIds) {
         if (!children.contains(grandchildId)) {

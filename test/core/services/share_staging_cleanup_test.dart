@@ -131,8 +131,10 @@ void main() {
     test(
       'reclaims files staged by pre-upgrade builds under legacy roots',
       () async {
-        for (final legacyRootName in const ['shared-incoming',
-            'shared-intents']) {
+        for (final legacyRootName in const [
+          'shared-incoming',
+          'shared-intents',
+        ]) {
           final legacyRoot = Directory(
             p.join(Directory.systemTemp.path, legacyRootName),
           );
@@ -168,9 +170,8 @@ void main() {
           check(stageResult.copied).isTrue();
           await deleteShareStagingFile(stageResult.file.path);
 
-          check(
-            await deleteShareStagingFileWithResult(deletable.path),
-          ).equals(ShareStagingFileCleanupResult.removed);
+          check(await deleteShareStagingFileWithResult(deletable.path))
+              .equals(ShareStagingFileCleanupResult.removed);
           check(await deletable.exists()).isFalse();
 
           check(await cleanupTerminalAttachmentFile(terminal.path)).isTrue();
@@ -348,12 +349,9 @@ void main() {
         // The staging directory is a process-global temp root shared with
         // concurrently running suites, so assert only that THIS file was not
         // copied into it rather than snapshotting the whole directory.
-        check(
-          await _directArtifactSet(stagingDirectory),
-        ).not(
-          (artifacts) => artifacts.any(
-            (artifact) => artifact.contains('426614174014'),
-          ),
+        check(await _directArtifactSet(stagingDirectory)).not(
+          (artifacts) =>
+              artifacts.any((artifact) => artifact.contains('426614174014')),
         );
       },
     );
@@ -424,9 +422,8 @@ void main() {
           file.path,
           nativeStagingRootResolver: resolveNativeStagingRoot,
         );
-        check(
-          p.normalize(await staged.resolveSymbolicLinks()),
-        ).equals(p.normalize(await file.resolveSymbolicLinks()));
+        check(p.normalize(await staged.resolveSymbolicLinks()))
+            .equals(p.normalize(await file.resolveSymbolicLinks()));
 
         await deleteShareStagingFile(
           file.path,

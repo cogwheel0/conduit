@@ -13,20 +13,17 @@ void main() {
       final notifier = container.read(chatTranscriptPagingProvider.notifier);
 
       notifier.reset(totalMessages: 500);
-      check(
-        container.read(chatTranscriptPagingProvider).loadedCount,
-      ).equals(50);
+      check(container.read(chatTranscriptPagingProvider).loadedCount)
+          .equals(50);
       check(container.read(chatTranscriptPagingProvider).hasOlder).isTrue();
 
       await notifier.fetchOlder(totalMessages: 500);
-      check(
-        container.read(chatTranscriptPagingProvider).loadedCount,
-      ).equals(100);
+      check(container.read(chatTranscriptPagingProvider).loadedCount)
+          .equals(100);
 
       await notifier.fetchOlder(totalMessages: 500);
-      check(
-        container.read(chatTranscriptPagingProvider).loadedCount,
-      ).equals(150);
+      check(container.read(chatTranscriptPagingProvider).loadedCount)
+          .equals(150);
     },
   );
 

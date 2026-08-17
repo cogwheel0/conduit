@@ -462,16 +462,14 @@ _harness({
   await container.read(authStateManagerProvider.future);
   await Future<void>.delayed(Duration.zero);
   if (expectInitiallyOpen) {
-    check(
-      container.read(openWebUiDatabaseAccessProvider),
-    ).equals(OpenWebUiDatabaseAccessPhase.open);
+    check(container.read(openWebUiDatabaseAccessProvider))
+        .equals(OpenWebUiDatabaseAccessPhase.open);
   } else {
     await container
         .read(openWebUiAccountStorageIsolationProvider.notifier)
         .settled;
-    check(
-      container.read(openWebUiDatabaseAccessProvider),
-    ).equals(OpenWebUiDatabaseAccessPhase.closed);
+    check(container.read(openWebUiDatabaseAccessProvider))
+        .equals(OpenWebUiDatabaseAccessPhase.closed);
   }
 
   return (
@@ -553,9 +551,8 @@ void main() {
                 message.contains('visible-state-provider-reset-failed'),
           ),
         ).isTrue();
-        check(
-          harness.container.read(openWebUiDatabaseAccessProvider),
-        ).equals(OpenWebUiDatabaseAccessPhase.closed);
+        check(harness.container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.closed);
       } finally {
         debugPrint = previousDebugPrint;
       }
@@ -571,9 +568,8 @@ void main() {
       metadata: <String, dynamic>{'backend': backend},
     );
 
-    check(
-      conversationUsesOpenWebUiStorage(transport(kDirectTransport)),
-    ).isFalse();
+    check(conversationUsesOpenWebUiStorage(transport(kDirectTransport)))
+        .isFalse();
     // Serialized backend metadata is server-controlled and therefore cannot
     // claim a process-owned native Hermes shell.
     check(conversationUsesOpenWebUiStorage(transport('hermes'))).isTrue();
@@ -638,9 +634,8 @@ void main() {
       try {
         container.read(_apiSelectionProvider.notifier).set(apiA);
         await container.read(authStateManagerProvider.future);
-        check(
-          (await container.read(activeServerProvider.future))?.id,
-        ).equals(_server.id);
+        check((await container.read(activeServerProvider.future))?.id)
+            .equals(_server.id);
         container
             .read(openWebUiCertifiedDatabaseServerProvider.notifier)
             .set(_server.id);
@@ -662,18 +657,16 @@ void main() {
         container
             .read(openWebUiCertifiedDatabaseServerProvider.notifier)
             .set(_serverTwo.id);
-        check(
-          (await container.read(activeServerProvider.future))?.id,
-        ).equals(_serverTwo.id);
+        check((await container.read(activeServerProvider.future))?.id)
+            .equals(_serverTwo.id);
         container.invalidate(currentUserProvider);
 
         responseA.complete(_userA);
         final latest = await container.read(currentUserProvider.future);
 
         check(latest?.id).equals(_userB.id);
-        check(
-          storage.savedUsers.map((user) => user.id),
-        ).not((ids) => ids.contains(_userA.id));
+        check(storage.savedUsers.map((user) => user.id))
+            .not((ids) => ids.contains(_userA.id));
         check(storage.savedUsers.map((user) => user.id)).contains(_userB.id);
       } finally {
         if (!responseA.isCompleted) responseA.complete(_userA);
@@ -742,9 +735,8 @@ void main() {
       container
           .read(openWebUiCertifiedDatabaseServerProvider.notifier)
           .set(_serverTwo.id);
-      check(
-        (await container.read(activeServerProvider.future))?.id,
-      ).equals(_serverTwo.id);
+      check((await container.read(activeServerProvider.future))?.id)
+          .equals(_serverTwo.id);
 
       responseA.complete(const BackendConfig(version: 'a-version'));
       await apiB.requestStarted.future;
@@ -757,15 +749,12 @@ void main() {
         await Future<void>.delayed(Duration.zero);
       }
 
-      check(
-        storage.savedConfigs.map((config) => config.serverId),
-      ).not((ids) => ids.contains(_server.id));
-      check(
-        storage.savedConfigs.map((config) => config.serverId),
-      ).contains(_serverTwo.id);
-      check(
-        container.read(backendConfigProvider).asData?.value?.serverId,
-      ).equals(_serverTwo.id);
+      check(storage.savedConfigs.map((config) => config.serverId))
+          .not((ids) => ids.contains(_server.id));
+      check(storage.savedConfigs.map((config) => config.serverId))
+          .contains(_serverTwo.id);
+      check(container.read(backendConfigProvider).asData?.value?.serverId)
+          .equals(_serverTwo.id);
     } finally {
       if (!responseA.isCompleted) {
         responseA.complete(const BackendConfig(version: 'a-version'));
@@ -776,74 +765,71 @@ void main() {
     }
   });
 
-  test(
-    'retired backend-config ref does not call API after active-server invalidation',
-    () async {
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        PreferenceKeys.activeServerId: _server.id,
-      });
-      PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  test('retired backend-config ref does not call API after active-server invalidation', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PreferenceKeys.activeServerId: _server.id,
+    });
+    PreferencesStore.debugReset();
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
 
-      final firstServer = Completer<ServerConfig?>();
-      final secondServer = Completer<ServerConfig?>();
-      final firstStarted = Completer<void>();
-      final secondStarted = Completer<void>();
-      var activeServerBuilds = 0;
-      final response = Completer<BackendConfig?>()
-        ..complete(const BackendConfig(version: 'unused'));
-      final api = _GatedBackendConfigApi(server: _server, response: response);
-      final storage = _BackendCacheTrackingStorage();
-      final epoch = Object();
-      final container = ProviderContainer(
-        overrides: [
-          reviewerModeProvider.overrideWithValue(false),
-          activeServerProvider.overrideWith((ref) async {
-            final build = activeServerBuilds++;
-            if (build == 0) {
-              if (!firstStarted.isCompleted) firstStarted.complete();
-              return firstServer.future;
-            }
-            if (!secondStarted.isCompleted) secondStarted.complete();
-            return secondServer.future;
-          }),
-          apiServiceProvider.overrideWithValue(api),
-          optimizedStorageServiceProvider.overrideWithValue(storage),
-          openWebUiAuthSessionEpochProvider.overrideWithValue(epoch),
-        ],
-      );
-      final subscription = container.listen<AsyncValue<BackendConfig?>>(
-        backendConfigProvider,
-        (_, _) {},
-        fireImmediately: true,
-      );
+    final firstServer = Completer<ServerConfig?>();
+    final secondServer = Completer<ServerConfig?>();
+    final firstStarted = Completer<void>();
+    final secondStarted = Completer<void>();
+    var activeServerBuilds = 0;
+    final response = Completer<BackendConfig?>()
+      ..complete(const BackendConfig(version: 'unused'));
+    final api = _GatedBackendConfigApi(server: _server, response: response);
+    final storage = _BackendCacheTrackingStorage();
+    final epoch = Object();
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        activeServerProvider.overrideWith((ref) async {
+          final build = activeServerBuilds++;
+          if (build == 0) {
+            if (!firstStarted.isCompleted) firstStarted.complete();
+            return firstServer.future;
+          }
+          if (!secondStarted.isCompleted) secondStarted.complete();
+          return secondServer.future;
+        }),
+        apiServiceProvider.overrideWithValue(api),
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        openWebUiAuthSessionEpochProvider.overrideWithValue(epoch),
+      ],
+    );
+    final subscription = container.listen<AsyncValue<BackendConfig?>>(
+      backendConfigProvider,
+      (_, _) {},
+      fireImmediately: true,
+    );
 
-      try {
-        await firstStarted.future;
+    try {
+      await firstStarted.future;
+      await Future<void>.delayed(Duration.zero);
+
+      // Replacing the dependency retires the Ref captured by the first
+      // _loadBackendConfig call while it is awaiting the first future.
+      container.invalidate(activeServerProvider);
+      await secondStarted.future;
+
+      firstServer.complete(_server);
+      for (var attempt = 0; attempt < 10; attempt++) {
         await Future<void>.delayed(Duration.zero);
-
-        // Replacing the dependency retires the Ref captured by the first
-        // _loadBackendConfig call while it is awaiting the first future.
-        container.invalidate(activeServerProvider);
-        await secondStarted.future;
-
-        firstServer.complete(_server);
-        for (var attempt = 0; attempt < 10; attempt++) {
-          await Future<void>.delayed(Duration.zero);
-        }
-
-        check(api.requestCount).equals(0);
-        check(api.requestStarted.isCompleted).isFalse();
-      } finally {
-        subscription.close();
-        container.dispose();
-        if (!firstServer.isCompleted) firstServer.complete(_server);
-        if (!secondServer.isCompleted) secondServer.complete(_server);
-        await Future<void>.delayed(Duration.zero);
-        PreferencesStore.debugReset();
       }
-    },
-  );
+
+      check(api.requestCount).equals(0);
+      check(api.requestStarted.isCompleted).isFalse();
+    } finally {
+      subscription.close();
+      container.dispose();
+      if (!firstServer.isCompleted) firstServer.complete(_server);
+      if (!secondServer.isCompleted) secondServer.complete(_server);
+      await Future<void>.delayed(Duration.zero);
+      PreferencesStore.debugReset();
+    }
+  });
 
   test('backend config survives an ownership-dependency rebuild', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -906,9 +892,8 @@ void main() {
 
       check(api.requestCount).equals(2);
       check(storage.savedConfigs.length).equals(2);
-      check(
-        container.read(backendConfigProvider).asData?.value?.version,
-      ).equals('stable-version');
+      check(container.read(backendConfigProvider).asData?.value?.version)
+          .equals('stable-version');
     } finally {
       backendConfigSubscription.close();
       container.dispose();
@@ -1084,185 +1069,176 @@ void main() {
     },
   );
 
-  test(
-    'restart with token B and cached user A purges before publishing identity or chats',
-    () async {
-      const tokenA = 'persisted-token-account-a';
-      const tokenB = 'persisted-token-account-b';
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        PreferenceKeys.activeServerId: _server.id,
-      });
-      PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  test('restart with token B and cached user A purges before publishing identity or chats', () async {
+    const tokenA = 'persisted-token-account-a';
+    const tokenB = 'persisted-token-account-b';
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PreferenceKeys.activeServerId: _server.id,
+    });
+    PreferencesStore.debugReset();
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
 
-      final serverA = AppDatabase(NativeDatabase.memory());
-      final serverB = AppDatabase(NativeDatabase.memory());
-      final direct = AppDatabase(NativeDatabase.memory());
-      final directory = await Directory.systemTemp.createTemp(
-        'conduit-restart-owner',
-      );
-      var opens = 0;
-      final manager = DatabaseManager(
-        databaseDirectory: () async => directory,
-        openDatabase: (_) => opens++ == 0 ? serverA : serverB,
-        databaseFileName: (serverId) => '${serverId}_restart_test',
-      );
-      manager.openFor(_server);
-      await _seedChat(
-        serverA,
-        id: 'stale-account-a-chat',
-        title: 'A must stay private',
-        message: 'A private restart body',
-      );
-      await _seedChat(
-        direct,
-        id: 'restart-direct-chat',
-        title: 'Device chat',
-        message: 'Device body',
-      );
+    final serverA = AppDatabase(NativeDatabase.memory());
+    final serverB = AppDatabase(NativeDatabase.memory());
+    final direct = AppDatabase(NativeDatabase.memory());
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit-restart-owner',
+    );
+    var opens = 0;
+    final manager = DatabaseManager(
+      databaseDirectory: () async => directory,
+      openDatabase: (_) => opens++ == 0 ? serverA : serverB,
+      databaseFileName: (serverId) => '${serverId}_restart_test',
+    );
+    manager.openFor(_server);
+    await _seedChat(
+      serverA,
+      id: 'stale-account-a-chat',
+      title: 'A must stay private',
+      message: 'A private restart body',
+    );
+    await _seedChat(
+      direct,
+      id: 'restart-direct-chat',
+      title: 'Device chat',
+      message: 'Device body',
+    );
 
-      final markerStore = _MemoryAccountOwnerMarkerStore();
-      markerStore.markers[_server.id] = openWebUiAccountOwnerMarker(
-        token: tokenA,
-        userId: _userA.id,
-      )!;
-      final validatedUser = Completer<User>();
-      final api = _GatedRestartValidationApi(validatedUser);
-      final storage = _CachedRestartStorage(token: tokenB, cachedUser: _userA);
-      final container = ProviderContainer(
-        overrides: [
-          reviewerModeProvider.overrideWithValue(false),
-          activeServerProvider.overrideWith((ref) async => _server),
-          apiServiceProvider.overrideWithValue(api),
-          socketServiceProvider.overrideWithValue(null),
-          optimizedStorageServiceProvider.overrideWithValue(storage),
-          databaseManagerProvider.overrideWithValue(manager),
-          directLocalDatabaseProvider.overrideWithValue(direct),
-          openWebUiAccountOwnerMarkerStoreProvider.overrideWithValue(
-            markerStore,
-          ),
-          openWebUiAccountCacheClearProvider.overrideWithValue(() async {}),
-          openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
-            () {},
-          ),
-          openWebUiDatabasePurgeProvider.overrideWithValue(manager.deleteFor),
-        ],
-      );
+    final markerStore = _MemoryAccountOwnerMarkerStore();
+    markerStore.markers[_server.id] = openWebUiAccountOwnerMarker(
+      token: tokenA,
+      userId: _userA.id,
+    )!;
+    final validatedUser = Completer<User>();
+    final api = _GatedRestartValidationApi(validatedUser);
+    final storage = _CachedRestartStorage(token: tokenB, cachedUser: _userA);
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        activeServerProvider.overrideWith((ref) async => _server),
+        apiServiceProvider.overrideWithValue(api),
+        socketServiceProvider.overrideWithValue(null),
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        databaseManagerProvider.overrideWithValue(manager),
+        directLocalDatabaseProvider.overrideWithValue(direct),
+        openWebUiAccountOwnerMarkerStoreProvider.overrideWithValue(markerStore),
+        openWebUiAccountCacheClearProvider.overrideWithValue(() async {}),
+        openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(() {}),
+        openWebUiDatabasePurgeProvider.overrideWithValue(manager.deleteFor),
+      ],
+    );
 
-      final authEmissions = <AuthState>[];
-      final currentUserIds = <String?>[];
-      final asyncCurrentUserIds = <String?>[];
-      final conversationEmissions = <List<String>>[];
-      final authSubscription = container.listen<AsyncValue<AuthState>>(
-        authStateManagerProvider,
-        (_, next) {
-          final auth = next.asData?.value;
-          if (auth != null) authEmissions.add(auth);
-        },
-        fireImmediately: true,
-      );
-      final currentUserSubscription = container.listen<User?>(
-        currentUserProvider2,
-        (_, next) => currentUserIds.add(next?.id),
-        fireImmediately: true,
-      );
-      final asyncCurrentUserSubscription = container.listen<AsyncValue<User?>>(
-        currentUserProvider,
-        (_, next) {
-          if (next.hasValue) asyncCurrentUserIds.add(next.value?.id);
-        },
-        fireImmediately: true,
-      );
-      final conversationSubscription = container
-          .listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
-            _,
-            next,
-          ) {
-            final chats = next.asData?.value;
-            if (chats != null) {
-              conversationEmissions.add(
-                chats.map((chat) => chat.id).toList(growable: false),
-              );
-            }
-          }, fireImmediately: true);
-
-      try {
-        container.read(userScopedProviderCleanupProvider);
-        await container.read(authStateManagerProvider.future);
-        for (var attempt = 0; attempt < 100; attempt++) {
-          if (container.read(openWebUiDatabaseAccessProvider) ==
-              OpenWebUiDatabaseAccessPhase.closed) {
-            break;
+    final authEmissions = <AuthState>[];
+    final currentUserIds = <String?>[];
+    final asyncCurrentUserIds = <String?>[];
+    final conversationEmissions = <List<String>>[];
+    final authSubscription = container.listen<AsyncValue<AuthState>>(
+      authStateManagerProvider,
+      (_, next) {
+        final auth = next.asData?.value;
+        if (auth != null) authEmissions.add(auth);
+      },
+      fireImmediately: true,
+    );
+    final currentUserSubscription = container.listen<User?>(
+      currentUserProvider2,
+      (_, next) => currentUserIds.add(next?.id),
+      fireImmediately: true,
+    );
+    final asyncCurrentUserSubscription = container.listen<AsyncValue<User?>>(
+      currentUserProvider,
+      (_, next) {
+        if (next.hasValue) asyncCurrentUserIds.add(next.value?.id);
+      },
+      fireImmediately: true,
+    );
+    final conversationSubscription = container
+        .listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
+          _,
+          next,
+        ) {
+          final chats = next.asData?.value;
+          if (chats != null) {
+            conversationEmissions.add(
+              chats.map((chat) => chat.id).toList(growable: false),
+            );
           }
-          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }, fireImmediately: true);
+
+    try {
+      container.read(userScopedProviderCleanupProvider);
+      await container.read(authStateManagerProvider.future);
+      for (var attempt = 0; attempt < 100; attempt++) {
+        if (container.read(openWebUiDatabaseAccessProvider) ==
+            OpenWebUiDatabaseAccessPhase.closed) {
+          break;
         }
-        await container
-            .read(openWebUiAccountStorageIsolationProvider.notifier)
-            .settled;
-
-        check(
-          container.read(openWebUiDatabaseAccessProvider),
-        ).equals(OpenWebUiDatabaseAccessPhase.closed);
-        check(
-          authEmissions.any(
-            (auth) =>
-                auth.status == AuthStatus.authenticated &&
-                auth.user?.id == _userA.id,
-          ),
-        ).isFalse();
-        check(currentUserIds.contains(_userA.id)).isFalse();
-        check(asyncCurrentUserIds.contains(_userA.id)).isFalse();
-        check(
-          conversationEmissions.every(
-            (ids) => !ids.contains('stale-account-a-chat'),
-          ),
-        ).isTrue();
-
-        validatedUser.complete(_userB);
-        for (var attempt = 0; attempt < 100; attempt++) {
-          final auth = container.read(authStateManagerProvider).asData?.value;
-          if (auth?.status == AuthStatus.authenticated &&
-              auth?.user?.id == _userB.id) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
-        await Future<void>.delayed(Duration.zero);
-        await container
-            .read(openWebUiAccountStorageIsolationProvider.notifier)
-            .settled;
-
-        check(container.read(currentUserProvider2)?.id).equals(_userB.id);
-        check(
-          container.read(openWebUiDatabaseAccessProvider),
-        ).equals(OpenWebUiDatabaseAccessPhase.open);
-        check(
-          (await container.read(
-            conversationsProvider.future,
-          )).map((chat) => chat.id).toList(),
-        ).deepEquals(<String>['restart-direct-chat']);
-        check(
-          conversationEmissions.every(
-            (ids) => !ids.contains('stale-account-a-chat'),
-          ),
-        ).isTrue();
-        check(
-          markerStore.markers[_server.id],
-        ).equals(openWebUiAccountOwnerMarker(token: tokenB, userId: _userB.id));
-        check(storage.savedUsers.map((user) => user.id)).contains(_userB.id);
-      } finally {
-        conversationSubscription.close();
-        asyncCurrentUserSubscription.close();
-        currentUserSubscription.close();
-        authSubscription.close();
-        container.dispose();
-        await manager.closeActive();
-        await direct.close();
-        if (await directory.exists()) await directory.delete(recursive: true);
-        PreferencesStore.debugReset();
+        await Future<void>.delayed(const Duration(milliseconds: 5));
       }
-    },
-  );
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.closed);
+      check(
+        authEmissions.any(
+          (auth) =>
+              auth.status == AuthStatus.authenticated &&
+              auth.user?.id == _userA.id,
+        ),
+      ).isFalse();
+      check(currentUserIds.contains(_userA.id)).isFalse();
+      check(asyncCurrentUserIds.contains(_userA.id)).isFalse();
+      check(
+        conversationEmissions.every(
+          (ids) => !ids.contains('stale-account-a-chat'),
+        ),
+      ).isTrue();
+
+      validatedUser.complete(_userB);
+      for (var attempt = 0; attempt < 100; attempt++) {
+        final auth = container.read(authStateManagerProvider).asData?.value;
+        if (auth?.status == AuthStatus.authenticated &&
+            auth?.user?.id == _userB.id) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      await Future<void>.delayed(Duration.zero);
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      check(container.read(currentUserProvider2)?.id).equals(_userB.id);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(
+        (await container.read(conversationsProvider.future))
+            .map((chat) => chat.id)
+            .toList(),
+      ).deepEquals(<String>['restart-direct-chat']);
+      check(
+        conversationEmissions.every(
+          (ids) => !ids.contains('stale-account-a-chat'),
+        ),
+      ).isTrue();
+      check(
+        markerStore.markers[_server.id],
+      ).equals(openWebUiAccountOwnerMarker(token: tokenB, userId: _userB.id));
+      check(storage.savedUsers.map((user) => user.id)).contains(_userB.id);
+    } finally {
+      conversationSubscription.close();
+      asyncCurrentUserSubscription.close();
+      currentUserSubscription.close();
+      authSubscription.close();
+      container.dispose();
+      await manager.closeActive();
+      await direct.close();
+      if (await directory.exists()) await directory.delete(recursive: true);
+      PreferencesStore.debugReset();
+    }
+  });
 
   test(
     'matching token marker with no cached user retains DB until validation',
@@ -1330,13 +1306,11 @@ void main() {
 
         check(bootstrap.status).equals(AuthStatus.loading);
         check(bootstrap.user).isNull();
-        check(
-          container.read(openWebUiDatabaseAccessProvider).allowsAppDatabase,
-        ).isFalse();
+        check(container.read(openWebUiDatabaseAccessProvider).allowsAppDatabase)
+            .isFalse();
         check(purgeCalls).equals(0);
-        check(
-          await serverDatabase.chatsDao.getChat('retained-b-chat'),
-        ).isNotNull();
+        check(await serverDatabase.chatsDao.getChat('retained-b-chat'))
+            .isNotNull();
 
         validatedUser.complete(_userB);
         for (var attempt = 0; attempt < 100; attempt++) {
@@ -1350,15 +1324,13 @@ void main() {
             .read(openWebUiAccountStorageIsolationProvider.notifier)
             .settled;
 
-        check(
-          container.read(openWebUiDatabaseAccessProvider),
-        ).equals(OpenWebUiDatabaseAccessPhase.open);
+        check(container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.open);
         check(container.read(currentUserProvider2)?.id).equals(_userB.id);
         check(purgeCalls).equals(0);
         check(container.read(appDatabaseProvider)).identicalTo(serverDatabase);
-        check(
-          await serverDatabase.chatsDao.getChat('retained-b-chat'),
-        ).isNotNull();
+        check(await serverDatabase.chatsDao.getChat('retained-b-chat'))
+            .isNotNull();
         check(storage.savedUsers.map((user) => user.id)).contains(_userB.id);
       } finally {
         container.dispose();
@@ -1376,9 +1348,8 @@ void main() {
       final harness = await _harness();
       final container = harness.container;
       final before = await container.read(conversationsProvider.future);
-      check(
-        before.map((chat) => chat.id),
-      ).containsEqualInOrder(<String>['account-a-chat', 'direct-chat']);
+      check(before.map((chat) => chat.id))
+          .containsEqualInOrder(<String>['account-a-chat', 'direct-chat']);
 
       final postLogoutEmissions = <List<String>>[];
       final subscription = container.listen<AsyncValue<List<Conversation>>>(
@@ -1404,25 +1375,21 @@ void main() {
           .read(openWebUiAccountStorageIsolationProvider.notifier)
           .settled;
 
-      check(
-        container.read(openWebUiDatabaseAccessProvider),
-      ).equals(OpenWebUiDatabaseAccessPhase.closed);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.closed);
       check(container.read(activeConversationProvider)).isNull();
       check(container.read(chatMessagesProvider)).isEmpty();
-      check(
-        postLogoutEmissions.every((ids) => !ids.contains('account-a-chat')),
-      ).isTrue();
+      check(postLogoutEmissions.every((ids) => !ids.contains('account-a-chat')))
+          .isTrue();
 
       harness.auth.publish(_authenticated('token-b', _userB));
       await Future<void>.delayed(Duration.zero);
-      check(
-        container.read(openWebUiDatabaseAccessProvider),
-      ).equals(OpenWebUiDatabaseAccessPhase.open);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
 
       final after = await container.read(conversationsProvider.future);
-      check(
-        after.map((chat) => chat.id).toList(),
-      ).deepEquals(<String>['direct-chat']);
+      check(after.map((chat) => chat.id).toList())
+          .deepEquals(<String>['direct-chat']);
       check(await loadLocalConversation(container, 'account-a-chat')).isNull();
     },
   );
@@ -1498,37 +1465,33 @@ void main() {
       check(cacheClearCalls).equals(2);
       check(purgeCalls).equals(1);
       check(harness.markerStore.read(_server.id)).isNull();
-      check(
-        harness.container.read(openWebUiDatabaseAccessProvider),
-      ).equals(OpenWebUiDatabaseAccessPhase.closed);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.closed);
     },
   );
 
-  test(
-    'local conversation read drops a body when its account gate changes mid-load',
-    () async {
-      final harness = await _harness();
-      final container = harness.container;
-      final transactionStarted = Completer<void>();
-      final releaseTransaction = Completer<void>();
-      final blockingTransaction = harness.serverA.transaction(() async {
-        transactionStarted.complete();
-        await releaseTransaction.future;
-      });
-      await transactionStarted.future;
+  test('local conversation read drops a body when its account gate changes mid-load', () async {
+    final harness = await _harness();
+    final container = harness.container;
+    final transactionStarted = Completer<void>();
+    final releaseTransaction = Completer<void>();
+    final blockingTransaction = harness.serverA.transaction(() async {
+      transactionStarted.complete();
+      await releaseTransaction.future;
+    });
+    await transactionStarted.future;
 
-      final pending = loadLocalConversation(container, 'account-a-chat');
-      await Future<void>.delayed(Duration.zero);
+    final pending = loadLocalConversation(container, 'account-a-chat');
+    await Future<void>.delayed(Duration.zero);
 
-      container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
-      container.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
-      releaseTransaction.complete();
-      await blockingTransaction;
+    container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+    container.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
+    releaseTransaction.complete();
+    await blockingTransaction;
 
-      check(await pending).isNull();
-      check(container.read(activeConversationProvider)).isNull();
-    },
-  );
+    check(await pending).isNull();
+    check(container.read(activeConversationProvider)).isNull();
+  });
 
   test(
     'unlistened conversation provider stays mounted during repository load',
@@ -1569,9 +1532,8 @@ void main() {
 
         final conversation = await pending;
         check(conversation.id).equals('account-a-chat');
-        check(
-          chatStorageKindOf(conversation),
-        ).equals(ChatStorageKind.openWebUi);
+        check(chatStorageKindOf(conversation))
+            .equals(ChatStorageKind.openWebUi);
       } finally {
         if (!releaseTransaction.isCompleted) {
           releaseTransaction.complete();
@@ -1581,61 +1543,55 @@ void main() {
     },
   );
 
-  test(
-    'conversation provider drops a repository body when ownership changes mid-load',
-    () async {
-      final harness = await _harness();
-      final container = harness.container;
-      final transactionStarted = Completer<void>();
-      final releaseTransaction = Completer<void>();
-      final blockingTransaction = harness.serverA.transaction(() async {
-        transactionStarted.complete();
-        await releaseTransaction.future;
-      });
-      await transactionStarted.future;
+  test('conversation provider drops a repository body when ownership changes mid-load', () async {
+    final harness = await _harness();
+    final container = harness.container;
+    final transactionStarted = Completer<void>();
+    final releaseTransaction = Completer<void>();
+    final blockingTransaction = harness.serverA.transaction(() async {
+      transactionStarted.complete();
+      await releaseTransaction.future;
+    });
+    await transactionStarted.future;
 
-      final scopedId = const ChatStorageIdentity(
-        rawId: 'account-a-chat',
-        storage: ChatStorageKind.openWebUi,
-      ).scopedId;
-      final pending = container
-          .read(loadConversationProvider(scopedId).future)
-          .then<Object>(
-            (conversation) => conversation,
-            onError: (Object error, StackTrace _) => error,
-          );
-      await Future<void>.delayed(Duration.zero);
+    final scopedId = const ChatStorageIdentity(
+      rawId: 'account-a-chat',
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    final pending = container
+        .read(loadConversationProvider(scopedId).future)
+        .then<Object>(
+          (conversation) => conversation,
+          onError: (Object error, StackTrace _) => error,
+        );
+    await Future<void>.delayed(Duration.zero);
 
-      container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
-      container.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
-      releaseTransaction.complete();
-      await blockingTransaction;
+    container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+    container.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
+    releaseTransaction.complete();
+    await blockingTransaction;
 
-      check(await pending).isA<StateError>();
-      check(container.read(activeConversationProvider)).isNull();
-    },
-  );
+    check(await pending).isA<StateError>();
+    check(container.read(activeConversationProvider)).isNull();
+  });
 
-  test(
-    'new ChatMessages notifier cannot reveal stale OpenWebUI active payload while gated',
-    () async {
-      final harness = await _harness();
-      final container = harness.container;
-      harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
-      await Future<void>.delayed(Duration.zero);
-      await container
-          .read(openWebUiAccountStorageIsolationProvider.notifier)
-          .settled;
+  test('new ChatMessages notifier cannot reveal stale OpenWebUI active payload while gated', () async {
+    final harness = await _harness();
+    final container = harness.container;
+    harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
+    await Future<void>.delayed(Duration.zero);
+    await container
+        .read(openWebUiAccountStorageIsolationProvider.notifier)
+        .settled;
 
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_openWebUiConversation('stale-a', 'must never render'));
-      container.invalidate(chatMessagesProvider);
-      check(container.read(chatMessagesProvider)).isEmpty();
-      await Future<void>.delayed(Duration.zero);
-      check(container.read(activeConversationProvider)).isNull();
-    },
-  );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_openWebUiConversation('stale-a', 'must never render'));
+    container.invalidate(chatMessagesProvider);
+    check(container.read(chatMessagesProvider)).isEmpty();
+    await Future<void>.delayed(Duration.zero);
+    check(container.read(activeConversationProvider)).isNull();
+  });
 
   test(
     'chat messages keep following selections after sign-out and sign-in',
@@ -1690,13 +1646,11 @@ void main() {
         .read(openWebUiAccountStorageIsolationProvider.notifier)
         .settled;
     check(postCertificationSyncKickoffs).equals(1);
-    check(
-      container.read(openWebUiDatabaseAccessProvider),
-    ).equals(OpenWebUiDatabaseAccessPhase.open);
+    check(container.read(openWebUiDatabaseAccessProvider))
+        .equals(OpenWebUiDatabaseAccessPhase.open);
     final chats = await container.read(conversationsProvider.future);
-    check(
-      chats.map((chat) => chat.id).toList(),
-    ).deepEquals(<String>['direct-chat']);
+    check(chats.map((chat) => chat.id).toList())
+        .deepEquals(<String>['direct-chat']);
     check(await loadLocalConversation(container, 'account-a-chat')).isNull();
   });
 
@@ -1736,27 +1690,24 @@ void main() {
       check(await markerWriteStarted.future).equals(_server.id);
 
       harness.serverSelection.set(_serverTwo);
-      check(
-        (await container.read(activeServerProvider.future))?.id,
-      ).equals(_serverTwo.id);
+      check((await container.read(activeServerProvider.future))?.id)
+          .equals(_serverTwo.id);
       releaseMarkerWrite.complete();
       await container
           .read(openWebUiAccountStorageIsolationProvider.notifier)
           .settled;
 
-      check(
-        container.read(openWebUiCertifiedDatabaseServerProvider),
-      ).equals(_serverTwo.id);
-      check(
-        container.read(openWebUiDatabaseAccessProvider),
-      ).equals(OpenWebUiDatabaseAccessPhase.open);
+      check(container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
       check(
         await harness.serverB.chatsDao.getChat('server-b-marker-race-secret'),
       ).isNull();
       check(
-        (await container.read(
-          conversationsProvider.future,
-        )).map((chat) => chat.id).toList(),
+        (await container.read(conversationsProvider.future))
+            .map((chat) => chat.id)
+            .toList(),
       ).deepEquals(<String>['direct-chat']);
       await Future<void>.delayed(Duration.zero);
       check(emittedChatIds).isNotEmpty();
@@ -1798,19 +1749,15 @@ void main() {
           .read(openWebUiAccountStorageIsolationProvider.notifier)
           .settled;
 
-      check(
-        container.read(openWebUiCertifiedDatabaseServerProvider),
-      ).equals(_serverTwo.id);
-      check(
-        container.read(openWebUiDatabaseAccessProvider),
-      ).equals(OpenWebUiDatabaseAccessPhase.open);
+      check(container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
       final chats = await container.read(conversationsProvider.future);
-      check(
-        chats.map((chat) => chat.id).toList(),
-      ).deepEquals(<String>['direct-chat']);
-      check(
-        emissions.every((ids) => !ids.contains('server-b-prior-account')),
-      ).isTrue();
+      check(chats.map((chat) => chat.id).toList())
+          .deepEquals(<String>['direct-chat']);
+      check(emissions.every((ids) => !ids.contains('server-b-prior-account')))
+          .isTrue();
     },
   );
 
@@ -1867,12 +1814,10 @@ void main() {
 
       check(container.read(activeConversationProvider)).identicalTo(directChat);
       check(container.read(selectedModelProvider)).identicalTo(directModel);
-      check(
-        container.read(chatMessagesProvider).single.content,
-      ).equals('Device body');
-      check(
-        container.read(activeConversationInPlaceRemapProvider),
-      ).identicalTo(localRemap);
+      check(container.read(chatMessagesProvider).single.content)
+          .equals('Device body');
+      check(container.read(activeConversationInPlaceRemapProvider))
+          .identicalTo(localRemap);
     },
   );
 
@@ -1920,12 +1865,10 @@ void main() {
 
       check(container.read(activeConversationProvider)).identicalTo(hermesChat);
       check(container.read(selectedModelProvider)).identicalTo(hermesModel);
-      check(
-        container.read(chatMessagesProvider).single.content,
-      ).equals('Hermes body');
-      check(
-        container.read(activeConversationInPlaceRemapProvider),
-      ).identicalTo(localRemap);
+      check(container.read(chatMessagesProvider).single.content)
+          .equals('Hermes body');
+      check(container.read(activeConversationInPlaceRemapProvider))
+          .identicalTo(localRemap);
     },
   );
 }

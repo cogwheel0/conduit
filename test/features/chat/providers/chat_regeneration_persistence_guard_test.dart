@@ -158,70 +158,14 @@ class _RecordingCompletionApi extends ApiService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'regenerate on persisted chat does not sync partial local history back to the server',
-    () async {
-      final now = DateTime.utc(2026, 4, 23, 12);
-      final userMessage = ChatMessage(
-        id: 'user-1',
-        role: 'user',
-        content: 'Explain this bug.',
-        timestamp: now,
-        files: const [
-          {
-            'type': 'file',
-            'id': 'doc-1',
-            'url': 'doc-1',
-            'name': 'bug-report.md',
-            'content_type': 'text/markdown',
-          },
-        ],
-      );
-      final assistantMessage = ChatMessage(
-        id: 'assistant-1',
-        role: 'assistant',
-        content: 'Original answer',
-        timestamp: now.add(const Duration(seconds: 1)),
-        model: 'gpt-4',
-      );
-      final conversation = Conversation(
-        id: 'conv-1',
-        title: 'Long chat',
-        createdAt: now,
-        updatedAt: now,
-        messages: [userMessage, assistantMessage],
-      );
-      final api = _RecordingCompletionApi();
-      final container = ProviderContainer(
-        overrides: [
-          chatMessagesProvider.overrideWith(() => _TestMessagesNotifier()),
-          activeConversationProvider.overrideWith(
-            () => _FixedConversationNotifier(conversation),
-          ),
-          apiServiceProvider.overrideWithValue(api),
-          selectedModelProvider.overrideWithValue(
-            const Model(id: 'gpt-4', name: 'GPT-4'),
-          ),
-          reviewerModeProvider.overrideWithValue(false),
-          socketServiceProvider.overrideWithValue(null),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      container.read(chatMessagesProvider.notifier).setMessages([
-        userMessage,
-        assistantMessage,
-      ]);
-
-      await container.read(regenerateLastMessageProvider)();
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-
-      check(api.completionCalls).equals(1);
-      check(api.syncCalls).equals(0);
-      check(api.lastConversationId).equals('conv-1');
-      check(api.lastMessages).isEmpty();
-      check(api.lastFiles).deepEquals(const [
+  test('regenerate on persisted chat does not sync partial local history back to the server', () async {
+    final now = DateTime.utc(2026, 4, 23, 12);
+    final userMessage = ChatMessage(
+      id: 'user-1',
+      role: 'user',
+      content: 'Explain this bug.',
+      timestamp: now,
+      files: const [
         {
           'type': 'file',
           'id': 'doc-1',
@@ -229,13 +173,66 @@ void main() {
           'name': 'bug-report.md',
           'content_type': 'text/markdown',
         },
-      ]);
+      ],
+    );
+    final assistantMessage = ChatMessage(
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Original answer',
+      timestamp: now.add(const Duration(seconds: 1)),
+      model: 'gpt-4',
+    );
+    final conversation = Conversation(
+      id: 'conv-1',
+      title: 'Long chat',
+      createdAt: now,
+      updatedAt: now,
+      messages: [userMessage, assistantMessage],
+    );
+    final api = _RecordingCompletionApi();
+    final container = ProviderContainer(
+      overrides: [
+        chatMessagesProvider.overrideWith(() => _TestMessagesNotifier()),
+        activeConversationProvider.overrideWith(
+          () => _FixedConversationNotifier(conversation),
+        ),
+        apiServiceProvider.overrideWithValue(api),
+        selectedModelProvider.overrideWithValue(
+          const Model(id: 'gpt-4', name: 'GPT-4'),
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      final messages = container.read(chatMessagesProvider);
-      check(messages).has((it) => it.length, 'length').equals(3);
-      check(messages.last.role).equals('assistant');
-      check(messages.last.content).equals('Regenerated answer');
-      check(messages.last.isStreaming).isFalse();
-    },
-  );
+    container.read(chatMessagesProvider.notifier).setMessages([
+      userMessage,
+      assistantMessage,
+    ]);
+
+    await container.read(regenerateLastMessageProvider)();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    check(api.completionCalls).equals(1);
+    check(api.syncCalls).equals(0);
+    check(api.lastConversationId).equals('conv-1');
+    check(api.lastMessages).isEmpty();
+    check(api.lastFiles).deepEquals(const [
+      {
+        'type': 'file',
+        'id': 'doc-1',
+        'url': 'doc-1',
+        'name': 'bug-report.md',
+        'content_type': 'text/markdown',
+      },
+    ]);
+
+    final messages = container.read(chatMessagesProvider);
+    check(messages).has((it) => it.length, 'length').equals(3);
+    check(messages.last.role).equals('assistant');
+    check(messages.last.content).equals('Regenerated answer');
+    check(messages.last.isStreaming).isFalse();
+  });
 }

@@ -76,21 +76,16 @@ void main() {
           final rows = rowsFromFixture(fixture);
           check(rows.chat.id).equals(fixture.envelope['id'] as String);
           check(rows.chat.title).equals(fixture.envelope['title'] as String);
-          check(
-            rows.chat.folderId,
-          ).equals(fixture.envelope['folder_id'] as String?);
-          check(
-            rows.chat.pinned,
-          ).equals((fixture.envelope['pinned'] as bool?) ?? false);
-          check(
-            rows.chat.archived,
-          ).equals((fixture.envelope['archived'] as bool?) ?? false);
-          check(
-            rows.chat.createdAt,
-          ).equals(fixture.envelope['created_at'] as int);
-          check(
-            rows.chat.updatedAt,
-          ).equals(fixture.envelope['updated_at'] as int);
+          check(rows.chat.folderId)
+              .equals(fixture.envelope['folder_id'] as String?);
+          check(rows.chat.pinned)
+              .equals((fixture.envelope['pinned'] as bool?) ?? false);
+          check(rows.chat.archived)
+              .equals((fixture.envelope['archived'] as bool?) ?? false);
+          check(rows.chat.createdAt)
+              .equals(fixture.envelope['created_at'] as int);
+          check(rows.chat.updatedAt)
+              .equals(fixture.envelope['updated_at'] as int);
 
           final history = fixture.blob['history'];
           // Tolerate fixtures with a missing or non-string currentId: only a
@@ -383,12 +378,10 @@ void main() {
       final rebuiltWithout = ChatBlobMapper.rowsToBlob(
         rowsFor(deepCopyJson(without)),
       );
-      check(
-        (rebuiltWithNull['history'] as Map).containsKey('currentId'),
-      ).isTrue();
-      check(
-        (rebuiltWithout['history'] as Map).containsKey('currentId'),
-      ).isFalse();
+      check((rebuiltWithNull['history'] as Map).containsKey('currentId'))
+          .isTrue();
+      check((rebuiltWithout['history'] as Map).containsKey('currentId'))
+          .isFalse();
       check(_deepEq.equals(rebuiltWithNull, withNull)).isTrue();
       check(_deepEq.equals(rebuiltWithout, without)).isTrue();
     });
@@ -437,9 +430,8 @@ void main() {
       final rows = rowsFor(deepCopyJson(blob));
       check(rows.chat.title).equals('Envelope Title');
       final rebuilt = ChatBlobMapper.rowsToBlob(rows);
-      check(
-        rebuilt['title'],
-      ).equals('Blob Title that diverged from the envelope');
+      check(rebuilt['title'])
+          .equals('Blob Title that diverged from the envelope');
       check(_deepEq.equals(rebuilt, blob)).isTrue();
     });
   });
@@ -464,9 +456,8 @@ void main() {
       check(rows.blobHadHistory).isFalse();
       check(rows.messages).isEmpty();
       check(rows.chat.currentMessageId).isNull();
-      check(
-        _deepEq.equals(rows.chat.rawExtra['history'], blob()['history']),
-      ).isTrue();
+      check(_deepEq.equals(rows.chat.rawExtra['history'], blob()['history']))
+          .isTrue();
       final rebuilt = ChatBlobMapper.rowsToBlob(rows);
       check(_deepEq.equals(rebuilt, blob())).isTrue();
     });
@@ -564,9 +555,8 @@ void main() {
         );
         check(rows.messages.length).equals(1);
         check(rows.messages.single.id).equals('real');
-        check(
-          rows.unmappableMessages.keys,
-        ).unorderedEquals(['nullish', 'ghost', 'garbage']);
+        check(rows.unmappableMessages.keys)
+            .unorderedEquals(['nullish', 'ghost', 'garbage']);
         check(rows.unmappableMessages['nullish']).isNull();
         check(_deepEq.equals(rows.unmappableMessages['ghost'], ghost)).isTrue();
         check(rows.unmappableMessages['garbage']).equals('just a string');
@@ -684,9 +674,8 @@ void main() {
       final content = {'type': 'rich', 'blocks': []};
       final rows = rowsFor(content);
       check(rows.messages.single.content).equals(jsonEncode(content));
-      check(
-        _deepEq.equals(rows.messages.single.payload['content'], content),
-      ).isTrue();
+      check(_deepEq.equals(rows.messages.single.payload['content'], content))
+          .isTrue();
     });
   });
 
@@ -705,9 +694,8 @@ void main() {
         ),
         _row('root-sibling', parentId: null, createdAt: 60, orderIndex: 5),
       ];
-      check(
-        ChatBlobMapper.deriveChildrenIds('parent', all),
-      ).deepEquals(['early', 'middle', 'late']);
+      check(ChatBlobMapper.deriveChildrenIds('parent', all))
+          .deepEquals(['early', 'middle', 'late']);
     });
 
     test('breaks createdAt ties with orderIndex ascending', () {
@@ -718,9 +706,8 @@ void main() {
         _row('tie-a', parentId: 'parent', createdAt: tiedSecond, orderIndex: 1),
         _row('tie-b', parentId: 'parent', createdAt: tiedSecond, orderIndex: 2),
       ];
-      check(
-        ChatBlobMapper.deriveChildrenIds('parent', all),
-      ).deepEquals(['tie-a', 'tie-b', 'tie-c']);
+      check(ChatBlobMapper.deriveChildrenIds('parent', all))
+          .deepEquals(['tie-a', 'tie-b', 'tie-c']);
     });
 
     test('is deterministic regardless of input list order', () {
@@ -733,9 +720,8 @@ void main() {
       ];
       final expected = ['c', 'b', 'a', 'd'];
       check(ChatBlobMapper.deriveChildrenIds('p', rows)).deepEquals(expected);
-      check(
-        ChatBlobMapper.deriveChildrenIds('p', rows.reversed.toList()),
-      ).deepEquals(expected);
+      check(ChatBlobMapper.deriveChildrenIds('p', rows.reversed.toList()))
+          .deepEquals(expected);
       check(
         ChatBlobMapper.deriveChildrenIds('p', [
           rows[2],

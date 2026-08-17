@@ -236,17 +236,15 @@ void main() {
       check(files.items.single.id).equals('file-1');
       check(requests[0].method).equals('GET');
       check(requests[0].path).equals('/api/v1/knowledge/kb-1/files');
-      check(
-        requests[0].queryParameters,
-      ).deepEquals({'page': 3, 'include_content': true, 'directory_id': ''});
+      check(requests[0].queryParameters)
+          .deepEquals({'page': 3, 'include_content': true, 'directory_id': ''});
       check(requests[1].method).equals('GET');
       check(requests[1].path).equals('/api/v1/knowledge/kb-1/files/pending');
       check(requests[1].queryParameters).deepEquals({'stream': false});
       check(requests[2].method).equals('POST');
       check(requests[2].path).equals('/api/v1/knowledge/kb-1/dirs/create');
-      check(
-        requests[2].data as Map<String, dynamic>,
-      ).deepEquals({'name': 'Docs', 'parent_id': 'root'});
+      check(requests[2].data as Map<String, dynamic>)
+          .deepEquals({'name': 'Docs', 'parent_id': 'root'});
       check(requests[3].method).equals('POST');
       check(requests[3].path).equals('/api/v1/knowledge/kb-1/sync/diff');
       check(requests[3].data as Map<String, dynamic>).deepEquals({
@@ -262,9 +260,8 @@ void main() {
     final adapter = _RecordingAdapter((request) {
       check(request.method).equals('POST');
       check(request.path).equals('/api/v1/skills/id/skill-1/access/update');
-      check(
-        request.data as Map<String, dynamic>,
-      ).deepEquals({'access_grants': <Object?>[]});
+      check(request.data as Map<String, dynamic>)
+          .deepEquals({'access_grants': <Object?>[]});
       return _json({'detail': 'Access prohibited'}, statusCode: 403);
     });
 

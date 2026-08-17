@@ -123,14 +123,16 @@ void main() {
       );
     });
 
-    List<Object?> ids({bool includePinned = false, bool includeFolders = false}) =>
-        server
-            .getChatList(
-              includePinned: includePinned,
-              includeFolders: includeFolders,
-            )
-            .map((item) => item['id'])
-            .toList();
+    List<Object?> ids({
+      bool includePinned = false,
+      bool includeFolders = false,
+    }) => server
+        .getChatList(
+          includePinned: includePinned,
+          includeFolders: includeFolders,
+        )
+        .map((item) => item['id'])
+        .toList();
 
     test('excludes pinned, foldered, and archived by default', () {
       check(ids()).deepEquals(['plain']);
@@ -145,16 +147,15 @@ void main() {
     });
 
     test('archived chats are excluded even with both flags', () {
-      check(
-        ids(includePinned: true, includeFolders: true),
-      ).deepEquals(['foldered', 'pinned', 'plain']);
+      check(ids(includePinned: true, includeFolders: true))
+          .deepEquals(['foldered', 'pinned', 'plain']);
     });
 
     test('items have the ChatTitleIdResponse shape', () {
       final item = server.getChatList().single;
-      check(item.keys.toSet()).deepEquals(
-        {'id', 'title', 'updated_at', 'created_at', 'last_read_at'},
-      );
+      check(
+        item.keys.toSet(),
+      ).deepEquals({'id', 'title', 'updated_at', 'created_at', 'last_read_at'});
       check(item['title']).equals('plain');
       check(item['created_at']).equals(1);
       check(item['updated_at']).equals(10);
@@ -186,7 +187,8 @@ void main() {
       check(created['id']).isA<String>().matchesPattern(uuidV4);
       check(created['id']).not((it) => it.equals('client-chosen-id'));
       // The id key inside the chat blob is untouched server-side.
-      check(created['chat']).isA<Map<String, dynamic>>()['id']
+      check(created['chat'])
+          .isA<Map<String, dynamic>>()['id']
           .equals('client-chosen-id');
       check(server.getChatById('client-chosen-id')).isNull();
     });
@@ -281,7 +283,8 @@ void main() {
       check(chat['title']).equals('Seeded');
       check(chat['created_at']).equals(11);
       check(chat['updated_at']).equals(22);
-      check(chat['chat']).isA<Map<String, dynamic>>()['models']
+      check(chat['chat'])
+          .isA<Map<String, dynamic>>()['models']
           .isA<List<Object?>>()
           .deepEquals(['llama3']);
     });
@@ -304,9 +307,7 @@ void main() {
 
   group('updateChat', () {
     test('returns null for a missing id', () {
-      check(
-        FakeOpenWebUiServer().updateChat('nope', {'title': 'x'}),
-      ).isNull();
+      check(FakeOpenWebUiServer().updateChat('nope', {'title': 'x'})).isNull();
     });
 
     test('restamps updated_at from the clock, keeping created_at', () {
@@ -320,31 +321,30 @@ void main() {
       check(updated['updated_at']).equals(15);
     });
 
-    test(
-      'shallow-merges the incoming blob over the existing one '
-      '(vendored route does {**existing, **incoming})',
-      () {
-        final server = FakeOpenWebUiServer();
-        final id = server.createChat({
-          'title': 'Hello',
-          'models': ['llama3'],
-          'params': {'temperature': 0.5},
-        })['id'] as String;
+    test('shallow-merges the incoming blob over the existing one '
+        '(vendored route does {**existing, **incoming})', () {
+      final server = FakeOpenWebUiServer();
+      final id =
+          server.createChat({
+                'title': 'Hello',
+                'models': ['llama3'],
+                'params': {'temperature': 0.5},
+              })['id']
+              as String;
 
-        final updated = server.updateChat(id, {
-          'title': 'Renamed',
-          'params': {'top_p': 0.9},
-        })!;
-        final blob = updated['chat'] as Map<String, dynamic>;
-        // Untouched top-level keys survive.
-        check(blob['models']).isA<List<Object?>>().deepEquals(['llama3']);
-        // Provided top-level keys are replaced wholesale (not deep-merged).
-        check(blob['params']).isA<Map<String, dynamic>>().deepEquals({
-          'top_p': 0.9,
-        });
-        check(updated['title']).equals('Renamed');
-      },
-    );
+      final updated = server.updateChat(id, {
+        'title': 'Renamed',
+        'params': {'top_p': 0.9},
+      })!;
+      final blob = updated['chat'] as Map<String, dynamic>;
+      // Untouched top-level keys survive.
+      check(blob['models']).isA<List<Object?>>().deepEquals(['llama3']);
+      // Provided top-level keys are replaced wholesale (not deep-merged).
+      check(blob['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'top_p': 0.9});
+      check(updated['title']).equals('Renamed');
+    });
 
     test('re-derives title from the merged blob', () {
       final server = FakeOpenWebUiServer();
@@ -378,42 +378,38 @@ void main() {
 
   group('updateChat output-to-content re-derivation', () {
     Map<String, dynamic> outputItem(String text) => <String, dynamic>{
-          'type': 'message',
-          'id': 'msg_1',
-          'status': 'completed',
-          'role': 'assistant',
-          'content': [
-            {'type': 'output_text', 'text': text, 'annotations': <Object?>[]},
-          ],
-        };
+      'type': 'message',
+      'id': 'msg_1',
+      'status': 'completed',
+      'role': 'assistant',
+      'content': [
+        {'type': 'output_text', 'text': text, 'annotations': <Object?>[]},
+      ],
+    };
 
     Map<String, dynamic> blobWith({
       required String content,
       List<Object?>? output,
       String role = 'assistant',
-    }) =>
-        <String, dynamic>{
-          'title': 'Rederive',
-          'history': {
-            'currentId': 'a1',
-            'messages': {
-              'a1': {
-                'id': 'a1',
-                'parentId': null,
-                'childrenIds': <String>[],
-                'role': role,
-                'content': content,
-                'timestamp': 1,
-                'output': ?output,
-              },
-            },
+    }) => <String, dynamic>{
+      'title': 'Rederive',
+      'history': {
+        'currentId': 'a1',
+        'messages': {
+          'a1': {
+            'id': 'a1',
+            'parentId': null,
+            'childrenIds': <String>[],
+            'role': role,
+            'content': content,
+            'timestamp': 1,
+            'output': ?output,
           },
-        };
+        },
+      },
+    };
 
-    Map<String, dynamic> storedMessage(
-      FakeOpenWebUiServer server,
-      String id,
-    ) {
+    Map<String, dynamic> storedMessage(FakeOpenWebUiServer server, String id) {
       final chat = server.getChatById(id)!['chat'] as Map<String, dynamic>;
       final history = chat['history'] as Map<String, dynamic>;
       final messages = history['messages'] as Map<String, dynamic>;
@@ -422,9 +418,14 @@ void main() {
 
     test('rewrites assistant content when output changed', () {
       final server = FakeOpenWebUiServer();
-      final id = server.createChat(
-        blobWith(content: 'old content', output: [outputItem('old text')]),
-      )['id'] as String;
+      final id =
+          server.createChat(
+                blobWith(
+                  content: 'old content',
+                  output: [outputItem('old text')],
+                ),
+              )['id']
+              as String;
 
       server.updateChat(
         id,
@@ -432,7 +433,8 @@ void main() {
       );
 
       check(
-        because: 'the vendored route rewrites content = '
+        because:
+            'the vendored route rewrites content = '
             'serialize_output(output) when output deep-differs '
             '(routers/chats.py update_chat_by_id)',
         storedMessage(server, id)['content'],
@@ -442,9 +444,11 @@ void main() {
     test('keeps content set independently when output is unchanged', () {
       final server = FakeOpenWebUiServer();
       final output = [outputItem('same text')];
-      final id = server.createChat(
-        blobWith(content: 'same text', output: output),
-      )['id'] as String;
+      final id =
+          server.createChat(
+                blobWith(content: 'same text', output: output),
+              )['id']
+              as String;
 
       // e.g. a `replace` event or an outlet-filter footer edited content
       // without touching output: the route must NOT revert it.
@@ -459,9 +463,9 @@ void main() {
 
     test('rewrites when output appears on a message that had none', () {
       final server = FakeOpenWebUiServer();
-      final id = server.createChat(
-        blobWith(content: 'streamed content'),
-      )['id'] as String;
+      final id =
+          server.createChat(blobWith(content: 'streamed content'))['id']
+              as String;
 
       server.updateChat(
         id,
@@ -473,13 +477,15 @@ void main() {
 
     test('ignores user messages and empty output lists', () {
       final server = FakeOpenWebUiServer();
-      final userId = server.createChat(
-        blobWith(
-          content: 'user content',
-          output: [outputItem('ignored')],
-          role: 'user',
-        ),
-      )['id'] as String;
+      final userId =
+          server.createChat(
+                blobWith(
+                  content: 'user content',
+                  output: [outputItem('ignored')],
+                  role: 'user',
+                ),
+              )['id']
+              as String;
       server.updateChat(
         userId,
         blobWith(
@@ -491,9 +497,11 @@ void main() {
       check(storedMessage(server, userId)['content']).equals('user content');
 
       // Python truthiness: an empty output list never triggers a rewrite.
-      final emptyId = server.createChat(
-        blobWith(content: 'kept', output: const <Object?>[]),
-      )['id'] as String;
+      final emptyId =
+          server.createChat(
+                blobWith(content: 'kept', output: const <Object?>[]),
+              )['id']
+              as String;
       server.updateChat(
         emptyId,
         blobWith(content: 'kept', output: const <Object?>[]),
@@ -521,16 +529,18 @@ void main() {
               as Map<String, dynamic>;
       final output = assistant['output'] as List<dynamic>;
       final messageItem = output[1] as Map<String, dynamic>;
-      ((messageItem['content'] as List).first as Map<String, dynamic>)['text'] =
-          'Edited: the night sky is dark because the universe is young and expanding.';
+      ((messageItem['content'] as List).first as Map<String, dynamic>)['text'] = 'Edited: the night sky is dark because the universe is young and expanding.';
 
       server.updateChat(id, edited);
 
       final stored = server.getChatById(id)!['chat'] as Map<String, dynamic>;
-      final storedAssistant = ((stored['history']
-              as Map<String, dynamic>)['messages']
-          as Map<String, dynamic>)['fa11fa11-2222-4333-8444-555566667777']
-          as Map<String, dynamic>;
+      final storedAssistant =
+          ((stored['history'] as Map<String, dynamic>)['messages']
+                  as Map<
+                    String,
+                    dynamic
+                  >)['fa11fa11-2222-4333-8444-555566667777']
+              as Map<String, dynamic>;
 
       // serialize_output renders the reasoning item as an HTML-escaped
       // blockquote details block, then the message text verbatim.
@@ -561,8 +571,7 @@ void main() {
       ).equals('hello\nworld');
     });
 
-    test('renders reasoning with quoting and Python html.escape semantics',
-        () {
+    test('renders reasoning with quoting and Python html.escape semantics', () {
       check(
         FakeOpenWebUiServer.serializeOutput([
           {
@@ -638,7 +647,8 @@ void main() {
           .has((e) => e.statusCode, 'statusCode')
           .equals(404);
       check(
-        because: 'the vendored route rejects the chat before inserting it '
+        because:
+            'the vendored route rejects the chat before inserting it '
             '(routers/chats.py create_new_chat)',
         server.getChatList(includeFolders: true),
       ).isEmpty();
@@ -665,8 +675,9 @@ void main() {
         updatedAt: 2,
         folderId: 'seeded-folder',
       );
-      final created =
-          server.createChat({'title': 'x'}, folderId: 'seeded-folder');
+      final created = server.createChat({
+        'title': 'x',
+      }, folderId: 'seeded-folder');
       check(created['folder_id']).equals('seeded-folder');
     });
   });
@@ -722,9 +733,8 @@ void main() {
         createdAt: 1,
         updatedAt: 200,
       );
-      check(
-        server.getChatList().map((item) => item['id']).toList(),
-      ).deepEquals(['new', 'old']);
+      check(server.getChatList().map((item) => item['id']).toList())
+          .deepEquals(['new', 'old']);
     });
   });
 }

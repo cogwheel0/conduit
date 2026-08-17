@@ -1,16 +1,21 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+
 import '../../../core/utils/debug_logger.dart';
 import 'file_attachment_service.dart';
 import 'ios_native_paste_service.dart';
 
-typedef PastedAttachmentUploader =
-    Future<void> Function(LocalAttachment attachment, int fileSize);
-typedef PastedAttachmentRollback =
-    Future<void> Function(LocalAttachment attachment);
+typedef PastedAttachmentUploader = Future<void> Function(
+  LocalAttachment attachment,
+  int fileSize,
+);
+typedef PastedAttachmentRollback = Future<void> Function(
+  LocalAttachment attachment,
+);
 
 const int maxPastedImageBytes = 20 * 1024 * 1024;
 const int _maxNativePasteBatchBytes = 60 * 1024 * 1024;
@@ -108,17 +113,16 @@ Future<void> _prepareAcceptedPastedAttachments({
 
   for (final attachment in attachments) {
     unawaited(
-      Future<void>.sync(
-        () => upload(attachment, fileSizes[attachment]!),
-      ).catchError((Object error, StackTrace stackTrace) {
-        DebugLogger.error(
-          'Pasted attachment upload failed',
-          scope: logScope,
-          error: error,
-          stackTrace: stackTrace,
-          data: {'fileName': attachment.displayName},
-        );
-      }),
+      Future<void>.sync(() => upload(attachment, fileSizes[attachment]!))
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'Pasted attachment upload failed',
+              scope: logScope,
+              error: error,
+              stackTrace: stackTrace,
+              data: {'fileName': attachment.displayName},
+            );
+          }),
     );
   }
 }
@@ -295,9 +299,8 @@ class ClipboardAttachmentService {
                 FileSystemEntityType.notFound &&
             _entityType(prepared.reclaimingMarkerPath) ==
                 FileSystemEntityType.notFound) {
-          File(
-            prepared.dartOwnedMarkerPath,
-          ).renameSync(prepared.pendingMarkerPath);
+          File(prepared.dartOwnedMarkerPath)
+              .renameSync(prepared.pendingMarkerPath);
         }
       } catch (_) {}
       rethrow;

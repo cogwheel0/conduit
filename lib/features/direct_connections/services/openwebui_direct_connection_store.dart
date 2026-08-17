@@ -7,10 +7,12 @@ import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
 
 typedef OpenWebUiUserSettingsReader = Future<Map<String, dynamic>> Function();
-typedef OpenWebUiUserSettingsWriter =
-    Future<void> Function(Map<String, dynamic> settings);
-typedef OpenWebUiUserSettingsMutationSerializer =
-    Future<T> Function<T>(Future<T> Function() operation);
+typedef OpenWebUiUserSettingsWriter = Future<void> Function(
+  Map<String, dynamic> settings,
+);
+typedef OpenWebUiUserSettingsMutationSerializer = Future<T> Function<T>(
+  Future<T> Function() operation,
+);
 
 /// Raised when a server-backed record changed after an editor loaded it.
 final class OpenWebUiDirectConnectionConflictException implements Exception {
@@ -454,12 +456,12 @@ final class OpenWebUiDirectConnectionsCodec {
     final mutableDirectConnections = _mutableJsonMap(directConnections);
     ui['directConnections'] = mutableDirectConnections;
 
-    final urls = _jsonList(
-      mutableDirectConnections['OPENAI_API_BASE_URLS'],
-    ).map(_stringValue).toList(growable: true);
-    final keys = _jsonList(
-      mutableDirectConnections['OPENAI_API_KEYS'],
-    ).map(_stringValue).toList(growable: true);
+    final urls = _jsonList(mutableDirectConnections['OPENAI_API_BASE_URLS'])
+        .map(_stringValue)
+        .toList(growable: true);
+    final keys = _jsonList(mutableDirectConnections['OPENAI_API_KEYS'])
+        .map(_stringValue)
+        .toList(growable: true);
     final configs = _mutableJsonMap(
       _jsonMap(mutableDirectConnections['OPENAI_API_CONFIGS']) ??
           const <String, dynamic>{},

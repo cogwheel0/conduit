@@ -81,9 +81,8 @@ void main() {
     controller.fields.params.text = '{"temperature": 0.5}';
     controller.fields.builtinTools.text = 'not-json';
     check(controller.syncTextIntoDraft()).isFalse();
-    check(
-      controller.syncIssue,
-    ).equals(WorkspaceModelDraftSyncIssue.builtinTools);
+    check(controller.syncIssue)
+        .equals(WorkspaceModelDraftSyncIssue.builtinTools);
 
     controller.fields.builtinTools.text = '{"search": true}';
     check(controller.syncTextIntoDraft()).isTrue();
@@ -118,16 +117,14 @@ void main() {
         },
         present: (options, selectedIds) async {
           calls.add('present:${selectedIds.join(',')}');
-          check(
-            options.map((option) => option.id).toList(),
-          ).deepEquals(['tool-a', 'tool-b']);
+          check(options.map((option) => option.id).toList())
+              .deepEquals(['tool-a', 'tool-b']);
           return ['tool-b'];
         },
       );
 
-      check(
-        result.outcome,
-      ).equals(WorkspaceModelRelationshipPickOutcome.updated);
+      check(result.outcome)
+          .equals(WorkspaceModelRelationshipPickOutcome.updated);
       check(calls).deepEquals(['load', 'present:tool-a']);
       check(controller.draft.toolIds).deepEquals(['tool-b']);
       check(controller.session.dirty).isTrue();

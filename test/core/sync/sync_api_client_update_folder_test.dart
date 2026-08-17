@@ -30,10 +30,7 @@ void main() {
 
     test('genuine 404 returns null (caller purges the local row)', () async {
       final client = _buildClient(
-        _FixedAdapter(
-          statusCode: 404,
-          body: {'detail': 'Not found'},
-        ),
+        _FixedAdapter(statusCode: 404, body: {'detail': 'Not found'}),
       );
 
       final result = await client.updateFolder('folder-1', name: 'Renamed');
@@ -43,9 +40,7 @@ void main() {
 
     test('2xx map body is returned verbatim', () async {
       final folder = {'id': 'folder-1', 'name': 'Renamed', 'updated_at': 42};
-      final client = _buildClient(
-        _FixedAdapter(statusCode: 200, body: folder),
-      );
+      final client = _buildClient(_FixedAdapter(statusCode: 200, body: folder));
 
       final result = await client.updateFolder('folder-1', name: 'Renamed');
 

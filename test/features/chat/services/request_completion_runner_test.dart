@@ -133,9 +133,8 @@ void main() {
     );
     container; // silence unused.
 
-    await check(
-      runner.run(chatId: chatId, payload: payload('asst-1')),
-    ).throws<CompletionBusyException>();
+    await check(runner.run(chatId: chatId, payload: payload('asst-1')))
+        .throws<CompletionBusyException>();
   });
 
   test(
@@ -205,9 +204,8 @@ void main() {
       ),
     ]);
 
-    await check(
-      runner.run(chatId: chatId, payload: payload('asst-own')),
-    ).throws<StateError>();
+    await check(runner.run(chatId: chatId, payload: payload('asst-own')))
+        .throws<StateError>();
   });
 
   test('defers when no active database is attached', () async {
@@ -278,9 +276,8 @@ void main() {
 
       await runner.run(chatId: chatId, payload: payload('asst-headless'));
 
-      check(
-        container.read(activeConversationProvider)?.id,
-      ).equals('a-different-chat');
+      check(container.read(activeConversationProvider)?.id)
+          .equals('a-different-chat');
     },
   );
 
@@ -306,9 +303,8 @@ void main() {
     );
     container;
 
-    await check(
-      runner.run(chatId: chatId, payload: payload('asst-partial')),
-    ).throws<StateError>();
+    await check(runner.run(chatId: chatId, payload: payload('asst-partial')))
+        .throws<StateError>();
   });
 
   test('returns early when the chat row vanished (delete won the race)', () async {
@@ -397,9 +393,8 @@ void main() {
     ).throws<StateError>(); // "runHeadlessCompletion requires an API service"
 
     // The user's active conversation is untouched (Option B: no yank).
-    check(
-      container.read(activeConversationProvider)?.id,
-    ).equals('a-different-chat');
+    check(container.read(activeConversationProvider)?.id)
+        .equals('a-different-chat');
   });
 
   test(
@@ -413,108 +408,103 @@ void main() {
         active: null,
       );
 
-      await check(
-        runner.run(chatId: chatId, payload: payload('asst-5')),
-      ).throws<StateError>();
+      await check(runner.run(chatId: chatId, payload: payload('asst-5')))
+          .throws<StateError>();
       // Headless never sets an active conversation.
       check(container.read(activeConversationProvider)).isNull();
     },
   );
 
-  test(
-    'DB await followed by a colliding direct-local active chat chooses headless',
-    () async {
-      const chatId = 'storage-collision';
-      const assistantId = 'shared-assistant';
-      await seedChat(chatId);
-      await seedMessage(chatId, assistantId, '');
+  test('DB await followed by a colliding direct-local active chat chooses headless', () async {
+    const chatId = 'storage-collision';
+    const assistantId = 'shared-assistant';
+    await seedChat(chatId);
+    await seedMessage(chatId, assistantId, '');
 
-      final (:container, :runner) = makeRunner(
+    final (:container, :runner) = makeRunner(
+      isStreaming: true,
+      active: conv(chatId),
+    );
+    final aMessages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-a',
+        role: 'user',
+        content: 'A',
+        timestamp: DateTime.utc(2026, 7, 13),
+      ),
+      ChatMessage(
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
         isStreaming: true,
-        active: conv(chatId),
-      );
-      final aMessages = <ChatMessage>[
-        ChatMessage(
-          id: 'user-a',
-          role: 'user',
-          content: 'A',
-          timestamp: DateTime.utc(2026, 7, 13),
-        ),
-        ChatMessage(
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
-          isStreaming: true,
-        ),
-      ];
-      container.read(chatMessagesProvider.notifier).setMessages(aMessages);
+      ),
+    ];
+    container.read(chatMessagesProvider.notifier).setMessages(aMessages);
 
-      final transactionEntered = Completer<void>();
-      final releaseTransaction = Completer<void>();
-      final transaction = db.transaction(() async {
-        transactionEntered.complete();
-        await releaseTransaction.future;
-      });
-      await transactionEntered.future;
+    final transactionEntered = Completer<void>();
+    final releaseTransaction = Completer<void>();
+    final transaction = db.transaction(() async {
+      transactionEntered.complete();
+      await releaseTransaction.future;
+    });
+    await transactionEntered.future;
 
-      final completion = runner.run(
-        chatId: chatId,
-        payload: payload(assistantId),
-      );
-      final expectation = expectLater(
-        completion,
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('runHeadlessCompletion'),
-          ),
+    final completion = runner.run(
+      chatId: chatId,
+      payload: payload(assistantId),
+    );
+    final expectation = expectLater(
+      completion,
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('runHeadlessCompletion'),
         ),
-      );
+      ),
+    );
 
-      final bMessages = <ChatMessage>[
-        ChatMessage(
-          id: 'user-b',
-          role: 'user',
-          content: 'B must stay intact',
-          timestamp: DateTime.utc(2026, 7, 13),
-        ),
-        ChatMessage(
-          id: assistantId,
-          role: 'assistant',
-          content: 'B streaming bytes',
-          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
-          isStreaming: true,
-        ),
-      ];
-      final directB = withChatStorageProvenance(
-        conv(chatId).copyWith(messages: bMessages),
-        ChatStorageKind.directLocal,
-      );
-      container.read(activeConversationProvider.notifier).set(directB);
-      container.read(chatMessagesProvider.notifier).setMessages(bMessages);
-      final bSnapshot = jsonEncode(
-        bMessages.map((message) => message.toJson()).toList(),
-      );
+    final bMessages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-b',
+        role: 'user',
+        content: 'B must stay intact',
+        timestamp: DateTime.utc(2026, 7, 13),
+      ),
+      ChatMessage(
+        id: assistantId,
+        role: 'assistant',
+        content: 'B streaming bytes',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        isStreaming: true,
+      ),
+    ];
+    final directB = withChatStorageProvenance(
+      conv(chatId).copyWith(messages: bMessages),
+      ChatStorageKind.directLocal,
+    );
+    container.read(activeConversationProvider.notifier).set(directB);
+    container.read(chatMessagesProvider.notifier).setMessages(bMessages);
+    final bSnapshot = jsonEncode(
+      bMessages.map((message) => message.toJson()).toList(),
+    );
 
-      releaseTransaction.complete();
-      await transaction;
-      await expectation;
+    releaseTransaction.complete();
+    await transaction;
+    await expectation;
 
-      check(
-        jsonEncode(
-          container
-              .read(chatMessagesProvider)
-              .map((message) => message.toJson())
-              .toList(),
-        ),
-      ).equals(bSnapshot);
-      check(
-        chatStorageKindOf(container.read(activeConversationProvider)),
-      ).equals(ChatStorageKind.directLocal);
-    },
-  );
+    check(
+      jsonEncode(
+        container
+            .read(chatMessagesProvider)
+            .map((message) => message.toJson())
+            .toList(),
+      ),
+    ).equals(bSnapshot);
+    check(chatStorageKindOf(container.read(activeConversationProvider)))
+        .equals(ChatStorageKind.directLocal);
+  });
 }
 
 class _SeededActive extends ActiveConversationNotifier {

@@ -210,14 +210,16 @@ class NativeSttService {
     );
 
     try {
-      final response = await _methodChannel
-          .invokeMapMethod<Object?, Object?>('start', <String, Object?>{
-            'localeId': localeId,
-            'preserveAudioSession': preserveAudioSession,
-            'emitPartialResults': emitPartialResults,
-            'accumulateResults': accumulateResults,
-            'allowOnlineFallback': allowOnlineFallback,
-          });
+      final response = await _methodChannel.invokeMapMethod<Object?, Object?>(
+        'start',
+        <String, Object?>{
+          'localeId': localeId,
+          'preserveAudioSession': preserveAudioSession,
+          'emitPartialResults': emitPartialResults,
+          'accumulateResults': accumulateResults,
+          'allowOnlineFallback': allowOnlineFallback,
+        },
+      );
       final availability = NativeSttAvailability.fromMap(response);
       if (!availability.available) {
         throw NativeSttException(

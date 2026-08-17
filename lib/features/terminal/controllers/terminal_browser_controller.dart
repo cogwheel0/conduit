@@ -88,12 +88,7 @@ class TerminalBrowserController extends ChangeNotifier {
 
     final currentPath = _gateway.currentPath;
     await Future.wait([
-      loadDirectory(
-        service,
-        server,
-        path: currentPath,
-        updateServerCwd: false,
-      ),
+      loadDirectory(service, server, path: currentPath, updateServerCwd: false),
       loadPorts(service, server),
     ]);
   }

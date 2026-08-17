@@ -123,22 +123,18 @@ void main() {
   NoteDeletionReconcile reconcileWith(FakeSyncApiClient client) =>
       NoteDeletionReconcile(client: client, db: db, locks: locks, clock: clock);
 
-  test(
-    'a note still on the server is never purged (pagination/race gap)',
-    () async {
-      final client = FakeSyncApiClient(server);
-      for (final id in ['a', 'b', 'c']) {
-        await seedSyncedNote(id);
-      }
-      // 'a' is locally present AND on the server but we force the probe to still
-      // see it as existing — it must NOT be purged just for being a candidate.
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
-      check(result.purged).equals(0);
-      check(result.candidates).equals(0); // all three are on the server list
-    },
-  );
+  test('a note still on the server is never purged (pagination/race gap)', () async {
+    final client = FakeSyncApiClient(server);
+    for (final id in ['a', 'b', 'c']) {
+      await seedSyncedNote(id);
+    }
+    // 'a' is locally present AND on the server but we force the probe to still
+    // see it as existing — it must NOT be purged just for being a candidate.
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
+    check(result.purged).equals(0);
+    check(result.candidates).equals(0); // all three are on the server list
+  });
 
   test('a confirmed-gone note is purged after probe', () async {
     final client = FakeSyncApiClient(server);
@@ -148,9 +144,8 @@ void main() {
     await seedLocalOnly('ghost');
     client.nullNoteIds.add('ghost'); // probe → null → gone
 
-    final result = await reconcileWith(
-      client,
-    ).run(ReconcileReason.manualRefresh);
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
     check(result.candidates).equals(1);
     check(result.purged).equals(1);
     check(await db.notesDao.getNote('ghost')).isNull();
@@ -166,9 +161,8 @@ void main() {
       await seedLocalOnly('ghost-3');
       client.nullNoteIds.addAll(['ghost-1', 'ghost-2', 'ghost-3']);
 
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
 
       check(result.purged).equals(3);
       check(client.noteListRequests).equals(1);
@@ -183,34 +177,29 @@ void main() {
     await seedLocalOnly('flaky');
     client.failNoteIds.add('flaky'); // probe throws → skip
 
-    final result = await reconcileWith(
-      client,
-    ).run(ReconcileReason.manualRefresh);
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
     check(result.purged).equals(0);
     check(result.skipped).equals(1);
     check(await db.notesDao.getNote('flaky')).isNotNull();
   });
 
-  test(
-    'safety valve aborts when candidates exceed the floor AND half the set',
-    () async {
-      final client = FakeSyncApiClient(server);
-      // 8 local notes, all absent from the server → above the absolute floor (5)
-      // and 50% → abort without purging.
-      final ids = List.generate(8, (i) => 'n$i');
-      for (final id in ids) {
-        await seedLocalOnly(id);
-      }
-      client.nullNoteIds.addAll(ids);
+  test('safety valve aborts when candidates exceed the floor AND half the set', () async {
+    final client = FakeSyncApiClient(server);
+    // 8 local notes, all absent from the server → above the absolute floor (5)
+    // and 50% → abort without purging.
+    final ids = List.generate(8, (i) => 'n$i');
+    for (final id in ids) {
+      await seedLocalOnly(id);
+    }
+    client.nullNoteIds.addAll(ids);
 
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
-      check(result.aborted).isTrue();
-      check(result.purged).equals(0);
-      check(await db.notesDao.getNote('n0')).isNotNull();
-    },
-  );
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
+    check(result.aborted).isTrue();
+    check(result.purged).equals(0);
+    check(await db.notesDao.getNote('n0')).isNotNull();
+  });
 
   test('a SMALL library is NOT blocked: a single deleted note is purged '
       '(regression — fraction valve must not trip below the floor)', () async {
@@ -218,9 +207,8 @@ void main() {
     await seedLocalOnly('only');
     client.nullNoteIds.add('only'); // probe -> gone
 
-    final result = await reconcileWith(
-      client,
-    ).run(ReconcileReason.manualRefresh);
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
     check(result.aborted).isFalse();
     check(result.purged).equals(1);
     check(await db.notesDao.getNote('only')).isNull();
@@ -236,9 +224,8 @@ void main() {
       await seedLocalOnly('ghost');
       client.nullNoteIds.add('ghost');
 
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
       check(result.aborted).isTrue();
       check(result.purged).equals(0);
       check(await db.notesDao.getNote('ghost')).isNotNull();
@@ -254,9 +241,8 @@ void main() {
       await seedLocalOnly('ghost-2');
       client.nullNoteIds.addAll(['ghost-1', 'ghost-2']);
 
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
 
       check(result.aborted).isTrue();
       check(result.purged).equals(1);
@@ -274,9 +260,8 @@ void main() {
     final client = _TerminalNoteProbeClient(server);
     await seedLocalOnly('forbidden');
 
-    final result = await reconcileWith(
-      client,
-    ).run(ReconcileReason.manualRefresh);
+    final result = await reconcileWith(client)
+        .run(ReconcileReason.manualRefresh);
 
     check(result.aborted).isTrue();
     check(result.purged).equals(0);
@@ -290,14 +275,12 @@ void main() {
     () async {
       final client = FakeSyncApiClient(server)..notesFeatureEnabled = false;
       await seedLocalOnly('ghost');
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
       check(result.ran).isTrue();
       check(await db.notesDao.getNote('ghost')).isNotNull();
-      check(
-        await db.syncMetaDao.getNotesLastFullReconcileAt(),
-      ).equals(clock.now);
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt())
+          .equals(clock.now);
     },
   );
 
@@ -307,9 +290,8 @@ void main() {
       final client = _FeatureDisabledExpiredSessionClient(server);
       await seedLocalOnly('ghost');
 
-      final result = await reconcileWith(
-        client,
-      ).run(ReconcileReason.manualRefresh);
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
 
       check(result.ran).isFalse();
       check(await db.notesDao.getNote('ghost')).isNotNull();

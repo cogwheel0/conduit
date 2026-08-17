@@ -10,8 +10,10 @@ typedef StreamingCompletionCallback = void Function();
 
 /// Signature for callbacks invoked when a streaming session encounters an
 /// error.
-typedef StreamingErrorCallback =
-    void Function(Object error, StackTrace stackTrace);
+typedef StreamingErrorCallback = void Function(
+  Object error,
+  StackTrace stackTrace,
+);
 
 /// A lightweight controller that manages the lifecycle of a streamed response.
 ///

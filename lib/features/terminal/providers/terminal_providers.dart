@@ -11,8 +11,10 @@ import '../../tools/providers/tools_providers.dart';
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 
-typedef TerminalChannelConnector =
-    WebSocketChannel Function(Uri uri, {required TerminalServerKind kind});
+typedef TerminalChannelConnector = WebSocketChannel Function(
+  Uri uri, {
+  required TerminalServerKind kind,
+});
 
 final terminalServiceProvider = Provider<TerminalService?>((ref) {
   final api = ref.watch(apiServiceProvider);

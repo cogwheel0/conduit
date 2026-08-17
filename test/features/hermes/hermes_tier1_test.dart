@@ -204,9 +204,8 @@ void main() {
       final toolsets = await service.listToolsets();
       await service.getRun('r1');
 
-      check(
-        capture.requests[0].path,
-      ).equals('http://host:8642/v1/capabilities');
+      check(capture.requests[0].path)
+          .equals('http://host:8642/v1/capabilities');
       check(capture.requests[1].path).equals('http://host:8642/v1/toolsets');
       check(capture.requests[2].path).equals('http://host:8642/v1/runs/r1');
       check(toolsets.single['name']).equals('web');
@@ -232,15 +231,12 @@ void main() {
       check((capture.requests[0].data as Map)['schedule']).equals('0 9 * * *');
       check(capture.requests[1].method).equals('PATCH');
       check((capture.requests[1].data as Map)['enabled']).equals(false);
-      check(
-        capture.requests[2].path,
-      ).equals('http://host:8642/api/jobs/j1/pause');
-      check(
-        capture.requests[3].path,
-      ).equals('http://host:8642/api/jobs/j1/resume');
-      check(
-        capture.requests[4].path,
-      ).equals('http://host:8642/api/jobs/j1/run');
+      check(capture.requests[2].path)
+          .equals('http://host:8642/api/jobs/j1/pause');
+      check(capture.requests[3].path)
+          .equals('http://host:8642/api/jobs/j1/resume');
+      check(capture.requests[4].path)
+          .equals('http://host:8642/api/jobs/j1/run');
       check(capture.requests[5].method).equals('DELETE');
     });
 
@@ -312,12 +308,10 @@ void main() {
 
         final jobs = await service.listJobs();
 
-        check(
-          capture.requests.single.queryParameters['include_disabled'],
-        ).equals(true);
-        check(
-          jobs.map((job) => job['id'] ?? job['job_id']).toList(),
-        ).deepEquals(['job-safe', 'legacy-safe']);
+        check(capture.requests.single.queryParameters['include_disabled'])
+            .equals(true);
+        check(jobs.map((job) => job['id'] ?? job['job_id']).toList())
+            .deepEquals(['job-safe', 'legacy-safe']);
       },
     );
 
@@ -344,9 +338,8 @@ void main() {
 
       final jobs = await service.listJobs();
 
-      check(
-        jobs.map((job) => job['id']).toList(),
-      ).deepEquals(['abcdef123456', 'bcdef1234567']);
+      check(jobs.map((job) => job['id']).toList())
+          .deepEquals(['abcdef123456', 'bcdef1234567']);
     });
   });
 

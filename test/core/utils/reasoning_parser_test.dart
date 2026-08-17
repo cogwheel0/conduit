@@ -38,21 +38,18 @@ void main() {
     });
 
     test('detects <think> tag', () {
-      check(
-        ReasoningParser.hasReasoningContent('<think>some thought</think>'),
-      ).isTrue();
+      check(ReasoningParser.hasReasoningContent('<think>some thought</think>'))
+          .isTrue();
     });
 
     test('detects <thinking> tag', () {
-      check(
-        ReasoningParser.hasReasoningContent('<thinking>hmm</thinking>'),
-      ).isTrue();
+      check(ReasoningParser.hasReasoningContent('<thinking>hmm</thinking>'))
+          .isTrue();
     });
 
     test('detects unicode think tag', () {
-      check(
-        ReasoningParser.hasReasoningContent('◁think▷reasoning◁/think▷'),
-      ).isTrue();
+      check(ReasoningParser.hasReasoningContent('◁think▷reasoning◁/think▷'))
+          .isTrue();
     });
 
     test('detects type="code_interpreter"', () {
@@ -191,9 +188,8 @@ void main() {
           '</details>';
       final segs = ReasoningParser.segments(content);
       check(segs).isNotNull();
-      check(
-        segs!.first.entry!.blockType,
-      ).equals(CollapsibleBlockType.codeInterpreter);
+      check(segs!.first.entry!.blockType)
+          .equals(CollapsibleBlockType.codeInterpreter);
     });
 
     test('handles multiple consecutive blocks', () {

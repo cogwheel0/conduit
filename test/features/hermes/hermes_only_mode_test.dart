@@ -865,9 +865,8 @@ void main() {
         final selected = await container.read(defaultModelProvider.future);
 
         check(selected).identicalTo(preferredModel);
-        check(
-          container.read(selectedModelProvider),
-        ).identicalTo(preferredModel);
+        check(container.read(selectedModelProvider))
+            .identicalTo(preferredModel);
       },
     );
 
@@ -912,9 +911,8 @@ void main() {
         await container.read(authStateManagerProvider.future);
         await container.read(directModelDiscoveryProvider.future);
 
-        check(
-          container.read(selectedModelProvider),
-        ).identicalTo(preferredModel);
+        check(container.read(selectedModelProvider))
+            .identicalTo(preferredModel);
       },
     );
 
@@ -954,23 +952,22 @@ void main() {
             .set(_CachedOpenWebUiStorage.staleModel);
         container.read(isManualModelSelectionProvider.notifier).set(true);
 
-        (container.read(authStateManagerProvider.notifier)
-                as _RefreshingAuthStateManager)
-            .beginRefresh();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _RefreshingAuthStateManager).beginRefresh();
         await container.read(modelsProvider.future);
         final selectedDefault = await container.read(
           defaultModelProvider.future,
         );
 
         check(selectedDefault).identicalTo(_CachedOpenWebUiStorage.staleModel);
-        check(
-          container.read(selectedModelProvider),
-        ).identicalTo(_CachedOpenWebUiStorage.staleModel);
+        check(container.read(selectedModelProvider))
+            .identicalTo(_CachedOpenWebUiStorage.staleModel);
         check(container.read(isManualModelSelectionProvider)).isTrue();
 
-        (container.read(authStateManagerProvider.notifier)
-                as _RefreshingAuthStateManager)
-            .finishSignedOut();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _RefreshingAuthStateManager).finishSignedOut();
         await container.read(modelsProvider.future);
         await Future<void>.delayed(Duration.zero);
 
@@ -1016,18 +1013,16 @@ void main() {
         await container.read(modelsProvider.future);
         storage.savedModelLists.clear();
 
-        (container.read(authStateManagerProvider.notifier)
-                as _RefreshingAuthStateManager)
-            .beginRefresh();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _RefreshingAuthStateManager).beginRefresh();
         await container.read(modelsProvider.notifier).refresh();
         await Future<void>.delayed(Duration.zero);
 
-        check(
-          container.read(modelsProvider).requireValue,
-        ).deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
-        check(
-          storage.savedModelLists.any((models) => models.isEmpty),
-        ).isFalse();
+        check(container.read(modelsProvider).requireValue)
+            .deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
+        check(storage.savedModelLists.any((models) => models.isEmpty))
+            .isFalse();
       },
     );
 
@@ -1062,17 +1057,16 @@ void main() {
         await container.read(modelsProvider.future);
         storage.savedModelLists.clear();
 
-        (container.read(authStateManagerProvider.notifier)
-                as _CandidateTokenAuthStateManager)
-            .beginForegroundLogin();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _CandidateTokenAuthStateManager).beginForegroundLogin();
         await container.read(modelsProvider.notifier).refresh();
         await Future<void>.delayed(Duration.zero);
 
         check(api.modelFetches).equals(0);
         check(storage.savedModelLists).isEmpty();
-        check(
-          container.read(modelsProvider).requireValue,
-        ).deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
+        check(container.read(modelsProvider).requireValue)
+            .deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
       },
     );
 
@@ -1142,9 +1136,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       check(container.read(selectedModelProvider)).identicalTo(direct.model);
 
-      (container.read(preferredBackendProvider.notifier)
-              as _MutablePreferredBackendController)
-          .publish(PreferredBackend.hermes);
+      (container.read(
+        preferredBackendProvider.notifier,
+      ) as _MutablePreferredBackendController).publish(PreferredBackend.hermes);
       await container.read(modelsProvider.future);
       await Future<void>.delayed(Duration.zero);
 
@@ -1199,9 +1193,8 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
-      check(
-        container.read(selectedModelProvider),
-      ).identicalTo(directModels.last);
+      check(container.read(selectedModelProvider))
+          .identicalTo(directModels.last);
       check(container.read(isManualModelSelectionProvider)).isTrue();
     });
 
@@ -1412,9 +1405,9 @@ void main() {
       addTearDown(workerManager.dispose);
 
       check(await container.read(defaultModelProvider.future)).isNull();
-      (container.read(authStateManagerProvider.notifier)
-              as _BackgroundLoginAuthStateManager)
-          .finishAuthenticated();
+      (container.read(
+        authStateManagerProvider.notifier,
+      ) as _BackgroundLoginAuthStateManager).finishAuthenticated();
       for (var attempt = 0; attempt < 10; attempt++) {
         await Future<void>.delayed(Duration.zero);
         if (container.read(selectedModelProvider) != null) break;
@@ -1480,9 +1473,9 @@ void main() {
           container.read(selectedModelProvider.notifier).set(localModel);
           container.read(isManualModelSelectionProvider.notifier).set(false);
 
-          (container.read(authStateManagerProvider.notifier)
-                  as _BackgroundLoginAuthStateManager)
-              .finishAuthenticated();
+          (container.read(
+            authStateManagerProvider.notifier,
+          ) as _BackgroundLoginAuthStateManager).finishAuthenticated();
           for (var attempt = 0; attempt < 20; attempt++) {
             await Future<void>.delayed(Duration.zero);
             if (container.read(selectedModelProvider)?.id == 'owui-stale') {
@@ -1490,9 +1483,8 @@ void main() {
             }
           }
 
-          check(
-            container.read(selectedModelProvider),
-          ).identicalTo(_CachedOpenWebUiStorage.staleModel);
+          check(container.read(selectedModelProvider))
+              .identicalTo(_CachedOpenWebUiStorage.staleModel);
           check(container.read(isManualModelSelectionProvider)).isFalse();
         },
       );
@@ -1538,9 +1530,9 @@ void main() {
 
         final pendingDefault = container.read(defaultModelProvider.future);
         await Future<void>.delayed(Duration.zero);
-        (container.read(authStateManagerProvider.notifier)
-                as _TokenRetainingErrorAuthStateManager)
-            .publishError();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _TokenRetainingErrorAuthStateManager).publishError();
         await Future<void>.delayed(Duration.zero);
         await Future<void>.delayed(Duration.zero);
         final localSelection = container.read(selectedModelProvider);
@@ -1551,9 +1543,8 @@ void main() {
         final resolved = await pendingDefault;
 
         check(resolved).identicalTo(localSelection);
-        check(
-          container.read(selectedModelProvider),
-        ).identicalTo(localSelection);
+        check(container.read(selectedModelProvider))
+            .identicalTo(localSelection);
       },
     );
 
@@ -1602,17 +1593,16 @@ void main() {
 
         final pendingDefault = container.read(defaultModelProvider.future);
         await Future<void>.delayed(Duration.zero);
-        (container.read(authStateManagerProvider.notifier)
-                as _SessionSwitchAuthStateManager)
-            .publishSessionB();
+        (container.read(
+          authStateManagerProvider.notifier,
+        ) as _SessionSwitchAuthStateManager).publishSessionB();
         await Future<void>.delayed(Duration.zero);
         pendingModels.complete(const [_CachedOpenWebUiStorage.staleModel]);
         final resolved = await pendingDefault;
 
         check(resolved).identicalTo(sessionBSelection);
-        check(
-          container.read(selectedModelProvider),
-        ).identicalTo(sessionBSelection);
+        check(container.read(selectedModelProvider))
+            .identicalTo(sessionBSelection);
       },
     );
 
@@ -1646,9 +1636,9 @@ void main() {
       final pendingDefault = container.read(defaultModelProvider.future);
       unawaited(pendingDefault.catchError((_) => null));
       await Future<void>.delayed(Duration.zero);
-      (container.read(preferredBackendProvider.notifier)
-              as _MutablePreferredBackendController)
-          .publish(PreferredBackend.hermes);
+      (container.read(
+        preferredBackendProvider.notifier,
+      ) as _MutablePreferredBackendController).publish(PreferredBackend.hermes);
       await Future<void>.delayed(Duration.zero);
       pendingDiscovery.complete(
         DirectModelDiscoveryState(models: [direct.model]),

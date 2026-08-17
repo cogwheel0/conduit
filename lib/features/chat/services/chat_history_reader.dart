@@ -5,8 +5,9 @@ import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 
-typedef AuthoritativeConversationLoader =
-    Future<Conversation> Function(Conversation conversation);
+typedef AuthoritativeConversationLoader = Future<Conversation> Function(
+  Conversation conversation,
+);
 
 @immutable
 final class CompleteChatHistory {

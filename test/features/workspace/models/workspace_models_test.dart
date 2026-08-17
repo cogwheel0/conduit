@@ -138,9 +138,8 @@ void main() {
 
       check(prompt.tags).isEmpty();
       check(legacyTool.specs.single['name']).equals('legacy_function');
-      check(
-        () => Tool.fromJson({'name': 'Missing id'}),
-      ).throws<FormatException>();
+      check(() => Tool.fromJson({'name': 'Missing id'}))
+          .throws<FormatException>();
     },
   );
 }

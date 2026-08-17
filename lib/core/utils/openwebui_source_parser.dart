@@ -158,10 +158,8 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
       id,
     ])?.toString();
 
-    final urlCandidate = _firstNonEmpty([
-      accumulator.source['url'],
-      id,
-    ])?.toString();
+    final urlCandidate = _firstNonEmpty([accumulator.source['url'], id])
+        ?.toString();
     final url = _looksLikeUrl(urlCandidate) ? urlCandidate : null;
 
     final snippet = accumulator.documents.firstWhere(

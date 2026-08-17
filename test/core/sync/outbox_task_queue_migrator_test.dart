@@ -108,9 +108,8 @@ void main() {
         // user + assistant placeholder rows.
         final msgs = await db.messagesDao.getForChat(chat.id);
         check(msgs.length).equals(2);
-        check(
-          msgs.where((m) => m.role == 'user').single.content,
-        ).equals('first message');
+        check(msgs.where((m) => m.role == 'user').single.content)
+            .equals('first message');
 
         // createChat (with contentHash) THEN requestCompletion.
         final ops = await db.outboxDao.pendingForChat(chat.id);
@@ -153,9 +152,9 @@ void main() {
       await migrator().migrateIfNeeded();
 
       final chat = (await db.select(db.chats).get()).single;
-      final user = (await db.messagesDao.getForChat(
-        chat.id,
-      )).where((m) => m.role == 'user').single;
+      final user = (await db.messagesDao.getForChat(chat.id))
+          .where((m) => m.role == 'user')
+          .single;
       final payload = _decode(user.payload);
       final files = payload['files'] as List;
       final file = Map<String, dynamic>.from(files.single as Map);
@@ -183,9 +182,8 @@ void main() {
         await migrator().migrateIfNeeded();
 
         final ops = await db.outboxDao.pendingForChat('srv-1');
-        check(
-          ops.map((o) => o.kind).toList(),
-        ).deepEquals(['requestCompletion']);
+        check(ops.map((o) => o.kind).toList())
+            .deepEquals(['requestCompletion']);
         // A stub row was materialized for the unpulled server id.
         final chat = await db.chatsDao.getChat('srv-1');
         check(chat).isNotNull();
@@ -411,30 +409,27 @@ void main() {
       check((await db.select(db.chats).get()).length).equals(1);
     });
 
-    test(
-      'durable contentHash marker dedupes after the create op drained',
-      () async {
-        final task = sendTextTask(id: 't1', text: 'already posted');
-        await caches.put('outbound_task_queue_v1', [task]);
-        await migrator().migrateIfNeeded();
+    test('durable contentHash marker dedupes after the create op drained', () async {
+      final task = sendTextTask(id: 't1', text: 'already posted');
+      await caches.put('outbound_task_queue_v1', [task]);
+      await migrator().migrateIfNeeded();
 
-        // Simulate an abort before the migration flag persisted, followed by a
-        // same-process drain that deleted the createChat/requestCompletion rows.
-        await (db.delete(db.syncMeta)..where(
-              (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
-            ))
-            .go();
-        await db.delete(db.outboxOps).go();
+      // Simulate an abort before the migration flag persisted, followed by a
+      // same-process drain that deleted the createChat/requestCompletion rows.
+      await (db.delete(db.syncMeta)..where(
+            (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
+          ))
+          .go();
+      await db.delete(db.outboxOps).go();
 
-        await caches.put('outbound_task_queue_v1', [task]);
-        final report = await migrator().migrateIfNeeded();
+      await caches.put('outbound_task_queue_v1', [task]);
+      final report = await migrator().migrateIfNeeded();
 
-        check(report.skippedDuplicate).equals(1);
-        check(report.converted).equals(0);
-        check((await db.select(db.chats).get()).length).equals(1);
-        check(await db.select(db.outboxOps).get()).isEmpty();
-      },
-    );
+      check(report.skippedDuplicate).equals(1);
+      check(report.converted).equals(0);
+      check((await db.select(db.chats).get()).length).equals(1);
+      check(await db.select(db.outboxOps).get()).isEmpty();
+    });
 
     test('absent key: no-op and sets the migrated flag', () async {
       final report = await migrator().migrateIfNeeded();
@@ -458,9 +453,8 @@ void main() {
         final firstMsgs = await db.messagesDao.getForChat('srv-1');
         final firstOps = await db.outboxDao.pendingForChat('srv-1');
         check(firstMsgs).length.equals(2); // user + assistant
-        check(
-          firstOps.map((o) => o.kind).toList(),
-        ).deepEquals(['requestCompletion']);
+        check(firstOps.map((o) => o.kind).toList())
+            .deepEquals(['requestCompletion']);
 
         // Simulate a partial-failure crash: flag never landed. Re-run.
         await (db.delete(db.syncMeta)..where(

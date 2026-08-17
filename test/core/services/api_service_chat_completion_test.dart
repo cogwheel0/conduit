@@ -241,26 +241,23 @@ void main() {
 
     // 4. httpStream classification when body looks like SSE but has no
     //    content-type header
-    test(
-      'httpStream when body looks like SSE but has no content-type',
-      () async {
-        final sseBody =
-            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
-        final adapter = _FakeAdapter.raw(
-          bytes: utf8.encode(sseBody),
-          headers: {}, // no content-type
-        );
-        final api = _buildApiServiceForTest(adapter);
+    test('httpStream when body looks like SSE but has no content-type', () async {
+      final sseBody =
+          'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
+      final adapter = _FakeAdapter.raw(
+        bytes: utf8.encode(sseBody),
+        headers: {}, // no content-type
+      );
+      final api = _buildApiServiceForTest(adapter);
 
-        final session = await api.sendMessageSession(
-          messages: _minimalMessages,
-          model: _model,
-        );
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+      );
 
-        check(session.transport).equals(ChatCompletionTransport.httpStream);
-        check(session.byteStream).isNotNull();
-      },
-    );
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.byteStream).isNotNull();
+    });
 
     // 5. taskSocket classification from JSON body split across multiple chunks
     test('taskSocket from JSON split across multiple chunks', () async {
@@ -542,9 +539,9 @@ void main() {
       final modernBody = adapter.requests[0].data as Map<String, dynamic>;
       check(adapter.requests[0].path).equals('/api/chat/completions');
       check(modernBody['parent_id']).equals('assistant-0');
-      check(
-        modernBody['user_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(userMessage1);
+      check(modernBody['user_message'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(userMessage1);
       check(modernBody.containsKey('parent_message')).isFalse();
 
       check(adapter.requests[1].method).equals('GET');
@@ -564,12 +561,12 @@ void main() {
       final firstPersistParent =
           firstPersistMessages['assistant-0'] as Map<String, dynamic>;
       check(firstPersistHistory['currentId']).equals('assistant-1');
-      check(
-        firstPersistParent['childrenIds'],
-      ).isA<List<dynamic>>().deepEquals(const ['user-1']);
-      check(
-        firstPersistUser['childrenIds'],
-      ).isA<List<dynamic>>().deepEquals(const ['assistant-1']);
+      check(firstPersistParent['childrenIds'])
+          .isA<List<dynamic>>()
+          .deepEquals(const ['user-1']);
+      check(firstPersistUser['childrenIds'])
+          .isA<List<dynamic>>()
+          .deepEquals(const ['assistant-1']);
       check(firstPersistAssistant['parentId']).equals('user-1');
       check(firstPersistAssistant['role']).equals('assistant');
       check(firstPersistAssistant['content']).equals('');
@@ -583,9 +580,9 @@ void main() {
       final legacyRetryBody = adapter.requests[3].data as Map<String, dynamic>;
       check(adapter.requests[3].path).equals('/api/chat/completions');
       check(legacyRetryBody['parent_id']).equals('user-1');
-      check(
-        legacyRetryBody['parent_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(userMessage1);
+      check(legacyRetryBody['parent_message'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(userMessage1);
       check(legacyRetryBody.containsKey('user_message')).isFalse();
 
       check(adapter.requests[4].method).equals('GET');
@@ -607,12 +604,12 @@ void main() {
       final secondPersistAssistant =
           secondPersistMessages['assistant-2'] as Map<String, dynamic>;
       check(secondPersistHistory['currentId']).equals('assistant-2');
-      check(
-        secondPersistParent['childrenIds'],
-      ).isA<List<dynamic>>().deepEquals(const ['user-2']);
-      check(
-        secondPersistUser['childrenIds'],
-      ).isA<List<dynamic>>().deepEquals(const ['assistant-2']);
+      check(secondPersistParent['childrenIds'])
+          .isA<List<dynamic>>()
+          .deepEquals(const ['user-2']);
+      check(secondPersistUser['childrenIds'])
+          .isA<List<dynamic>>()
+          .deepEquals(const ['assistant-2']);
       check(secondPersistAssistant['parentId']).equals('user-2');
       check(secondPersistAssistant.containsKey('done')).isFalse();
       check(
@@ -631,9 +628,9 @@ void main() {
       final cachedLegacyBody = adapter.requests[6].data as Map<String, dynamic>;
       check(adapter.requests[6].path).equals('/api/chat/completions');
       check(cachedLegacyBody['parent_id']).equals('user-2');
-      check(
-        cachedLegacyBody['parent_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(userMessage2);
+      check(cachedLegacyBody['parent_message'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(userMessage2);
       check(cachedLegacyBody.containsKey('user_message')).isFalse();
     });
   });
@@ -785,10 +782,9 @@ void main() {
       final first = messages.first as Map<String, dynamic>;
       check(first['content']).isA<List<dynamic>>();
       final content = first['content'] as List<dynamic>;
-      check(content[0]).isA<Map<String, dynamic>>().deepEquals({
-        'type': 'text',
-        'text': 'describe this',
-      });
+      check(content[0])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'type': 'text', 'text': 'describe this'});
       check(content[1]).isA<Map<String, dynamic>>().deepEquals({
         'type': 'image_url',
         'image_url': {'url': 'file-image-id'},
@@ -949,19 +945,19 @@ void main() {
       check(payload['tool_servers'])
           .isA<List<Map<String, dynamic>>>()
           .deepEquals(const <Map<String, dynamic>>[]);
-      check(
-        payload['background_tasks'],
-      ).isA<Map<String, dynamic>>().deepEquals(backgroundTasks);
+      check(payload['background_tasks'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(backgroundTasks);
       check(payload['parent_id'] as String).equals('assistant-0');
-      check(
-        payload['user_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(userMessage);
-      check(
-        payload['variables'],
-      ).isA<Map<String, dynamic>>().deepEquals(variables);
-      check(
-        payload['model_item'],
-      ).isA<Map<String, dynamic>>().deepEquals(modelItem);
+      check(payload['user_message'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(userMessage);
+      check(payload['variables'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(variables);
+      check(payload['model_item'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(modelItem);
       check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
         'voice': false,
         'web_search': false,
@@ -994,9 +990,9 @@ void main() {
       );
 
       check(payload['parent_id']).equals('user-1');
-      check(
-        payload['parent_message'],
-      ).isA<Map<String, dynamic>>().deepEquals(userMessage);
+      check(payload['parent_message'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals(userMessage);
       check(payload.containsKey('user_message')).isFalse();
     });
   });
@@ -1005,50 +1001,46 @@ void main() {
   // Conversation persistence payloads
   // -----------------------------------------------------------------------
   group('conversation persistence payloads', () {
-    test(
-      'syncConversationMessages omits done for streaming assistant placeholders',
-      () async {
-        final adapter = _FakeAdapter.json({});
-        final api = _buildApiServiceForTest(adapter);
+    test('syncConversationMessages omits done for streaming assistant placeholders', () async {
+      final adapter = _FakeAdapter.json({});
+      final api = _buildApiServiceForTest(adapter);
 
-        final messages = [
-          ChatMessage(
-            id: 'user-1',
-            role: 'user',
-            content: 'hello',
-            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
-          ),
-          ChatMessage(
-            id: 'asst-1',
-            role: 'assistant',
-            content: '',
-            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
-            model: 'gpt-4',
-            isStreaming: true,
-          ),
-        ];
+      final messages = [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'hello',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+        ),
+        ChatMessage(
+          id: 'asst-1',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+          model: 'gpt-4',
+          isStreaming: true,
+        ),
+      ];
 
-        await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
+      await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
 
-        final request = adapter.lastRequest!;
-        check(request.path).equals('/api/v1/chats/conv-1');
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/chats/conv-1');
 
-        final body = request.data as Map<String, dynamic>;
-        final chat = body['chat'] as Map<String, dynamic>;
-        final serializedMessages =
-            chat['messages'] as List<Map<String, dynamic>>;
-        final history = chat['history'] as Map<String, dynamic>;
-        final historyMessages = history['messages'] as Map<String, dynamic>;
+      final body = request.data as Map<String, dynamic>;
+      final chat = body['chat'] as Map<String, dynamic>;
+      final serializedMessages = chat['messages'] as List<Map<String, dynamic>>;
+      final history = chat['history'] as Map<String, dynamic>;
+      final historyMessages = history['messages'] as Map<String, dynamic>;
 
-        final serializedAssistant = serializedMessages.last;
-        final historyAssistant =
-            historyMessages['asst-1'] as Map<String, dynamic>;
+      final serializedAssistant = serializedMessages.last;
+      final historyAssistant =
+          historyMessages['asst-1'] as Map<String, dynamic>;
 
-        check(serializedAssistant.containsKey('done')).isFalse();
-        check(historyAssistant.containsKey('done')).isFalse();
-        check(history['currentId']).equals('asst-1');
-      },
-    );
+      check(serializedAssistant.containsKey('done')).isFalse();
+      check(historyAssistant.containsKey('done')).isFalse();
+      check(history['currentId']).equals('asst-1');
+    });
 
     test(
       'syncConversationMessages keeps done for completed assistant messages',
@@ -1090,47 +1082,43 @@ void main() {
       },
     );
 
-    test(
-      'syncConversationMessages keeps done for responseDone streaming assistant messages',
-      () async {
-        final adapter = _FakeAdapter.json({});
-        final api = _buildApiServiceForTest(adapter);
+    test('syncConversationMessages keeps done for responseDone streaming assistant messages', () async {
+      final adapter = _FakeAdapter.json({});
+      final api = _buildApiServiceForTest(adapter);
 
-        final messages = [
-          ChatMessage(
-            id: 'user-1',
-            role: 'user',
-            content: 'hello',
-            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
-          ),
-          ChatMessage(
-            id: 'asst-1',
-            role: 'assistant',
-            content: 'Hi there',
-            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
-            model: 'gpt-4',
-            isStreaming: true,
-            metadata: const {'responseDone': true},
-          ),
-        ];
+      final messages = [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'hello',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+        ),
+        ChatMessage(
+          id: 'asst-1',
+          role: 'assistant',
+          content: 'Hi there',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+          model: 'gpt-4',
+          isStreaming: true,
+          metadata: const {'responseDone': true},
+        ),
+      ];
 
-        await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
+      await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
 
-        final body = adapter.lastRequest!.data as Map<String, dynamic>;
-        final chat = body['chat'] as Map<String, dynamic>;
-        final serializedMessages =
-            chat['messages'] as List<Map<String, dynamic>>;
-        final history = chat['history'] as Map<String, dynamic>;
-        final historyMessages = history['messages'] as Map<String, dynamic>;
+      final body = adapter.lastRequest!.data as Map<String, dynamic>;
+      final chat = body['chat'] as Map<String, dynamic>;
+      final serializedMessages = chat['messages'] as List<Map<String, dynamic>>;
+      final history = chat['history'] as Map<String, dynamic>;
+      final historyMessages = history['messages'] as Map<String, dynamic>;
 
-        final serializedAssistant = serializedMessages.last;
-        final historyAssistant =
-            historyMessages['asst-1'] as Map<String, dynamic>;
+      final serializedAssistant = serializedMessages.last;
+      final historyAssistant =
+          historyMessages['asst-1'] as Map<String, dynamic>;
 
-        check(serializedAssistant['done']).equals(true);
-        check(historyAssistant['done']).equals(true);
-      },
-    );
+      check(serializedAssistant['done']).equals(true);
+      check(historyAssistant['done']).equals(true);
+    });
 
     test(
       'syncConversationMessages preserves assistant version output',
@@ -1276,96 +1264,92 @@ void main() {
       },
     );
 
-    test(
-      'createConversation keeps done for responseDone streaming assistant messages',
-      () async {
-        final adapter = _FakeAdapter.json({
-          'id': 'conv-1',
-          'title': 'New Chat',
-          'created_at': 1700000000,
-          'updated_at': 1700000001,
-          'chat': {
-            'models': ['gpt-4'],
-            'history': {
-              'currentId': 'asst-1',
-              'messages': {
-                'user-1': {
-                  'id': 'user-1',
-                  'role': 'user',
-                  'content': 'hello',
-                  'timestamp': 1700000000,
-                  'childrenIds': ['asst-1', 'asst-newer'],
-                },
-                'asst-1': {
-                  'id': 'asst-1',
-                  'role': 'assistant',
-                  'content': 'Hi there',
-                  'parentId': 'user-1',
-                  'timestamp': 1700000001,
-                  'childrenIds': [],
-                  'done': true,
-                },
-              },
-            },
-            'messages': [
-              {
+    test('createConversation keeps done for responseDone streaming assistant messages', () async {
+      final adapter = _FakeAdapter.json({
+        'id': 'conv-1',
+        'title': 'New Chat',
+        'created_at': 1700000000,
+        'updated_at': 1700000001,
+        'chat': {
+          'models': ['gpt-4'],
+          'history': {
+            'currentId': 'asst-1',
+            'messages': {
+              'user-1': {
                 'id': 'user-1',
                 'role': 'user',
                 'content': 'hello',
                 'timestamp': 1700000000,
+                'childrenIds': ['asst-1', 'asst-newer'],
               },
-              {
+              'asst-1': {
                 'id': 'asst-1',
                 'role': 'assistant',
                 'content': 'Hi there',
+                'parentId': 'user-1',
                 'timestamp': 1700000001,
+                'childrenIds': [],
                 'done': true,
               },
-            ],
+            },
           },
-        });
-        final api = _buildApiServiceForTest(adapter);
-
-        await api.createConversation(
-          title: 'New Chat',
-          model: 'gpt-4',
-          messages: [
-            ChatMessage(
-              id: 'user-1',
-              role: 'user',
-              content: 'hello',
-              timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
-            ),
-            ChatMessage(
-              id: 'asst-1',
-              role: 'assistant',
-              content: 'Hi there',
-              timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
-              model: 'gpt-4',
-              isStreaming: true,
-              metadata: const {'responseDone': true},
-            ),
+          'messages': [
+            {
+              'id': 'user-1',
+              'role': 'user',
+              'content': 'hello',
+              'timestamp': 1700000000,
+            },
+            {
+              'id': 'asst-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000001,
+              'done': true,
+            },
           ],
-        );
+        },
+      });
+      final api = _buildApiServiceForTest(adapter);
 
-        final request = adapter.lastRequest!;
-        check(request.path).equals('/api/v1/chats/new');
+      await api.createConversation(
+        title: 'New Chat',
+        model: 'gpt-4',
+        messages: [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          ),
+          ChatMessage(
+            id: 'asst-1',
+            role: 'assistant',
+            content: 'Hi there',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+            model: 'gpt-4',
+            isStreaming: true,
+            metadata: const {'responseDone': true},
+          ),
+        ],
+      );
 
-        final body = request.data as Map<String, dynamic>;
-        final chat = body['chat'] as Map<String, dynamic>;
-        final serializedMessages =
-            chat['messages'] as List<Map<String, dynamic>>;
-        final history = chat['history'] as Map<String, dynamic>;
-        final historyMessages = history['messages'] as Map<String, dynamic>;
+      final request = adapter.lastRequest!;
+      check(request.path).equals('/api/v1/chats/new');
 
-        final serializedAssistant = serializedMessages.last;
-        final historyAssistant =
-            historyMessages['asst-1'] as Map<String, dynamic>;
+      final body = request.data as Map<String, dynamic>;
+      final chat = body['chat'] as Map<String, dynamic>;
+      final serializedMessages = chat['messages'] as List<Map<String, dynamic>>;
+      final history = chat['history'] as Map<String, dynamic>;
+      final historyMessages = history['messages'] as Map<String, dynamic>;
 
-        check(serializedAssistant['done']).equals(true);
-        check(historyAssistant['done']).equals(true);
-      },
-    );
+      final serializedAssistant = serializedMessages.last;
+      final historyAssistant =
+          historyMessages['asst-1'] as Map<String, dynamic>;
+
+      check(serializedAssistant['done']).equals(true);
+      check(historyAssistant['done']).equals(true);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1473,9 +1457,8 @@ void main() {
         final model = await api.getDefaultModel();
 
         check(model).equals('gpt-4.1');
-        check(
-          adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals(['/api/v1/users/user/settings', '/api/config']);
+        check(adapter.requests.map((request) => request.path).toList())
+            .deepEquals(['/api/v1/users/user/settings', '/api/config']);
       },
     );
 
@@ -1497,9 +1480,8 @@ void main() {
       final suggestions = await api.getSuggestions();
 
       check(adapter.lastRequest!.path).equals('/api/config');
-      check(
-        suggestions,
-      ).deepEquals(['Draft a concise project update.', 'Fallback title']);
+      check(suggestions)
+          .deepEquals(['Draft a concise project update.', 'Fallback title']);
     });
 
     test('getSuggestions falls back to older suggestions endpoint', () async {
@@ -1523,9 +1505,8 @@ void main() {
 
       final suggestions = await api.getSuggestions();
 
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals(['/api/config', '/api/v1/configs/suggestions']);
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals(['/api/config', '/api/v1/configs/suggestions']);
       check(suggestions).deepEquals(['Legacy prompt suggestion.']);
     });
 
@@ -1551,9 +1532,8 @@ void main() {
 
         final request = adapter.lastRequest!;
         check(request.path).equals('/api/v1/chats/chat-1/clone');
-        check(
-          request.data as Map<String, dynamic>,
-        ).deepEquals(<String, dynamic>{});
+        check(request.data as Map<String, dynamic>)
+            .deepEquals(<String, dynamic>{});
       },
     );
 
@@ -1676,12 +1656,10 @@ void main() {
         final assistant = messages['asst-2'] as Map<String, dynamic>;
         final serializedMessages = chat['messages'] as List<dynamic>;
 
-        check(
-          messages.keys.toList(),
-        ).deepEquals(['user-1', 'asst-newer', 'asst-2']);
-        check(
-          user['childrenIds'] as List<dynamic>,
-        ).deepEquals(['asst-newer', 'asst-2']);
+        check(messages.keys.toList())
+            .deepEquals(['user-1', 'asst-newer', 'asst-2']);
+        check(user['childrenIds'] as List<dynamic>)
+            .deepEquals(['asst-newer', 'asst-2']);
         check(assistant['parentId']).equals('user-1');
         check(history['currentId']).equals('asst-2');
         check(
@@ -1704,12 +1682,10 @@ void main() {
       check(
         adapter.requests.map((request) => request.path).toList(),
       ).deepEquals(['/api/v1/chats/chat-1/tags', '/api/v1/chats/chat-1/tags']);
-      check(
-        adapter.requests.first.data as Map<String, dynamic>,
-      ).deepEquals({'name': 'work'});
-      check(
-        adapter.requests.last.data as Map<String, dynamic>,
-      ).deepEquals({'tag': 'work'});
+      check(adapter.requests.first.data as Map<String, dynamic>)
+          .deepEquals({'name': 'work'});
+      check(adapter.requests.last.data as Map<String, dynamic>)
+          .deepEquals({'tag': 'work'});
     });
 
     test('getAllTags falls back to legacy tags route', () async {
@@ -1727,9 +1703,8 @@ void main() {
       final tags = await api.getAllTags();
 
       check(tags).deepEquals(['work', 'personal']);
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals(['/api/v1/chats/all/tags', '/api/v1/chats/tags']);
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals(['/api/v1/chats/all/tags', '/api/v1/chats/tags']);
     });
 
     test('removeTagFromConversation falls back to legacy tag route', () async {
@@ -1741,15 +1716,13 @@ void main() {
 
       await api.removeTagFromConversation('chat-1', 'work tag');
 
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals([
-        '/api/v1/chats/chat-1/tags',
-        '/api/v1/chats/chat-1/tags/work%20tag',
-      ]);
-      check(
-        adapter.requests.first.data as Map<String, dynamic>,
-      ).deepEquals({'name': 'work tag'});
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals([
+            '/api/v1/chats/chat-1/tags',
+            '/api/v1/chats/chat-1/tags/work%20tag',
+          ]);
+      check(adapter.requests.first.data as Map<String, dynamic>)
+          .deepEquals({'name': 'work tag'});
     });
 
     test('getConversationsByTag falls back to legacy tag route', () async {
@@ -1767,12 +1740,10 @@ void main() {
       final conversations = await api.getConversationsByTag('work');
 
       check(conversations).isEmpty();
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals(['/api/v1/chats/tags', '/api/v1/chats/tags/work']);
-      check(
-        adapter.requests.first.data as Map<String, dynamic>,
-      ).deepEquals({'name': 'work', 'skip': 0, 'limit': 50});
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals(['/api/v1/chats/tags', '/api/v1/chats/tags/work']);
+      check(adapter.requests.first.data as Map<String, dynamic>)
+          .deepEquals({'name': 'work', 'skip': 0, 'limit': 50});
       check(adapter.requests.last.method).equals('GET');
     });
 
@@ -1828,9 +1799,8 @@ void main() {
 
         await api.pinConversation('chat-1', true);
 
-        check(
-          adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals(['/api/v1/chats/chat-1/pinned']);
+        check(adapter.requests.map((request) => request.path).toList())
+            .deepEquals(['/api/v1/chats/chat-1/pinned']);
       },
     );
 
@@ -2043,13 +2013,12 @@ void main() {
 
       final config = await api.getBackendConfig();
 
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals([
-        '/api/config',
-        '/api/v1/audio/config',
-        '/api/v1/audio/voices',
-      ]);
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals([
+            '/api/config',
+            '/api/v1/audio/config',
+            '/api/v1/audio/voices',
+          ]);
       check(config).isNotNull();
       check(config!.ttsVoice).equals('nova');
       check(config.ttsSplitOn).equals('paragraphs');
@@ -2178,9 +2147,8 @@ void main() {
           'GET /api/v1/knowledge/kb-1',
           'PUT /api/v1/knowledge/kb-1',
         ]);
-        check(
-          adapter.requests.last.data as Map<String, dynamic>,
-        ).deepEquals({'name': 'Docs'});
+        check(adapter.requests.last.data as Map<String, dynamic>)
+            .deepEquals({'name': 'Docs'});
       },
     );
 
@@ -2246,12 +2214,11 @@ void main() {
 
       final items = await api.getKnowledgeBaseItems('kb-1');
 
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals([
-        '/api/v1/knowledge/kb-1/files',
-        '/api/v1/knowledge/kb-1/files',
-      ]);
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals([
+            '/api/v1/knowledge/kb-1/files',
+            '/api/v1/knowledge/kb-1/files',
+          ]);
       check(
         adapter.requests
             .map((request) => request.queryParameters['page'])
@@ -2294,12 +2261,11 @@ void main() {
 
       final items = await api.getKnowledgeBaseItems('kb-1');
 
-      check(
-        adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals([
-        '/api/v1/knowledge/kb-1/files',
-        '/api/v1/knowledge/kb-1/items',
-      ]);
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals([
+            '/api/v1/knowledge/kb-1/files',
+            '/api/v1/knowledge/kb-1/items',
+          ]);
       check(items).length.equals(1);
       check(items.single.id).equals('item-1');
       check(items.single.title).equals('Legacy note');
@@ -2337,12 +2303,11 @@ void main() {
 
         final items = await api.getKnowledgeBaseItems('kb-1');
 
-        check(
-          adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals([
-          '/api/v1/knowledge/kb-1/files',
-          '/api/v1/knowledge/kb-1/items',
-        ]);
+        check(adapter.requests.map((request) => request.path).toList())
+            .deepEquals([
+              '/api/v1/knowledge/kb-1/files',
+              '/api/v1/knowledge/kb-1/items',
+            ]);
         check(items).length.equals(1);
         check(items.single.id).equals('item-1');
         check(items.single.content).equals('Saved text');
@@ -2365,9 +2330,8 @@ void main() {
         );
 
         check(file?['id']).equals('file-1');
-        check(
-          adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals(['/api/v1/files/', '/api/v1/knowledge/kb-1/file/add']);
+        check(adapter.requests.map((request) => request.path).toList())
+            .deepEquals(['/api/v1/files/', '/api/v1/knowledge/kb-1/file/add']);
       },
     );
 
@@ -2391,9 +2355,8 @@ void main() {
         'POST /api/v1/files/',
         'POST /api/v1/knowledge/kb-1/file/add',
       ]);
-      check(
-        adapter.requests.last.data as Map<String, dynamic>,
-      ).deepEquals({'file_id': 'file-1'});
+      check(adapter.requests.last.data as Map<String, dynamic>)
+          .deepEquals({'file_id': 'file-1'});
     });
 
     test('addFileToKnowledgeBase recognizes camelCase upload id', () async {
@@ -2416,9 +2379,8 @@ void main() {
         'POST /api/v1/files/',
         'POST /api/v1/knowledge/kb-1/file/add',
       ]);
-      check(
-        adapter.requests.last.data as Map<String, dynamic>,
-      ).deepEquals({'file_id': 'file-1'});
+      check(adapter.requests.last.data as Map<String, dynamic>)
+          .deepEquals({'file_id': 'file-1'});
     });
 
     test(
@@ -2447,9 +2409,8 @@ void main() {
           'POST /api/v1/files/',
           'POST /api/v1/knowledge/kb-1/file/add',
         ]);
-        check(
-          adapter.requests.last.data as Map<String, dynamic>,
-        ).deepEquals({'file_id': 'file-1'});
+        check(adapter.requests.last.data as Map<String, dynamic>)
+            .deepEquals({'file_id': 'file-1'});
       },
     );
 
@@ -2476,9 +2437,8 @@ void main() {
         'POST /api/v1/files/',
         'POST /api/v1/knowledge/kb-1/file/add',
       ]);
-      check(
-        adapter.requests.last.data as Map<String, dynamic>,
-      ).deepEquals({'file_id': 'file-1'});
+      check(adapter.requests.last.data as Map<String, dynamic>)
+          .deepEquals({'file_id': 'file-1'});
     });
 
     test(
@@ -2588,35 +2548,31 @@ void main() {
       },
     );
 
-    test(
-      'addFileToKnowledgeBase falls back when attach route rejects file id body',
-      () async {
-        final adapter = _QueuedFakeAdapter([
-          _FakeAdapter.json({'id': 'file-1'}),
-          _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
-          _FakeAdapter.json({'status': true}),
-          _FakeAdapter.json({'id': 'legacy-file'}),
-        ]);
-        final api = _buildApiServiceForTest(adapter);
+    test('addFileToKnowledgeBase falls back when attach route rejects file id body', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'id': 'file-1'}),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
+        _FakeAdapter.json({'status': true}),
+        _FakeAdapter.json({'id': 'legacy-file'}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
 
-        final file = await api.addFileToKnowledgeBase(
-          'kb-1',
-          filename: 'guide.md',
-          content: utf8.encode('hello'),
-        );
+      final file = await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
 
-        check(file?['id']).equals('legacy-file');
-        check(
-          adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals([
-          '/api/v1/files/',
-          '/api/v1/knowledge/kb-1/file/add',
-          '/api/v1/files/file-1',
-          '/api/v1/knowledge/kb-1/file/add',
-        ]);
-        check(adapter.requests[2].method).equals('DELETE');
-      },
-    );
+      check(file?['id']).equals('legacy-file');
+      check(adapter.requests.map((request) => request.path).toList())
+          .deepEquals([
+            '/api/v1/files/',
+            '/api/v1/knowledge/kb-1/file/add',
+            '/api/v1/files/file-1',
+            '/api/v1/knowledge/kb-1/file/add',
+          ]);
+      check(adapter.requests[2].method).equals('DELETE');
+    });
   });
 
   group('getChannels feature flag', () {

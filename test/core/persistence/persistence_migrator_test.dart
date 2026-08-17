@@ -61,82 +61,76 @@ void main() {
     }
   });
 
-  test(
-    'migrates legacy caches/queues into Hive but leaves preferences in '
-    'shared_preferences',
-    () async {
-      final prefs = await SharedPreferences.getInstance();
-      final conversations = [
-        {
-          'id': 'conversation-1',
-          'title': 'First conversation',
-          'updated_at': 1710000000,
-        },
-        {
-          'id': 'conversation-2',
-          'title': 'Second conversation',
-          'folder_id': 'folder-1',
-        },
-      ];
-      final folders = [
-        {'id': 'folder-1', 'name': 'Work'},
-      ];
-      final attachmentUploads = [
-        {'id': 'upload-1', 'path': '/tmp/example.txt', 'mimeType': 'text/plain'},
-      ];
-      final tasks = [
-        {'id': 'task-1', 'type': 'chat-sync', 'attempt': 2},
-      ];
+  test('migrates legacy caches/queues into Hive but leaves preferences in '
+      'shared_preferences', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final conversations = [
+      {
+        'id': 'conversation-1',
+        'title': 'First conversation',
+        'updated_at': 1710000000,
+      },
+      {
+        'id': 'conversation-2',
+        'title': 'Second conversation',
+        'folder_id': 'folder-1',
+      },
+    ];
+    final folders = [
+      {'id': 'folder-1', 'name': 'Work'},
+    ];
+    final attachmentUploads = [
+      {'id': 'upload-1', 'path': '/tmp/example.txt', 'mimeType': 'text/plain'},
+    ];
+    final tasks = [
+      {'id': 'task-1', 'type': 'chat-sync', 'attempt': 2},
+    ];
 
-      // Preferences are NO LONGER migrated to Hive — shared_preferences is the
-      // live store for them again.
-      await prefs.setBool(PreferenceKeys.reduceMotion, true);
-      await prefs.setString(PreferenceKeys.defaultModel, 'gpt-4.1');
+    // Preferences are NO LONGER migrated to Hive — shared_preferences is the
+    // live store for them again.
+    await prefs.setBool(PreferenceKeys.reduceMotion, true);
+    await prefs.setString(PreferenceKeys.defaultModel, 'gpt-4.1');
 
-      await prefs.setString(
-        HiveStoreKeys.localConversations,
-        jsonEncode(conversations),
-      );
-      await prefs.setString(HiveStoreKeys.localFolders, jsonEncode(folders));
-      await prefs.setString(
-        LegacyPreferenceKeys.attachmentUploadQueue,
-        jsonEncode(attachmentUploads),
-      );
-      await prefs.setString(LegacyPreferenceKeys.taskQueue, jsonEncode(tasks));
+    await prefs.setString(
+      HiveStoreKeys.localConversations,
+      jsonEncode(conversations),
+    );
+    await prefs.setString(HiveStoreKeys.localFolders, jsonEncode(folders));
+    await prefs.setString(
+      LegacyPreferenceKeys.attachmentUploadQueue,
+      jsonEncode(attachmentUploads),
+    );
+    await prefs.setString(LegacyPreferenceKeys.taskQueue, jsonEncode(tasks));
 
-      await migrate();
+    await migrate();
 
-      // Caches/queues still migrate into Hive (they move to Drift in PR-2).
-      check(
-        caches.get(HiveStoreKeys.localConversations) as List<dynamic>,
-      ).deepEquals(conversations);
-      check(
-        caches.get(HiveStoreKeys.localFolders) as List<dynamic>,
-      ).deepEquals(folders);
-      check(
-        attachmentQueue.get(HiveStoreKeys.attachmentQueueEntries)
-            as List<dynamic>,
-      ).deepEquals(attachmentUploads);
-      check(
-        caches.get(HiveStoreKeys.taskQueue) as List<dynamic>,
-      ).deepEquals(tasks);
-      check(metadata.get(HiveStoreKeys.migrationVersion)).equals(1);
+    // Caches/queues still migrate into Hive (they move to Drift in PR-2).
+    check(caches.get(HiveStoreKeys.localConversations) as List<dynamic>)
+        .deepEquals(conversations);
+    check(caches.get(HiveStoreKeys.localFolders) as List<dynamic>)
+        .deepEquals(folders);
+    check(
+      attachmentQueue.get(HiveStoreKeys.attachmentQueueEntries)
+          as List<dynamic>,
+    ).deepEquals(attachmentUploads);
+    check(caches.get(HiveStoreKeys.taskQueue) as List<dynamic>)
+        .deepEquals(tasks);
+    check(metadata.get(HiveStoreKeys.migrationVersion)).equals(1);
 
-      // Preferences are neither copied into Hive nor removed from prefs.
-      check(preferences.containsKey(PreferenceKeys.reduceMotion)).isFalse();
-      check(preferences.containsKey(PreferenceKeys.defaultModel)).isFalse();
-      check(prefs.getBool(PreferenceKeys.reduceMotion)).equals(true);
-      check(prefs.getString(PreferenceKeys.defaultModel)).equals('gpt-4.1');
+    // Preferences are neither copied into Hive nor removed from prefs.
+    check(preferences.containsKey(PreferenceKeys.reduceMotion)).isFalse();
+    check(preferences.containsKey(PreferenceKeys.defaultModel)).isFalse();
+    check(prefs.getBool(PreferenceKeys.reduceMotion)).equals(true);
+    check(prefs.getString(PreferenceKeys.defaultModel)).equals('gpt-4.1');
 
-      // Only the legacy cache/queue keys are removed from shared_preferences.
-      checkSharedPreferencesRemoved(prefs, [
-        HiveStoreKeys.localConversations,
-        HiveStoreKeys.localFolders,
-        LegacyPreferenceKeys.attachmentUploadQueue,
-        LegacyPreferenceKeys.taskQueue,
-      ]);
-    },
-  );
+    // Only the legacy cache/queue keys are removed from shared_preferences.
+    checkSharedPreferencesRemoved(prefs, [
+      HiveStoreKeys.localConversations,
+      HiveStoreKeys.localFolders,
+      LegacyPreferenceKeys.attachmentUploadQueue,
+      LegacyPreferenceKeys.taskQueue,
+    ]);
+  });
 
   test('empty SharedPreferences still records migration version', () async {
     await migrate();
@@ -161,9 +155,8 @@ void main() {
       await migrate();
 
       check(caches.get(HiveStoreKeys.localConversations)).isNull();
-      check(
-        caches.get(HiveStoreKeys.localFolders) as List<dynamic>,
-      ).deepEquals(folders);
+      check(caches.get(HiveStoreKeys.localFolders) as List<dynamic>)
+          .deepEquals(folders);
       check(metadata.get(HiveStoreKeys.migrationVersion)).equals(1);
       checkSharedPreferencesRemoved(prefs, [
         HiveStoreKeys.localConversations,
@@ -192,9 +185,8 @@ void main() {
     );
     await migrate();
 
-    check(
-      caches.get(HiveStoreKeys.localConversations) as List<dynamic>,
-    ).deepEquals(conversations);
+    check(caches.get(HiveStoreKeys.localConversations) as List<dynamic>)
+        .deepEquals(conversations);
     check(metadata.get(HiveStoreKeys.migrationVersion)).equals(1);
   });
 }

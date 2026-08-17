@@ -214,9 +214,8 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
   final normalizedSql = indexRow
       .read<String>('sql')
       .replaceAll(RegExp(r'\s+'), ' ');
-  check(
-    normalizedSql,
-  ).contains('(deleted, pinned, archived, updated_at DESC, id ASC)');
+  check(normalizedSql)
+      .contains('(deleted, pinned, archived, updated_at DESC, id ASC)');
   final attachmentColumns = await database
       .customSelect('PRAGMA table_info(attachment_queue)')
       .get();
@@ -241,7 +240,6 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
   final normalizedMessageSql = messageIndex
       .read<String>('sql')
       .replaceAll(RegExp(r'\s+'), ' ');
-  check(
-    normalizedMessageSql,
-  ).contains('(chat_id, parent_id, role, created_at, order_index, id)');
+  check(normalizedMessageSql)
+      .contains('(chat_id, parent_id, role, created_at, order_index, id)');
 }

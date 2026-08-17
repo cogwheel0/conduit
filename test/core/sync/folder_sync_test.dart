@@ -304,9 +304,8 @@ void main() {
             createIfAbsent: true,
           );
           check(
-            (await db.outboxDao.pendingForChat(
-              'local:fdelete',
-            )).map((op) => op.kind),
+            (await db.outboxDao.pendingForChat('local:fdelete'))
+                .map((op) => op.kind),
           ).deepEquals([OutboxKind.folderUpsert.name]);
 
           await db.foldersDao.tombstoneFolderWithOutbox('local:fdelete');
@@ -410,9 +409,8 @@ void main() {
         updatedAt: 100,
       );
 
-      await check(
-        push.pushUpdateChat('chat1'),
-      ).throws<OutboxDeferralException>();
+      await check(push.pushUpdateChat('chat1'))
+          .throws<OutboxDeferralException>();
 
       // No server write/move happens while the folder id is still local.
       check(client.updateChatCalls).equals(0);

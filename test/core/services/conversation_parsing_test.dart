@@ -89,12 +89,10 @@ void main() {
         final after = DateTime.now();
 
         final created = DateTime.parse(result['createdAt'] as String);
-        check(
-          created.millisecondsSinceEpoch,
-        ).isGreaterOrEqual(before.millisecondsSinceEpoch);
-        check(
-          created.millisecondsSinceEpoch,
-        ).isLessOrEqual(after.millisecondsSinceEpoch);
+        check(created.millisecondsSinceEpoch)
+            .isGreaterOrEqual(before.millisecondsSinceEpoch);
+        check(created.millisecondsSinceEpoch)
+            .isLessOrEqual(after.millisecondsSinceEpoch);
       });
     });
 
@@ -329,9 +327,9 @@ void main() {
         });
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
-        check(
-          messages.single['files'],
-        ).isA<List<dynamic>>().deepEquals(descriptors);
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals(descriptors);
         check(messages.single['attachmentIds']).isNull();
       });
 
@@ -369,9 +367,9 @@ void main() {
         });
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
-        check(
-          messages.single['files'],
-        ).isA<List<dynamic>>().deepEquals([descriptor]);
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals([descriptor]);
       });
 
       test(
@@ -413,12 +411,12 @@ void main() {
           });
 
           final messages = result['messages'] as List<Map<String, dynamic>>;
-          check(
-            messages.single['files'],
-          ).isA<List<dynamic>>().deepEquals([safeImageDescriptor]);
-          check(
-            messages.single['attachmentIds'],
-          ).isA<List<dynamic>>().deepEquals(['legacy-file-1', 'image-file-1']);
+          check(messages.single['files'])
+              .isA<List<dynamic>>()
+              .deepEquals([safeImageDescriptor]);
+          check(messages.single['attachmentIds'])
+              .isA<List<dynamic>>()
+              .deepEquals(['legacy-file-1', 'image-file-1']);
         },
       );
 
@@ -445,12 +443,12 @@ void main() {
         });
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
-        check(
-          messages.single['files'],
-        ).isA<List<dynamic>>().deepEquals(descriptors);
-        check(
-          messages.single['attachmentIds'],
-        ).isA<List<dynamic>>().deepEquals(['bare-file-id']);
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals(descriptors);
+        check(messages.single['attachmentIds'])
+            .isA<List<dynamic>>()
+            .deepEquals(['bare-file-id']);
       });
 
       test('keeps safe protocol fields on sibling message versions', () {
@@ -501,9 +499,9 @@ void main() {
         final versions =
             messages.last['versions'] as List<Map<String, dynamic>>;
         check(versions.single['id']).equals('assistant-2');
-        check(
-          versions.single['files'],
-        ).isA<List<dynamic>>().deepEquals([safeDescriptor]);
+        check(versions.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals([safeDescriptor]);
       });
     });
 
@@ -544,9 +542,9 @@ void main() {
           'childrenIds': ['msg-2'],
           'models': ['llama-3'],
         });
-        check(
-          messages[1]['metadata'],
-        ).isA<Map<String, dynamic>>().deepEquals({'parentId': 'msg-1'});
+        check(messages[1]['metadata'])
+            .isA<Map<String, dynamic>>()
+            .deepEquals({'parentId': 'msg-1'});
       });
     });
 
@@ -617,9 +615,10 @@ void main() {
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages.first['content']).equals('Structured answer');
-        check(
-          messages.first['output'],
-        ).isA<List>().has((it) => it.length, 'length').equals(1);
+        check(messages.first['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
       });
 
       test('preserves structured details with persisted content', () {
@@ -743,9 +742,8 @@ void main() {
 
         final message =
             (result['messages'] as List<Map<String, dynamic>>).single;
-        check(
-          message['content'],
-        ).equals('$reasoning\n&lt;new &amp; answer&gt;');
+        check(message['content'])
+            .equals('$reasoning\n&lt;new &amp; answer&gt;');
         check(
           (message['metadata']
               as Map<
@@ -968,9 +966,8 @@ void main() {
           });
           final message =
               (result['messages'] as List<Map<String, dynamic>>).single;
-          check(
-            message['content'],
-          ).equals(((item['content'] as List).single as Map)['text']);
+          check(message['content'])
+              .equals(((item['content'] as List).single as Map)['text']);
           check(
             (message['metadata'] as Map<String, dynamic>).containsKey(
               kConduitDirectRawAssistantContentMetadataKey,
@@ -1153,9 +1150,10 @@ void main() {
         final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages).length.equals(2);
         check(messages[1]['content']).equals('Reloaded answer');
-        check(
-          messages[1]['output'],
-        ).isA<List>().has((it) => it.length, 'length').equals(1);
+        check(messages[1]['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
       });
 
       test('uses history output when message output list is empty', () {
@@ -1201,9 +1199,10 @@ void main() {
         final messages = result['messages'] as List<Map<String, dynamic>>;
         check(messages).length.equals(1);
         check(messages.first['content']).equals('History answer');
-        check(
-          messages.first['output'],
-        ).isA<List>().has((it) => it.length, 'length').equals(1);
+        check(messages.first['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
       });
 
       test('renders structured output for assistant sibling versions', () {
@@ -1257,9 +1256,10 @@ void main() {
         final content = version['content'] as String;
         check(content).contains('<details type="reasoning"');
         check(content).contains('Alt answer');
-        check(
-          version['output'],
-        ).isA<List>().has((it) => it.length, 'length').equals(2);
+        check(version['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(2);
       });
 
       test('normalizes assistant embeds from message payloads', () {

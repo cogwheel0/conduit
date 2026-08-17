@@ -200,9 +200,8 @@ void main() {
             toId: 'server-context-failure',
           ),
     ).returnsNormally();
-    check(
-      container.read(activeConversationProvider)?.id,
-    ).equals('server-context-failure');
+    check(container.read(activeConversationProvider)?.id)
+        .equals('server-context-failure');
   });
 
   test('note route remap preserves query params', () {

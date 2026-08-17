@@ -34,9 +34,8 @@ Map<String, String> normalizeOllamaThinkingByModel(Map<String, String> values) {
         modelId.contains('\u0000')) {
       throw const FormatException('Ollama model id is invalid.');
     }
-    normalized[modelId] = OllamaThinkingSetting.fromStorage(
-      entry.value,
-    ).storageValue;
+    normalized[modelId] = OllamaThinkingSetting.fromStorage(entry.value)
+        .storageValue;
   }
   return normalized;
 }

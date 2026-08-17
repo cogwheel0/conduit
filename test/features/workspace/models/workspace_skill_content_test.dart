@@ -15,7 +15,8 @@ description: Step-by-step instructions for code reviews
 Do the thing.''';
       final fm = WorkspaceSkillContent.parseFrontmatter(content);
       check(fm['name']).equals('Code Review Guidelines');
-      check(fm['description']).equals('Step-by-step instructions for code reviews');
+      check(fm['description'])
+          .equals('Step-by-step instructions for code reviews');
     });
 
     test('strips a single layer of surrounding quotes and keeps colons', () {
@@ -25,7 +26,8 @@ Do the thing.''';
     });
 
     test('returns empty when there is no front-matter', () {
-      check(WorkspaceSkillContent.parseFrontmatter('# Just markdown')).isEmpty();
+      check(WorkspaceSkillContent.parseFrontmatter('# Just markdown'))
+          .isEmpty();
       check(WorkspaceSkillContent.parseFrontmatter('')).isEmpty();
     });
   });

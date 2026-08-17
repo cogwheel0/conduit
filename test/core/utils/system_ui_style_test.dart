@@ -24,12 +24,12 @@ void main() {
     });
 
     test('is applied by app bar themes', () {
-      final lightStyle = AppTheme.light(
-        TweakcnThemes.t3Chat,
-      ).appBarTheme.systemOverlayStyle;
-      final darkStyle = AppTheme.dark(
-        TweakcnThemes.t3Chat,
-      ).appBarTheme.systemOverlayStyle;
+      final lightStyle = AppTheme.light(TweakcnThemes.t3Chat)
+          .appBarTheme
+          .systemOverlayStyle;
+      final darkStyle = AppTheme.dark(TweakcnThemes.t3Chat)
+          .appBarTheme
+          .systemOverlayStyle;
 
       expect(lightStyle?.statusBarBrightness, Brightness.light);
       expect(lightStyle?.statusBarIconBrightness, Brightness.dark);

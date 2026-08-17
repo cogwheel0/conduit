@@ -203,9 +203,9 @@ void main() {
       check(stored).isNotNull();
       final history = (stored!['chat'] as Map)['history'] as Map;
       final messages = history['messages'] as Map;
-      final userMsg =
-          messages.values.firstWhere((m) => (m as Map)['role'] == 'user')
-              as Map;
+      final userMsg = messages.values.firstWhere(
+        (m) => (m as Map)['role'] == 'user',
+      ) as Map;
       check(userMsg['content']).equals('migrate and send me');
 
       // The completion ran against the SERVER id (remap repointed it, §B2.4).
@@ -256,13 +256,11 @@ void main() {
     check(survived).isNotNull();
     check(survived!.dirty).isTrue();
     final msgs = await db.messagesDao.getForChat(localId);
-    check(
-      msgs.where((m) => m.role == 'user').single.content,
-    ).equals('offline hello');
+    check(msgs.where((m) => m.role == 'user').single.content)
+        .equals('offline hello');
     // Both ops survived.
-    check(
-      (await db.outboxDao.pendingForChat(localId)).map((o) => o.kind),
-    ).deepEquals(['createChat', 'requestCompletion']);
+    check((await db.outboxDao.pendingForChat(localId)).map((o) => o.kind))
+        .deepEquals(['createChat', 'requestCompletion']);
 
     // --- RECONNECT: drain sends + remaps. ---
     await drainer().drain();
@@ -280,9 +278,8 @@ void main() {
     // row, and the completion echo all share `a-off`, so upsertLocalEcho keyed
     // on {chatId,id} updated the one row instead of writing a duplicate).
     final finalMsgs = await db.messagesDao.getForChat(serverId);
-    check(
-      finalMsgs.where((m) => m.role == 'assistant').toList(),
-    ).length.equals(1);
+    check(finalMsgs.where((m) => m.role == 'assistant').toList()).length
+        .equals(1);
     final assistant = finalMsgs.where((m) => m.id == 'a-off').single;
     check(assistant.content).equals('assistant reply');
     check(assistant.parentId).equals('u-off');

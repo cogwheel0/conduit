@@ -535,39 +535,36 @@ void main() {
       );
     });
 
-    test(
-      'copies temp-root files without deleting the uncertain source',
-      () async {
-        final file = File(
-          p.join(
-            Directory.systemTemp.path,
-            'conduit-share-plugin-cache-root-${DateTime.now().microsecondsSinceEpoch}.txt',
-          ),
-        );
-        await file.writeAsString('hello from cache root');
-        addTearDown(() async {
-          if (await file.exists()) {
-            await file.delete();
-          }
-        });
+    test('copies temp-root files without deleting the uncertain source', () async {
+      final file = File(
+        p.join(
+          Directory.systemTemp.path,
+          'conduit-share-plugin-cache-root-${DateTime.now().microsecondsSinceEpoch}.txt',
+        ),
+      );
+      await file.writeAsString('hello from cache root');
+      addTearDown(() async {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      });
 
-        final attachments = await validSharedAttachmentsForTest([file.path]);
-        addTearDown(
-          () => Future.wait(
-            attachments.map(
-              (attachment) => deleteShareStagingFile(attachment.file.path),
-            ),
+      final attachments = await validSharedAttachmentsForTest([file.path]);
+      addTearDown(
+        () => Future.wait(
+          attachments.map(
+            (attachment) => deleteShareStagingFile(attachment.file.path),
           ),
-        );
+        ),
+      );
 
-        expect(attachments, hasLength(1));
-        final stagedPath = attachments.single.file.path;
-        expect(await isShareStagingPath(stagedPath), isTrue);
-        expect(p.basename(p.dirname(stagedPath)), shareStagingDirectoryName);
-        expect(await File(stagedPath).readAsString(), 'hello from cache root');
-        expect(await file.exists(), isTrue);
-      },
-    );
+      expect(attachments, hasLength(1));
+      final stagedPath = attachments.single.file.path;
+      expect(await isShareStagingPath(stagedPath), isTrue);
+      expect(p.basename(p.dirname(stagedPath)), shareStagingDirectoryName);
+      expect(await File(stagedPath).readAsString(), 'hello from cache root');
+      expect(await file.exists(), isTrue);
+    });
 
     test(
       'deletes an exact legacy-plugin source through a one-use lease',

@@ -32,9 +32,8 @@ void main() {
       await container.read(workspaceModelsProvider.notifier).loadMore();
 
       final loaded = container.read(workspaceModelsProvider).requireValue;
-      check(
-        loaded.items.map((item) => item.id),
-      ).deepEquals(['model-1', 'model-2']);
+      check(loaded.items.map((item) => item.id))
+          .deepEquals(['model-1', 'model-2']);
       check(loaded.page).equals(2);
       check(loaded.hasMore).isFalse();
     },
@@ -79,9 +78,8 @@ void main() {
     await container.read(workspaceModelsProvider.future);
     api.refreshError = StateError('server rejected management request');
 
-    await check(
-      container.read(workspaceModelsProvider.notifier).refresh(),
-    ).throws<StateError>();
+    await check(container.read(workspaceModelsProvider.notifier).refresh())
+        .throws<StateError>();
 
     final state = container.read(workspaceModelsProvider).requireValue;
     check(state.items.map((item) => item.id)).deepEquals(['model-1']);
@@ -141,11 +139,8 @@ void main() {
         .read(workspacePromptsProvider.notifier)
         .loadAllForExport();
 
-    check(all.map((item) => item.id)).deepEquals([
-      'prompt-1',
-      'prompt-2',
-      'prompt-3',
-    ]);
+    check(all.map((item) => item.id))
+        .deepEquals(['prompt-1', 'prompt-2', 'prompt-3']);
     // The export paged past the first page rather than stopping at it.
     check(api.pagesRequested).deepEquals([1, 2]);
   });
@@ -172,10 +167,8 @@ void main() {
 
     // The removed regular tool is pruned; the surviving regular tool and the
     // direct-server selection are both preserved.
-    check(container.read(selectedToolIdsProvider)).deepEquals([
-      'beta_tool',
-      'direct_server:mcp-1',
-    ]);
+    check(container.read(selectedToolIdsProvider))
+        .deepEquals(['beta_tool', 'direct_server:mcp-1']);
   });
 
   test('newer model query wins when responses complete out of order', () async {
@@ -221,9 +214,8 @@ void main() {
 
       await container.read(workspaceKnowledgeProvider.notifier).loadMore();
       state = container.read(workspaceKnowledgeProvider).requireValue;
-      check(
-        state.items.map((item) => item.id),
-      ).deepEquals(['knowledge-1', 'knowledge-2']);
+      check(state.items.map((item) => item.id))
+          .deepEquals(['knowledge-1', 'knowledge-2']);
       check(state.total).equals(2);
       check(state.hasMore).isFalse();
       check(api.requests).deepEquals([
@@ -274,16 +266,15 @@ void main() {
     // reflects only the surviving tool.
     final container = _toolsContainer(
       api,
-      cacheTools: [
-        const Tool(id: 'beta_tool', name: 'Beta'),
-      ],
+      cacheTools: [const Tool(id: 'beta_tool', name: 'Beta')],
     );
     addTearDown(container.dispose);
 
     await container.read(workspaceToolsProvider.future);
-    container
-        .read(selectedToolIdsProvider.notifier)
-        .set(['alpha', 'beta_tool']);
+    container.read(selectedToolIdsProvider.notifier).set([
+      'alpha',
+      'beta_tool',
+    ]);
 
     api.remaining = [
       const WorkspaceToolSummary(id: 'beta_tool', name: 'Beta', userId: 'u'),
@@ -414,7 +405,8 @@ class _WorkspaceKnowledgeApi extends ApiService {
   }) async {
     requests.add((query: query, view: viewOption, page: page));
     sources.add(source);
-    final filtered = (query != null && query.isNotEmpty) ||
+    final filtered =
+        (query != null && query.isNotEmpty) ||
         (source != null && source.isNotEmpty);
     if (!filtered) {
       return const WorkspacePagedResponse(items: [], total: 0);

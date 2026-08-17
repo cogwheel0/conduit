@@ -13,28 +13,21 @@ void main() {
   test('OpenRouter identity requires its exact HTTPS API root', () {
     check(isOpenRouterApiBaseUrl(kOpenRouterApiBaseUrl)).isTrue();
     check(isOpenRouterApiBaseUrl('https://eu.openrouter.ai/api/v1/')).isTrue();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1/extra'),
-    ).isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1/extra'))
+        .isFalse();
     check(isOpenRouterApiBaseUrl('http://openrouter.ai/api/v1')).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.example/api/v1'),
-    ).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.ai.evil.test/api/v1'),
-    ).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://user:pass@openrouter.ai/api/v1'),
-    ).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1?key=leak'),
-    ).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1#fragment'),
-    ).isFalse();
-    check(
-      isOpenRouterApiBaseUrl('https://openrouter.ai:8443/api/v1'),
-    ).isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.example/api/v1'))
+        .isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.ai.evil.test/api/v1'))
+        .isFalse();
+    check(isOpenRouterApiBaseUrl('https://user:pass@openrouter.ai/api/v1'))
+        .isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1?key=leak'))
+        .isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1#fragment'))
+        .isFalse();
+    check(isOpenRouterApiBaseUrl('https://openrouter.ai:8443/api/v1'))
+        .isFalse();
   });
 
   group('DirectConnectionProfile security', () {
@@ -131,15 +124,15 @@ void main() {
         throwsFormatException,
       );
       expect(
-        () => _profile(
-          customHeaders: const {'authorization': 'Basic forged'},
-        ).validate(),
+        () =>
+            _profile(customHeaders: const {'authorization': 'Basic forged'})
+                .validate(),
         throwsFormatException,
       );
       expect(
-        () => _profile(
-          customHeaders: const {'X-Test': 'ok\r\nHost: bad'},
-        ).validate(),
+        () =>
+            _profile(customHeaders: const {'X-Test': 'ok\r\nHost: bad'})
+                .validate(),
         throwsFormatException,
       );
       expect(
@@ -185,9 +178,8 @@ void main() {
       }
 
       expect(
-        _profile(
-          customHeaders: const {'X-Test': 'visible ASCII\twith tab'},
-        ).validateOrNull(),
+        _profile(customHeaders: const {'X-Test': 'visible ASCII\twith tab'})
+            .validateOrNull(),
         isNull,
       );
     });

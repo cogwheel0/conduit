@@ -385,9 +385,8 @@ void main() {
 
       // m3 took the server payload (parentId m1). m1's derived children are
       // m2, m3 and mNew (the dirty local addition).
-      check(
-        childrenOf(result.merged, 'm1'),
-      ).unorderedEquals(['m2', 'm3', 'mNew']);
+      check(childrenOf(result.merged, 'm1'))
+          .unorderedEquals(['m2', 'm3', 'mNew']);
       check(childrenOf(result.merged, 'm2')).isEmpty();
       // tree-consistent against the rebuilt blob.
       check(
@@ -714,15 +713,12 @@ void main() {
         dirtyMessageIds: const {'mDirty'},
       );
 
-      check(
-        result.merged.chat.rawExtra['models'] as List,
-      ).deepEquals(['srv-model']);
-      check(
-        result.merged.chat.rawExtra['params'] as Map,
-      ).deepEquals({'temp': 0.9});
-      check(
-        result.merged.chat.rawExtra['unknownFutureKey'],
-      ).equals('from-server');
+      check(result.merged.chat.rawExtra['models'] as List)
+          .deepEquals(['srv-model']);
+      check(result.merged.chat.rawExtra['params'] as Map)
+          .deepEquals({'temp': 0.9});
+      check(result.merged.chat.rawExtra['unknownFutureKey'])
+          .equals('from-server');
       check(result.merged.blobHadHistory).equals(server.blobHadHistory);
       check(result.merged.blobHadTitle).equals(server.blobHadTitle);
     });
@@ -773,17 +769,14 @@ void main() {
       );
 
       check(idsOf(second.merged)).unorderedEquals(idsOf(first.merged).toList());
-      check(
-        second.dirtyMessageIds,
-      ).unorderedEquals(first.dirtyMessageIds.toList());
-      check(
-        second.merged.chat.currentMessageId,
-      ).equals(first.merged.chat.currentMessageId);
+      check(second.dirtyMessageIds)
+          .unorderedEquals(first.dirtyMessageIds.toList());
+      check(second.merged.chat.currentMessageId)
+          .equals(first.merged.chat.currentMessageId);
       check(second.mustPush).isTrue();
       check(second.newServerUpdatedAt).equals(200);
-      check(
-        childrenOf(second.merged, 'm2'),
-      ).unorderedEquals(childrenOf(first.merged, 'm2'));
+      check(childrenOf(second.merged, 'm2'))
+          .unorderedEquals(childrenOf(first.merged, 'm2'));
     });
 
     test('overlap-window re-merge after B advances (push landed) is a no-op', () {

@@ -18,9 +18,8 @@ final selfSignedImageCacheManagerProvider = Provider<BaseCacheManager?>((ref) {
   return active.maybeWhen(
     data: (server) {
       if (server == null) return null;
-      final cacheManager =
-          self_signed_image_cache_manager_factory
-              .buildSelfSignedImageCacheManager(server);
+      final cacheManager = self_signed_image_cache_manager_factory
+          .buildSelfSignedImageCacheManager(server);
       if (cacheManager != null) {
         ref.onDispose(cacheManager.dispose);
       }

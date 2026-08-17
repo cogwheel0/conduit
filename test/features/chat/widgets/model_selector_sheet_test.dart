@@ -21,17 +21,15 @@ void main() {
     test('moves pinned models to the top in pinned order', () {
       final sorted = sortModelsWithPinnedOrder(models, ['charlie', 'alpha']);
 
-      check(
-        sorted.map((model) => model.id).toList(),
-      ).deepEquals(['charlie', 'alpha', 'bravo', 'delta']);
+      check(sorted.map((model) => model.id).toList())
+          .deepEquals(['charlie', 'alpha', 'bravo', 'delta']);
     });
 
     test('ignores stale pinned ids and keeps unpinned order stable', () {
       final sorted = sortModelsWithPinnedOrder(models, ['missing', 'delta']);
 
-      check(
-        sorted.map((model) => model.id).toList(),
-      ).deepEquals(['delta', 'alpha', 'bravo', 'charlie']);
+      check(sorted.map((model) => model.id).toList())
+          .deepEquals(['delta', 'alpha', 'bravo', 'charlie']);
     });
 
     test('deduplicates pinned ids using the first pinned position', () {
@@ -41,9 +39,8 @@ void main() {
         ' bravo ',
       ]);
 
-      check(
-        sorted.map((model) => model.id).toList(),
-      ).deepEquals(['bravo', 'charlie', 'alpha', 'delta']);
+      check(sorted.map((model) => model.id).toList())
+          .deepEquals(['bravo', 'charlie', 'alpha', 'delta']);
     });
   });
 
@@ -62,8 +59,7 @@ void main() {
   });
 
   test('custom server reasoning effort uses its configured level name', () {
-    check(
-      reasoningEffortLabelForTest(AppLocalizationsEn(), 'vendor_ultra'),
-    ).equals('vendor_ultra');
+    check(reasoningEffortLabelForTest(AppLocalizationsEn(), 'vendor_ultra'))
+        .equals('vendor_ultra');
   });
 }

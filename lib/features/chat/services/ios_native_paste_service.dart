@@ -5,11 +5,10 @@ import 'package:flutter/foundation.dart';
 import '../../../core/platform/conduit_platform_apis.g.dart';
 import '../../../core/utils/debug_logger.dart';
 
-typedef IosNativePasteHandler =
-    Future<void> Function(
-      IosNativePastePayload payload,
-      IosNativePasteDispatchLease lease,
-    );
+typedef IosNativePasteHandler = Future<void> Function(
+  IosNativePastePayload payload,
+  IosNativePasteDispatchLease lease,
+);
 
 enum _IosNativePasteDispatchLeaseState { active, committed, invalidated }
 
@@ -120,9 +119,8 @@ class IosNativePasteService {
     IosNativePastePayload nativePayload,
     Duration timeout,
   ) {
-    if (nativePayload case IosNativeImagePaste(
-      :final deliveryId,
-    ) when !isValidIosNativePasteDeliveryId(deliveryId)) {
+    if (nativePayload case IosNativeImagePaste(:final deliveryId)
+        when !isValidIosNativePasteDeliveryId(deliveryId)) {
       return Future<bool>.value(false);
     }
     final lease = IosNativePasteDispatchLease._();

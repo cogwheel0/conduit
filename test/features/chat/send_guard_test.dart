@@ -28,9 +28,8 @@ final _hermesModel = hermesSyntheticModel();
 void main() {
   group('isSendBlocked', () {
     test('blocks when no model is selected', () {
-      check(
-        isSendBlocked(reviewerMode: false, api: null, selectedModel: null),
-      ).isTrue();
+      check(isSendBlocked(reviewerMode: false, api: null, selectedModel: null))
+          .isTrue();
       // ...even with an api present.
       check(
         isSendBlocked(
@@ -293,9 +292,8 @@ void main() {
       addTearDown(container.dispose);
 
       check(container.read(visionCapableModelsProvider)).isEmpty();
-      check(
-        container.read(fileUploadCapableModelsProvider),
-      ).deepEquals([textModel.id]);
+      check(container.read(fileUploadCapableModelsProvider))
+          .deepEquals([textModel.id]);
     });
 
     test('direct-like server model keeps OpenWebUI vision behavior', () {
@@ -315,9 +313,8 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      check(
-        container.read(visionCapableModelsProvider),
-      ).deepEquals([serverModel.id]);
+      check(container.read(visionCapableModelsProvider))
+          .deepEquals([serverModel.id]);
     });
 
     test(
@@ -338,14 +335,13 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        check(
-          container.read(visionCapableModelsProvider),
-        ).deepEquals([visionModel.id]);
+        check(container.read(visionCapableModelsProvider))
+            .deepEquals([visionModel.id]);
 
         registry.removeProfile(_directProfile.id);
-        final discovery =
-            container.read(directModelDiscoveryProvider.notifier)
-                as _DiscoveryPulseController;
+        final discovery = container.read(
+          directModelDiscoveryProvider.notifier,
+        ) as _DiscoveryPulseController;
         discovery.pulse();
         await Future<void>.delayed(Duration.zero);
 
@@ -389,9 +385,8 @@ void main() {
       final payload = directPersistedMessagePayloadForTest(message);
       final versions = payload['versions'] as List<dynamic>;
       check(versions).length.equals(1);
-      check(
-        (versions.single as Map<String, dynamic>)['content'],
-      ).equals('Previous answer');
+      check((versions.single as Map<String, dynamic>)['content'])
+          .equals('Previous answer');
     });
   });
 }

@@ -229,9 +229,8 @@ void main() {
       check(message.files).isNotNull();
       check(message.files!).length.equals(1);
       check(isImageFile(message.files!.first)).isTrue();
-      check(
-        getFileUrl(message.files!.first),
-      ).equals('https://example.com/gen1.png');
+      check(getFileUrl(message.files!.first))
+          .equals('https://example.com/gen1.png');
     });
 
     test('ChatMessage with multiple generated images', () {
@@ -396,9 +395,8 @@ void main() {
       // The original order within each group is preserved
       check(getFileUrl(imageFiles[0])).equals('https://example.com/gen1.png');
       check(getFileUrl(nonImageFiles[0])).equals('https://example.com/doc.pdf');
-      check(
-        getFileUrl(nonImageFiles[1]),
-      ).equals('https://example.com/readme.txt');
+      check(getFileUrl(nonImageFiles[1]))
+          .equals('https://example.com/readme.txt');
     });
   });
 }

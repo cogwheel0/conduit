@@ -504,42 +504,39 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
-    test(
-      'taskSocket completion does not rewrite persisted chat history after chatCompleted',
-      () async {
-        final api = _TrackingApiService();
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final socket = _MockSocketService(registrar);
+    test('taskSocket completion does not rewrite persisted chat history after chatCompleted', () async {
+      final api = _TrackingApiService();
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final socket = _MockSocketService(registrar);
 
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            conversationId: 'conv-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          api: api,
-          socketService: socket,
-        );
-
-        registrar.emitChatEvent(
-          'chat:completion',
-          {'content': 'Hello', 'done': true},
-          conversationId: 'conv-1',
-          sessionId: 'sess-1',
+      _attach(
+        session: ChatCompletionSession.taskSocket(
           messageId: 'msg-1',
-        );
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        socketService: socket,
+      );
 
-        await pumpMicrotasks();
-        await pumpMicrotasks();
-        await pumpMicrotasks();
+      registrar.emitChatEvent(
+        'chat:completion',
+        {'content': 'Hello', 'done': true},
+        conversationId: 'conv-1',
+        sessionId: 'sess-1',
+        messageId: 'msg-1',
+      );
 
-        check(api.chatCompletedCalls).equals(1);
-        check(api.syncCalls).equals(0);
-      },
-    );
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      check(api.chatCompletedCalls).equals(1);
+      check(api.syncCalls).equals(0);
+    });
 
     // -------------------------------------------------------------------
     // 2. JSON completion works without a socket connection
