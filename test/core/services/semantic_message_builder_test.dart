@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/semantic_message_builder.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/details_block_syntax.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -351,6 +352,35 @@ void main() {
 
       check(rendered).contains('&lt;details');
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
+    test('separates text and semantic details onto Markdown block boundaries', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('I will search for that.'),
+        SemanticDetailsBlock.toolCall(
+          id: 'call-1',
+          name: 'search_web',
+          arguments: const {'query': 'current news'},
+          done: true,
+          result: const {'results': []},
+        ),
+        const SemanticTextBlock('Here is the answer.'),
+      ]);
+
+      check(rendered).contains(
+        'I will search for that.\n\n<details type="tool_calls"',
+      );
+      check(rendered).contains('</details>\n\nHere is the answer.');
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        blockSyntaxes: const [DetailsBlockSyntax()],
+        encodeHtml: false,
+      ).parse(rendered);
+      final details = _descendantElements(
+        parsed,
+      ).where((element) => element.tag == 'details');
+      check(details).length.equals(1);
     });
 
     test('preserves slashes in reasoning bodies while escaping tags', () {

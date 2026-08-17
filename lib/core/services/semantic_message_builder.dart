@@ -134,7 +134,10 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
     }
   }
 
-  return parts.join('\n');
+  // Keep semantic HTML blocks on separate Markdown block boundaries. A single
+  // newline can leave a following <details> attached to the preceding text
+  // paragraph, causing clients to render the tag as literal text.
+  return parts.join('\n\n');
 }
 
 /// Escapes one plain-text streaming fragment without allowing it to create
