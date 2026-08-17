@@ -1107,9 +1107,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   void finalizeStructuredOutputProjection() {
-    if (!structuredOutputIsLatest) return;
     final projection = structuredOutputProjector.finish();
     if (projection == null) return;
+    if (!structuredOutputIsLatest) {
+      // A plain chunk was the last content-affecting operation and no output
+      // snapshot followed it. Upstream (Chat.svelte) treats every output
+      // snapshot as a wholesale replacement of content, so the terminal
+      // render is authoritative; keep the accumulated visible text only when
+      // it is longer (hybrid backends deliver some text solely through plain
+      // deltas the snapshot never contains).
+      if (projection.plainContent.length < plainStreamingContent.length) {
+        return;
+      }
+    }
     if (projection.content == renderedStreamingContent.value) {
       plainStreamingContent.replace(projection.plainContent);
       return;
@@ -3021,7 +3031,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           last.codeExecutions.isNotEmpty ||
           last.sources.isNotEmpty;
       DebugLogger.log(
-        'Done signal received: content length=${lastContent.length}',
+        // Content audit: on a healthy completion these lengths agree (modulo
+        // details wrappers). message < rendered pinpoints a lost flush;
+        // rendered < plain pinpoints an unrepaired deferred projection.
+        'Done signal received: content length=${lastContent.length} '
+        'rendered=${renderedStreamingContent.length} '
+        'plain=${plainStreamingContent.length}',
         scope: 'streaming/helper',
       );
       if (allowEmptyContentRecovery &&
