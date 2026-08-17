@@ -1794,8 +1794,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         source: 'poll recovery',
       );
 
-      // Extract content
-      final content = extractServerMessageContent(serverMsg['content']);
+      // Extract content. OWUI 0.11 does not persist a flat content string
+      // for a normal completion — the durable body is the output[] item
+      // array, so a reasoning/structured turn's raw content is ''. Recovery
+      // must render output[] the same way the snapshot parser does, or a
+      // socket that missed the final frames can never restore the tail and
+      // finishes the turn truncated.
+      var content = extractServerMessageContent(serverMsg['content']);
+      if (content.trim().isEmpty) {
+        final rawOutput = serverMsg['output'];
+        if (rawOutput is List && rawOutput.isNotEmpty) {
+          final outputBlocks = parseOpenWebUIStructuredOutput(rawOutput);
+          if (outputBlocks.isNotEmpty) {
+            content = renderStructuredOutputBlocks(outputBlocks);
+          }
+        }
+      }
 
       // Extract follow-ups (check both camelCase and snake_case keys)
       // Use _parseFollowUpsField for consistent parsing with socket handler

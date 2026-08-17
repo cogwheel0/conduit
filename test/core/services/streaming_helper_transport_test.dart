@@ -2828,6 +2828,75 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
+    test(
+      'poll recovery renders output[] when the persisted content is empty',
+      () async {
+        // OWUI 0.11 never persists a flat content string for a normal
+        // completion — a reasoning turn's raw content is '' and the durable
+        // body lives in output[]. Recovery must render it, or a socket that
+        // missed the final frames finishes the turn with the partial local
+        // text (tail chunks permanently missing).
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': true,
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'content': [
+                      {'type': 'output_text', 'text': 'thinking hard'},
+                    ],
+                    'duration': 3,
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {
+                        'type': 'output_text',
+                        'text': 'Full answer with the tail intact.',
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        check(log.messages.last.content)
+            .contains('Full answer with the tail intact.');
+        check(log.finishCount).equals(1);
+      },
+    );
+
     test('taskSocket terminal recovery keeps streaming open when polled snapshot is not done', () async {
       final previousDelay = debugTaskSocketTerminalRecoveryDelay;
       final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
