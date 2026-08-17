@@ -227,6 +227,37 @@ void main() {
     expect(split['fallbackReason'], 'referenceDefinitions');
   });
 
+  test('a literal incomplete details tag inside the body does not leave '
+      'depth tracking stale past the close', () {
+    // The parser only counts complete `<details ...>` tags; crediting the
+    // partial line kept the scanner "inside" the block after the parser
+    // closed it, so the document-level definition after the block was
+    // treated as body content and never triggered the fallback.
+    const content =
+        'See [docs][d].\n\n<details>\n<details is an HTML tag\n'
+        '</details>\n\n[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
+  test('an incomplete details entry tag keeps the tail mutable', () {
+    // Until the tag completes the parser sees only a paragraph; freezing a
+    // boundary here would shift on the next flush.
+    const content = 'Intro paragraph.\n\n<details type="reasoning';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], 'Intro paragraph.\n\n');
+    expect(split['mutableTail'], '<details type="reasoning');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
   test('a definition-shaped line inside a details body does not force the '
       'reference-definitions fallback', () {
     // The parser lifts details bodies into a `body_markdown` attribute

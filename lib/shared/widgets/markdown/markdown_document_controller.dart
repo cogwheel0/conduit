@@ -39,20 +39,14 @@ final RegExp _streamingDetailsInlineOpenPattern = RegExp(
   caseSensitive: false,
 );
 
-int _streamingDetailsOpenCount(String line) {
-  final count = _streamingDetailsInlineOpenPattern.allMatches(line).length;
-  if (count == 0) {
-    // A block-starting `<details` whose tag is still incomplete (no `>` yet)
-    // must still open scanner details mode: the parser will once the tag
-    // completes, and closing here would freeze an unterminated block. The
-    // line is dedented first so a <=3-space-indented partial open counts.
-    final candidate = _streamingBlockStarterCandidate(line);
-    if (candidate != null && _streamingDetailsOpenPattern.hasMatch(candidate)) {
-      return 1;
-    }
-  }
-  return count;
-}
+// Complete tags only, exactly like the parser: crediting a partial
+// line-leading `<details` here left scanner depth permanently stale when a
+// body contained a literal `<details` that never completed, keeping the
+// scanner "inside" a block the parser had already closed. Incomplete ENTRY
+// tags are handled structurally instead (the tail stays mutable until the
+// tag completes).
+int _streamingDetailsOpenCount(String line) =>
+    _streamingDetailsInlineOpenPattern.allMatches(line).length;
 
 // Must match exactly what the details parser recognizes as a close
 // (details_block_syntax.dart uses the literal `</details>`): counting a
@@ -1090,6 +1084,13 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
   }
 
   if (_startsStreamingDetailsBlock(line.text)) {
+    if (_streamingDetailsOpenCount(line.text) == 0) {
+      // The entry tag is still incomplete (`<details` without `>`): the
+      // parser sees only a paragraph until the tag completes, so keep the
+      // tail mutable rather than freezing a boundary that shifts on the
+      // next flush.
+      return null;
+    }
     var depth = 0;
     for (var lineIndex = index; lineIndex < lines.length; lineIndex += 1) {
       final currentLine = lines[lineIndex];
