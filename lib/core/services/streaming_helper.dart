@@ -3183,11 +3183,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 if (delta.containsKey('tool_calls')) {
                   handleOrDeferToolCallStatuses(delta['tool_calls']);
                 }
-                handleStreamingChoiceDelta(delta);
+                // Upstream contract (Chat.svelte): a frame carrying an
+                // `output` snapshot supersedes its own delta/content — the
+                // snapshot already contains the delta's text, so applying
+                // both duplicates it.
+                if (outputBlocks.isEmpty) {
+                  handleStreamingChoiceDelta(delta);
+                }
               }
             }
           }
-          if (completionTargetId != null && payload.containsKey('content')) {
+          if (completionTargetId != null &&
+              outputBlocks.isEmpty &&
+              payload.containsKey('content')) {
             final raw = payload['content']?.toString() ?? '';
             // Cumulative content snapshots must never shrink streamed
             // content: a strict prefix is a stale/out-of-order frame, and

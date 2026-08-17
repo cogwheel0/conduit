@@ -1743,11 +1743,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _recomputeBottomAnchorState() {
     final hasScrollableContent = _hasScrollableTranscriptContent();
     final distanceFromBottom = _latestPresentationDistance();
+    final wasAnchored = _bottomAnchorController.isAnchoredToBottom;
     _bottomAnchorController.updateAnchor(
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
     );
-    _syncLayoutBottomAnchor();
+    // Only re-arm layout maintenance when the anchored state actually
+    // transitions. This runs on every metrics tick; while streaming and
+    // anchored, an unconditional sync scheduled a full measurement pass
+    // (row-rect snapshot + pin geometry) every frame of a downward scroll.
+    if (_bottomAnchorController.isAnchoredToBottom != wasAnchored) {
+      _syncLayoutBottomAnchor();
+    }
     return (
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,

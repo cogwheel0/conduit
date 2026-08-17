@@ -933,8 +933,65 @@ void main() {
         await pumpMicrotasks();
         await Future<void>.delayed(const Duration(milliseconds: 10));
 
-        check(log.appendedChunks).deepEquals(['Hel']);
+        // Upstream contract: an output snapshot in the frame supersedes its
+        // own delta, so the delta is not applied at all.
+        check(log.appendedChunks).deepEquals([]);
         check(log.messages.last.content).equals('Hello');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'an output snapshot after a mid-stream plain delta still renders',
+      () async {
+        final log = _CallbackLog();
+        // First snapshot disables the append fast path (backtick); the second
+        // defers under the geometric threshold; the delta-only frame forces a
+        // projection sync; the final snapshot must still render rather than
+        // deferring against a re-armed 2x-full-length threshold.
+        final part1 =
+            'Intro with `code` marker. ${List.filled(60, 'x').join()}';
+        const middle = ' MIDDLE-SEGMENT';
+        final more = ' TAIL-${List.filled(60, 'y').join()}';
+        Map<String, dynamic> outputFrame(String text) => {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': text},
+              ],
+            },
+          ],
+        };
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame(outputFrame(part1)),
+          _sseFrame(outputFrame('$part1$middle')),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': ' plug-in delta'},
+              },
+            ],
+          }),
+          _sseFrame(outputFrame('$part1$middle$more')),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        check(log.messages.last.content).contains(more);
         check(log.finishCount).equals(1);
       },
     );
@@ -1586,7 +1643,9 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
-        check(log.appendedChunks).deepEquals(['Hel']);
+        // Upstream contract: the output snapshot supersedes the same-frame
+        // delta, so only the snapshot is applied.
+        check(log.appendedChunks).deepEquals([]);
         check(log.messages.last.content).equals('Hello');
         check(log.messages.last.output).isNotNull();
       },

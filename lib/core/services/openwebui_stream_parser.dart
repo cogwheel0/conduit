@@ -185,8 +185,15 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     yield OpenWebUIUsageUpdate(parsed['usage'] as Map<String, dynamic>);
   }
 
+  // Upstream contract (Chat.svelte): a frame carrying an `output` snapshot
+  // supersedes its own choices deltas — the snapshot already contains the
+  // delta's text (and its reasoning as an output item), so applying both
+  // duplicates content.
+  final output = parsed['output'];
+  final hasOutputSnapshot = output is List && output.isNotEmpty;
+
   final choices = parsed['choices'];
-  if (choices is List && choices.isNotEmpty) {
+  if (!hasOutputSnapshot && choices is List && choices.isNotEmpty) {
     final firstChoice = choices.first;
     if (firstChoice is Map<String, dynamic>) {
       final delta = firstChoice['delta'];
@@ -205,10 +212,7 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     }
   }
 
-  // Structured output snapshots are applied after deltas from the same frame so
-  // the renderer can merge details with the plain text instead of duplicating it.
-  final output = parsed['output'];
-  if (output is List && output.isNotEmpty) {
+  if (hasOutputSnapshot) {
     yield OpenWebUIOutputUpdate(output);
   }
 }

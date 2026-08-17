@@ -246,12 +246,20 @@ final class StructuredOutputStreamingProjector {
         _projectedReplacementText == _latestReplacementText) {
       return null;
     }
-    return _replace(
+    // This sync materializes deferred content before the caller switches the
+    // visible basis away from the projector. It must not re-arm the geometric
+    // backoff to 2x the full length: with the append path disabled after a
+    // plain chunk, subsequent snapshots would all defer until the response
+    // doubled — freezing the visible tail for the rest of the turn.
+    final preservedThreshold = _nextFullProjectionLength;
+    final projection = _replace(
       _latestBlocks,
       _latestReplacementText,
       _logicalLength(_latestBlocks, _latestReplacementText),
       reason: StructuredOutputReplacementReason.forced,
     );
+    _nextFullProjectionLength = preservedThreshold;
+    return projection;
   }
 
   void observeLatest(

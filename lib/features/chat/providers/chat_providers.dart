@@ -2563,7 +2563,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
     // An unknown message id must fall through to the debounced refetch —
     // consuming the event here would silently drop the payload.
-    if (!state.any((message) => message.id == parsed.messageId)) {
+    final messageIndex = state.indexWhere(
+      (message) => message.id == parsed.messageId,
+    );
+    if (messageIndex == -1) {
       return false;
     }
     DebugLogger.log(
@@ -2577,6 +2580,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       }
       return current.copyWith(followUps: parsed.followUps);
     });
+    // The turn echo was persisted at completion, before this event fired.
+    // Re-persist the message so the suggestions survive a conversation
+    // switch (the local Drift copy would otherwise reload without them).
+    _persistCompletedTurnForMessage(messageIndex);
     return true;
   }
 

@@ -378,7 +378,7 @@ void main() {
       check(updates[1]).isA<OpenWebUIStreamDone>();
     });
 
-    test('emits delta before output for mixed stream chunks', () async {
+    test('output supersedes the same-frame delta for mixed chunks', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([
           utf8.encode(
@@ -401,9 +401,8 @@ void main() {
         ]),
       ).toList();
 
-      check(updates).has((it) => it.length, 'length').equals(2);
-      check(updates[0]).isA<OpenWebUIContentDelta>();
-      check(updates[1]).isA<OpenWebUIOutputUpdate>();
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0]).isA<OpenWebUIOutputUpdate>();
     });
 
     test('emits usage and output from the same stream chunk', () async {

@@ -699,6 +699,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     });
   }
 
+  // Deliberately uncached: anchor settlement and pin seeks measure across
+  // intra-frame jumpTo corrections, where a per-frame snapshot would serve a
+  // pre-jump rect and double-apply corrections.
   Rect? _rowRect(String messageId) {
     final key = _rowKeys[messageId];
     return key == null ? null : _globalRectFor(key);
@@ -1059,6 +1062,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         _pinGeometryReported = true;
         widget.onPinEndSpaceChanged(0);
       }
+      return;
+    }
+    // Mid-scroll the pin's fixed pixel target and viewport-sized support
+    // cannot change; once geometry has been reported, skip the global
+    // measurements until the motion settles (drag end re-runs maintenance).
+    if (_pinGeometryReported &&
+        _scrollController.hasClients &&
+        _scrollController.position.isScrollingNotifier.value) {
       return;
     }
     final viewport = _viewportRect;
@@ -1712,12 +1723,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     } else if (notification is ScrollEndNotification) {
       _handleUserDragEnd();
     } else if (notification is UserScrollNotification) {
-      if (notification.direction == ScrollDirection.idle) {
-        _handleUserDragEnd();
-      } else {
-        // Pointer-signal scrolling (mouse wheels and trackpads) has no
-        // dragDetails, but it does publish a non-idle user direction. Driven
-        // animateTo activity does not, so it cannot steal manual ownership.
+      // Pointer-signal scrolling (mouse wheels and trackpads) has no
+      // dragDetails, but it does publish a non-idle user direction. Driven
+      // animateTo activity does not, so it cannot steal manual ownership.
+      //
+      // direction == idle is deliberately NOT treated as drag end: Flutter
+      // publishes it when the ballistic phase STARTS (goBallistic), not when
+      // motion stops. Ending the drag there ran mode flips and jump-to-latest
+      // arming mid-fling; ScrollEndNotification above fires at actual rest
+      // for drags, flings, and pointer-signal scrolling alike.
+      if (notification.direction != ScrollDirection.idle) {
         _handleUserDragStart();
       }
     }
