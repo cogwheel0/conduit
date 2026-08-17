@@ -207,6 +207,26 @@ void main() {
     expect(split['fallbackReason'], 'referenceDefinitions');
   });
 
+  test('an indented nested details open inside the body does not hide a '
+      'later reference definition', () {
+    // The details parser counts tags on the raw line regardless of
+    // indentation inside the block; routing depth counting through the
+    // dedented block-starter candidate (null for 4+-space lines) missed
+    // the nested open, so the first close exited details tracking early
+    // and the body backtick opened a phantom fence.
+    const content =
+        'See [docs][d].\n\n<details>\n    intro <details type="tool_calls" '
+        'done="true">\n</details>\n```\n</details>\n\n'
+        '[d]: https://example.com';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(split['frozenPrefix'], isEmpty);
+    expect(split['mutableTail'], content);
+    expect(split['canIncrementallyCompile'], isFalse);
+    expect(split['fallbackReason'], 'referenceDefinitions');
+  });
+
   test('a definition-shaped line inside a details body does not force the '
       'reference-definitions fallback', () {
     // The parser lifts details bodies into a `body_markdown` attribute

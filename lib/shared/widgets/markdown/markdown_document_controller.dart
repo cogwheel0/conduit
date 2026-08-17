@@ -39,13 +39,17 @@ final RegExp _streamingDetailsInlineOpenPattern = RegExp(
   caseSensitive: false,
 );
 
-int _streamingDetailsOpenCount(String candidate) {
-  final count = _streamingDetailsInlineOpenPattern.allMatches(candidate).length;
-  if (count == 0 && _streamingDetailsOpenPattern.hasMatch(candidate)) {
-    // A line-leading `<details` whose tag is still incomplete (no `>` yet)
+int _streamingDetailsOpenCount(String line) {
+  final count = _streamingDetailsInlineOpenPattern.allMatches(line).length;
+  if (count == 0) {
+    // A block-starting `<details` whose tag is still incomplete (no `>` yet)
     // must still open scanner details mode: the parser will once the tag
-    // completes, and closing here would freeze an unterminated block.
-    return 1;
+    // completes, and closing here would freeze an unterminated block. The
+    // line is dedented first so a <=3-space-indented partial open counts.
+    final candidate = _streamingBlockStarterCandidate(line);
+    if (candidate != null && _streamingDetailsOpenPattern.hasMatch(candidate)) {
+      return 1;
+    }
   }
   return count;
 }
@@ -958,6 +962,26 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
   // inside a details body must not open a phantom outer fence that would hide
   // a definition appearing after the block.
   for (final line in lines) {
+    if (detailsDepth > 0) {
+      // The parser counts nested opens/closes on the RAW line — indentation
+      // is irrelevant inside a details block — so this must not go through
+      // the dedented candidate, which is null for indented lines and would
+      // miss tags the parser counts, exiting details mode a level early.
+      // (Depth can only be non-zero while firstRawHtmlOffset is null: raw
+      // HTML detection runs outside details mode and ends the other checks.)
+      detailsDepth += _streamingDetailsOpenCount(line.text);
+      detailsDepth -= _streamingDetailsClosePattern
+          .allMatches(line.text)
+          .length;
+      if (detailsDepth < 0) {
+        detailsDepth = 0;
+      }
+      // Definition-shaped lines inside a details body are not document-scoped:
+      // the parser lifts the body into a `body_markdown` attribute compiled as
+      // its own document, so they cannot couple frozen and mutable segments.
+      continue;
+    }
+
     final candidate = _streamingBlockStarterCandidate(line.text);
     if (candidate == null) {
       continue;
@@ -970,20 +994,6 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
       continue;
     }
 
-    if (detailsDepth > 0) {
-      detailsDepth += _streamingDetailsOpenCount(candidate);
-      detailsDepth -= _streamingDetailsClosePattern
-          .allMatches(candidate)
-          .length;
-      if (detailsDepth < 0) {
-        detailsDepth = 0;
-      }
-      // Definition-shaped lines inside a details body are not document-scoped:
-      // the parser lifts the body into a `body_markdown` attribute compiled as
-      // its own document, so they cannot couple frozen and mutable segments.
-      continue;
-    }
-
     if (fenceCharacter != null) {
       if (_isStreamingFenceClose(candidate, fenceCharacter, fenceLength)) {
         fenceCharacter = null;
@@ -993,9 +1003,9 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     }
 
     if (_streamingDetailsOpenPattern.hasMatch(candidate)) {
-      detailsDepth = _streamingDetailsOpenCount(candidate);
+      detailsDepth = _streamingDetailsOpenCount(line.text);
       detailsDepth -= _streamingDetailsClosePattern
-          .allMatches(candidate)
+          .allMatches(line.text)
           .length;
       if (detailsDepth < 0) {
         detailsDepth = 0;
@@ -1083,15 +1093,13 @@ _StreamingBlockScanResult? _scanStreamingPreparedBlock(
     var depth = 0;
     for (var lineIndex = index; lineIndex < lines.length; lineIndex += 1) {
       final currentLine = lines[lineIndex];
-      final currentCandidate = _streamingBlockStarterCandidate(
-        currentLine.text,
-      );
-      if (currentCandidate != null) {
-        depth += _streamingDetailsOpenCount(currentCandidate);
-        depth -= _streamingDetailsClosePattern
-            .allMatches(currentCandidate)
-            .length;
-      }
+      // Count on the RAW line: the parser counts tags regardless of
+      // indentation inside the block, and the dedented candidate is null
+      // for indented lines, which would drop tags the parser counts.
+      depth += _streamingDetailsOpenCount(currentLine.text);
+      depth -= _streamingDetailsClosePattern
+          .allMatches(currentLine.text)
+          .length;
       if (depth > 0) {
         continue;
       }
