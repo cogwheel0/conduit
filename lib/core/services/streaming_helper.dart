@@ -2068,8 +2068,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final recoveredStreamingState =
               !authoritativeTerminal &&
               (preserveActiveLocalStream || assistant.isStreaming);
+          // Replay-gap recovery can race the server's own persistence of the
+          // turn: a snapshot whose body is a strict prefix of the local
+          // streamed content is mid-write, not authoritative. Keep the local
+          // body then (mirrors applyServerContent's length guard).
+          final keepLocalContent =
+              assistant.content.length < current.content.length &&
+              current.content.startsWith(assistant.content);
           return _AssistantServerPatch(
-            content: recoverAuthoritativeState ? assistant.content : null,
+            content: recoverAuthoritativeState && !keepLocalContent
+                ? assistant.content
+                : null,
             followUps: nextFollowUps,
             statusHistory: nextStatusHistory,
             sources: nextSources,
@@ -2691,6 +2700,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final newContent = msg['content']?.toString();
             if (newContent == null) return current;
             if (current.content == newContent) return current;
+            // A server echo of the (possibly stale) payload we sent must not
+            // truncate streamed content: a strict prefix is our own snapshot
+            // coming back, not an outlet-filter rewrite.
+            if (newContent.length < current.content.length &&
+                current.content.startsWith(newContent)) {
+              return current;
+            }
             // Preserve original content before filter modification
             final meta = <String, dynamic>{
               ...?current.metadata,
@@ -2914,6 +2930,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       onChatTitleUpdated?.call(doneTitle);
     }
 
+    // Fold the streamed buffer into message state BEFORE building the
+    // /api/chat/completed payload. The buffer is not periodically synced into
+    // the notifier, so without this the payload carries a stale prefix of a
+    // long response — and the server's echo of that payload then truncates
+    // the full content when merged back (the HTTP/SSE transport reaches here
+    // without any earlier terminal flush).
+    finalizeStreamingReasoning();
+    flushStreamingBuffer();
+
     try {
       if (!isTemporaryChat(activeConversationId)) {
         final completed = ensureChatCompletedSynced();
@@ -2926,9 +2951,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     } catch (_) {
       // Non-critical - continue if sync fails
     }
-
-    finalizeStreamingReasoning();
-    flushStreamingBuffer();
 
     final msgs = getMessages();
     if (msgs.isNotEmpty && msgs.last.role == 'assistant') {
@@ -3123,7 +3145,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
           if (completionTargetId != null && payload.containsKey('content')) {
             final raw = payload['content']?.toString() ?? '';
-            if (raw.isNotEmpty) {
+            final currentRendered = renderedStreamingContent.value;
+            // Cumulative content snapshots must never shrink streamed
+            // content: a strict prefix is a stale/out-of-order frame, and
+            // adopting it would rebase later deltas onto a shortened buffer.
+            final isStalePrefix =
+                raw.length < currentRendered.length &&
+                currentRendered.startsWith(raw);
+            if (raw.isNotEmpty && !isStalePrefix) {
               replaceVisibleAssistantContent(raw);
             }
           }

@@ -79,6 +79,64 @@ class _GatedChatCompletedApi extends ApiService {
   }
 }
 
+class _RecordingChatCompletedApi extends ApiService {
+  _RecordingChatCompletedApi({this.responseMessages})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'completion-recorder',
+          name: 'Completion recorder',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'account-a',
+      );
+
+  /// When null, echoes the sent messages back like the server outlet handler.
+  final List<Map<String, dynamic>>? responseMessages;
+  List<Map<String, dynamic>>? capturedMessages;
+
+  @override
+  Future<Map<String, dynamic>?> sendChatCompleted({
+    required String chatId,
+    required String messageId,
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    Map<String, dynamic>? modelItem,
+    String? sessionId,
+    List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    capturedMessages = messages;
+    return {'messages': responseMessages ?? messages};
+  }
+}
+
+/// A callback log that mirrors the real notifier's buffering: streamed
+/// deltas are NOT visible in [messages] until [flushStreamingBuffer] runs.
+class _BufferedCallbackLog extends _CallbackLog {
+  final streamingBuffer = StringBuffer();
+
+  @override
+  void appendToLastMessage(String c) {
+    appendedChunks.add(c);
+    streamingBuffer.write(c);
+  }
+
+  @override
+  void flushStreamingBuffer() {
+    flushCount++;
+    if (streamingBuffer.isEmpty) return;
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final last = messages.last;
+      messages = [
+        ...messages.sublist(0, messages.length - 1),
+        last.copyWith(content: last.content + streamingBuffer.toString()),
+      ];
+    }
+    streamingBuffer.clear();
+  }
+}
+
 /// Adapter that optionally returns a canned poll response.
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter({this.pollResponse, this.pollResponses});
@@ -692,6 +750,104 @@ void main() {
         adapter.requestCount(method: 'POST', path: '/api/chat/completed'),
       ).equals(1);
     });
+
+    test(
+      'httpStream sends the fully flushed content to /api/chat/completed '
+      'and its echo does not truncate it',
+      () async {
+        final log = _BufferedCallbackLog();
+        final api = _RecordingChatCompletedApi();
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': 'Hello'},
+              },
+            ],
+          }),
+          _sseFrame({
+            'choices': [
+              {
+                'delta': {'content': ' world'},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // The streamed buffer must be folded into message state before the
+        // completed payload is built; a stale prefix here previously came
+        // back in the echo and truncated the message.
+        final assistantPayload = api.capturedMessages
+            ?.where((m) => m['id'] == 'msg-1')
+            .toList();
+        check(assistantPayload).isNotNull();
+        check(assistantPayload!.single['content']).equals('Hello world');
+        check(log.messages.last.content).equals('Hello world');
+      },
+    );
+
+    test(
+      'a completed echo carrying a stale prefix does not truncate content, '
+      'while a genuine outlet rewrite still applies',
+      () async {
+        Future<_BufferedCallbackLog> run(String echoContent) async {
+          final log = _BufferedCallbackLog();
+          final api = _RecordingChatCompletedApi(
+            responseMessages: [
+              {'id': 'msg-1', 'content': echoContent},
+            ],
+          );
+          final byteStream = Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'choices': [
+                {
+                  'delta': {'content': 'Hello world'},
+                },
+              ],
+            }),
+            _sseDone(),
+          ]);
+          _attach(
+            session: ChatCompletionSession.httpStream(
+              messageId: 'msg-1',
+              sessionId: 'sess-1',
+              byteStream: byteStream,
+              abort: () async {},
+            ),
+            log: log,
+            api: api,
+          );
+          await pumpMicrotasks();
+          await pumpMicrotasks();
+          await pumpMicrotasks();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          return log;
+        }
+
+        final stalePrefix = await run('Hello');
+        check(stalePrefix.messages.last.content).equals('Hello world');
+
+        final rewrite = await run('REWRITTEN BY OUTLET');
+        check(rewrite.messages.last.content).equals('REWRITTEN BY OUTLET');
+      },
+    );
 
     test('httpStream renders output-only structured snapshots', () async {
       final log = _CallbackLog();

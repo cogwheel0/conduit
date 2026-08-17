@@ -82,6 +82,41 @@ part 'chat_composer_providers.dart';
 part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
+/// Parses the Open WebUI `chat:message:follow_ups` socket envelope:
+/// `{chat_id, message_id, data: {type, data: {follow_ups: [...]}}}`.
+/// Returns null when the event is not a usable follow-ups push.
+@visibleForTesting
+({String messageId, List<String> followUps})?
+debugParseFollowUpsSocketEventForTesting(Map<String, dynamic> event) {
+  final data = event['data'];
+  if (data is! Map || data['type'] != 'chat:message:follow_ups') {
+    return null;
+  }
+  final messageId = (event['message_id'] ?? data['message_id'])?.toString();
+  if (messageId == null || messageId.isEmpty) {
+    return null;
+  }
+  final inner = data['data'];
+  final rawFollowUps = inner is Map
+      ? (inner['follow_ups'] ?? inner['followUps'])
+      : null;
+  if (rawFollowUps is! List) {
+    return null;
+  }
+  final followUps = <String>[
+    for (final item in rawFollowUps)
+      if (item != null && item.toString().trim().isNotEmpty)
+        item.toString().trim(),
+  ];
+  if (followUps.isEmpty) {
+    return null;
+  }
+  return (
+    messageId: messageId,
+    followUps: List<String>.unmodifiable(followUps),
+  );
+}
+
 final chatMessagesProvider =
     NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
       ChatMessagesNotifier.new,
@@ -2470,6 +2505,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
           return;
         }
+        // The server emits `chat:message:follow_ups` only AFTER
+        // `chat:completion {done:true}`, and the per-stream socket
+        // subscription is disposed synchronously by that done event — this
+        // passive handler is the only delivery path for follow-ups. Apply
+        // the payload directly: the debounced full refetch below races the
+        // server's own persistence of the suggestions (the event is emitted
+        // before the upsert) and can be rejected by adoption guards.
+        if (_applyPassiveFollowUpsEvent(event)) {
+          return;
+        }
         if (!_shouldRefreshFromPassiveSocketEvent(
           event,
           localSessionId: socket.sessionId,
@@ -2483,6 +2528,27 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
         );
       },
     );
+  }
+
+  /// Applies a pushed `chat:message:follow_ups` payload straight to the
+  /// target message. Returns true when the event was consumed.
+  bool _applyPassiveFollowUpsEvent(Map<String, dynamic> event) {
+    final parsed = debugParseFollowUpsSocketEventForTesting(event);
+    if (parsed == null) {
+      return false;
+    }
+    DebugLogger.log(
+      'follow-ups-received',
+      scope: 'chat/passive-sync',
+      data: {'messageId': parsed.messageId, 'count': parsed.followUps.length},
+    );
+    updateMessageById(parsed.messageId, (current) {
+      if (listEquals(current.followUps, parsed.followUps)) {
+        return current;
+      }
+      return current.copyWith(followUps: parsed.followUps);
+    });
+    return true;
   }
 
   List<ChatMessage> _preserveFreshLocalAssistantState(
