@@ -207,6 +207,27 @@ void main() {
     expect(split['fallbackReason'], 'referenceDefinitions');
   });
 
+  test('a definition-shaped line inside a details body does not force the '
+      'reference-definitions fallback', () {
+    // The parser lifts details bodies into a `body_markdown` attribute
+    // compiled as its own document, so a definition inside the body is not
+    // document-scoped and cannot couple frozen and mutable segments.
+    const content =
+        '<details type="reasoning" done="true">\n<summary>Thought'
+        '</summary>\n[d]: https://example.com\n</details>\n\nTail';
+
+    final split = debugSplitStreamingPreparedContentForTesting(content);
+
+    expect(
+      split['frozenPrefix'],
+      '<details type="reasoning" done="true">\n<summary>Thought'
+      '</summary>\n[d]: https://example.com\n</details>\n\n',
+    );
+    expect(split['mutableTail'], 'Tail');
+    expect(split['canIncrementallyCompile'], isTrue);
+    expect(split['fallbackReason'], isNull);
+  });
+
   test(
     'a closed details block with no unsafe lines still freezes normally',
     () {

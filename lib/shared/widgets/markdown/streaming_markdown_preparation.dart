@@ -16,6 +16,10 @@ String prepareMarkdownContentCanonical(
 }
 
 final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
+// Exactly the close the details parser recognizes; a looser match would
+// let the checkpoint think it left a details block the parser is still
+// inside, splitting prepared content mid-block.
+final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
 final _toolCallDetailsOpenPattern = RegExp(
   r'<details\b[^>]*type="tool_calls"[^>]*>',
   caseSensitive: false,
@@ -852,17 +856,12 @@ int _lastSafeRawBoundary(String input) {
     final line = input.substring(lineStart, lineEnd);
     final lower = line.toLowerCase();
 
-    detailsDepth += RegExp(
-      r'<details\b',
-      caseSensitive: false,
-    ).allMatches(line).length;
-    // Exactly the close the details parser recognizes; a looser match would
-    // let the checkpoint think it left a details block the parser is still
-    // inside, splitting prepared content mid-block.
-    detailsDepth -= RegExp(
-      r'</details>',
-      caseSensitive: false,
-    ).allMatches(line).length;
+    // Counting the partial `<details\b` (vs the parser's complete-tag
+    // count) can only overcount, which keeps content mutable longer —
+    // the safe direction for a checkpoint. This loop runs on the UI
+    // isolate during streamed flushes, so the patterns are hoisted.
+    detailsDepth += _detailsOpenPattern.allMatches(line).length;
+    detailsDepth -= _detailsClosePattern.allMatches(line).length;
     if (detailsDepth < 0) detailsDepth = 0;
 
     var index = 0;

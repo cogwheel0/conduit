@@ -242,6 +242,11 @@ final class StructuredOutputStreamingProjector {
   /// the response cannot be silently dropped.
   StructuredOutputStreamingReplace? syncProjectionToLatest() {
     if (_finished || !_hasLatestSnapshot) return null;
+    // Only the projector's own projections can be stale. When snapshots were
+    // merely observed (observe-only basis: the caller kept visible content
+    // that may be a superset of the snapshot render), materializing the
+    // snapshot here would SHRINK the visible content and drop that surplus.
+    if (!_hasProjection) return null;
     if (identical(_projectedBlocks, _latestBlocks) &&
         _projectedReplacementText == _latestReplacementText) {
       return null;

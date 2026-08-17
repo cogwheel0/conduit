@@ -1031,6 +1031,37 @@ void main() {
       check(projector.metrics.terminalRenderCount).equals(1);
     });
 
+    test('sync to latest bails when the projector never owned the visible '
+        'basis', () {
+      // The observe-only path keeps visible content that may be a strict
+      // superset of the snapshot render; materializing the snapshot here
+      // would shrink the visible content and drop that surplus.
+      final projector = StructuredOutputStreamingProjector();
+      projector.observeLatest([
+        const StructuredOutputTextBlock(text: 'snapshot'),
+      ]);
+
+      check(projector.syncProjectionToLatest()).isNull();
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('snapshot');
+    });
+
+    test('sync to latest still materializes a stale deferred projection', () {
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      // Grow past the projected content without crossing the re-render
+      // threshold so the latest snapshot stays deferred.
+      text.write('x');
+      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+
+      final synced = projector.syncProjectionToLatest();
+      check(synced).isNotNull();
+      check(synced!.content).equals(text.toString());
+    });
+
     test('forceReplace overrides an otherwise appendable update', () {
       final projector = StructuredOutputStreamingProjector();
       check(

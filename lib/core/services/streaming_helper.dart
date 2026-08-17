@@ -22,6 +22,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
+import '../utils/semantic_details.dart';
 import 'openwebui_stream_parser.dart';
 import 'performance_profiler.dart';
 import 'semantic_message_builder.dart';
@@ -39,6 +40,17 @@ Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 2);
 
 @visibleForTesting
 int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
+
+final _plainContentUnescape = HtmlUnescape();
+
+// Consumes only the wrapper's own trailing newline: the broader `\s*` used
+// by comparable-body stripping (see semantic_details.dart) would eat
+// whitespace belonging to the answer, such as the indentation of a leading
+// indented code block. That is why this deliberately does NOT share
+// stripRenderedSemanticDetails.
+final _plainWrapperDetailsPattern = RegExp(
+  r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\n?''',
+);
 
 /// Append-only text storage for transport streams.
 ///
@@ -797,19 +809,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Rendered content is HTML-escaped; the plain accumulator must hold the
   // UNESCAPED text, or the next full render escapes it a second time and the
   // user sees literal entities (`&amp;quot;` decoding once to `&quot;`).
-  final plainContentUnescape = HtmlUnescape();
   String initialPlainStreamingContent(String content) {
     var plain = content;
     if (plain.contains('<details')) {
-      // Consume only the wrapper's own trailing newline: broader \s* (plus a
-      // trim) would eat whitespace belonging to the answer, such as the
-      // indentation of a leading indented code block.
-      final semanticDetailsPattern = RegExp(
-        r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\n?''',
-      );
-      plain = plain.replaceAll(semanticDetailsPattern, '');
+      plain = plain.replaceAll(_plainWrapperDetailsPattern, '');
     }
-    return plain.contains('&') ? plainContentUnescape.convert(plain) : plain;
+    return plain.contains('&') ? _plainContentUnescape.convert(plain) : plain;
   }
 
   final renderedStreamingContent = _StreamingTextAccumulator(
@@ -921,7 +926,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (plainContent != null) {
       plainStreamingContent.replace(plainContent);
     } else if (!fromStructuredOutput) {
-      plainStreamingContent.replace(content);
+      // The plain accumulator holds UNESCAPED, details-stripped text; a
+      // cumulative `content` frame can carry middleware-embedded <details>
+      // wrappers that must not leak in verbatim, or a later snapshot merge
+      // re-escapes them into literal &lt;details… text.
+      plainStreamingContent.replace(initialPlainStreamingContent(content));
       seenStreamingToolCallKeys.clear();
     } else if (content.isEmpty) {
       plainStreamingContent.replace('');
@@ -930,25 +939,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (updateImages) {
       updateImagesFromCurrentContent();
     }
-  }
-
-  bool containsRenderedSemanticDetails(String content) {
-    if (!content.contains('<details')) {
-      return false;
-    }
-    return RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
-    ).hasMatch(content);
-  }
-
-  String stripRenderedSemanticDetails(String content) {
-    if (!content.contains('<details')) {
-      return content;
-    }
-    final semanticDetailsPattern = RegExp(
-      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-    );
-    return content.replaceAll(semanticDetailsPattern, '').trim();
   }
 
   void appendVisibleAssistantStructuredOutput(
@@ -2133,15 +2123,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           // before comparing — their attributes (reasoning duration, done
           // flags) differ between local and server renders and would defeat
           // the prefix check.
-          final localRecoveryBody = stripRenderedSemanticDetails(
+          final keepLocalContent = serverBodyTruncatesLocal(
             current.content,
-          );
-          final serverRecoveryBody = stripRenderedSemanticDetails(
             assistant.content,
           );
-          final keepLocalContent =
-              serverRecoveryBody.length < localRecoveryBody.length &&
-              localRecoveryBody.startsWith(serverRecoveryBody);
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -2776,8 +2761,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final currentBody = stripRenderedSemanticDetails(current.content);
             final newBody = stripRenderedSemanticDetails(newContent);
             if (newBody == currentBody) return current;
-            if (newBody.length < currentBody.length &&
-                currentBody.startsWith(newBody)) {
+            if (isStaleServerPrefix(
+              localBody: currentBody,
+              serverBody: newBody,
+            )) {
               return current;
             }
             // Preserve original content before filter modification
@@ -3239,13 +3226,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             // adopting it would rebase later deltas onto a shortened buffer.
             // Rendered semantic <details> wrappers are stripped before the
             // comparison; their attributes differ between renders.
-            final currentBody = stripRenderedSemanticDetails(
+            final isStalePrefix = serverBodyTruncatesLocal(
               renderedStreamingContent.value,
+              raw,
             );
-            final rawBody = stripRenderedSemanticDetails(raw);
-            final isStalePrefix =
-                rawBody.length < currentBody.length &&
-                currentBody.startsWith(rawBody);
             if (raw.isNotEmpty && !isStalePrefix) {
               replaceVisibleAssistantContent(raw);
             }

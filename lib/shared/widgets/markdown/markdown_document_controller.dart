@@ -978,9 +978,9 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
       if (detailsDepth < 0) {
         detailsDepth = 0;
       }
-      if (_streamingReferenceDefinitionPattern.hasMatch(candidate)) {
-        return (offset: line.start, isReferenceDefinition: true);
-      }
+      // Definition-shaped lines inside a details body are not document-scoped:
+      // the parser lifts the body into a `body_markdown` attribute compiled as
+      // its own document, so they cannot couple frozen and mutable segments.
       continue;
     }
 

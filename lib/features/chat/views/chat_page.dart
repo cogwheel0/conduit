@@ -162,8 +162,7 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 // A 120 px streaming cache extent evicted rows almost immediately when
 // scrolling up mid-stream; remounting a settled row runs a synchronous
 // markdown compile, so the small extent bought hitches, not savings.
-@visibleForTesting
-double debugChatMessageScrollCachePixels({required bool streaming}) => 600.0;
+const double _chatMessageScrollCachePixels = 600.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -2742,7 +2741,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       topContentInset: topPadding,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
-      cacheExtent: debugChatMessageScrollCachePixels(streaming: isStreaming),
+      cacheExtent: _chatMessageScrollCachePixels,
       physics: platformAlwaysScrollablePhysics(context),
       isLoadingOlder: paging.isLoadingOlder,
       maintainVisibleAnchor:
@@ -3034,7 +3033,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 chatMessageByIdProvider(messageId),
               );
               if (currentMessage != null) {
-                _copyMessage(currentMessage.content);
+                // User content is stored raw (never presentation-escaped) and
+                // owns its markup; copy it verbatim — the assistant clipboard
+                // sanitizer would decode entities the user actually typed.
+                Clipboard.setData(ClipboardData(text: currentMessage.content));
               }
             },
             onDelete: () {

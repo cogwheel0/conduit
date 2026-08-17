@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/core/utils/semantic_details.dart';
+import 'package:conduit/features/chat/utils/follow_ups_socket_event.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -14,18 +15,16 @@ void main() {
         '<summary>Thought for 7 seconds</summary>\nthinking\n</details>\n'
         'The answer body.';
 
-    check(debugComparableAssistantBodyForTesting(localRender))
-        .equals(debugComparableAssistantBodyForTesting(serverRender));
-    check(debugComparableAssistantBodyForTesting(localRender))
-        .equals('The answer body.');
+    check(comparableAssistantBody(localRender))
+        .equals(comparableAssistantBody(serverRender));
+    check(comparableAssistantBody(localRender)).equals('The answer body.');
     // Ordinary user-authored details blocks are content and must survive.
     const plainDetails = '<details><summary>FAQ</summary>body</details>';
-    check(debugComparableAssistantBodyForTesting(plainDetails))
-        .equals(plainDetails);
+    check(comparableAssistantBody(plainDetails)).equals(plainDetails);
   });
 
   test('parses the server follow-ups envelope', () {
-    final parsed = debugParseFollowUpsSocketEventForTesting({
+    final parsed = parseFollowUpsSocketEvent({
       'chat_id': 'chat-1',
       'message_id': 'msg-1',
       'data': {
@@ -42,7 +41,7 @@ void main() {
   });
 
   test('accepts camelCase payload key and nested message_id', () {
-    final parsed = debugParseFollowUpsSocketEventForTesting({
+    final parsed = parseFollowUpsSocketEvent({
       'data': {
         'type': 'chat:message:follow_ups',
         'message_id': 'msg-2',
@@ -59,7 +58,7 @@ void main() {
 
   test('rejects other event types, missing ids, and empty lists', () {
     check(
-      debugParseFollowUpsSocketEventForTesting({
+      parseFollowUpsSocketEvent({
         'message_id': 'msg-1',
         'data': {
           'type': 'chat:title',
@@ -70,7 +69,7 @@ void main() {
       }),
     ).isNull();
     check(
-      debugParseFollowUpsSocketEventForTesting({
+      parseFollowUpsSocketEvent({
         'data': {
           'type': 'chat:message:follow_ups',
           'data': {
@@ -80,7 +79,7 @@ void main() {
       }),
     ).isNull();
     check(
-      debugParseFollowUpsSocketEventForTesting({
+      parseFollowUpsSocketEvent({
         'message_id': 'msg-1',
         'data': {
           'type': 'chat:message:follow_ups',

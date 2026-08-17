@@ -53,7 +53,10 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
+import '../../../core/utils/openwebui_message_payload.dart';
+import '../../../core/utils/semantic_details.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../utils/follow_ups_socket_event.dart';
 import '../../hermes/models/hermes_chat_input.dart';
 import '../../hermes/models/hermes_capabilities.dart';
 import '../../hermes/models/hermes_config.dart';
@@ -82,65 +85,6 @@ part 'chat_composer_providers.dart';
 part 'chat_providers.g.dart';
 
 // Chat messages for current conversation
-/// The message body with rendered semantic `<details>` blocks removed, for
-/// content comparisons between local and server renders of the same turn.
-/// Their attributes (reasoning duration, done flags) differ between renders
-/// and would defeat prefix/length checks on otherwise identical answers.
-final RegExp _semanticDetailsBlockPattern = RegExp(
-  r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
-);
-
-String _comparableAssistantBody(String content) {
-  if (!content.contains('<details')) {
-    return content.trim();
-  }
-  return content.replaceAll(_semanticDetailsBlockPattern, '').trim();
-}
-
-@visibleForTesting
-String debugComparableAssistantBodyForTesting(String content) =>
-    _comparableAssistantBody(content);
-
-/// Parses the Open WebUI `chat:message:follow_ups` socket envelope:
-/// `{chat_id, message_id, data: {type, data: {follow_ups: [...]}}}`.
-/// Returns null when the event is not a usable follow-ups push.
-@visibleForTesting
-({String messageId, List<String> followUps})?
-debugParseFollowUpsSocketEventForTesting(Map<String, dynamic> event) =>
-    _parseFollowUpsSocketEvent(event);
-
-({String messageId, List<String> followUps})? _parseFollowUpsSocketEvent(
-  Map<String, dynamic> event,
-) {
-  final data = event['data'];
-  if (data is! Map || data['type'] != 'chat:message:follow_ups') {
-    return null;
-  }
-  final messageId = (event['message_id'] ?? data['message_id'])?.toString();
-  if (messageId == null || messageId.isEmpty) {
-    return null;
-  }
-  final inner = data['data'];
-  final rawFollowUps = inner is Map
-      ? (inner['follow_ups'] ?? inner['followUps'])
-      : null;
-  if (rawFollowUps is! List) {
-    return null;
-  }
-  final followUps = <String>[
-    for (final item in rawFollowUps)
-      if (item != null && item.toString().trim().isNotEmpty)
-        item.toString().trim(),
-  ];
-  if (followUps.isEmpty) {
-    return null;
-  }
-  return (
-    messageId: messageId,
-    followUps: List<String>.unmodifiable(followUps),
-  );
-}
-
 final chatMessagesProvider =
     NotifierProvider<ChatMessagesNotifier, List<ChatMessage>>(
       ChatMessagesNotifier.new,
@@ -2557,7 +2501,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
   /// Applies a pushed `chat:message:follow_ups` payload straight to the
   /// target message. Returns true when the event was consumed.
   bool _applyPassiveFollowUpsEvent(Map<String, dynamic> event) {
-    final parsed = _parseFollowUpsSocketEvent(event);
+    final parsed = parseFollowUpsSocketEvent(event);
     if (parsed == null) {
       return false;
     }
@@ -2583,7 +2527,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     // The turn echo was persisted at completion, before this event fired.
     // Re-persist the message so the suggestions survive a conversation
     // switch (the local Drift copy would otherwise reload without them).
-    _persistCompletedTurnForMessage(messageIndex);
+    // Re-resolve the index: updateMessageById rebuilt the list above.
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == parsed.messageId),
+    );
     return true;
   }
 
@@ -3293,8 +3240,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     // vs the server's real duration), which would otherwise defeat both the
     // length and the prefix checks and let a mid-write server body replace a
     // complete local answer on every reasoning turn.
-    final localContent = _comparableAssistantBody(localMessage.content);
-    final serverContent = _comparableAssistantBody(serverMessage.content);
+    final localContent = comparableAssistantBody(localMessage.content);
+    final serverContent = comparableAssistantBody(serverMessage.content);
     if (localContent.isEmpty) {
       return localMessage.content.trim().isNotEmpty &&
           serverMessage.content.trim().isEmpty;
@@ -6254,8 +6201,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
           chatId: chatId,
           user: trailingUser == null
               ? null
-              : _localEchoRow(chatId, trailingUser),
-          assistant: _localEchoRow(chatId, assistant),
+              : localEchoRowForMessage(chatId, trailingUser),
+          assistant: localEchoRowForMessage(chatId, assistant),
         );
       });
     } catch (error, stackTrace) {
@@ -6277,71 +6224,75 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
     return null;
   }
+}
 
-  /// History-message shape for the local turn echo.
-  ///
-  /// The `parentId` written here is only a placeholder for the payload map:
-  /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
-  /// rewriting both the row and `payload['parentId']` to the branch tip.
-  ///
-  /// The payload must carry every durable server-shape field the message has:
-  /// the sync outbox rebuilds the full chat blob from these rows and the
-  /// server's merge replaces each message object wholesale, so any field
-  /// omitted here (`output`, `sources`, `usage`, …) would be wiped from the
-  /// server copy on the next push.
-  MessageRowData _localEchoRow(String chatId, ChatMessage message) {
-    final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
-    final resolvedParentId = message_tree.chatMessageParentId(message);
-    final childrenIds = message_tree
-        .chatMessageChildrenIds(message)
-        .toList(growable: false);
-    return MessageRowData(
-      id: message.id,
-      chatId: chatId,
-      parentId: resolvedParentId,
-      role: message.role,
-      content: message.content,
-      model: message.model,
-      createdAt: timestamp,
-      // Recomputed by upsertLocalEcho for new rows.
-      orderIndex: 0,
-      payload: <String, dynamic>{
-        'id': message.id,
-        'parentId': resolvedParentId,
-        'childrenIds': childrenIds,
-        'role': message.role,
-        'content': message.content,
-        'timestamp': timestamp,
-        'isStreaming': message.isStreaming,
-        if (message.role == 'assistant' && !message.isStreaming) 'done': true,
-        if (message.model != null) 'model': message.model,
-        if (message.metadata != null && message.metadata!.isNotEmpty)
-          'metadata': message.metadata,
-        if (message.output != null && message.output!.isNotEmpty)
-          'output': message.output,
-        if (message.files != null && message.files!.isNotEmpty)
-          'files': message.files,
-        if (message.embeds != null && message.embeds!.isNotEmpty)
-          'embeds': message.embeds,
-        if (message.usage != null) 'usage': message.usage,
-        if (message.sources.isNotEmpty)
-          'sources': message.sources
-              .map((source) => source.toJson())
-              .toList(growable: false),
-        if (message.statusHistory.isNotEmpty)
-          'statusHistory': message.statusHistory
-              .map((status) => status.toJson())
-              .toList(growable: false),
-        if (message.codeExecutions.isNotEmpty)
-          'codeExecutions': message.codeExecutions
-              .map((execution) => execution.toJson())
-              .toList(growable: false),
-        if (message.followUps.isNotEmpty)
-          'followUps': List<String>.from(message.followUps),
-        if (message.error != null) 'error': message.error!.toJson(),
-      },
-    );
-  }
+/// History-message shape for the local turn echo.
+///
+/// Top-level (rather than a notifier method) so tests can pin payload
+/// completeness against the ChatMessage model.
+///
+/// The `parentId` written here is only a placeholder for the payload map:
+/// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
+/// rewriting both the row and `payload['parentId']` to the branch tip.
+///
+/// The payload must carry every durable server-shape field the message has:
+/// the sync outbox rebuilds the full chat blob from these rows and the
+/// server's merge replaces each message object wholesale, so any field
+/// omitted here (`output`, `sources`, `usage`, …) would be wiped from the
+/// server copy on the next push.
+MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
+  final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
+  final resolvedParentId = message_tree.chatMessageParentId(message);
+  final childrenIds = message_tree
+      .chatMessageChildrenIds(message)
+      .toList(growable: false);
+  final sanitizedFiles = sanitizeFilesForWebUi(message.files);
+  return MessageRowData(
+    id: message.id,
+    chatId: chatId,
+    parentId: resolvedParentId,
+    role: message.role,
+    content: message.content,
+    model: message.model,
+    createdAt: timestamp,
+    // Recomputed by upsertLocalEcho for new rows.
+    orderIndex: 0,
+    payload: <String, dynamic>{
+      'id': message.id,
+      'parentId': resolvedParentId,
+      'childrenIds': childrenIds,
+      'role': message.role,
+      'content': message.content,
+      'timestamp': timestamp,
+      'isStreaming': message.isStreaming,
+      if (message.role == 'assistant' && !message.isStreaming) 'done': true,
+      if (message.model != null) 'model': message.model,
+      if (message.metadata != null && message.metadata!.isNotEmpty)
+        'metadata': message.metadata,
+      if (message.output != null && message.output!.isNotEmpty)
+        'output': message.output,
+      'files': ?sanitizedFiles,
+      if (message.embeds != null && message.embeds!.isNotEmpty)
+        'embeds': message.embeds,
+      if (message.usage != null) 'usage': message.usage,
+      // The OWUI web client reads `sources` in citation shape and
+      // `code_executions` in snake_case; the local parser accepts both
+      // shapes, so the server shape is the only safe one to persist.
+      if (message.sources.isNotEmpty)
+        'sources': convertSourcesToOpenWebUIFormat(message.sources),
+      if (message.statusHistory.isNotEmpty)
+        'statusHistory': message.statusHistory
+            .map((status) => status.toJson())
+            .toList(growable: false),
+      if (message.codeExecutions.isNotEmpty)
+        'code_executions': convertCodeExecutionsToOpenWebUIFormat(
+          message.codeExecutions,
+        ),
+      if (message.followUps.isNotEmpty)
+        'followUps': List<String>.from(message.followUps),
+      if (message.error != null) 'error': message.error!.toJson(),
+    },
+  );
 }
 
 bool _shouldIncludeConversationHistoryMessage(ChatMessage message) {
@@ -14705,7 +14656,8 @@ Map<String, dynamic> _directPersistedMessagePayload(
     if (metadata['modelName'] != null) 'modelName': metadata['modelName'],
     if (message.attachmentIds?.isNotEmpty == true)
       'attachment_ids': List<String>.from(message.attachmentIds!),
-    if (message.files != null) 'files': message.files,
+    if (sanitizeFilesForWebUi(message.files) != null)
+      'files': sanitizeFilesForWebUi(message.files),
     if (message.output != null) 'output': message.output,
     if (message.embeds != null) 'embeds': message.embeds,
     if (message.statusHistory.isNotEmpty)
@@ -14715,13 +14667,11 @@ Map<String, dynamic> _directPersistedMessagePayload(
     if (message.followUps.isNotEmpty)
       'followUps': List<String>.from(message.followUps),
     if (message.codeExecutions.isNotEmpty)
-      'code_executions': message.codeExecutions
-          .map((execution) => execution.toJson())
-          .toList(growable: false),
+      'code_executions': convertCodeExecutionsToOpenWebUIFormat(
+        message.codeExecutions,
+      ),
     if (message.sources.isNotEmpty)
-      'sources': message.sources
-          .map((source) => source.toJson())
-          .toList(growable: false),
+      'sources': convertSourcesToOpenWebUIFormat(message.sources),
     if (message.usage != null) 'usage': message.usage,
     if (message.versions.isNotEmpty)
       'versions': message.versions
