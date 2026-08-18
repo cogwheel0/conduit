@@ -257,21 +257,21 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AccessibleFormField(
-            label: 'Header name',
+            label: l10n.headerName,
             controller: _headerName,
             autocorrect: false,
             errorText: _headerError,
           ),
           const SizedBox(height: Spacing.sm),
           AccessibleFormField(
-            label: 'Header value',
+            label: l10n.headerValue,
             controller: _headerValue,
             obscureText: true,
             autocorrect: false,
           ),
           const SizedBox(height: Spacing.sm),
           ConduitButton(
-            text: 'Add header',
+            text: l10n.addHeader,
             isSecondary: true,
             onPressed:
                 _controller.accessHeaders.length >=
@@ -285,7 +285,7 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
               subtitle: '••••••',
               trailing: ConduitIconButton(
                 icon: Icons.close,
-                tooltip: 'Remove header',
+                tooltip: l10n.removeHeader,
                 onPressed: () => _removeAccessHeader(entry.key),
                 isCompact: true,
               ),

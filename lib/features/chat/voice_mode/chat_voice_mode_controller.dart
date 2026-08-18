@@ -809,6 +809,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           break;
         case TtsError(:final message):
           state = state.copyWith(errorMessage: message);
+          // Failed speech still ends the assistant turn. Without this the
+          // recognizer stopped for playback is never restarted, leaving voice
+          // mode active with no way to accept the next utterance.
+          if (_awaitingAssistant) {
+            _assistantFinalized = true;
+            unawaited(_resumeAfterAssistantSpeech(token));
+          }
         case TtsPaused():
         case TtsResumed():
           break;

@@ -51,8 +51,7 @@ final class _RiverpodHermesConnectionGateway
           mode: draft.config.mode,
           desktopAuthKind: draft.config.desktopAuthKind,
           desktopProfile: draft.config.desktopProfile,
-          allowSelfSignedCertificates:
-              draft.config.allowSelfSignedCertificates,
+          allowSelfSignedCertificates: draft.config.allowSelfSignedCertificates,
           apiKeyChanged: draft.apiKeyChanged,
           apiKey: draft.config.apiKey,
           sessionKeyChanged: draft.sessionKeyChanged,

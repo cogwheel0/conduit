@@ -373,7 +373,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
           modeChanged ||
           authKindChanged ||
           profileChanged;
-      final serviceWillRotate = state.baseUrl != trimmedUrl || identityChanged;
+      // A trust change rebuilds the transport without touching credentials, so
+      // it is not an identity change, but active runs still hold the old
+      // client and must be cancelled before the service rotates.
+      final trustChanged =
+          nextAllowSelfSigned != state.allowSelfSignedCertificates;
+      final serviceWillRotate =
+          state.baseUrl != trimmedUrl || identityChanged || trustChanged;
       final previousCredentials = _HermesCredentialSnapshot.fromConfig(state);
       var nextApiKey = previousCredentials.apiKey;
       var nextSessionKey = previousCredentials.sessionKey;

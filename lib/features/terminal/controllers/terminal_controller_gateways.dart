@@ -163,8 +163,10 @@ final class DefaultTerminalBrowserPlatformGateway
 
   @override
   Future<void> saveDownload(TerminalDownloadedFile downloaded) async {
+    // The name comes from the server's Content-Disposition header, so it must
+    // not be able to steer the save location with separators or traversal.
     await FilePicker.saveFile(
-      fileName: downloaded.fileName,
+      fileName: _safeFileName(downloaded.fileName),
       bytes: downloaded.bytes,
     );
   }
@@ -186,11 +188,13 @@ final class DefaultTerminalBrowserPlatformGateway
     );
   }
 
+  static String _safeFileName(String fileName) => fileName.isEmpty
+      ? 'terminal_file_${DateTime.now().millisecondsSinceEpoch}'
+      : fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
+
   Future<File> _materializeTempFile(String fileName, List<int> bytes) async {
     final tempDir = await getTemporaryDirectory();
-    final safeName = fileName.isEmpty
-        ? 'terminal_file_${DateTime.now().millisecondsSinceEpoch}'
-        : fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
+    final safeName = _safeFileName(fileName);
     final file = File(p.join(tempDir.path, safeName));
     await file.writeAsBytes(bytes, flush: true);
     return file;

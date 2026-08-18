@@ -12,12 +12,11 @@ import 'hermes_json_guard.dart';
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;
 const int kMaxHermesDesktopFrameCharacters = 2 * 1024 * 1024;
 
-typedef HermesDesktopChannelFactory =
-    WebSocketChannel Function(
-      Uri uri,
-      Map<String, String> headers, {
-      HttpClient? httpClient,
-    });
+typedef HermesDesktopChannelFactory = WebSocketChannel Function(
+  Uri uri,
+  Map<String, String> headers, {
+  HttpClient? httpClient,
+});
 
 final class HermesDesktopRpcException implements Exception {
   const HermesDesktopRpcException(
