@@ -161,4 +161,59 @@ void main() {
       check(records.single.runtimeId).equals('runtime-new');
     },
   );
+
+  test('a rebind keeps the owning bot profile', () async {
+    // Resuming a compacted session rebinds its stored id. Dropping the profile
+    // here would make the rebound decision answer under the connection
+    // profile after the session lineage moves.
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-old',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.approval,
+      profile: 'researcher',
+    );
+
+    await HermesPendingDecisionStore.rebindSession(
+      origin: 'https://hermes.example:443',
+      fromStoredSessionId: 'stored-old',
+      toStoredSessionId: 'stored-new',
+      runtimeId: 'runtime-2',
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-new',
+    );
+    check(records).length.equals(1);
+    check(records.single.profile).equals('researcher');
+    check(records.single.runtimeId).equals('runtime-2');
+  });
+
+  test('an update without a profile keeps the recorded one', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      profile: 'researcher',
+    );
+    // A later refresh that does not know the profile must not reset it.
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      prompt: 'Which one?',
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records.single.profile).equals('researcher');
+  });
 }

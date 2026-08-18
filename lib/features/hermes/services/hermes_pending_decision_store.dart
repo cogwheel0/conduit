@@ -265,6 +265,9 @@ final class HermesPendingDecisionStore {
               mcpAction: record.mcpAction,
               choices: record.choices,
               multiSelect: record.multiSelect,
+              // A rebind (compaction lineage) must not drop the owning bot
+              // profile, or the rebound decision answers under the connection.
+              profile: record.profile,
             )
           : record;
       rebound.removeWhere(
