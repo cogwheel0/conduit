@@ -3097,6 +3097,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
       modelName: rowMetadata.displayModelName,
       modelIconUrl: rowMetadata.modelIconUrl,
+      showModelHeader: rowMetadata.showModelHeader,
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
@@ -4181,6 +4182,26 @@ List<({bool hasUserBelow, bool hasAssistantBelow})> _buildChatBubbleAdjacency(
   return result;
 }
 
+/// Whether an assistant row continues the response above it and so must not
+/// repeat the avatar + model name.
+///
+/// [openGroupModelName] is the display model of the response currently being
+/// grouped, or null when the row above was a user turn (or nothing). A
+/// null/blank model name never groups — unknown identity is not evidence of a
+/// shared speaker.
+@visibleForTesting
+bool debugAssistantRowContinuesGroupForTesting({
+  required String? openGroupModelName,
+  required String? displayModelName,
+}) {
+  final name = displayModelName?.trim();
+  final open = openGroupModelName?.trim();
+  if (name == null || name.isEmpty || open == null || open.isEmpty) {
+    return false;
+  }
+  return name == open;
+}
+
 @immutable
 class _ChatRowLayoutMetadata {
   const _ChatRowLayoutMetadata({
@@ -4192,6 +4213,7 @@ class _ChatRowLayoutMetadata {
     required this.isArchivedVariant,
     required this.replacesArchivedAssistant,
     required this.showFollowUps,
+    required this.showModelHeader,
   });
 
   final String messageId;
@@ -4202,6 +4224,14 @@ class _ChatRowLayoutMetadata {
   final bool isArchivedVariant;
   final bool replacesArchivedAssistant;
   final bool showFollowUps;
+
+  /// Whether this assistant row paints its own avatar + model name.
+  ///
+  /// A single Hermes turn lands as several assistant messages, which would
+  /// otherwise repeat the same identity header down the transcript. Runs of
+  /// consecutive assistant rows sharing one model present as one grouped
+  /// response, with only the first row carrying the header.
+  final bool showModelHeader;
 }
 
 @immutable
@@ -4386,6 +4416,10 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   final bubbleAdjacency = _buildChatBubbleAdjacency(messages);
   final rows = <_ChatRowLayoutMetadata>[];
   final indexByMessageId = <String, int>{};
+  // Display model of the assistant response currently being grouped; null once
+  // a user turn closes it. Archived variants render as zero-size placeholders,
+  // so they leave the open group untouched instead of re-showing a header.
+  String? openGroupModelName;
 
   for (var index = 0; index < messages.length; index++) {
     final message = messages[index];
@@ -4421,6 +4455,18 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
         !isUser && (message.metadata?['archivedVariant'] == true);
     final showFollowUps =
         !isUser && !adjacency.hasUserBelow && !adjacency.hasAssistantBelow;
+    final showModelHeader =
+        !isUser &&
+        !isArchivedVariant &&
+        !debugAssistantRowContinuesGroupForTesting(
+          openGroupModelName: openGroupModelName,
+          displayModelName: modelPresentation.displayName,
+        );
+    if (isUser) {
+      openGroupModelName = null;
+    } else if (!isArchivedVariant) {
+      openGroupModelName = modelPresentation.displayName;
+    }
 
     rows.add(
       _ChatRowLayoutMetadata(
@@ -4433,6 +4479,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
         versionModelNames: List<String?>.unmodifiable(versionModelNames),
         versionModelIconUrls: List<String?>.unmodifiable(versionModelIconUrls),
         isArchivedVariant: isArchivedVariant,
+        showModelHeader: showModelHeader,
         replacesArchivedAssistant:
             !isUser &&
             index > 0 &&

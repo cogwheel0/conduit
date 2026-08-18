@@ -67,6 +67,12 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool animateOnMount;
   final String? modelName;
   final String? modelIconUrl;
+
+  /// Whether to paint the avatar + model name above this response.
+  ///
+  /// False for a row that continues the response above it (a Hermes turn can
+  /// emit several assistant messages), so one logical answer shows one header.
+  final bool showModelHeader;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
   final bool suppressStreamingHaptics;
@@ -91,6 +97,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.animateOnMount = true,
     this.modelName,
     this.modelIconUrl,
+    this.showModelHeader = true,
     this.versionModelNames = const <String?>[],
     this.versionModelIconUrls = const <String?>[],
     this.suppressStreamingHaptics = false,
@@ -322,6 +329,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Rebuild cached avatar if model name or icon changes
     if (messageChanged ||
+        oldWidget.showModelHeader != widget.showModelHeader ||
         oldWidget.modelName != widget.modelName ||
         oldWidget.modelIconUrl != widget.modelIconUrl ||
         oldWidget.versionModelNames != widget.versionModelNames ||
@@ -779,6 +787,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final theme = context.conduitTheme;
     final modelName = _resolveActiveModelName();
     final iconUrl = _resolveActiveModelIconUrl();
+    if (!widget.showModelHeader) {
+      // Grouped continuation: the response above already named this model.
+      _cachedAvatar = null;
+      _cachedAvatarModelName = modelName;
+      _cachedAvatarIconUrl = iconUrl;
+      return;
+    }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
         _cachedAvatarIconUrl == iconUrl) {
