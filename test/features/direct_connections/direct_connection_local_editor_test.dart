@@ -301,11 +301,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.text('Delete connection'),
+      find.text('Delete'),
       500,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Delete connection'));
+    await tester.tap(find.text('Delete'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -323,7 +323,7 @@ void main() {
     final delete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
         (widget) =>
-            widget is ConduitButton && widget.text == 'Delete connection',
+            widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(save.onPressed, isNull);
@@ -336,7 +336,7 @@ void main() {
     final restoredDelete = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
         (widget) =>
-            widget is ConduitButton && widget.text == 'Delete connection',
+            widget is ConduitButton && widget.text == 'Delete',
       ),
     );
     expect(restoredDelete.isLoading, isFalse);
@@ -404,11 +404,11 @@ void main() {
     );
 
     await tester.scrollUntilVisible(
-      find.text('Delete connection'),
+      find.text('Delete'),
       500,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Delete connection'));
+    await tester.tap(find.text('Delete'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -474,11 +474,11 @@ void main() {
     );
 
     await tester.scrollUntilVisible(
-      find.text('Delete connection'),
+      find.text('Delete'),
       500,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Delete connection'));
+    await tester.tap(find.text('Delete'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('Delete'));
@@ -533,11 +533,11 @@ void main() {
       );
 
       await tester.scrollUntilVisible(
-        find.text('Delete connection'),
+        find.text('Delete'),
         500,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('Delete connection'));
+      await tester.tap(find.text('Delete'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('Delete'));

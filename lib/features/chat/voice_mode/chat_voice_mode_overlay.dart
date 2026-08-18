@@ -170,6 +170,20 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                 ),
                 const SizedBox(width: Spacing.sm),
                 _CircleAction(
+                  tooltip: snapshot.isSpeakerphoneEnabled
+                      ? l10n.voiceCallSpeakerOff
+                      : l10n.voiceCallSpeakerOn,
+                  icon: snapshot.isSpeakerphoneEnabled
+                      ? (Platform.isIOS
+                            ? CupertinoIcons.speaker_3_fill
+                            : Icons.volume_up_rounded)
+                      : (Platform.isIOS
+                            ? CupertinoIcons.speaker_1
+                            : Icons.volume_down_rounded),
+                  onPressed: controller.toggleSpeakerphone,
+                ),
+                const SizedBox(width: Spacing.sm),
+                _CircleAction(
                   tooltip: snapshot.canResume
                       ? l10n.voiceCallResume
                       : l10n.voiceCallPause,

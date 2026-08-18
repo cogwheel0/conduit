@@ -14,8 +14,9 @@ const int kMaxHermesDesktopFrameCharacters = 2 * 1024 * 1024;
 
 typedef HermesDesktopChannelFactory = WebSocketChannel Function(
   Uri uri,
-  Map<String, String> headers,
-);
+  Map<String, String> headers, {
+  HttpClient? httpClient,
+});
 
 final class HermesDesktopRpcException implements Exception {
   const HermesDesktopRpcException(
@@ -151,9 +152,10 @@ final class HermesDesktopRpcClient {
 
   static WebSocketChannel _connectChannel(
     Uri uri,
-    Map<String, String> headers,
-  ) {
-    final client = _NoRedirectHttpClient(HttpClient());
+    Map<String, String> headers, {
+    HttpClient? httpClient,
+  }) {
+    final client = _NoRedirectHttpClient(httpClient ?? HttpClient());
     final socket = WebSocket.connect(
       uri.toString(),
       headers: headers,
@@ -169,10 +171,11 @@ final class HermesDesktopRpcClient {
   Future<void> connect(
     Uri uri, {
     Map<String, String> headers = const {},
+    HttpClient? httpClient,
   }) async {
     await disconnect();
     final generation = ++_socketGeneration;
-    final channel = _channelFactory(uri, headers);
+    final channel = _channelFactory(uri, headers, httpClient: httpClient);
     _channel = channel;
     _ready = false;
     final ready = Completer<void>();

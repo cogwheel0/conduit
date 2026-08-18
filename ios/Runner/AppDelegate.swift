@@ -269,6 +269,9 @@ final class VoiceAudioRouteBridge {
                 result(self.preferBluetoothHfpInput())
             case "clearPreferredInput":
                 result(self.clearPreferredInput())
+            case "setSpeakerphoneEnabled":
+                let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+                result(self.setSpeakerphoneEnabled(enabled))
             case "currentRoute":
                 result(self.currentRoutePayload(operation: "currentRoute"))
             default:
@@ -319,6 +322,21 @@ final class VoiceAudioRouteBridge {
         } catch {
             var payload = currentRoutePayload(operation: "clearPreferredInput")
             payload["cleared"] = false
+            payload["error"] = error.localizedDescription
+            return payload
+        }
+    }
+
+    private func setSpeakerphoneEnabled(_ enabled: Bool) -> [String: Any] {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.overrideOutputAudioPort(enabled ? .speaker : .none)
+            var payload = currentRoutePayload(operation: "setSpeakerphoneEnabled")
+            payload["enabled"] = enabled
+            return payload
+        } catch {
+            var payload = currentRoutePayload(operation: "setSpeakerphoneEnabled")
+            payload["enabled"] = enabled
             payload["error"] = error.localizedDescription
             return payload
         }

@@ -13,6 +13,7 @@ final class PreferenceKeys {
   static const String voiceLocaleId = 'voice_locale_id';
   static const String voiceHoldToTalk = 'voice_hold_to_talk';
   static const String voiceAutoSendFinal = 'voice_auto_send_final';
+  static const String voiceBargeInEnabled = 'voice_barge_in_enabled';
   static const String voiceSttPreference = 'voice_stt_preference';
   static const String voiceSttLanguageCode = 'voice_stt_language_code';
   static const String socketTransportMode = 'socket_transport_mode';
@@ -69,6 +70,8 @@ final class PreferenceKeys {
   static const String hermesBackendMode = 'hermes_backend_mode_v1';
   static const String hermesDesktopAuthKind = 'hermes_desktop_auth_kind_v1';
   static const String hermesDesktopProfile = 'hermes_desktop_profile_v1';
+  static const String hermesAllowSelfSignedCertificates =
+      'hermes_allow_self_signed_certificates_v1';
   static const String hermesLocalDocumentTrust =
       'hermes_local_document_trust_v1';
   static const String hermesLocalDocumentTrustPrincipal =

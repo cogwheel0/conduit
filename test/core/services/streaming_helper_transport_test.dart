@@ -417,6 +417,7 @@ ActiveChatStream _attach({
   ApiAuthSnapshot? chatCompletedAuthSnapshot,
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
   void Function(String Function())? bufferProgressiveLastMessageSnapshot,
+  void Function(String path)? onTerminalDisplayFile,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -446,6 +447,7 @@ ActiveChatStream _attach({
     flushStreamingBuffer: flushStreamingBuffer ?? log.flushStreamingBuffer,
     ownsStreamContext: ownsStreamContext,
     pullChatSnapshot: pullChatSnapshot,
+    onTerminalDisplayFile: onTerminalDisplayFile,
   );
 }
 
@@ -589,6 +591,32 @@ class _MockSocketService implements SocketService {
 
 void main() {
   group('attachUnifiedChunkedStreaming transport dispatch', () {
+    test('terminal display_file events surface the requested path', () {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final displayedPaths = <String>[];
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+        onTerminalDisplayFile: displayedPaths.add,
+      );
+
+      registrar.emitChatEvent(
+        'terminal:display_file',
+        const <String, dynamic>{'path': '/tmp/result.png'},
+        messageId: 'msg-1',
+        sessionId: 'sess-1',
+      );
+
+      check(displayedPaths).deepEquals(<String>['/tmp/result.png']);
+    });
+
     test(
       'socket replay gaps request an authoritative conversation snapshot',
       () async {

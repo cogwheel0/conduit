@@ -236,7 +236,7 @@ class TerminalFilesSection extends StatelessWidget {
       child: UtilityRow(
         preserveTrailingSemantics: true,
         padding: const EdgeInsets.all(Spacing.md),
-        onTap: () => _openEntry(context, l10n, entry),
+        onTap: () => _openEntry(context, entry),
         leading: Icon(
           entry.isDirectory
               ? UiUtils.folderIcon
@@ -267,41 +267,12 @@ class TerminalFilesSection extends StatelessWidget {
     );
   }
 
-  Future<void> _openEntry(
-    BuildContext context,
-    AppLocalizations l10n,
-    TerminalFileEntry entry,
-  ) async {
+  Future<void> _openEntry(BuildContext context, TerminalFileEntry entry) async {
     if (entry.isDirectory) {
       await coordinator.navigateTo(entry.path);
       return;
     }
-
-    final operationContext = coordinator.captureOperationContext();
-    if (operationContext == null) return;
-    final preview = await coordinator.readEntry(operationContext, entry);
-    if (preview == null || !context.mounted) {
-      return;
-    }
-    await ThemedDialogs.show<void>(
-      context,
-      title: sanitizeUtf16(entry.displayName),
-      content: _buildPreviewContent(context, l10n, preview),
-      actions: [
-        ConduitTextButton(
-          text: l10n.close,
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        ConduitTextButton(
-          text: l10n.download,
-          onPressed: () {
-            Navigator.of(context).pop();
-            coordinator.downloadEntry(operationContext, entry);
-          },
-          isPrimary: true,
-        ),
-      ],
-    );
+    await showTerminalFilePreview(context, coordinator, entry);
   }
 
   Future<void> _handleEntryAction(
@@ -338,66 +309,6 @@ class TerminalFilesSection extends StatelessWidget {
       case null:
         return;
     }
-  }
-
-  Widget _buildPreviewContent(
-    BuildContext context,
-    AppLocalizations l10n,
-    TerminalFileReadResult preview,
-  ) {
-    final theme = context.conduitTheme;
-    if (preview.isText) {
-      return SizedBox(
-        width: 520,
-        height: 360,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.codeBackground,
-            borderRadius: BorderRadius.circular(AppBorderRadius.standard),
-            border: Border.all(color: theme.codeBorder),
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: SelectableText(
-              sanitizeUtf16(preview.text ?? ''),
-              style: AppTypography.codeStyle.copyWith(color: theme.codeText),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (preview.isImage && preview.bytes != null) {
-      final decodeTarget = RasterMediaPolicy.forBox(
-        context,
-        profile: RasterDecodeProfile.inline,
-        logicalWidth: 520,
-        logicalHeight: 360,
-      );
-      return SizedBox(
-        width: 520,
-        height: 360,
-        child: InteractiveViewer(
-          child: Image(
-            image: RasterMediaPolicy.resizeProvider(
-              MemoryImage(preview.bytes!),
-              decodeTarget,
-            ),
-            fit: BoxFit.contain,
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: 420,
-      child: Text(
-        l10n.terminalPreviewUnavailable,
-        style: AppTypography.bodyMediumStyle.copyWith(
-          color: theme.textSecondary,
-        ),
-      ),
-    );
   }
 
   List<AdaptivePopupMenuEntry> _buildPathDirectoryMenuItems(
@@ -472,4 +383,94 @@ class TerminalFilesSection extends StatelessWidget {
       ),
     ];
   }
+}
+
+Future<void> showTerminalFilePreview(
+  BuildContext context,
+  TerminalCoordinator coordinator,
+  TerminalFileEntry entry,
+) async {
+  final operationContext = coordinator.captureOperationContext();
+  if (operationContext == null) return;
+  final preview = await coordinator.readEntry(operationContext, entry);
+  if (preview == null || !context.mounted) return;
+  final l10n = AppLocalizations.of(context)!;
+
+  await ThemedDialogs.show<void>(
+    context,
+    title: sanitizeUtf16(entry.displayName),
+    content: _terminalPreviewContent(context, l10n, preview),
+    actions: [
+      ConduitTextButton(
+        text: l10n.close,
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+      ConduitTextButton(
+        text: l10n.download,
+        onPressed: () {
+          Navigator.of(context).pop();
+          coordinator.downloadEntry(operationContext, entry);
+        },
+        isPrimary: true,
+      ),
+    ],
+  );
+}
+
+Widget _terminalPreviewContent(
+  BuildContext context,
+  AppLocalizations l10n,
+  TerminalFileReadResult preview,
+) {
+  final theme = context.conduitTheme;
+  if (preview.isText) {
+    return SizedBox(
+      width: 520,
+      height: 360,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.codeBackground,
+          borderRadius: BorderRadius.circular(AppBorderRadius.standard),
+          border: Border.all(color: theme.codeBorder),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: SelectableText(
+            sanitizeUtf16(preview.text ?? ''),
+            style: AppTypography.codeStyle.copyWith(color: theme.codeText),
+          ),
+        ),
+      ),
+    );
+  }
+
+  if (preview.isImage && preview.bytes != null) {
+    final decodeTarget = RasterMediaPolicy.forBox(
+      context,
+      profile: RasterDecodeProfile.inline,
+      logicalWidth: 520,
+      logicalHeight: 360,
+    );
+    return SizedBox(
+      width: 520,
+      height: 360,
+      child: InteractiveViewer(
+        child: Image(
+          image: RasterMediaPolicy.resizeProvider(
+            MemoryImage(preview.bytes!),
+            decodeTarget,
+          ),
+          fit: BoxFit.contain,
+        ),
+      ),
+    );
+  }
+
+  return SizedBox(
+    width: 420,
+    child: Text(
+      l10n.terminalPreviewUnavailable,
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.textSecondary),
+    ),
+  );
 }

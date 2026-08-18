@@ -639,11 +639,11 @@ void main() {
       tester.element(find.byType(DirectConnectionEditorPage)),
     );
     await tester.scrollUntilVisible(
-      find.text('Delete connection'),
+      find.text('Delete'),
       500,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Delete connection'));
+    await tester.tap(find.text('Delete'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('Delete'));

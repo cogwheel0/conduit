@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
@@ -17,20 +18,51 @@ const _messages = HermesConnectionMessages(
 );
 
 void main() {
-  test('credential transport requires HTTPS for public Hermes hosts', () {
+  test('plaintext HTTP is accepted for any Hermes host', () {
     check(HermesConfig.connectionOrigin('http://api.example.com:8642'))
-        .isNull();
+        .equals('http://api.example.com:8642');
     check(HermesConfig.connectionOrigin('http://192.168.1.10:8642'))
         .equals('http://192.168.1.10:8642');
     check(HermesConfig.connectionOrigin('https://api.example.com:8642'))
         .equals('https://api.example.com:8642');
+    check(HermesConfig.connectionOrigin('ftp://api.example.com')).isNull();
     check(
       const HermesConfig(
         enabled: true,
         baseUrl: 'http://api.example.com:8642',
         apiKey: 'persisted-secret',
       ).isUsable,
-    ).isFalse();
+    ).isTrue();
+  });
+
+  test('custom access headers reach the server in Responses mode', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final received = Completer<HttpHeaders>();
+    server.listen((request) async {
+      if (!received.isCompleted) received.complete(request.headers);
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{}');
+      await request.response.close();
+    });
+
+    final service = HermesApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        apiKey: 'secret-key',
+        desktopCredentials: HermesDesktopCredentials(
+          accessHeaders: const {'CF-Access-Client-Id': 'client-id'},
+        ),
+      ),
+    );
+    addTearDown(service.close);
+    await service.getCapabilities();
+
+    final headers = await received.future;
+    check(headers.value('cf-access-client-id')).equals('client-id');
+    check(headers.value(HttpHeaders.authorizationHeader))
+        .equals('Bearer secret-key');
   });
 
   test(
@@ -56,6 +88,36 @@ void main() {
       check(received).isNotNull();
       check(received!.enabled).isTrue();
       check(received!.isUsable).isTrue();
+    },
+  );
+
+  test(
+    'connection test verifies authenticated capabilities and toolsets',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final requests = <String>[];
+      server.listen((request) async {
+        requests.add(request.uri.path);
+        check(request.headers.value(HttpHeaders.authorizationHeader))
+            .equals('Bearer secret-key');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          request.uri.path == '/v1/toolsets' ? '[]' : '{}',
+        );
+        await request.response.close();
+      });
+
+      final connected = await testHermesDraftConnection(
+        HermesConfig(
+          enabled: false,
+          baseUrl: 'http://127.0.0.1:${server.port}/v1',
+          apiKey: 'secret-key',
+        ),
+      );
+
+      check(connected).isTrue();
+      check(requests).deepEquals(<String>['/v1/capabilities', '/v1/toolsets']);
     },
   );
 

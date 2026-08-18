@@ -305,6 +305,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           testConnection: _testConnection,
         ),
       ],
+      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      HermesTransportSection(controller: _connectionController),
       if (_connectionController.mode == HermesBackendMode.responsesApi) ...[
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         UtilityDisclosureSection(

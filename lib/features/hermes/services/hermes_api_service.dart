@@ -14,6 +14,7 @@ import '../models/hermes_job.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
 import 'hermes_backend_service.dart';
+import 'hermes_http_transport.dart';
 import 'hermes_json_guard.dart';
 import 'hermes_stream_parser.dart';
 
@@ -779,7 +780,9 @@ Future<bool> testHermesDraftConnection(
 
   final service = HermesApiService(config: probeConfig);
   try {
-    return await service.health();
+    await service.getCapabilities();
+    await service.listToolsets();
+    return true;
   } finally {
     service.close();
   }
@@ -824,6 +827,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     // Disable receipt so an endless/oversized 4xx body cannot retain a socket
     // or bypass the success-path transfer guard.
     _dio.options.receiveDataWhenStatusError = false;
+    configureHermesTransport(_dio, config);
   }
 
   @override

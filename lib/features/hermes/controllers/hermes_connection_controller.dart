@@ -112,6 +112,7 @@ final class HermesConnectionController extends ChangeNotifier {
        _mode = initialConfig.mode,
        _desktopAuthKind = initialConfig.desktopAuthKind,
        _desktopProfile = initialConfig.desktopProfile,
+       _allowSelfSignedCertificates = initialConfig.allowSelfSignedCertificates,
        _initialAccessHeaders = Map.of(initialConfig.accessHeaders),
        _accessHeaders = Map.of(initialConfig.accessHeaders);
 
@@ -124,6 +125,7 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesBackendMode _mode;
   HermesDesktopAuthKind _desktopAuthKind;
   String _desktopProfile;
+  bool _allowSelfSignedCertificates;
   Map<String, String> _initialAccessHeaders;
   Map<String, String> _accessHeaders;
 
@@ -143,6 +145,7 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesBackendMode get mode => _mode;
   HermesDesktopAuthKind get desktopAuthKind => _desktopAuthKind;
   String get desktopProfile => _desktopProfile;
+  bool get allowSelfSignedCertificates => _allowSelfSignedCertificates;
   Map<String, String> get accessHeaders => Map.unmodifiable(_accessHeaders);
 
   void reportFailure(String message) {
@@ -195,6 +198,7 @@ final class HermesConnectionController extends ChangeNotifier {
         mode: _mode,
         desktopAuthKind: _desktopAuthKind,
         desktopProfile: _desktopProfile,
+        allowSelfSignedCertificates: _allowSelfSignedCertificates,
         apiKey: originChanged || apiKeyDirty
             ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
             : saved.apiKey,
@@ -241,6 +245,12 @@ final class HermesConnectionController extends ChangeNotifier {
       return;
     }
     _desktopProfile = normalized;
+    _markDraftChanged();
+  }
+
+  void setAllowSelfSignedCertificates(bool value) {
+    if (_allowSelfSignedCertificates == value) return;
+    _allowSelfSignedCertificates = value;
     _markDraftChanged();
   }
 

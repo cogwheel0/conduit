@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -673,16 +672,6 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         _error = AppLocalizations.of(context)!.pleaseCheckConnection;
         _isLoading = false;
       });
-    }
-  }
-
-  String _buildUserAgent() {
-    if (!kIsWeb && Platform.isIOS) {
-      return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-    } else {
-      return 'Mozilla/5.0 (Linux; Android 14) '
-          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     }
   }
 
@@ -1598,7 +1587,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           initialSettings: InAppWebViewSettings(
             javaScriptEnabled: true,
             useShouldOverrideUrlLoading: true,
-            userAgent: _buildUserAgent(),
+            sharedCookiesEnabled: true,
           ),
           onWebViewCreated: (controller) {
             if (mounted) {

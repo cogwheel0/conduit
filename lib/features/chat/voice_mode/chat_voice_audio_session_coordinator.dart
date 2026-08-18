@@ -19,6 +19,7 @@ class ChatVoiceAudioSessionCoordinator {
   AndroidAudioManager? _androidAudioManager;
   AndroidAudioHardwareMode? _previousAndroidMode;
   bool? _previousAndroidSpeakerphone;
+  bool _speakerphoneEnabled = false;
 
   Future<AudioSession> _ensureSession() async {
     final session = _session;
@@ -37,8 +38,7 @@ class ChatVoiceAudioSessionCoordinator {
       AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
         avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.defaultToSpeaker,
+            AVAudioSessionCategoryOptions.allowBluetooth,
         avAudioSessionMode: AVAudioSessionMode.voiceChat,
         avAudioSessionRouteSharingPolicy:
             AVAudioSessionRouteSharingPolicy.defaultPolicy,
@@ -65,8 +65,7 @@ class ChatVoiceAudioSessionCoordinator {
       AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
         avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.defaultToSpeaker,
+            AVAudioSessionCategoryOptions.allowBluetooth,
         avAudioSessionMode: AVAudioSessionMode.spokenAudio,
         avAudioSessionRouteSharingPolicy:
             AVAudioSessionRouteSharingPolicy.defaultPolicy,
@@ -94,8 +93,7 @@ class ChatVoiceAudioSessionCoordinator {
       AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
         avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.allowBluetooth |
-            AVAudioSessionCategoryOptions.defaultToSpeaker,
+            AVAudioSessionCategoryOptions.allowBluetooth,
         avAudioSessionMode: AVAudioSessionMode.voiceChat,
         avAudioSessionRouteSharingPolicy:
             AVAudioSessionRouteSharingPolicy.defaultPolicy,
@@ -125,7 +123,33 @@ class ChatVoiceAudioSessionCoordinator {
       }
     } finally {
       await _restoreAndroidVoiceRoute();
+      _speakerphoneEnabled = false;
     }
+  }
+
+  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+    _speakerphoneEnabled = enabled;
+    if (Platform.isAndroid) {
+      final manager = _androidAudioManager ??= AndroidAudioManager();
+      // Release the currently selected communication device before re-routing:
+      // setCommunicationDevice replaces the route, but leaving SCO running
+      // keeps the headset owning playback after switching to the speaker.
+      await _safeAndroidRouteCall(
+        () => manager.clearCommunicationDevice(),
+        operation: 'clear-communication-device',
+        phase: 'user-toggle',
+      );
+      await _safeAndroidRouteCall(
+        () async {
+          await manager.setBluetoothScoOn(false);
+          await manager.stopBluetoothSco();
+        },
+        operation: 'stop-bluetooth-sco',
+        phase: 'user-toggle',
+      );
+      await _configureAndroidVoiceRoute(phase: 'user-toggle');
+    }
+    await _setIosSpeakerphoneEnabled(enabled, phase: 'user-toggle');
   }
 
   Future<void> _configureAndroidVoiceRoute({required String phase}) async {
@@ -151,14 +175,34 @@ class ChatVoiceAudioSessionCoordinator {
       operation: 'set-in-communication',
       phase: phase,
     );
+    if (_speakerphoneEnabled) {
+      // setSpeakerphoneOn is deprecated and is a no-op on Android 12+ once a
+      // communication device is selected, so route to the built-in speaker
+      // explicitly and keep the legacy call only as the pre-31 fallback.
+      final routed = await _selectAndroidCommunicationDevice(
+        manager,
+        AndroidAudioDeviceType.builtInSpeaker,
+        phase: phase,
+      );
+      if (!routed) {
+        await _safeAndroidRouteCall(
+          () => manager.setSpeakerphoneOn(true),
+          operation: 'configure-speakerphone',
+          phase: phase,
+        );
+      }
+      return;
+    }
+
     await _safeAndroidRouteCall(
       () => manager.setSpeakerphoneOn(false),
-      operation: 'disable-speakerphone',
+      operation: 'configure-speakerphone',
       phase: phase,
     );
 
-    final selected = await _selectBluetoothScoCommunicationDevice(
+    final selected = await _selectAndroidCommunicationDevice(
       manager,
+      AndroidAudioDeviceType.bluetoothSco,
       phase: phase,
     );
     if (selected) {
@@ -175,8 +219,9 @@ class ChatVoiceAudioSessionCoordinator {
     );
   }
 
-  Future<bool> _selectBluetoothScoCommunicationDevice(
-    AndroidAudioManager manager, {
+  Future<bool> _selectAndroidCommunicationDevice(
+    AndroidAudioManager manager,
+    AndroidAudioDeviceType type, {
     required String phase,
   }) async {
     final devices = await _safeAndroidRouteCall(
@@ -189,7 +234,7 @@ class ChatVoiceAudioSessionCoordinator {
     }
 
     for (final device in devices) {
-      if (device.type != AndroidAudioDeviceType.bluetoothSco) {
+      if (device.type != type) {
         continue;
       }
 
@@ -277,14 +322,17 @@ class ChatVoiceAudioSessionCoordinator {
       return;
     }
 
-    final payload = await _safeIosRouteCall(
-      () => _iosVoiceAudioRouteChannel.invokeMapMethod<Object?, Object?>(
-        'preferBluetoothHfpInput',
-      ),
-      operation: 'prefer-bluetooth-hfp-input',
-      phase: phase,
-    );
+    final payload = _speakerphoneEnabled
+        ? null
+        : await _safeIosRouteCall(
+            () => _iosVoiceAudioRouteChannel.invokeMapMethod<Object?, Object?>(
+              'preferBluetoothHfpInput',
+            ),
+            operation: 'prefer-bluetooth-hfp-input',
+            phase: phase,
+          );
     if (payload == null) {
+      await _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
       return;
     }
 
@@ -293,6 +341,22 @@ class ChatVoiceAudioSessionCoordinator {
       selected ? 'ios-bluetooth-hfp-selected' : 'ios-audio-route',
       scope: 'chat/voice_audio',
       data: _iosRouteLogData(payload, phase: phase),
+    );
+    await _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
+  }
+
+  Future<void> _setIosSpeakerphoneEnabled(
+    bool enabled, {
+    required String phase,
+  }) async {
+    if (!Platform.isIOS) return;
+    await _safeIosRouteCall(
+      () => _iosVoiceAudioRouteChannel.invokeMapMethod<Object?, Object?>(
+        'setSpeakerphoneEnabled',
+        <String, Object?>{'enabled': enabled},
+      ),
+      operation: 'set-speakerphone',
+      phase: phase,
     );
   }
 

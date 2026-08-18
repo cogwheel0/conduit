@@ -74,6 +74,44 @@ void main() {
     check(tts.stopCalls).equals(0);
   });
 
+  test(
+    'start requests microphone access before opening its background lease',
+    () async {
+      final input = _FakeVoiceInputService()..permissionsGranted = false;
+      final background = _FakeChatVoiceBackgroundCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            background,
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final result = await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+
+      check(result).equals(ChatVoiceModeStartResult.failed);
+      check(input.permissionCalls).equals(1);
+      check(input.beginCalls).equals(0);
+      check(background.started).isEmpty();
+      check(container.read(chatVoiceModeControllerProvider).phase)
+          .equals(ChatVoiceModePhase.error);
+    },
+  );
+
   test('launcher starts voice mode for signed-out Hermes', () async {
     final input = _FakeVoiceInputService();
     final tts = _FakeTextToSpeechService();
@@ -934,7 +972,7 @@ void main() {
   );
 
   test(
-    'native continuous STT sends finals without restarting the recognizer',
+    'native STT pauses during assistant speech when barge-in is disabled',
     () async {
       final input = _FakeVoiceInputService()..nativeLocalStt = true;
       final tts = _FakeTextToSpeechService();
@@ -979,9 +1017,107 @@ void main() {
 
       check(container.read(chatMessagesProvider).first.content)
           .equals('continuous final');
-      check(input.beginCalls).equals(1);
-      check(input.stopCalls).equals(0);
+      check(input.beginCalls).equals(2);
+      check(input.stopCalls).isGreaterThan(0);
       check(input.isListening).isTrue();
+      await controller.stop();
+    },
+  );
+
+  test('failed assistant speech resumes listening', () async {
+    final input = _FakeVoiceInputService()..nativeLocalStt = true;
+    final tts = _FakeTextToSpeechService()..holdCompletion = true;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    await input.completeCurrent('speak this', close: false);
+    await _until(() => tts.finishedTexts.isNotEmpty);
+
+    // TTS never completes; it fails instead. The recognizer was stopped for
+    // playback, so the turn must still end and listening must resume.
+    tts.emitError('tts engine unavailable');
+    await _until(
+      () =>
+          container.read(chatVoiceModeControllerProvider).phase ==
+          ChatVoiceModePhase.listening,
+    );
+
+    // Resuming clears the error banner, so the recovery itself is the
+    // assertion: the recognizer is live again instead of stranded.
+    check(input.isListening).isTrue();
+    check(input.beginCalls).equals(2);
+    await controller.stop();
+  });
+
+  test(
+    'speakerphone toggle drives the audio session on every platform',
+    () async {
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isFalse();
+      await controller.toggleSpeakerphone();
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isTrue();
+      await controller.toggleSpeakerphone();
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isFalse();
+
+      check(audioSession.speakerphoneCalls).deepEquals(<bool>[true, false]);
       await controller.stop();
     },
   );
@@ -1000,7 +1136,9 @@ void main() {
             AuthNavigationState.authenticated,
           ),
           selectedModelProvider.overrideWithValue(_model),
-          appSettingsProvider.overrideWithValue(const AppSettings()),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(voiceBargeInEnabled: true),
+          ),
           reviewerModeProvider.overrideWithValue(true),
           voiceInputServiceProvider.overrideWithValue(input),
           textToSpeechServiceProvider.overrideWithValue(tts),
@@ -1068,7 +1206,9 @@ void main() {
             AuthNavigationState.authenticated,
           ),
           selectedModelProvider.overrideWithValue(_model),
-          appSettingsProvider.overrideWithValue(const AppSettings()),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(voiceBargeInEnabled: true),
+          ),
           reviewerModeProvider.overrideWithValue(true),
           voiceInputServiceProvider.overrideWithValue(input),
           textToSpeechServiceProvider.overrideWithValue(tts),
@@ -1826,7 +1966,9 @@ class _FakeVoiceInputService extends VoiceInputService {
 
   int beginCalls = 0;
   int initializeCalls = 0;
+  int permissionCalls = 0;
   Completer<bool>? initializeGate;
+  bool permissionsGranted = true;
   bool localSttAvailable = true;
   bool serverSttAvailable = false;
   SttPreference sttPreference = SttPreference.deviceOnly;
@@ -1871,6 +2013,12 @@ class _FakeVoiceInputService extends VoiceInputService {
   Future<bool> initialize({bool forceLocalStt = false}) async {
     initializeCalls += 1;
     return await initializeGate?.future ?? true;
+  }
+
+  @override
+  Future<bool> checkPermissions() async {
+    permissionCalls += 1;
+    return permissionsGranted;
   }
 
   @override
@@ -2045,6 +2193,10 @@ class _FakeTextToSpeechService extends TextToSpeechService {
     startedStreaming = false;
   }
 
+  void emitError(String message) {
+    _events.add(TtsError(message));
+  }
+
   void emitChunkStarted(int index) {
     _events.add(TtsChunkStarted(index));
   }
@@ -2152,6 +2304,12 @@ class _FakeChatVoiceAudioSessionCoordinator
   int speakingCalls = 0;
   int deactivateCalls = 0;
   bool throwOnDeactivate = false;
+  final speakerphoneCalls = <bool>[];
+
+  @override
+  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+    speakerphoneCalls.add(enabled);
+  }
 
   @override
   Future<void> configureForListening() async {

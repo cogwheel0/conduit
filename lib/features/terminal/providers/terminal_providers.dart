@@ -259,3 +259,20 @@ final terminalSidebarPanelProvider =
     NotifierProvider<TerminalSidebarPanelNotifier, TerminalSidebarPanel>(
       TerminalSidebarPanelNotifier.new,
     );
+
+class TerminalDisplayFileNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void show(String path) {
+    state = null;
+    state = path;
+  }
+
+  void clear() => state = null;
+}
+
+final terminalDisplayFileProvider =
+    NotifierProvider<TerminalDisplayFileNotifier, String?>(
+      TerminalDisplayFileNotifier.new,
+    );

@@ -424,6 +424,16 @@ void main() {
       );
     });
 
+    test('preserves matrix separators and underbraces in block latex', () {
+      const formula =
+          r'\underbrace{-i\hbar c\,\boldsymbol{\alpha}\cdot\nabla\psi}_{\text{crossed out}}'
+          r'\qquad\begin{pmatrix}1&0\\0&-1\end{pmatrix}';
+      final document = compilePreparedMarkdownSync('\$\$$formula\$\$');
+
+      expect(document.blockLatexExpressions.values.single, formula);
+      expect(_collectLatexSegments(document.nodes).single.tex, formula);
+    });
+
     test('does not treat currency text as latex', () {
       final document = compilePreparedMarkdownSync(
         r'Plain currency text like $65,539 USD is about ~$42.6 million.',

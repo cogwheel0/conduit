@@ -209,6 +209,25 @@ class AudioSettingsPage extends ConsumerWidget {
             ),
           ),
         ],
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: SettingsIconBadge(
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.waveform,
+              android: Icons.record_voice_over,
+            ),
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.voiceBargeIn,
+          subtitle: l10n.voiceBargeInDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.voiceBargeInEnabled,
+            onChanged: notifier.setVoiceBargeInEnabled,
+          ),
+          showChevron: false,
+          onTap: () =>
+              notifier.setVoiceBargeInEnabled(!settings.voiceBargeInEnabled),
+        ),
       ],
     );
   }

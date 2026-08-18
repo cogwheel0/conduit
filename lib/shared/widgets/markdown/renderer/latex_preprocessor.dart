@@ -2,7 +2,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
 import '../../horizontal_gesture_ownership.dart';
-import '../../jovial_svg_image.dart';
 import 'latex_rendering_server.dart';
 
 /// Extracts LaTeX expressions before markdown parsing and
@@ -238,7 +237,12 @@ class LatexPreprocessor {
           final height = _svgExToPixels(svg, scaledFontSize);
           return ColorFiltered(
             colorFilter: ColorFilter.mode(color, BlendMode.srcATop),
-            child: JovialSvgImage.string(svg, height: height),
+            child: SvgPicture.string(
+              svg,
+              height: height,
+              fit: BoxFit.contain,
+              alignment: Alignment.center,
+            ),
           );
         },
       );
@@ -263,9 +267,14 @@ class LatexPreprocessor {
   static Widget _wrapLatexWidget(Widget child, {required bool isBlock}) {
     if (!isBlock) return child;
     return HorizontalScrollGestureBoundary(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: child,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: Center(child: child),
+          ),
+        ),
       ),
     );
   }
