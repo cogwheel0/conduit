@@ -5200,6 +5200,10 @@
   "@hermesConversationsTitle": {
     "description": "Section title above the Hermes conversation list."
   },
+  "hermesBotsTitle": "Bots",
+  "@hermesBotsTitle": {
+    "description": "Section title above the Hermes Bot Mode roster."
+  },
   "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
   "@hermesConversationsLoadError": {
     "description": "Error shown when Hermes conversations cannot be loaded."

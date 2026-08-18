@@ -35,7 +35,7 @@ import '../providers/sidebar_tab_scroll_registry.dart';
 import '../models/sidebar_navigation_model.dart';
 
 /// Chevron / expand icon for section headers — matches folder row disclosure.
-IconData _chatsDrawerDisclosureIcon(bool isExpanded) {
+IconData sidebarSectionDisclosureIcon(bool isExpanded) {
   if (Platform.isIOS) {
     return isExpanded
         ? CupertinoIcons.chevron_down
@@ -1167,7 +1167,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       children: [
         if (onToggle != null) ...[
           Icon(
-            _chatsDrawerDisclosureIcon(isExpanded),
+            sidebarSectionDisclosureIcon(isExpanded),
             color: theme.iconSecondary,
             size: IconSize.listItem,
           ),
@@ -1229,7 +1229,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               children: [
                 Icon(
                   key: const ValueKey<String>('folders-section-leading'),
-                  _chatsDrawerDisclosureIcon(isExpanded),
+                  sidebarSectionDisclosureIcon(isExpanded),
                   color: theme.iconSecondary,
                   size: IconSize.listItem,
                 ),
@@ -1325,7 +1325,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   const SizedBox(width: Spacing.sm),
                   ConduitIconButton(
                     key: ValueKey<String>('folder-expand-$folderId'),
-                    icon: _chatsDrawerDisclosureIcon(isExpanded),
+                    icon: sidebarSectionDisclosureIcon(isExpanded),
                     iconColor: theme.iconSecondary,
                     tooltip: name,
                     isCompact: true,

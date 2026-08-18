@@ -319,7 +319,8 @@ final class _HermesDesktopAdministration {
     for (final id in runtimeIds) {
       await _owner._rpc.request<Object?>(
         'reload.mcp',
-        params: {'confirm': true, 'session_id': id},
+        // Bound sessions can include bot chats, which live in another profile.
+        params: {'confirm': true, 'session_id': id, ..._owner._runtimeScope(id)},
       );
     }
   }
@@ -486,6 +487,7 @@ final class _HermesDesktopAdministration {
         'session_id': runtimeId,
         'request_id': requestId,
         'result': jsonEncode(outcome),
+        ..._owner._runtimeScope(runtimeId),
       },
     );
     await HermesPendingDecisionStore.resolve(

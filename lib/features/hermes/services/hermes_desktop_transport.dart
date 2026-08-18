@@ -146,6 +146,9 @@ final class HermesDesktopRpcClient {
   bool get isReady => _ready;
   int get socketGeneration => _socketGeneration;
 
+  /// Connection-wide params merged into every request as a *fallback*.
+  /// Callers that pass the same key win (Bot Mode scopes single calls to
+  /// another profile without rebuilding the connection).
   void setDefaultParams(Map<String, dynamic> value) {
     _defaultParams = Map.unmodifiable(value);
   }
@@ -239,7 +242,7 @@ final class HermesDesktopRpcClient {
           'jsonrpc': '2.0',
           'id': id,
           'method': method,
-          'params': {...params, ..._defaultParams},
+          'params': {..._defaultParams, ...params},
         }),
       );
     } catch (error, stackTrace) {

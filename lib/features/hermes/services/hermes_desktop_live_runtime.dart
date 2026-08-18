@@ -45,8 +45,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _stateSubscription ??= _rpc.events.listen((event) {
       final startedBuffering = _eventBuffer.add(event);
       if (event.type == 'session.info') {
+        // Update BOTH keys. `session.create` can omit `running`, which parks
+        // the stored id at unsupportedGateway; a runtime-only update never
+        // clears that, so the second turn onward fails the safety gate with
+        // "Hermes run failed." until a resume repairs the state.
         _applyAuthoritativeRunning(
           event.payload['running'],
+          storedId: _storedIdForRuntime(event.sessionId),
           runtimeId: event.sessionId,
         );
       }
@@ -188,6 +193,18 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     bool refresh = false,
   }) async => (await _resumeSnapshot(storedId, refresh: refresh)).binding;
 
+  /// The profile that owns [storedId] — a Bot Mode chat's own profile, or the
+  /// connection's configured one.
+  ///
+  /// Always explicit, never empty. The RPC transport injects the connection
+  /// profile as a default, so omitting this does not mean "let the server
+  /// decide": it means a request about a BOT session travels naming the
+  /// CONNECTION's profile, and any handler that reads it resolves against the
+  /// wrong profile's config and state.
+  Map<String, dynamic> _sessionScope(String storedId) => {
+    'profile': _sessionProfiles[storedId] ?? config.desktopProfile,
+  };
+
   Future<({HermesSessionBinding binding, bool? running})> _resumeSnapshot(
     String storedId, {
     bool refresh = false,
@@ -204,7 +221,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final result = _object(
       await _rpc.request<Object?>(
         'session.resume',
-        params: {'session_id': storedId, 'omit_messages': true},
+        params: {
+          'session_id': storedId,
+          'omit_messages': true,
+          ..._sessionScope(storedId),
+        },
       ),
     );
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
@@ -218,6 +239,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final running = result['running'] ?? info['running'];
     _recordDesktopContract(info);
     final binding = HermesSessionBinding(storedId: stored, runtimeId: runtime);
+    final profile = _sessionProfiles[storedId];
+    if (profile != null) _sessionProfiles[stored] = profile;
     _bindings[storedId] = binding;
     _bindings[stored] = binding;
     _bindingSocketGenerations[storedId] = _rpc.socketGeneration;
@@ -261,6 +284,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         prompt: command.isNotEmpty ? command : description,
         choices: _desktopDecisionChoices(approval['choices']),
         sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[binding.storedId],
       );
     }
     final clarify = _object(result['pending_clarify']);
@@ -279,6 +303,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         choices: _desktopDecisionChoices(clarify['choices']),
         multiSelect: clarify['multi_select'] == true,
         sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[binding.storedId],
       );
     }
   }
@@ -296,6 +321,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     String? title,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? profile,
+    bool hidden = false,
   }) async {
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     final selection = hermesDesktopSessionModelSelection(
@@ -320,6 +347,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           'provider': ?normalized.provider,
           'reasoning_effort': ?normalized.reasoningEffort,
           'fast': ?normalized.fast,
+          'profile': ?profile,
+          if (hidden) 'hidden': true,
           if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
         },
       ),
@@ -375,6 +404,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
                 'offset': offset,
                 'order': 'oldest',
                 'include_compacted': true,
+                ..._sessionScope(binding.storedId),
               },
               cancelToken: cancelToken,
             ),
@@ -402,18 +432,43 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
   Future<List<HermesPendingDesktopDecision>> _runtimePendingDecisionsForSession(
     String storedId,
   ) async {
+    // Restore the session's owning profile BEFORE resuming: after a restart
+    // the in-memory map is empty, and an unrestored bot chat would resume and
+    // answer under the connection profile.
+    await _restorePersistedSessionProfile(storedId);
     final binding = await _resume(storedId);
+    await _restorePersistedSessionProfile(binding.storedId);
     return HermesPendingDecisionStore.forSession(
       origin: _origin,
       storedSessionId: binding.storedId,
     );
   }
 
+  /// Re-seeds `_sessionProfiles` from a durable pending decision, so a bot
+  /// chat restored across a restart keeps its profile scope.
+  Future<void> _restorePersistedSessionProfile(String storedId) async {
+    if (_sessionProfiles.containsKey(storedId)) return;
+    for (final decision in await HermesPendingDecisionStore.forSession(
+      origin: _origin,
+      storedSessionId: storedId,
+    )) {
+      final profile = decision.profile;
+      if (profile != null) {
+        _sessionProfiles[storedId] = profile;
+        return;
+      }
+    }
+  }
+
   Future<void> _runtimeRenameSession(String id, String title) async {
     final binding = await _resume(id);
     await _rpc.request<Object?>(
       'session.title',
-      params: {'session_id': binding.runtimeId, 'title': title},
+      params: {
+        'session_id': binding.runtimeId,
+        'title': title,
+        ..._sessionScope(binding.storedId),
+      },
     );
   }
 
@@ -427,7 +482,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         binding = await _resume(id);
         await _rpc.request<Object?>(
           'session.close',
-          params: {'session_id': binding.runtimeId},
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
         );
       } catch (error) {
         DebugLogger.warning(
@@ -440,6 +498,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     await _requestJson(
       'DELETE',
       '/api/sessions/${Uri.encodeComponent(binding?.storedId ?? id)}',
+      query: _sessionScope(binding?.storedId ?? id),
       cancelToken: cancelToken,
     );
     if (binding != null) {
@@ -449,8 +508,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         (alias, _) => !_bindings.containsKey(alias),
       );
       _lastTranscripts.remove(binding.storedId);
+      _sessionProfiles.remove(binding.storedId);
     }
     _lastTranscripts.remove(id);
+    _sessionProfiles.remove(id);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       storedSessionId: binding?.storedId ?? id,
@@ -466,7 +527,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final result = _object(
       await _rpc.request<Object?>(
         'session.branch',
-        params: {'session_id': binding.runtimeId},
+        params: {
+          'session_id': binding.runtimeId,
+          ..._sessionScope(binding.storedId),
+        },
       ),
     );
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
@@ -479,6 +543,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       runtimeId: runtime,
     );
     _bindingSocketGenerations[stored] = _rpc.socketGeneration;
+    // A branch of a bot's chat lives in that bot's profile too; without this
+    // every later call for the fork would target the configured profile.
+    final profile = _sessionProfiles[binding.storedId];
+    if (profile != null) _sessionProfiles[stored] = profile;
     return stored;
   }
 }

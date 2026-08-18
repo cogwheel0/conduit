@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/debug_logger.dart';
 import '../../../shared/utils/external_link_launcher.dart';
+import '../models/hermes_bot.dart';
 import '../models/hermes_chat_input.dart';
 import '../models/hermes_config.dart';
 import '../models/hermes_mcp.dart';
@@ -28,6 +29,7 @@ import 'hermes_pending_decision_store.dart';
 
 part 'hermes_desktop_administration.dart';
 part 'hermes_desktop_auth_rest.dart';
+part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_turn_runtime.dart';
@@ -213,6 +215,10 @@ final class HermesDesktopApiService
   final Set<String> _freshSessionIds = {};
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
+
+  /// Sessions owned by another profile (Bot Mode chats), keyed by stored id.
+  /// Absent means the connection's configured profile owns the session.
+  final Map<String, String> _sessionProfiles = {};
   final HermesDesktopEventBuffer _eventBuffer = HermesDesktopEventBuffer();
   final _turnStates = StreamController<HermesDesktopTurnState>.broadcast();
   final _sessionTurnStateChanges = StreamController<String>.broadcast();
@@ -352,6 +358,16 @@ final class HermesDesktopApiService
       _runtimeSessionIdsReferToSameBinding(left, right);
   @override
   Future<String> forkSession(String id) => _runtimeForkSession(id);
+
+  /// Bot Mode roster; empty when the gateway does not support Bot Mode.
+  Future<List<HermesBot>> listBots() => _listBots();
+
+  /// A bot's avatar as a data URL, or null when it has none.
+  Future<String?> botAvatar(String profile) => _botAvatar(profile);
+
+  /// Opens (creating when needed) a bot's canonical chat and returns its
+  /// stored session id. Later calls for that session stay scoped to the bot.
+  Future<String> openBotChat(HermesBot bot) => _openBotChat(bot);
 
   Future<List<HermesDesktopModelOption>> configuredModels() =>
       _administration.configuredModels();

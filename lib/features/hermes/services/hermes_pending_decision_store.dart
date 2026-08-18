@@ -4,6 +4,7 @@ import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/utils/unicode_prefix.dart';
 import '../models/hermes_run_event.dart';
+import '../models/hermes_config.dart';
 import 'hermes_identifier.dart';
 
 enum HermesPendingDesktopDecisionKind {
@@ -27,6 +28,7 @@ final class HermesPendingDesktopDecision {
     this.mcpAction,
     this.choices = const <String>[],
     this.multiSelect = false,
+    this.profile,
   });
 
   final String origin;
@@ -40,6 +42,12 @@ final class HermesPendingDesktopDecision {
   final String? mcpAction;
   final List<String> choices;
   final bool multiSelect;
+
+  /// Profile that owns the session, when it is not the connection's own (a Bot
+  /// Mode chat). Persisted because the in-memory session→profile map is empty
+  /// after a restart, and answering under the wrong profile would target a
+  /// same-id decision in a different profile.
+  final String? profile;
 
   HermesDecisionKind? get decisionKind => switch (kind) {
     HermesPendingDesktopDecisionKind.approval => null,
@@ -64,6 +72,7 @@ final class HermesPendingDesktopDecision {
     if (mcpAction != null) 'mcp_action': mcpAction,
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
+    if (profile != null) 'profile': profile,
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
@@ -114,6 +123,16 @@ final class HermesPendingDesktopDecision {
         mcpAction: mcpAction,
         choices: choices,
         multiSelect: value['multi_select'] == true,
+        // Same validation the RPC layer applies before a profile can scope a
+        // request, so a tampered store cannot redirect one.
+        profile: switch (validateHermesBoundedString(
+          value['profile'],
+          maxCharacters: 64,
+        )) {
+          final String name when HermesConfig.isValidDesktopProfile(name) =>
+            name,
+          _ => null,
+        },
       );
     } catch (_) {
       return null;
@@ -142,6 +161,7 @@ final class HermesPendingDecisionStore {
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
     Iterable<String> sensitiveValues = const <String>[],
+    String? profile,
   }) => _serialize(() async {
     final stored = validateHermesOpaqueIdentifier(storedSessionId);
     final runtime = validateHermesOpaqueIdentifier(runtimeId);
@@ -172,6 +192,9 @@ final class HermesPendingDecisionStore {
       requestId: request,
       kind: kind,
       expiresAt: DateTime.now().toUtc().add(ttl),
+      // Keep a previously recorded profile when a refresh omits it, so an
+      // update can never silently drop a bot chat back to the connection.
+      profile: profile ?? previous?.profile,
       prompt: _sanitizePrompt(prompt, sensitiveValues),
       mcpServer: kind == HermesPendingDesktopDecisionKind.mcpSetup
           ? validateHermesBoundedString(mcpServer, maxCharacters: 128)
@@ -242,6 +265,9 @@ final class HermesPendingDecisionStore {
               mcpAction: record.mcpAction,
               choices: record.choices,
               multiSelect: record.multiSelect,
+              // A rebind (compaction lineage) must not drop the owning bot
+              // profile, or the rebound decision answers under the connection.
+              profile: record.profile,
             )
           : record;
       rebound.removeWhere(

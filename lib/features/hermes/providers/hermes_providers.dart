@@ -22,6 +22,7 @@ import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../models/hermes_bot.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
 import '../models/hermes_job.dart';
@@ -1736,6 +1737,44 @@ final hermesSessionsProvider =
     AsyncNotifierProvider<HermesSessionsController, List<HermesSessionSummary>>(
       HermesSessionsController.new,
     );
+
+/// Bot Mode roster, newest activity first. Empty on gateways without Bot Mode
+/// and on the Responses backend, which hides the sidebar section entirely.
+final hermesBotsProvider = FutureProvider<List<HermesBot>>((ref) async {
+  final service = ref.watch(hermesApiServiceProvider);
+  if (service is! HermesDesktopApiService) return const [];
+  ref.watch(hermesDesktopContractProvider);
+  try {
+    return sortHermesBotsByRecency(await service.listBots());
+  } catch (_) {
+    // An older gateway rejects profiles.list outright; the roster is optional.
+    return const [];
+  }
+});
+
+/// Roster order: most recently active first.
+///
+/// Copies before sorting — the Bot-Mode-off path yields an unmodifiable const
+/// list, which would sort in place with an `UnsupportedError`.
+@visibleForTesting
+List<HermesBot> sortHermesBotsByRecency(List<HermesBot> bots) {
+  final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+  return [...bots]..sort(
+    (a, b) => (b.lastActive ?? epoch).compareTo(a.lastActive ?? epoch),
+  );
+}
+
+/// A bot's avatar data URL, or null when it has none.
+final hermesBotAvatarProvider = FutureProvider.autoDispose
+    .family<String?, String>((ref, profile) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service is! HermesDesktopApiService) return null;
+      try {
+        return await service.botAvatar(profile);
+      } catch (_) {
+        return null;
+      }
+    });
 
 /// Server-advertised capabilities (`/v1/capabilities`). Falls back to the
 /// optimistic all-enabled default when discovery fails, so features are only

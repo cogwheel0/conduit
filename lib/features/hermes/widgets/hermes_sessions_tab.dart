@@ -2,6 +2,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
@@ -9,8 +10,13 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../../navigation/models/sidebar_navigation_model.dart';
+import '../../navigation/widgets/chats_drawer.dart'
+    show sidebarSectionDisclosureIcon;
+import '../../navigation/widgets/drawer_section_notifiers.dart';
+import '../models/hermes_bot.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
+import 'hermes_bot_tile.dart';
 import 'hermes_jobs_sheet.dart';
 import 'hermes_session_tile.dart';
 
@@ -59,6 +65,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         SliverToBoxAdapter(
           child: SizedBox(height: sidebarTabContentTopPadding(context)),
         ),
+        ..._botSlivers(context, ref.watch(hermesBotsProvider).asData?.value),
         if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
         ..._sessionSlivers(context, sessionsAsync),
         SliverToBoxAdapter(
@@ -75,6 +82,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
       edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
       onRefresh: () async {
         if (showJobs) ref.invalidate(hermesJobsProvider);
+        ref.invalidate(hermesBotsProvider);
         ref.invalidate(hermesSessionsProvider);
         await ref.read(hermesSessionsProvider.future);
       },
@@ -90,6 +98,34 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
           ? CupertinoScrollbar(controller: _scrollController, child: primary)
           : Scrollbar(controller: _scrollController, child: primary),
     );
+  }
+
+  /// The Bot Mode roster, above everything else. Absent entirely on gateways
+  /// without Bot Mode, which report no bots.
+  List<Widget> _botSlivers(BuildContext context, List<HermesBot>? bots) {
+    if (bots == null || bots.isEmpty) return const [];
+    final expanded = ref.watch(hermesShowBotsProvider);
+    return [
+      SliverToBoxAdapter(
+        child: _SectionHeader(
+          title: AppLocalizations.of(context)!.hermesBotsTitle,
+          count: bots.length,
+          expanded: expanded,
+          onToggle: () {
+            ConduitHaptics.selectionClick();
+            ref.read(hermesShowBotsProvider.notifier).toggle();
+          },
+        ),
+      ),
+      if (expanded)
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+          sliver: SliverList.builder(
+            itemCount: bots.length,
+            itemBuilder: (context, index) => HermesBotTile(bot: bots[index]),
+          ),
+        ),
+    ];
   }
 
   List<Widget> _sessionSlivers(
@@ -294,10 +330,19 @@ class _ScheduledAgentsTile extends ConsumerWidget {
 
 /// Section header with an optional count badge.
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.count});
+  const _SectionHeader({
+    required this.title,
+    this.count,
+    this.expanded,
+    this.onToggle,
+  });
 
   final String title;
   final int? count;
+
+  /// Disclosure state; null renders a plain, non-collapsible header.
+  final bool? expanded;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -307,7 +352,7 @@ class _SectionHeader extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    return Padding(
+    final header = Padding(
       padding: const EdgeInsets.fromLTRB(
         Spacing.md,
         Spacing.md,
@@ -319,6 +364,14 @@ class _SectionHeader extends StatelessWidget {
           Expanded(
             child: Row(
               children: [
+                if (expanded != null) ...[
+                  Icon(
+                    sidebarSectionDisclosureIcon(expanded!),
+                    color: theme.iconSecondary,
+                    size: IconSize.listItem,
+                  ),
+                  const SizedBox(width: Spacing.xxs),
+                ],
                 Text(title, style: titleStyle),
                 if (count != null) ...[
                   const SizedBox(width: Spacing.sm),
@@ -335,6 +388,13 @@ class _SectionHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    if (onToggle == null) return header;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onToggle,
+      child: header,
     );
   }
 }
