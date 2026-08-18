@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -188,9 +189,18 @@ final class DefaultTerminalBrowserPlatformGateway
     );
   }
 
-  static String _safeFileName(String fileName) => fileName.isEmpty
-      ? 'terminal_file_${DateTime.now().millisecondsSinceEpoch}'
-      : fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
+  @visibleForTesting
+  static String safeFileName(String fileName) => _safeFileName(fileName);
+
+  static String _safeFileName(String fileName) {
+    final sanitized = fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
+    // `.` and `..` survive character sanitization but name a directory rather
+    // than a file, so writing them throws instead of producing a download.
+    if (sanitized.isEmpty || sanitized == '.' || sanitized == '..') {
+      return 'terminal_file_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    return sanitized;
+  }
 
   Future<File> _materializeTempFile(String fileName, List<int> bytes) async {
     final tempDir = await getTemporaryDirectory();
