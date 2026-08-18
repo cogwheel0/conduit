@@ -437,7 +437,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final binding = await _resume(id);
     await _rpc.request<Object?>(
       'session.title',
-      params: {'session_id': binding.runtimeId, 'title': title},
+      params: {
+        'session_id': binding.runtimeId,
+        'title': title,
+        ..._sessionScope(binding.storedId),
+      },
     );
   }
 

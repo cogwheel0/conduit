@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/features/hermes/models/hermes_bot.dart';
+import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
@@ -338,6 +339,20 @@ void main() {
       await service.interrupt('stored-bot');
       await service.steer('stored-bot', 'hello');
       await service.queue('stored-bot', 'later');
+      await service.renameSession('stored-bot', 'Renamed');
+      await service.resolveApprovalForSession(
+        'stored-bot',
+        approvalId: 'req-1',
+        approved: true,
+      );
+      await service.respondToDecision(
+        storedSessionId: 'stored-bot',
+        runtimeId: 'runtime-bot',
+        requestId: 'req-2',
+        kind: HermesDecisionKind.clarification,
+        value: 'answer',
+      );
+      await service.reloadMcp(runtimeId: 'runtime-bot');
 
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.
