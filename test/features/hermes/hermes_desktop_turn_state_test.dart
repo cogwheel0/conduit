@@ -353,6 +353,17 @@ void main() {
         value: 'answer',
       );
       await service.reloadMcp(runtimeId: 'runtime-bot');
+      // A DENIED MCP setup skips install/enable/authorize and goes straight
+      // to mcp.setup.respond, which must also name the bot profile.
+      await service.respondToDecision(
+        storedSessionId: 'stored-bot',
+        runtimeId: 'runtime-bot',
+        requestId: 'req-3',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'deny',
+        mcpServer: 'docs',
+        mcpAction: 'enable',
+      );
 
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.

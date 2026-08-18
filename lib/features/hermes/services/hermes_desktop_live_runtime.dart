@@ -280,6 +280,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         prompt: command.isNotEmpty ? command : description,
         choices: _desktopDecisionChoices(approval['choices']),
         sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[binding.storedId],
       );
     }
     final clarify = _object(result['pending_clarify']);
@@ -298,6 +299,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         choices: _desktopDecisionChoices(clarify['choices']),
         multiSelect: clarify['multi_select'] == true,
         sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[binding.storedId],
       );
     }
   }
@@ -426,11 +428,32 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
   Future<List<HermesPendingDesktopDecision>> _runtimePendingDecisionsForSession(
     String storedId,
   ) async {
+    // Restore the session's owning profile BEFORE resuming: after a restart
+    // the in-memory map is empty, and an unrestored bot chat would resume and
+    // answer under the connection profile.
+    await _restorePersistedSessionProfile(storedId);
     final binding = await _resume(storedId);
+    await _restorePersistedSessionProfile(binding.storedId);
     return HermesPendingDecisionStore.forSession(
       origin: _origin,
       storedSessionId: binding.storedId,
     );
+  }
+
+  /// Re-seeds `_sessionProfiles` from a durable pending decision, so a bot
+  /// chat restored across a restart keeps its profile scope.
+  Future<void> _restorePersistedSessionProfile(String storedId) async {
+    if (_sessionProfiles.containsKey(storedId)) return;
+    for (final decision in await HermesPendingDecisionStore.forSession(
+      origin: _origin,
+      storedSessionId: storedId,
+    )) {
+      final profile = decision.profile;
+      if (profile != null) {
+        _sessionProfiles[storedId] = profile;
+        return;
+      }
+    }
   }
 
   Future<void> _runtimeRenameSession(String id, String title) async {

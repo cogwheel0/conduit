@@ -499,6 +499,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
       sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[storedId],
     );
   }
 
@@ -523,6 +524,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     choices: choices,
     multiSelect: multiSelect,
     sensitiveValues: config.sensitiveValues,
+        profile: _sessionProfiles[binding.storedId],
   );
 
   Future<void> _applySessionOptions(

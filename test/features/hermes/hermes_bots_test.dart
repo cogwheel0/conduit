@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/models/hermes_bot.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -107,9 +110,17 @@ void main() {
 
   test('roster is ordered most recently active first', () {
     final sorted = sortHermesBotsByRecency([
-      HermesBot(name: 'stale', title: 'Stale', lastActive: DateTime(2026, 1, 1)),
+      HermesBot(
+        name: 'stale',
+        title: 'Stale',
+        lastActive: DateTime(2026, 1, 1),
+      ),
       const HermesBot(name: 'never', title: 'Never'),
-      HermesBot(name: 'fresh', title: 'Fresh', lastActive: DateTime(2026, 8, 1)),
+      HermesBot(
+        name: 'fresh',
+        title: 'Fresh',
+        lastActive: DateTime(2026, 8, 1),
+      ),
     ]);
 
     check(sorted.map((bot) => bot.name).toList())
@@ -124,5 +135,53 @@ void main() {
     });
 
     check(bot!.preview).equals('pinned chat');
+  });
+
+  test('a persisted decision keeps its bot profile across a restart', () {
+    // `_sessionProfiles` is in-memory only. A decision that outlives the
+    // process must carry its own profile, or the restored response targets a
+    // same-id decision in the CONNECTION profile.
+    final stored = HermesPendingDesktopDecision(
+      origin: 'https://hermes.example',
+      storedSessionId: 'stored-bot',
+      runtimeId: 'runtime-bot',
+      requestId: 'req-1',
+      kind: HermesPendingDesktopDecisionKind.approval,
+      expiresAt: DateTime.utc(2030),
+      profile: 'researcher',
+    ).toStorage();
+
+    final restored = HermesPendingDesktopDecision.fromStorage(stored);
+    check(restored).isNotNull();
+    check(restored!.profile).equals('researcher');
+  });
+
+  test('a tampered profile cannot redirect a restored decision', () {
+    String withProfile(Object? value) => jsonEncode({
+      'origin': 'https://hermes.example',
+      'stored_session_id': 'stored-bot',
+      'runtime_id': 'runtime-bot',
+      'request_id': 'req-1',
+      'kind': 'approval',
+      'expires_at': DateTime.utc(2030).toIso8601String(),
+      'profile': value,
+    });
+
+    // Same validation the RPC layer applies before a profile may scope a call.
+    for (final hostile in <Object?>[
+      '../../etc/passwd',
+      'Upper',
+      '',
+      {'not': 'a string'},
+    ]) {
+      final restored = HermesPendingDesktopDecision.fromStorage(
+        withProfile(hostile),
+      );
+      check(restored).isNotNull();
+      check(
+        restored!.profile,
+        because: 'accepted hostile profile: $hostile',
+      ).isNull();
+    }
   });
 }
