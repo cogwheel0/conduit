@@ -275,7 +275,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       try {
         await _rpc.request<Object?>(
           'session.interrupt',
-          params: {'session_id': binding.runtimeId},
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
         );
       } catch (_) {}
       if (!promptAcknowledged) {
@@ -320,14 +323,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (freshSession) _freshSessionIds.remove(storedId);
       await _rpc.request<Object?>(
         'prompt.submit',
-        params: {'session_id': binding.runtimeId, 'text': text},
+        params: {
+          'session_id': binding.runtimeId,
+          'text': text,
+          ..._sessionScope(binding.storedId),
+        },
       );
       if (cancelToken?.isCancelled == true) {
         promptAcknowledged = true;
         try {
           await _rpc.request<Object?>(
             'session.interrupt',
-            params: {'session_id': binding.runtimeId},
+            params: {
+              'session_id': binding.runtimeId,
+              ..._sessionScope(binding.storedId),
+            },
           );
         } catch (_) {}
         finish();
@@ -386,7 +396,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               try {
                 await _rpc.request<Object?>(
                   'session.interrupt',
-                  params: {'session_id': binding.runtimeId},
+                  params: {
+                    'session_id': binding.runtimeId,
+                    ..._sessionScope(binding.storedId),
+                  },
                 );
               } catch (_) {}
               finish();
@@ -526,11 +539,14 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final modelSwitch = selection.model == null
         ? null
         : '${selection.model}${selection.provider == null ? '' : ' --provider ${selection.provider}'} --session';
+    // Session options resolve and PERSIST profile config. A bot chat lives in
+    // another profile, so these must never fall back to the connection's.
+    final scope = _sessionScope(binding.storedId);
     if (reasoning?.isEmpty != false) {
       final global = _object(
         await _rpc.request<Object?>(
           'config.get',
-          params: const {'key': 'reasoning'},
+          params: {'key': 'reasoning', ...scope},
         ),
       )['value']?.toString().trim();
       if (global == null || global.isEmpty) {
@@ -545,6 +561,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           'key': 'reasoning',
           'value': global,
           'scope': 'global',
+          ...scope,
         },
       );
     }
@@ -563,11 +580,17 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           'session_id': binding.runtimeId,
           'key': option.$1,
           'value': option.$2,
+          ...scope,
         },
       );
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
   }
+
+  /// Profile scope for a helper that only carries a runtime id. Resolves the
+  /// stored id first so a bot chat never travels under the connection profile.
+  Map<String, dynamic> _runtimeScope(String runtimeId) =>
+      _sessionScope(_storedIdForRuntime(runtimeId) ?? runtimeId);
 
   Future<({String? submit, String? display, String? prefill})> _dispatchSlash(
     String runtimeId,
@@ -582,6 +605,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         params: {
           'session_id': runtimeId,
           'command': command.replaceFirst(RegExp(r'^/+'), ''),
+          ..._runtimeScope(runtimeId),
         },
       );
     } on HermesDesktopRpcException catch (error) {
@@ -593,6 +617,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           'session_id': runtimeId,
           'name': parts.first,
           'arg': parts.skip(1).join(' '),
+          ..._runtimeScope(runtimeId),
         },
       );
     }
@@ -666,6 +691,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               params: {
                 'session_id': runtimeId,
                 'content_base64': part.imageUrl.substring(comma + 1),
+                ..._runtimeScope(runtimeId),
               },
             ),
           );
@@ -681,11 +707,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                       'session_id': runtimeId,
                       'content_base64': part.base64Data,
                       'filename': part.filename,
+                      ..._runtimeScope(runtimeId),
                     }
                   : {
                       'session_id': runtimeId,
                       'name': part.filename,
                       'data_url': part.dataUrl,
+                      ..._runtimeScope(runtimeId),
                     },
             ),
           );
@@ -727,7 +755,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       try {
         await _rpc.request<Object?>(
           'image.detach',
-          params: {'session_id': runtimeId, 'path': path},
+          params: {
+            'session_id': runtimeId,
+            'path': path,
+            ..._runtimeScope(runtimeId),
+          },
         );
       } catch (_) {}
     }
@@ -756,7 +788,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final binding = await _resume(storedId);
     await _rpc.request<Object?>(
       'session.interrupt',
-      params: {'session_id': binding.runtimeId},
+      params: {
+        'session_id': binding.runtimeId,
+        ..._sessionScope(binding.storedId),
+      },
     );
   }
 
@@ -768,7 +803,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       result = _object(
         await _rpc.request<Object?>(
           'session.steer',
-          params: {'session_id': binding.runtimeId, 'text': text},
+          params: {
+            'session_id': binding.runtimeId,
+            'text': text,
+            ..._sessionScope(binding.storedId),
+          },
         ),
       );
     } on HermesDesktopRpcException catch (error) {
@@ -793,7 +832,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     try {
       await _rpc.request<Object?>(
         'prompt.submit',
-        params: {'session_id': binding.runtimeId, 'text': text, 'queued': true},
+        params: {
+          'session_id': binding.runtimeId,
+          'text': text,
+          'queued': true,
+          ..._sessionScope(binding.storedId),
+        },
       );
     } on HermesDesktopRpcException catch (error) {
       if (!error.deliveryAmbiguous ||
@@ -876,7 +920,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     await _ensureConnected();
     await _rpc.request<Object?>(
       'approval.respond',
-      params: {'session_id': runId, 'request_id': approvalId, 'choice': choice},
+      params: {
+        'session_id': runId,
+        'request_id': approvalId,
+        'choice': choice,
+        ..._runtimeScope(runId),
+      },
     );
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
@@ -952,6 +1001,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         'session_id': runtimeId,
         'request_id': requestId,
         valueKey: value,
+        ..._runtimeScope(runtimeId),
       },
     );
     await HermesPendingDecisionStore.resolve(

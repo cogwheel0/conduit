@@ -289,4 +289,71 @@ void main() {
       }
     },
   );
+
+  test(
+    'every bot-chat RPC names the bot profile, never the connection one',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      final harness = _GatewayHarness();
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopProfile: 'default',
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: rpc,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+
+      harness.responder = (method) => switch (method) {
+        'session.resume' => {
+          'session_id': 'runtime-bot',
+          'stored_session_id': 'stored-bot',
+          'info': const {'running': false},
+          'running': false,
+        },
+        'session.steer' => {'status': 'queued'},
+        _ => const {},
+      };
+
+      await service.openBotChat(
+        const HermesBot(
+          name: 'researcher',
+          title: 'Research',
+          chatSessionId: 'stored-bot',
+        ),
+      );
+      await service.interrupt('stored-bot');
+      await service.steer('stored-bot', 'hello');
+      await service.queue('stored-bot', 'later');
+
+      // The transport injects the CONNECTION profile as a default, so any bot
+      // frame that fails to name its own profile silently travels as 'default'.
+      final botFrames = harness.sent
+          .where((frame) => (frame['params'] as Map)['session_id'] != null)
+          .toList();
+      check(botFrames).isNotEmpty();
+      for (final frame in botFrames) {
+        final params = frame['params'] as Map;
+        check(
+          params['profile'],
+          because:
+              '${frame['method']} left the bot session on the connection '
+              'profile: $params',
+        ).equals('researcher');
+      }
+    },
+  );
 }

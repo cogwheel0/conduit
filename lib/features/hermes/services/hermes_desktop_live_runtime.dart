@@ -189,12 +189,17 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     bool refresh = false,
   }) async => (await _resumeSnapshot(storedId, refresh: refresh)).binding;
 
-  /// Profile scope for a session owned by another profile (a Bot Mode chat).
-  /// Empty for ordinary sessions, which inherit the connection's profile.
-  Map<String, dynamic> _sessionScope(String storedId) {
-    final profile = _sessionProfiles[storedId];
-    return profile == null ? const {} : {'profile': profile};
-  }
+  /// The profile that owns [storedId] — a Bot Mode chat's own profile, or the
+  /// connection's configured one.
+  ///
+  /// Always explicit, never empty. The RPC transport injects the connection
+  /// profile as a default, so omitting this does not mean "let the server
+  /// decide": it means a request about a BOT session travels naming the
+  /// CONNECTION's profile, and any handler that reads it resolves against the
+  /// wrong profile's config and state.
+  Map<String, dynamic> _sessionScope(String storedId) => {
+    'profile': _sessionProfiles[storedId] ?? config.desktopProfile,
+  };
 
   Future<({HermesSessionBinding binding, bool? running})> _resumeSnapshot(
     String storedId, {
