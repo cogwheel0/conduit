@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -138,11 +137,11 @@ final class TerminalUploadFile {
 
 abstract interface class TerminalBrowserPlatformGateway {
   Future<TerminalUploadFile?> pickUploadFile();
-  Future<void> shareDownload(TerminalDownloadedFile downloaded);
+  Future<void> saveDownload(TerminalDownloadedFile downloaded);
   Future<bool> openPort(Uri uri, {String? bearerToken});
 }
 
-/// Platform plugin adapter for file picking, sharing, and URL launching.
+/// Platform plugin adapter for file picking, saving, and URL launching.
 final class DefaultTerminalBrowserPlatformGateway
     implements TerminalBrowserPlatformGateway {
   const DefaultTerminalBrowserPlatformGateway();
@@ -163,13 +162,10 @@ final class DefaultTerminalBrowserPlatformGateway
   }
 
   @override
-  Future<void> shareDownload(TerminalDownloadedFile downloaded) async {
-    final file = await _materializeTempFile(
-      downloaded.fileName,
-      downloaded.bytes,
-    );
-    await SharePlus.instance.share(
-      ShareParams(files: <XFile>[XFile(file.path, name: downloaded.fileName)]),
+  Future<void> saveDownload(TerminalDownloadedFile downloaded) async {
+    await FilePicker.saveFile(
+      fileName: downloaded.fileName,
+      bytes: downloaded.bytes,
     );
   }
 

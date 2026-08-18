@@ -33,7 +33,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final wsUri = httpUri.replace(
       scheme: httpUri.scheme == 'https' ? 'wss' : 'ws',
     );
-    await _rpc.connect(wsUri, headers: config.accessHeaders);
+    await _rpc.connect(
+      wsUri,
+      headers: config.accessHeaders,
+      httpClient: hermesTlsHttpClient(config),
+    );
     if (_closed) {
       await _rpc.disconnect();
       return;

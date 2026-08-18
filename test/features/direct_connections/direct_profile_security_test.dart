@@ -184,25 +184,7 @@ void main() {
       );
     });
 
-    test('blocks all public plaintext HTTP', () {
-      expect(
-        () => _profile(baseUrl: 'http://ollama.example.test:11434').validate(),
-        throwsFormatException,
-      );
-      expect(
-        () => _profile(
-          baseUrl: 'http://api.example.test/v1',
-          apiKey: 'secret',
-        ).validate(),
-        throwsFormatException,
-      );
-      expect(
-        () => _profile(
-          baseUrl: 'http://203.0.113.9/v1',
-          customHeaders: const {'X-Api-Key': 'secret'},
-        ).validate(),
-        throwsFormatException,
-      );
+    test('blocks plaintext HTTP only when TLS material is configured', () {
       expect(
         () => _profile(
           baseUrl: 'http://localhost:11434',
@@ -213,28 +195,22 @@ void main() {
       );
     });
 
-    test('allows plaintext HTTP only for local and private literal hosts', () {
-      expect(
-        _profile(
-          baseUrl: 'http://localhost:11434',
-          apiKey: 'secret',
-        ).validateOrNull(),
-        isNull,
-      );
-      expect(
-        _profile(
-          baseUrl: 'http://192.168.1.20:11434',
-          customHeaders: const {'X-Api-Key': 'secret'},
-        ).validateOrNull(),
-        isNull,
-      );
-      expect(
-        _profile(
-          baseUrl: 'http://[fd00::20]:11434',
-          apiKey: 'secret',
-        ).validateOrNull(),
-        isNull,
-      );
+    test('allows plaintext HTTP for public, VPN, and private hosts', () {
+      for (final baseUrl in const [
+        'http://ollama.example.test:11434',
+        'http://api.example.test/v1',
+        'http://203.0.113.9/v1',
+        'http://localhost:11434',
+        'http://192.168.1.20:11434',
+        'http://100.64.0.20:11434',
+        'http://[fd00::20]:11434',
+      ]) {
+        expect(
+          _profile(baseUrl: baseUrl, apiKey: 'secret').validateOrNull(),
+          isNull,
+          reason: baseUrl,
+        );
+      }
     });
 
     test('unconfirmed origin change clears all origin-bound material', () {

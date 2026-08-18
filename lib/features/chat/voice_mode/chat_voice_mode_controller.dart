@@ -56,6 +56,7 @@ class ChatVoiceModeSnapshot {
     this.errorMessage,
     this.isCollapsed = false,
     this.isMuted = false,
+    this.isSpeakerphoneEnabled = false,
   });
 
   final ChatVoiceModePhase phase;
@@ -71,6 +72,7 @@ class ChatVoiceModeSnapshot {
   final String? errorMessage;
   final bool isCollapsed;
   final bool isMuted;
+  final bool isSpeakerphoneEnabled;
 
   bool get isActive {
     return switch (phase) {
@@ -111,6 +113,7 @@ class ChatVoiceModeSnapshot {
     bool clearErrorMessage = false,
     bool? isCollapsed,
     bool? isMuted,
+    bool? isSpeakerphoneEnabled,
   }) {
     return ChatVoiceModeSnapshot(
       phase: phase ?? this.phase,
@@ -136,6 +139,8 @@ class ChatVoiceModeSnapshot {
           : errorMessage ?? this.errorMessage,
       isCollapsed: isCollapsed ?? this.isCollapsed,
       isMuted: isMuted ?? this.isMuted,
+      isSpeakerphoneEnabled:
+          isSpeakerphoneEnabled ?? this.isSpeakerphoneEnabled,
     );
   }
 }
@@ -466,6 +471,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             clearErrorMessage: true,
             isCollapsed: false,
             isMuted: false,
+            isSpeakerphoneEnabled: false,
           );
 
           final inputReady = await input.initialize();
@@ -474,6 +480,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (!inputReady) {
             throw StateError('Voice input initialization failed.');
           }
+          if (!await input.checkPermissions()) {
+            throw StateError('Microphone permission denied.');
+          }
+          if (lostOwnership()) return;
+          cancelIfRequested();
 
           await _requestAndroidVoiceRoutingPermission();
           if (lostOwnership()) return;
@@ -660,6 +671,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         clearErrorMessage: true,
       );
       await _startListening(_token);
+    });
+  }
+
+  Future<void> toggleSpeakerphone() {
+    return _enqueue(() async {
+      if (!state.isActive) return;
+      final enabled = !state.isSpeakerphoneEnabled;
+      await _audioSessionCoordinator?.setSpeakerphoneEnabled(enabled);
+      if (_disposed) return;
+      state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });
   }
 
@@ -1098,9 +1119,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _sendingTranscript = true;
       try {
         _emptyTranscriptRestarts = 0;
-        if (_awaitingAssistant ||
+        final assistantActive =
+            _awaitingAssistant ||
             state.phase == ChatVoiceModePhase.sending ||
-            state.phase == ChatVoiceModePhase.speaking) {
+            state.phase == ChatVoiceModePhase.speaking;
+        if (assistantActive &&
+            !ref.read(appSettingsProvider).voiceBargeInEnabled) {
+          _pendingFinalTranscripts.clear();
+          return;
+        }
+        if (assistantActive) {
           await _interruptAssistantForBargeIn(token);
         }
         if (!_isCurrent(token) || state.isMuted) return;
@@ -1165,7 +1193,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (!_isCurrent(token)) return;
 
     final input = _voiceInput!;
-    final keepListening = input.isUsingNativeLocalStt;
+    final keepListening =
+        ref.read(appSettingsProvider).voiceBargeInEnabled &&
+        input.isUsingNativeLocalStt;
     if (!keepListening) {
       await _cancelListening();
     }
@@ -1525,6 +1555,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       clearStartedAt: true,
       clearActiveCallId: true,
       isMuted: false,
+      isSpeakerphoneEnabled: false,
     );
   }
 

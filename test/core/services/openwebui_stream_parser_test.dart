@@ -557,8 +557,8 @@ void main() {
         'AB',
       );
 
-      check(rendered).startsWith('A\n<details type="reasoning"');
-      check(rendered).endsWith('</details>\nB');
+      check(rendered).startsWith('A\n\n<details type="reasoning"');
+      check(rendered).endsWith('</details>\n\nB');
     });
 
     test('replacement text is appended after detail-only output', () {
@@ -576,7 +576,7 @@ void main() {
       );
 
       check(rendered).startsWith('<details type="reasoning"');
-      check(rendered).endsWith('</details>\nFinal answer');
+      check(rendered).endsWith('</details>\n\nFinal answer');
     });
 
     test('completed function call stays pending until output arrives', () {

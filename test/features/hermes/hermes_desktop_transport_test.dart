@@ -189,7 +189,7 @@ void main() {
   test('socket loss marks an in-flight mutation as ambiguous', () async {
     final socket = _SocketHarness();
     final client = HermesDesktopRpcClient(
-      channelFactory: (_, _) => socket.channel,
+      channelFactory: (_, _, {httpClient}) => socket.channel,
     );
     addTearDown(() async {
       await client.close();
@@ -214,7 +214,7 @@ void main() {
   test('waits for gateway.ready and correlates concurrent RPCs', () async {
     final socket = _SocketHarness();
     final client = HermesDesktopRpcClient(
-      channelFactory: (_, _) => socket.channel,
+      channelFactory: (_, _, {httpClient}) => socket.channel,
     );
     addTearDown(() async {
       await client.close();
@@ -320,7 +320,7 @@ void main() {
     () async {
       final socket = _SocketHarness();
       final client = HermesDesktopRpcClient(
-        channelFactory: (_, _) => socket.channel,
+        channelFactory: (_, _, {httpClient}) => socket.channel,
       );
       addTearDown(() async {
         await client.close();
@@ -349,7 +349,7 @@ void main() {
   test('times out requests and rejects pending work on disconnect', () async {
     final socket = _SocketHarness();
     final client = HermesDesktopRpcClient(
-      channelFactory: (_, _) => socket.channel,
+      channelFactory: (_, _, {httpClient}) => socket.channel,
       requestTimeout: const Duration(milliseconds: 20),
     );
     addTearDown(() async {
@@ -382,7 +382,7 @@ void main() {
   test('reports an unexpected post-ready socket close', () async {
     final socket = _SocketHarness();
     final client = HermesDesktopRpcClient(
-      channelFactory: (_, _) => socket.channel,
+      channelFactory: (_, _, {httpClient}) => socket.channel,
     );
     addTearDown(client.close);
     final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));

@@ -130,6 +130,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
     final desktopProfile = PreferencesStore.getString(
       PreferenceKeys.hermesDesktopProfile,
     )?.trim();
+    final allowSelfSignedCertificates =
+        PreferencesStore.getBool(
+          PreferenceKeys.hermesAllowSelfSignedCertificates,
+        ) ??
+        false;
     // Secrets load asynchronously and patch the state in once available.
     final hydration = _loadSecrets(epoch);
     _secretsHydration = hydration;
@@ -144,6 +149,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
               HermesConfig.isValidDesktopProfile(desktopProfile)
           ? desktopProfile
           : 'default',
+      allowSelfSignedCertificates: allowSelfSignedCertificates,
     );
   }
 
@@ -189,6 +195,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         mode: state.mode,
         desktopAuthKind: state.desktopAuthKind,
         desktopProfile: state.desktopProfile,
+        allowSelfSignedCertificates: state.allowSelfSignedCertificates,
         apiKey: apiKey,
         sessionKey: sessionKey,
         desktopCredentials: desktopCredentials,
@@ -310,6 +317,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? allowSelfSignedCertificates,
     bool apiKeyChanged = false,
     String? apiKey,
     bool sessionKeyChanged = false,
@@ -353,6 +361,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
           'Use a valid Hermes profile ID',
         );
       }
+      final nextAllowSelfSigned =
+          allowSelfSignedCertificates ?? state.allowSelfSignedCertificates;
       final modeChanged = nextMode != state.mode;
       final authKindChanged = nextDesktopAuthKind != state.desktopAuthKind;
       final profileChanged = nextDesktopProfile != state.desktopProfile;
@@ -546,6 +556,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
             PreferenceKeys.hermesDesktopProfile,
             nextDesktopProfile,
           );
+          await PreferencesStore.putChecked(
+            PreferenceKeys.hermesAllowSelfSignedCertificates,
+            nextAllowSelfSigned,
+          );
         } catch (error, stackTrace) {
           await _quarantineUncertainCredentialMutation(
             clearApiKey: writeApiKey,
@@ -592,6 +606,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
               await PreferencesStore.putChecked(
                 PreferenceKeys.hermesDesktopProfile,
                 state.desktopProfile,
+              );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesAllowSelfSignedCertificates,
+                state.allowSelfSignedCertificates,
               );
               if (PreferencesStore.getString(
                     PreferenceKeys.hermesLocalDocumentTrustPrincipal,
@@ -647,6 +665,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
                 PreferenceKeys.hermesDesktopProfile,
                 state.desktopProfile,
               );
+              await PreferencesStore.putChecked(
+                PreferenceKeys.hermesAllowSelfSignedCertificates,
+                state.allowSelfSignedCertificates,
+              );
               if (nextDocumentTrustPrincipal != null) {
                 await PreferencesStore.putChecked(
                   PreferenceKeys.hermesLocalDocumentTrustPrincipal,
@@ -687,6 +709,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
           mode: nextMode,
           desktopAuthKind: nextDesktopAuthKind,
           desktopProfile: nextDesktopProfile,
+          allowSelfSignedCertificates: nextAllowSelfSigned,
           apiKey: nextApiKey,
           sessionKey: nextSessionKey,
           desktopCredentials: committedDesktopCredentials,
@@ -933,6 +956,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       mode: state.mode,
       desktopAuthKind: state.desktopAuthKind,
       desktopProfile: state.desktopProfile,
+      allowSelfSignedCertificates: state.allowSelfSignedCertificates,
     );
     ref.read(hermesActiveSessionProvider.notifier).set(null);
     final activeConversation = ref.read(activeConversationProvider);
@@ -1149,6 +1173,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       mode: mode ?? state.mode,
       desktopAuthKind: desktopAuthKind ?? state.desktopAuthKind,
       desktopProfile: desktopProfile ?? state.desktopProfile,
+      allowSelfSignedCertificates: state.allowSelfSignedCertificates,
       apiKey: identical(apiKey, _keep) ? state.apiKey : apiKey,
       sessionKey: identical(sessionKey, _keep) ? state.sessionKey : sessionKey,
       desktopCredentials: identical(desktopCredentials, _keepObject)
@@ -1289,6 +1314,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         config.mode,
         config.desktopAuthKind,
         config.desktopProfile,
+        config.allowSelfSignedCertificates,
         config.isUsable,
       ),
     ),

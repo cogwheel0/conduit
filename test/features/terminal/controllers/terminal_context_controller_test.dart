@@ -347,7 +347,7 @@ final class _FakeTerminalPlatformGateway
   Future<TerminalUploadFile?> pickUploadFile() async => null;
 
   @override
-  Future<void> shareDownload(TerminalDownloadedFile downloaded) async {}
+  Future<void> saveDownload(TerminalDownloadedFile downloaded) async {}
 
   @override
   Future<bool> openPort(Uri uri, {String? bearerToken}) async => true;

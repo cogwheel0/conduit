@@ -18,6 +18,7 @@ import '../models/hermes_mcp.dart';
 import '../models/hermes_model.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_backend_service.dart';
+import 'hermes_http_transport.dart';
 import 'hermes_dashboard_rest_bridge.dart';
 import 'hermes_dashboard_webview_policy.dart';
 import 'hermes_desktop_transport.dart';
@@ -191,6 +192,7 @@ final class HermesDesktopApiService
              ),
            ),
        _rpc = rpc ?? HermesDesktopRpcClient() {
+    configureHermesTransport(_dio, config);
     _administration = _HermesDesktopAdministration(this);
     _rpc.setDefaultParams({'profile': config.desktopProfile});
   }

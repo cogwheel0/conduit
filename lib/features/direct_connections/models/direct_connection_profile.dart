@@ -1,8 +1,6 @@
 import 'dart:collection';
 import 'dart:convert';
 
-import '../../../core/network/credential_transport_policy.dart';
-
 import 'ollama_keep_alive.dart';
 import 'ollama_thinking.dart';
 
@@ -222,13 +220,8 @@ final class DirectConnectionProfile {
       return 'A model tag is invalid.';
     }
 
-    if (uri.scheme.toLowerCase() == 'http') {
-      if (_hasTlsCredentialMaterial) {
-        return 'TLS client credentials require an HTTPS URL.';
-      }
-      if (!isSafePlaintextCredentialHost(uri.host)) {
-        return 'Plaintext HTTP is only allowed for localhost or a private IP address. Use HTTPS.';
-      }
+    if (uri.scheme.toLowerCase() == 'http' && _hasTlsCredentialMaterial) {
+      return 'TLS client credentials require an HTTPS URL.';
     }
 
     for (final entry in customHeaders.entries) {

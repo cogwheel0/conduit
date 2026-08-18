@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -38,13 +37,9 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
 class _HermesDesktopConnectionSectionState
     extends ConsumerState<HermesDesktopConnectionSection> {
   static const _desktopConnection = HermesDesktopConnectionCoordinator();
-  final _headerName = TextEditingController();
-  final _headerValue = TextEditingController();
   List<String> _profiles = const [];
   String? _profilesError;
-  String? _headerError;
   bool _profilesLoading = false;
-  bool _showAccessHeaders = false;
   String? _lastOrigin;
   String? _lastProfileIdentity;
   final Object _credentialIdentitySalt = Object();
@@ -56,7 +51,6 @@ class _HermesDesktopConnectionSectionState
   @override
   void initState() {
     super.initState();
-    _showAccessHeaders = _controller.accessHeaders.isNotEmpty;
     _lastOrigin = HermesConfig.connectionEndpoint(_controller.url.text);
     _lastProfileIdentity = _authDraftIdentity(
       _controller.buildDraft(ref.read(hermesConfigProvider)).config,
@@ -71,8 +65,6 @@ class _HermesDesktopConnectionSectionState
   @override
   void dispose() {
     _controller.removeListener(_handleDraftChanged);
-    _headerName.dispose();
-    _headerValue.dispose();
     super.dispose();
   }
 
@@ -215,30 +207,6 @@ class _HermesDesktopConnectionSectionState
     }
   }
 
-  void _addAccessHeader() {
-    final name = _headerName.text.trim();
-    if (name.isEmpty) return;
-    final error = _controller.setAccessHeaders({
-      ..._controller.accessHeaders,
-      name: _headerValue.text,
-    });
-    setState(() {
-      _headerError = error;
-      if (error == null) {
-        _headerName.clear();
-        _headerValue.clear();
-        if (_controller.desktopAuthKind == HermesDesktopAuthKind.nativePkce) {
-          _controller.setDesktopAuthKind(HermesDesktopAuthKind.dashboardCookie);
-        }
-      }
-    });
-  }
-
-  void _removeAccessHeader(String name) {
-    _controller.setAccessHeaders({..._controller.accessHeaders}..remove(name));
-    setState(() => _headerError = null);
-  }
-
   Future<void> _signInNative() async {
     if (!await widget.saveSettings()) return;
     final saved = ref.read(hermesConfigProvider);
@@ -286,7 +254,6 @@ class _HermesDesktopConnectionSectionState
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final gatewayStopped =
         ref
@@ -388,62 +355,6 @@ class _HermesDesktopConnectionSectionState
                       : _signInDashboard,
                 ),
               ],
-            ],
-          ),
-        ),
-        const SizedBox(height: Spacing.lg),
-        UtilityDisclosureSection(
-          key: const ValueKey<String>('hermes-access-headers-disclosure'),
-          title: l10n.hermesGatewayAccessHeaders,
-          subtitle: l10n.hermesGatewayAccessHeadersHelp,
-          leading: Icon(
-            context.usesCupertinoChrome
-                ? CupertinoIcons.gear_alt
-                : Icons.tune_rounded,
-            color: theme.iconSecondary,
-            size: IconSize.medium,
-          ),
-          expanded: _showAccessHeaders,
-          onChanged: (value) => setState(() => _showAccessHeaders = value),
-          flat: !PlatformInfo.isIOS,
-          useNativeSurface: PlatformInfo.isIOS,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AccessibleFormField(
-                label: 'Header name',
-                controller: _headerName,
-                autocorrect: false,
-                errorText: _headerError,
-              ),
-              const SizedBox(height: Spacing.sm),
-              AccessibleFormField(
-                label: 'Header value',
-                controller: _headerValue,
-                obscureText: true,
-                autocorrect: false,
-              ),
-              const SizedBox(height: Spacing.sm),
-              ConduitButton(
-                text: 'Add header',
-                isSecondary: true,
-                onPressed:
-                    _controller.accessHeaders.length >=
-                        HermesConfig.maxAccessHeaders
-                    ? null
-                    : _addAccessHeader,
-              ),
-              for (final entry in _controller.accessHeaders.entries)
-                UtilityRow(
-                  title: entry.key,
-                  subtitle: '••••••',
-                  trailing: ConduitIconButton(
-                    icon: Icons.close,
-                    tooltip: 'Remove header',
-                    onPressed: () => _removeAccessHeader(entry.key),
-                    isCompact: true,
-                  ),
-                ),
             ],
           ),
         ),

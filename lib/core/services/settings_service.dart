@@ -265,6 +265,7 @@ class SettingsService {
       _darkModeKey: settings.darkMode,
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
       _voiceAutoSendKey: settings.voiceAutoSendFinal,
+      PreferenceKeys.voiceBargeInEnabled: settings.voiceBargeInEnabled,
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
@@ -652,6 +653,9 @@ class SettingsService {
       voiceHoldToTalk: PreferencesStore.get<bool>(_voiceHoldToTalkKey) ?? false,
       voiceAutoSendFinal:
           PreferencesStore.get<bool>(_voiceAutoSendKey) ?? false,
+      voiceBargeInEnabled:
+          PreferencesStore.get<bool>(PreferenceKeys.voiceBargeInEnabled) ??
+          false,
       socketTransportMode:
           PreferencesStore.get<String>(_socketTransportModeKey) ?? 'ws',
       quickPills: PreferencesStore.getStringList(_quickPillsKey) ?? const [],
@@ -735,6 +739,7 @@ class AppSettings {
   final String? voiceLocaleId;
   final bool voiceHoldToTalk;
   final bool voiceAutoSendFinal;
+  final bool voiceBargeInEnabled;
   final String socketTransportMode; // 'polling' or 'ws'
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
@@ -773,6 +778,7 @@ class AppSettings {
     this.voiceLocaleId,
     this.voiceHoldToTalk = false,
     this.voiceAutoSendFinal = false,
+    this.voiceBargeInEnabled = false,
     this.socketTransportMode = 'ws',
     this.quickPills = const [],
     this.chatWebSearchEnabled,
@@ -812,6 +818,7 @@ class AppSettings {
     Object? voiceLocaleId = const _DefaultValue(),
     bool? voiceHoldToTalk,
     bool? voiceAutoSendFinal,
+    bool? voiceBargeInEnabled,
     String? socketTransportMode,
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
@@ -858,6 +865,7 @@ class AppSettings {
           : voiceLocaleId as String?,
       voiceHoldToTalk: voiceHoldToTalk ?? this.voiceHoldToTalk,
       voiceAutoSendFinal: voiceAutoSendFinal ?? this.voiceAutoSendFinal,
+      voiceBargeInEnabled: voiceBargeInEnabled ?? this.voiceBargeInEnabled,
       socketTransportMode: socketTransportMode ?? this.socketTransportMode,
       quickPills: quickPills ?? this.quickPills,
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
@@ -917,6 +925,7 @@ class AppSettings {
         other.voiceLocaleId == voiceLocaleId &&
         other.voiceHoldToTalk == voiceHoldToTalk &&
         other.voiceAutoSendFinal == voiceAutoSendFinal &&
+        other.voiceBargeInEnabled == voiceBargeInEnabled &&
         other.chatWebSearchEnabled == chatWebSearchEnabled &&
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
@@ -958,6 +967,7 @@ class AppSettings {
       voiceLocaleId,
       voiceHoldToTalk,
       voiceAutoSendFinal,
+      voiceBargeInEnabled,
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
       sttPreference,
@@ -1212,6 +1222,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       return;
     }
     state = state.copyWith(sttPreference: preference);
+    await SettingsService.saveSettings(state);
+  }
+
+  Future<void> setVoiceBargeInEnabled(bool value) async {
+    state = state.copyWith(voiceBargeInEnabled: value);
     await SettingsService.saveSettings(state);
   }
 

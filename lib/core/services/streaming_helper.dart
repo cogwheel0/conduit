@@ -490,6 +490,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   updateMessageById,
   void Function(String newTitle)? onChatTitleUpdated,
   void Function()? onChatTagsUpdated,
+  void Function(String path)? onTerminalDisplayFile,
 
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
@@ -3114,6 +3115,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           'message=$messageId keys=${payload.keys.toList()}',
           scope: 'socket/chat',
         );
+      }
+
+      if (type == 'terminal:display_file' && payload is Map) {
+        if (resolveTargetMessageIdForStream(
+              messageId,
+              eventType: 'terminal:display_file',
+              incomingSessionId: incomingSessionId,
+              allowBindingForeignMessage: true,
+            ) ==
+            null) {
+          return;
+        }
+        final path = payload['path']?.toString().trim() ?? '';
+        if (path.isNotEmpty) onTerminalDisplayFile?.call(path);
+        return;
       }
 
       if (type == 'chat:completion' && payload != null) {

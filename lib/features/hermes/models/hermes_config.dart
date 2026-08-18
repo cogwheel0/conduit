@@ -1,7 +1,5 @@
 import 'dart:collection';
 
-import '../../../core/network/credential_transport_policy.dart';
-
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
 /// explicit `null` (which clears a secret).
 const Object _unset = Object();
@@ -123,6 +121,7 @@ class HermesConfig {
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
+    this.allowSelfSignedCertificates = false,
     this.apiKey,
     this.sessionKey,
     this.desktopCredentials,
@@ -141,6 +140,10 @@ class HermesConfig {
 
   /// Profile selected for Desktop Gateway REST and RPC operations.
   final String desktopProfile;
+
+  /// Trusts an unverified TLS certificate for this server, matching the
+  /// equivalent Open WebUI and direct-connection setting.
+  final bool allowSelfSignedCertificates;
 
   /// Bearer token (`API_SERVER_KEY`) for the Hermes server.
   final String? apiKey;
@@ -173,8 +176,7 @@ class HermesConfig {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
-        uri.hasFragment ||
-        !isAllowedCredentialTransport(uri)) {
+        uri.hasFragment) {
       return null;
     }
     final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
@@ -261,6 +263,7 @@ class HermesConfig {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? allowSelfSignedCertificates,
     // Sentinel-typed so secrets can be explicitly cleared: passing `null`
     // clears, while omitting keeps the current value.
     Object? apiKey = _unset,
@@ -273,6 +276,8 @@ class HermesConfig {
       mode: mode ?? this.mode,
       desktopAuthKind: desktopAuthKind ?? this.desktopAuthKind,
       desktopProfile: desktopProfile ?? this.desktopProfile,
+      allowSelfSignedCertificates:
+          allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
       apiKey: identical(apiKey, _unset) ? this.apiKey : apiKey as String?,
       sessionKey: identical(sessionKey, _unset)
           ? this.sessionKey
@@ -291,6 +296,7 @@ class HermesConfig {
       other.mode == mode &&
       other.desktopAuthKind == desktopAuthKind &&
       other.desktopProfile == desktopProfile &&
+      other.allowSelfSignedCertificates == allowSelfSignedCertificates &&
       other.apiKey == apiKey &&
       other.sessionKey == sessionKey &&
       other.desktopCredentials?.legacyToken ==
@@ -318,6 +324,7 @@ class HermesConfig {
       mode,
       desktopAuthKind,
       desktopProfile,
+      allowSelfSignedCertificates,
       apiKey,
       sessionKey,
       desktopCredentials?.legacyToken,

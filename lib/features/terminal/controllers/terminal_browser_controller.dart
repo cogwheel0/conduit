@@ -211,7 +211,7 @@ class TerminalBrowserController extends ChangeNotifier {
           sessionScopeId: operationContext.sessionScopeId,
         );
         if (_isCurrentOperationContext(operationContext)) {
-          await _platformGateway.shareDownload(downloaded);
+          await _platformGateway.saveDownload(downloaded);
         }
       },
     );

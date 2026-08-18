@@ -15,6 +15,7 @@ import '../controllers/terminal_context_controller.dart';
 import '../controllers/terminal_coordinator.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
+import '../services/terminal_service.dart';
 import 'terminal_console_section.dart';
 import 'terminal_files_section.dart';
 import 'terminal_fullscreen_page.dart';
@@ -58,6 +59,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _coordinator.start();
     });
+    ref.listenManual<String?>(terminalDisplayFileProvider, (_, path) {
+      if (path == null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_displayFile(path));
+      });
+    }, fireImmediately: true);
   }
 
   @override
@@ -156,6 +163,29 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   void _showSnackBar(String message) {
     ScaffoldMessenger.maybeOf(context)
         ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
+  }
+
+  Future<void> _displayFile(String requestedPath) async {
+    ref.read(terminalDisplayFileProvider.notifier).clear();
+    final path = normalizeTerminalPath(requestedPath);
+    await _coordinator.navigateTo(parentTerminalPath(path));
+    if (!mounted) return;
+
+    final entries = ref.read(terminalEntriesProvider);
+    TerminalFileEntry? entry;
+    for (final candidate in entries) {
+      if (normalizeTerminalPath(candidate.path) == path) {
+        entry = candidate;
+        break;
+      }
+    }
+    final pathParts = path.split('/').where((part) => part.isNotEmpty).toList();
+    entry ??= TerminalFileEntry(
+      name: pathParts.isEmpty ? path : pathParts.last,
+      path: path,
+      isDirectory: false,
+    );
+    await showTerminalFilePreview(context, _coordinator, entry);
   }
 
   @override

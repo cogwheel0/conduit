@@ -17,6 +17,10 @@ import '../../../core/sync/sync_engine.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../providers/chat_providers.dart';
+import '../../navigation/models/sidebar_navigation_model.dart';
+import '../../navigation/providers/sidebar_providers.dart';
+import '../../terminal/models/terminal_models.dart';
+import '../../terminal/providers/terminal_providers.dart';
 
 // ---------------------------------------------------------------------------
 // Transport metadata helpers
@@ -403,6 +407,14 @@ Future<bool> dispatchChatTransport({
               );
         } catch (_) {}
       });
+    },
+    onTerminalDisplayFile: (path) {
+      if (!ownsConversation()) return;
+      ref.read(sidebarActiveTabProvider.notifier).set(SidebarTabId.terminal);
+      ref
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.files);
+      ref.read(terminalDisplayFileProvider.notifier).show(path);
     },
     onRemoteMessageBound: (remoteMessageId) {
       if (!ownsConversation()) return;

@@ -1,4 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -7,7 +8,9 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../controllers/hermes_connection_controller.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
@@ -174,6 +177,134 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
               ),
             ),
           ),
+    );
+  }
+}
+
+/// Custom request headers and TLS trust for the Hermes server, mirroring the
+/// equivalent Open WebUI and direct-connection settings. Applies to both
+/// backend modes.
+class HermesTransportSection extends StatefulWidget {
+  const HermesTransportSection({super.key, required this.controller});
+
+  final HermesConnectionController controller;
+
+  @override
+  State<HermesTransportSection> createState() => _HermesTransportSectionState();
+}
+
+class _HermesTransportSectionState extends State<HermesTransportSection> {
+  final _headerName = TextEditingController();
+  final _headerValue = TextEditingController();
+  String? _headerError;
+  late bool _expanded = widget.controller.accessHeaders.isNotEmpty;
+
+  HermesConnectionController get _controller => widget.controller;
+
+  @override
+  void dispose() {
+    _headerName.dispose();
+    _headerValue.dispose();
+    super.dispose();
+  }
+
+  void _addAccessHeader() {
+    final name = _headerName.text.trim();
+    if (name.isEmpty) return;
+    final error = _controller.setAccessHeaders({
+      ..._controller.accessHeaders,
+      name: _headerValue.text,
+    });
+    setState(() {
+      _headerError = error;
+      if (error == null) {
+        _headerName.clear();
+        _headerValue.clear();
+        // Native PKCE cannot traverse a header-protected gateway.
+        if (_controller.mode == HermesBackendMode.desktopGateway &&
+            _controller.desktopAuthKind == HermesDesktopAuthKind.nativePkce) {
+          _controller.setDesktopAuthKind(HermesDesktopAuthKind.dashboardCookie);
+        }
+      }
+    });
+  }
+
+  void _removeAccessHeader(String name) {
+    _controller.setAccessHeaders({..._controller.accessHeaders}..remove(name));
+    setState(() => _headerError = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return UtilityDisclosureSection(
+      key: const ValueKey<String>('hermes-access-headers-disclosure'),
+      title: l10n.hermesGatewayAccessHeaders,
+      subtitle: l10n.hermesGatewayAccessHeadersHelp,
+      leading: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.gear_alt
+            : Icons.tune_rounded,
+        color: theme.iconSecondary,
+        size: IconSize.medium,
+      ),
+      expanded: _expanded,
+      onChanged: (value) => setState(() => _expanded = value),
+      flat: !PlatformInfo.isIOS,
+      useNativeSurface: PlatformInfo.isIOS,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AccessibleFormField(
+            label: 'Header name',
+            controller: _headerName,
+            autocorrect: false,
+            errorText: _headerError,
+          ),
+          const SizedBox(height: Spacing.sm),
+          AccessibleFormField(
+            label: 'Header value',
+            controller: _headerValue,
+            obscureText: true,
+            autocorrect: false,
+          ),
+          const SizedBox(height: Spacing.sm),
+          ConduitButton(
+            text: 'Add header',
+            isSecondary: true,
+            onPressed:
+                _controller.accessHeaders.length >=
+                    HermesConfig.maxAccessHeaders
+                ? null
+                : _addAccessHeader,
+          ),
+          for (final entry in _controller.accessHeaders.entries)
+            UtilityRow(
+              title: entry.key,
+              subtitle: '••••••',
+              trailing: ConduitIconButton(
+                icon: Icons.close,
+                tooltip: 'Remove header',
+                onPressed: () => _removeAccessHeader(entry.key),
+                isCompact: true,
+              ),
+            ),
+          const SizedBox(height: Spacing.sm),
+          UtilityRow(
+            key: const ValueKey<String>('hermes-allow-self-signed'),
+            title: l10n.allowSelfSignedCertificates,
+            subtitle: l10n.allowSelfSignedCertificatesDescription,
+            trailing: AdaptiveSwitch(
+              value: _controller.allowSelfSignedCertificates,
+              onChanged: _controller.setAllowSelfSignedCertificates,
+            ),
+            onTap: () => _controller.setAllowSelfSignedCertificates(
+              !_controller.allowSelfSignedCertificates,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

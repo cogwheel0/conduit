@@ -5376,8 +5376,8 @@
   "hermesAuthDashboard": "Dashboard",
   "hermesNativeSignIn": "Sign in with Hermes",
   "hermesDashboardSignIn": "Open dashboard sign in",
-  "hermesGatewayAccessHeaders": "Gateway access headers",
-  "hermesGatewayAccessHeadersHelp": "Optional headers for a protected Hermes dashboard.",
+  "hermesGatewayAccessHeaders": "Headers and certificates",
+  "hermesGatewayAccessHeadersHelp": "Custom request headers and TLS trust for a protected Hermes server.",
   "hermesDesktopGateway": "Desktop Gateway",
   "hermesReloadSkills": "Reload skills",
   "hermesNoInstalledSkills": "No installed skills",
@@ -5416,5 +5416,13 @@
   "markdownShowMoreLines": "{count, plural, =1{Show 1 more line} other{Show {count} more lines}}",
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show less",
-  "@markdownShowLess": {"description":"Action that collapses an expanded Markdown code block."}
+  "@markdownShowLess": {"description":"Action that collapses an expanded Markdown code block."},
+  "voiceBargeIn": "Barge in",
+  "@voiceBargeIn": {"description":"Setting that allows speech to interrupt a voice response."},
+  "voiceBargeInDescription": "Keep listening while the assistant speaks so you can interrupt it.",
+  "@voiceBargeInDescription": {"description":"Explains the voice barge-in setting."},
+  "voiceCallSpeakerOn": "Turn speaker on",
+  "@voiceCallSpeakerOn": {"description":"Tooltip for routing a voice call through the loudspeaker."},
+  "voiceCallSpeakerOff": "Turn speaker off",
+  "@voiceCallSpeakerOff": {"description":"Tooltip for disabling the loudspeaker during a voice call."}
 }

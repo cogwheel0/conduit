@@ -43,7 +43,9 @@ void main() {
         const SemanticTextBlock('Answer.'),
       ]);
 
-      check(rendered).contains('</details>\n\n\n\nAnswer.');
+      // Blocks are joined on Markdown block boundaries, so the preserved
+      // whitespace-only block contributes its own newlines between the two.
+      check(rendered).contains('</details>\n\n\n\n\n\nAnswer.');
     });
 
     test('preserves apostrophes in text blocks', () {
