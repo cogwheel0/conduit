@@ -446,7 +446,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         binding = await _resume(id);
         await _rpc.request<Object?>(
           'session.close',
-          params: {'session_id': binding.runtimeId},
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
         );
       } catch (error) {
         DebugLogger.warning(
@@ -488,7 +491,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final result = _object(
       await _rpc.request<Object?>(
         'session.branch',
-        params: {'session_id': binding.runtimeId},
+        params: {
+          'session_id': binding.runtimeId,
+          ..._sessionScope(binding.storedId),
+        },
       ),
     );
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
@@ -501,6 +507,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       runtimeId: runtime,
     );
     _bindingSocketGenerations[stored] = _rpc.socketGeneration;
+    // A branch of a bot's chat lives in that bot's profile too; without this
+    // every later call for the fork would target the configured profile.
+    final profile = _sessionProfiles[binding.storedId];
+    if (profile != null) _sessionProfiles[stored] = profile;
     return stored;
   }
 }

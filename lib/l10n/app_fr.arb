@@ -3128,7 +3128,7 @@
   "hermesMcpServers": "Serveurs MCP",
   "hermesSignOut": "Se déconnecter de Hermes",
   "hermesActionFailed": "L'action Hermes a échoué.",
-  "hermesToolsetUpdateFailed": "Échec de la mise à jour de la boîte à outils Hermes.",
+  "hermesToolsetUpdateFailed": "Échec de la mise à jour de l’ensemble d’outils Hermes.",
   "hermesJobStateLabel": "État",
   "hermesJobDeliveryLabel": "Livraison",
   "hermesJobLastLabel": "Dernière",

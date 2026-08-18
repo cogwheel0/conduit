@@ -787,8 +787,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final theme = context.conduitTheme;
     final modelName = _resolveActiveModelName();
     final iconUrl = _resolveActiveModelIconUrl();
-    if (!widget.showModelHeader) {
-      // Grouped continuation: the response above already named this model.
+    // Grouped continuation: the response above already named this model. A
+    // selected historical version can carry a DIFFERENT model, though, and
+    // that identity was never shown above — so only stay silent while the
+    // active identity still matches the one the group header announced.
+    if (!widget.showModelHeader &&
+        modelName == widget.modelName?.trim() &&
+        iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;

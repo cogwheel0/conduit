@@ -1713,17 +1713,24 @@ final hermesBotsProvider = FutureProvider<List<HermesBot>>((ref) async {
   if (service is! HermesDesktopApiService) return const [];
   ref.watch(hermesDesktopContractProvider);
   try {
-    final bots = await service.listBots();
-    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
-    return bots
-      ..sort(
-        (a, b) => (b.lastActive ?? epoch).compareTo(a.lastActive ?? epoch),
-      );
+    return sortHermesBotsByRecency(await service.listBots());
   } catch (_) {
     // An older gateway rejects profiles.list outright; the roster is optional.
     return const [];
   }
 });
+
+/// Roster order: most recently active first.
+///
+/// Copies before sorting — the Bot-Mode-off path yields an unmodifiable const
+/// list, which would sort in place with an `UnsupportedError`.
+@visibleForTesting
+List<HermesBot> sortHermesBotsByRecency(List<HermesBot> bots) {
+  final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+  return [...bots]..sort(
+    (a, b) => (b.lastActive ?? epoch).compareTo(a.lastActive ?? epoch),
+  );
+}
 
 /// A bot's avatar data URL, or null when it has none.
 final hermesBotAvatarProvider = FutureProvider.autoDispose

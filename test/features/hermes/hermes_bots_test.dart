@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/models/hermes_bot.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -88,6 +89,31 @@ void main() {
     check(bot.preview).equals('Can you show me an approval prompt');
     check(bot.hasAvatar).isFalse();
     check(bot.lastActive).isNotNull();
+  });
+
+  test('sorting an unmodifiable roster does not throw', () {
+    // The Bot-Mode-off path returns `const []`; sorting that in place throws
+    // UnsupportedError, which the provider's catch would mask as "no bots".
+    check(sortHermesBotsByRecency(const <HermesBot>[])).isEmpty();
+    check(
+      sortHermesBotsByRecency(
+        List<HermesBot>.unmodifiable([
+          HermesBot(name: 'a', title: 'A'),
+          HermesBot(name: 'b', title: 'B'),
+        ]),
+      ),
+    ).length.equals(2);
+  });
+
+  test('roster is ordered most recently active first', () {
+    final sorted = sortHermesBotsByRecency([
+      HermesBot(name: 'stale', title: 'Stale', lastActive: DateTime(2026, 1, 1)),
+      const HermesBot(name: 'never', title: 'Never'),
+      HermesBot(name: 'fresh', title: 'Fresh', lastActive: DateTime(2026, 8, 1)),
+    ]);
+
+    check(sorted.map((bot) => bot.name).toList())
+        .deepEquals(['fresh', 'stale', 'never']);
   });
 
   test('prefers the caller-pinned session over the newest one', () {
