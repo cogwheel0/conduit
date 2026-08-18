@@ -231,14 +231,16 @@ void main() {
     await connecting;
 
     client.setDefaultParams({'profile': 'work'});
+    // A caller-supplied profile wins over the connection default: Bot Mode
+    // scopes single calls to another profile without a new connection.
     final first = client.request<String>(
       'first',
-      params: {'session_id': 'session-1', 'profile': 'ignored'},
+      params: {'session_id': 'session-1', 'profile': 'researcher'},
     );
     final second = client.request<String>('second');
     await Future<void>.delayed(Duration.zero);
     check(socket.sentFrame(0)['params'] as Map<String, dynamic>)
-        .deepEquals({'session_id': 'session-1', 'profile': 'work'});
+        .deepEquals({'session_id': 'session-1', 'profile': 'researcher'});
     check(socket.sentFrame(1)['params'] as Map<String, dynamic>)
         .deepEquals({'profile': 'work'});
     final firstId = socket.sentFrame(0)['id'];

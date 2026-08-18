@@ -107,6 +107,9 @@ final class PreferenceKeys {
   static const String notesListShowPinned = 'notes_list_show_pinned';
   static const String notesListShowRecent = 'notes_list_show_recent';
 
+  /// Bots section visibility in the sidebar Hermes tab.
+  static const String hermesShowBots = 'hermes_show_bots';
+
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';
   static const String serverFeatureAvailability =
