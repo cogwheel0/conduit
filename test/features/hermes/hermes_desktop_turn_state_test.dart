@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit/features/hermes/models/hermes_bot.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
@@ -80,14 +83,17 @@ final class _GatewayHarness {
   Future<void> dispose() => incoming.close();
 }
 
-Dio _statusDio() {
+Dio _statusDio([_StubAdapter? adapter]) {
   final dio = Dio();
-  dio.httpClientAdapter = _StubAdapter();
+  dio.httpClientAdapter = adapter ?? _StubAdapter();
   return dio;
 }
 
-/// Serves `/api/status` (auth not required) so `_connect` can reach the socket.
+/// Serves `/api/status` (auth not required) so `_connect` can reach the socket,
+/// and records every REST URI so tests can assert profile scoping.
 final class _StubAdapter implements HttpClientAdapter {
+  final requested = <Uri>[];
+
   @override
   void close({bool force = false}) {}
 
@@ -97,6 +103,16 @@ final class _StubAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    requested.add(options.uri);
+    if (options.uri.path.endsWith('/messages')) {
+      return ResponseBody.fromString(
+        jsonEncode({'messages': const []}),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
     final body = jsonEncode({
       'version': '0.20.1',
       'auth_required': false,
@@ -113,6 +129,9 @@ final class _StubAdapter implements HttpClientAdapter {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  tearDown(PreferencesStore.debugReset);
+
   test(
     'session.info clears an unsupportedGateway state keyed by stored id',
     () async {
@@ -207,4 +226,67 @@ void main() {
     check(service.turnStateFor('stored-2'))
         .equals(HermesDesktopTurnState.running);
   });
+
+  test(
+    'bot chat transcript reads carry the bot profile, not the connection one',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      final harness = _GatewayHarness();
+      final adapter = _StubAdapter();
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          // The CONNECTION profile. A bot chat lives in another profile, and
+          // an unscoped read silently resolves against this one instead,
+          // returning a different conversation that shares the session id.
+          desktopProfile: 'default',
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(adapter),
+        rpc: rpc,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+
+      harness.responder = (method) => switch (method) {
+        'session.resume' => {
+          'session_id': 'runtime-bot',
+          'stored_session_id': 'stored-bot',
+          'info': const {'running': false},
+          'running': false,
+        },
+        _ => const {},
+      };
+
+      await service.openBotChat(
+        const HermesBot(
+          name: 'researcher',
+          title: 'Research',
+          chatSessionId: 'stored-bot',
+        ),
+      );
+      await service.getSessionMessages('stored-bot');
+
+      final reads = adapter.requested
+          .where((uri) => uri.path.endsWith('/messages'))
+          .toList();
+      check(reads).isNotEmpty();
+      for (final uri in reads) {
+        check(
+          uri.queryParameters['profile'],
+          because: 'unscoped bot transcript read: \$uri',
+        ).equals('researcher');
+      }
+    },
+  );
 }

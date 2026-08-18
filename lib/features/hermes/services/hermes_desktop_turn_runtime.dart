@@ -825,6 +825,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           'offset': 0,
           'order': 'recent',
           'include_compacted': true,
+          // Bot chats live in another profile. Without this scope the REST
+          // layer defaults to the configured profile and this would read a
+          // DIFFERENT conversation that happens to share the session id.
+          ..._sessionScope(storedId),
         },
       ),
       'messages',
