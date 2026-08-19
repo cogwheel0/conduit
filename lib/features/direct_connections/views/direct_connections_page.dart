@@ -524,8 +524,7 @@ class _OpenWebUiDirectConnectionsError extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
+    return InsetGroupedSection(
       child: Row(
         children: [
           Icon(Icons.sync_problem_outlined, color: theme.error),

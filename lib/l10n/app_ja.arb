@@ -1135,11 +1135,11 @@
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "証明書を選択",
+  "mutualTlsSelectCertificate": "証明書",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "秘密鍵を選択",
+  "mutualTlsSelectPrivateKey": "秘密鍵",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
@@ -4494,6 +4494,10 @@
   "markdownShowMoreLines": "あと{count}行を表示",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "表示を減らす",
+  "voiceBargeIn": "割り込み",
+  "voiceBargeInDescription": "アシスタントの発話中も聞き取りを続け、割り込めるようにします。",
+  "voiceCallSpeakerOn": "スピーカーをオンにする",
+  "voiceCallSpeakerOff": "スピーカーをオフにする",
   "colorScheme": "カラースキーム",
   "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
   "passwordChangeDescription": "アカウントのパスワードを更新",

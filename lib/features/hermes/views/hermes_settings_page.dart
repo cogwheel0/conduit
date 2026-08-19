@@ -197,7 +197,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               Expanded(
                 child: Text(
                   l10n.hermesSecretsUnavailable,
-                  style: AppTypography.bodySmallStyle.copyWith(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     color: theme.textPrimary,
                   ),
                 ),

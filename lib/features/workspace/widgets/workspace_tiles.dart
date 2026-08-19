@@ -113,12 +113,7 @@ class WorkspaceResourceTile extends StatelessWidget {
                   Flexible(
                     child: Text(
                       title,
-                      style: usesCupertinoChrome
-                          ? AppTypography.bodyMediumStyle.copyWith(
-                              color: theme.textPrimary,
-                              fontWeight: FontWeight.w400,
-                            )
-                          : profileTitleTextStyle(context),
+                      style: profileTitleTextStyle(context),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -133,11 +128,7 @@ class WorkspaceResourceTile extends StatelessWidget {
                 const SizedBox(height: Spacing.xs),
                 Text(
                   subtitle!,
-                  style: usesCupertinoChrome
-                      ? AppTypography.bodySmallStyle.copyWith(
-                          color: theme.textSecondary,
-                        )
-                      : profileSubtitleTextStyle(context),
+                  style: profileSubtitleTextStyle(context),
                   maxLines: usesLargeText ? null : 3,
                   overflow: TextOverflow.ellipsis,
                 ),

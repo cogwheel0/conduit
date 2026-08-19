@@ -25,6 +25,7 @@ import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
+import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/socket_health_card.dart';
 import '../widgets/stt_language_picker.dart';
@@ -315,54 +316,50 @@ class AppCustomizationPage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ConduitCard(
-            padding: EdgeInsets.zero,
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(AppBorderRadius.card),
-              clipBehavior: Clip.antiAlias,
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < options.length; i++) ...[
-                      AdaptiveListTile(
-                        leading: Icon(options[i].icon, size: IconSize.small),
-                        title: Text(
-                          options[i].label,
-                          style: context.conduitTheme.bodyMedium?.copyWith(
-                            color: context.conduitTheme.sidebarForeground,
-                          ),
+          // These rows sit directly on the enclosing disclosure section's
+          // grouped surface; a nested card here would stack surface on surface.
+          Material(
+            color: Colors.transparent,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < options.length; i++) ...[
+                    AdaptiveListTile(
+                      leading: Icon(options[i].icon, size: IconSize.small),
+                      title: Text(
+                        options[i].label,
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: context.conduitTheme.textPrimary,
                         ),
-                        trailing: Checkbox.adaptive(
-                          value: selected.contains(options[i].id),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          onChanged:
-                              (selectedCount < maxPills ||
-                                  selected.contains(options[i].id))
-                              ? (_) => toggle(options[i].id)
-                              : null,
-                        ),
-                        onTap:
+                      ),
+                      trailing: Checkbox.adaptive(
+                        value: selected.contains(options[i].id),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged:
                             (selectedCount < maxPills ||
                                 selected.contains(options[i].id))
-                            ? () => toggle(options[i].id)
+                            ? (_) => toggle(options[i].id)
                             : null,
                       ),
-                      if (i != options.length - 1)
-                        Divider(
-                          height: 1,
-                          color: Theme.of(context).dividerColor
-                              .withValues(alpha: 0.2),
-                        ),
-                    ],
+                      onTap:
+                          (selectedCount < maxPills ||
+                              selected.contains(options[i].id))
+                          ? () => toggle(options[i].id)
+                          : null,
+                    ),
+                    if (i != options.length - 1)
+                      Divider(
+                        height: BorderWidth.thin,
+                        thickness: BorderWidth.thin,
+                        color: context.conduitTheme.dividerColor,
+                      ),
                   ],
-                ),
+                ],
               ),
             ),
           ),
@@ -551,7 +548,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.advancedPromptOverrides),
+        SettingsSectionHeader(title: l10n.advancedPromptOverrides),
         const SizedBox(height: Spacing.sm),
         ExpandableCard(
           title: l10n.modelSystemPrompts,
@@ -660,9 +657,7 @@ class AppCustomizationPage extends ConsumerWidget {
       padding: const EdgeInsets.all(Spacing.md),
       child: Text(
         text,
-        style: theme.bodyMedium?.copyWith(
-          color: theme.sidebarForeground.withValues(alpha: 0.75),
-        ),
+        style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
     );
   }
@@ -838,13 +833,9 @@ class AppCustomizationPage extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: AppLocalizations.of(context)!.connectionHealth),
-        const SizedBox(height: Spacing.sm),
-        SocketHealthCard(socketService: socketService),
-      ],
+    return SocketHealthCard(
+      socketService: socketService,
+      title: AppLocalizations.of(context)!.connectionHealth,
     );
   }
 
@@ -950,10 +941,8 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.sttSettings),
-        const SizedBox(height: Spacing.sm),
-        ConduitCard(
-          padding: const EdgeInsets.all(Spacing.md),
+        InsetGroupedSection(
+          title: l10n.sttSettings,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -972,7 +961,7 @@ class AppCustomizationPage extends ConsumerWidget {
                     child: Text(
                       l10n.sttEngineLabel,
                       style: theme.bodyMedium?.copyWith(
-                        color: theme.sidebarForeground,
+                        color: theme.textPrimary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1016,9 +1005,7 @@ class AppCustomizationPage extends ConsumerWidget {
                   key: ValueKey<String>(
                     'stt-desc-${settings.sttPreference.name}',
                   ),
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.9),
-                  ),
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 ),
               ),
               if (warnings.isNotEmpty) ...[
@@ -1053,7 +1040,7 @@ class AppCustomizationPage extends ConsumerWidget {
                           Text(
                             l10n.sttSilenceDuration,
                             style: theme.bodyMedium?.copyWith(
-                              color: theme.sidebarForeground,
+                              color: theme.textPrimary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1061,9 +1048,7 @@ class AppCustomizationPage extends ConsumerWidget {
                           Text(
                             '${settings.voiceSilenceDuration}ms',
                             style: theme.bodySmall?.copyWith(
-                              color: theme.sidebarForeground.withValues(
-                                alpha: 0.7,
-                              ),
+                              color: theme.textSecondary,
                             ),
                           ),
                         ],
@@ -1094,9 +1079,7 @@ class AppCustomizationPage extends ConsumerWidget {
                 ),
                 Text(
                   l10n.sttSilenceDurationDescription,
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.7),
-                  ),
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 ),
               ],
             ],
@@ -1113,52 +1096,17 @@ class AppCustomizationPage extends ConsumerWidget {
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => showSttLanguagePickerSheet(context, ref, settings),
-      child: Row(
-        children: [
-          _buildIconBadge(
-            context,
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.globe,
-              android: Icons.language,
-            ),
-            color: theme.buttonPrimary,
-          ),
-          const SizedBox(width: Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.sttTranscriptionLanguage,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  sttLanguageSubtitle(l10n, settings),
-                  style: theme.bodySmall?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.7),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: Spacing.sm),
-          Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.chevron_right,
-              android: Icons.chevron_right,
-            ),
-            color: theme.iconSecondary,
-            size: IconSize.small,
-          ),
-        ],
+    return UtilityRow(
+      padding: EdgeInsets.zero,
+      leading: _buildIconBadge(
+        context,
+        UiUtils.platformIcon(ios: CupertinoIcons.globe, android: Icons.language),
+        color: theme.buttonPrimary,
       ),
+      title: l10n.sttTranscriptionLanguage,
+      subtitle: sttLanguageSubtitle(l10n, settings),
+      showChevron: true,
+      onTap: () => showSttLanguagePickerSheet(context, ref, settings),
     );
   }
 
@@ -1192,10 +1140,8 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: l10n.ttsSettings),
-        const SizedBox(height: Spacing.sm),
-        ConduitCard(
-          padding: const EdgeInsets.all(Spacing.md),
+        InsetGroupedSection(
+          title: l10n.ttsSettings,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1213,7 +1159,7 @@ class AppCustomizationPage extends ConsumerWidget {
                   Text(
                     l10n.ttsEngineLabel,
                     style: theme.bodyMedium?.copyWith(
-                      color: theme.sidebarForeground,
+                      color: theme.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1249,9 +1195,7 @@ class AppCustomizationPage extends ConsumerWidget {
                 child: Text(
                   ttsDescription,
                   key: ValueKey<String>('tts-desc-${settings.ttsEngine.name}'),
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.9),
-                  ),
+                  style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 ),
               ),
               if (warnings.isNotEmpty) ...[
@@ -1395,39 +1339,36 @@ class AppCustomizationPage extends ConsumerWidget {
     required ValueChanged<double> onChanged,
   }) {
     final theme = context.conduitTheme;
-    return ConduitCard(
-      padding: const EdgeInsets.all(Spacing.md),
+    return InsetGroupedSection(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _buildIconBadge(context, icon, color: theme.buttonPrimary),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+          UtilityRow(
+            leading: _buildIconBadge(context, icon, color: theme.buttonPrimary),
+            title: title,
+            status: Text(
+              label,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+                fontWeight: FontWeight.w600,
               ),
-              Text(
-                label,
-                style: theme.bodyMedium?.copyWith(
-                  color: theme.sidebarForeground.withValues(alpha: 0.75),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
+            ),
           ),
-          AdaptiveSlider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            onChanged: onChanged,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Spacing.md,
+              0,
+              Spacing.md,
+              Spacing.sm,
+            ),
+            child: AdaptiveSlider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
           ),
         ],
       ),
@@ -2246,21 +2187,6 @@ class _PaletteColorDot extends StatelessWidget {
           width: BorderWidth.thin,
         ),
       ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Text(
-      title,
-      style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
     );
   }
 }

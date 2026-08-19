@@ -287,7 +287,7 @@ class _ScheduledAgentsTile extends ConsumerWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTypography.captionStyle.copyWith(
+                      style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.textSecondary,
                       ),
                     ),

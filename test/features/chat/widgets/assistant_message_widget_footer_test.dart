@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
@@ -48,6 +49,36 @@ class _RecordingTextToSpeechController extends TextToSpeechController {
   }
 }
 
+/// Runs worker tasks inline so the TTS plain-text pass resolves within a pump.
+class _ImmediateWorkerManager extends WorkerManager {
+  _ImmediateWorkerManager() : super(maxConcurrentTasks: 1);
+
+  @override
+  Future<R> schedule<Q, R>(
+    WorkerTask<Q, R> callback,
+    Q message, {
+    String? debugLabel,
+  }) => Future<R>.value(callback(message));
+}
+
+class _CapturingTextToSpeechController extends TextToSpeechController {
+  _CapturingTextToSpeechController(this.onToggle);
+
+  final void Function(String text) onToggle;
+
+  @override
+  TextToSpeechState build() =>
+      const TextToSpeechState(initialized: true, available: true);
+
+  @override
+  Future<void> toggleForMessage({
+    required String messageId,
+    required String text,
+  }) async {
+    onToggle(text);
+  }
+}
+
 final class _PendingImageProvider extends ImageProvider<_PendingImageProvider> {
   @override
   Future<_PendingImageProvider> obtainKey(ImageConfiguration configuration) {
@@ -90,6 +121,7 @@ Widget _buildAssistantHarness(
   bool isStreaming = false,
   bool? isChatStreaming,
   bool disableAnimations = false,
+  bool showActionBar = true,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
@@ -117,6 +149,7 @@ Widget _buildAssistantHarness(
           message: message,
           isStreaming: isStreaming,
           showFollowUps: showFollowUps,
+          showActionBar: showActionBar,
           animateOnMount: false,
           modelName: message.model,
           onCopy: onCopy ?? () {},
@@ -448,6 +481,91 @@ void main() {
     expect(find.text('Prev'), findsOneWidget);
     expect(find.text('Next'), findsOneWidget);
     expect(find.text('Info'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a non-terminal grouped row keeps its info chips but no actions',
+    (tester) async {
+      // Within a grouped response only the last row paints the toolbar, but its
+      // siblings still own their own citations, so those must survive.
+      final message = ChatMessage(
+        id: 'assistant-grouped-middle',
+        role: 'assistant',
+        content: 'The first part of one grouped answer.',
+        timestamp: DateTime(2024, 1, 1),
+        isStreaming: false,
+        metadata: const {'responseDone': true},
+        sources: const [
+          ChatSourceReference(
+            title: 'Source A',
+            snippet: 'Source details shown in the bottom sheet.',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message,
+          isChatStreaming: false,
+          showActionBar: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      check(find.text('1 Source').evaluate()).length.equals(1);
+      check(find.byType(ChatActionButton).evaluate()).isEmpty();
+      check(find.byIcon(Icons.content_copy).evaluate()).isEmpty();
+      check(find.byIcon(Icons.refresh).evaluate()).isEmpty();
+      check(find.byIcon(Icons.more_horiz_rounded).evaluate()).isEmpty();
+    },
+  );
+
+  testWidgets('the bar owner reads the whole grouped response aloud', (
+    tester,
+  ) async {
+    final spoken = <String>[];
+    final message = ChatMessage(
+      id: 'assistant-grouped-last',
+      role: 'assistant',
+      content: 'The last part.',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: false,
+      metadata: const {'responseDone': true},
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            () => _CapturingTextToSpeechController(spoken.add),
+          ),
+          workerManagerProvider.overrideWithValue(_ImmediateWorkerManager()),
+          isChatStreamingProvider.overrideWithValue(false),
+        ],
+        child: _buildHarness(
+          AssistantMessageWidget(
+            message: message,
+            isStreaming: false,
+            showFollowUps: false,
+            animateOnMount: false,
+            modelName: message.model,
+            resolveGroupedResponseText: () =>
+                'The first part.\n\nThe last part.',
+            onCopy: () {},
+            onRegenerate: () {},
+            onDelete: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.volume_up));
+    await tester.pumpAndSettle();
+
+    check(spoken).length.equals(1);
+    check(spoken.single).contains('The first part.');
+    check(spoken.single).contains('The last part.');
   });
 
   testWidgets('assistant overflow uses the native iOS 26 popup menu', (

@@ -1331,13 +1331,13 @@
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Choose certificate",
+  "mutualTlsSelectCertificate": "Certificate",
   "@mutualTlsSelectCertificate": {
-    "description": "Button label for picking a PEM client certificate chain file."
+    "description": "Button label for picking a PEM client certificate chain file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
-  "mutualTlsSelectPrivateKey": "Choose private key",
+  "mutualTlsSelectPrivateKey": "Private key",
   "@mutualTlsSelectPrivateKey": {
-    "description": "Button label for picking a PEM private key file."
+    "description": "Button label for picking a PEM private key file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
   "mutualTlsCertificateReady": "Certificate",
   "@mutualTlsCertificateReady": {

@@ -403,7 +403,7 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
                     ? Text(l10n.workspaceImportItemImported)
                     : Text(
                         result.error ?? l10n.workspaceImportItemFailed,
-                        style: theme.caption?.copyWith(color: theme.error),
+                        style: theme.bodySmall?.copyWith(color: theme.error),
                       ),
               );
             },

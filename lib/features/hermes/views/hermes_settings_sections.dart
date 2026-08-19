@@ -134,7 +134,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
               if (toolsets.isEmpty) {
                 return Text(
                   l10n.hermesNoToolsets,
-                  style: AppTypography.bodySmallStyle.copyWith(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 );
@@ -144,7 +144,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
                 children: [
                   Text(
                     l10n.hermesToolsetsNewSessions,
-                    style: AppTypography.bodySmallStyle.copyWith(
+                    style: AppTypography.bodyMediumStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
@@ -172,7 +172,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,
-              style: AppTypography.bodySmallStyle.copyWith(
+              style: AppTypography.bodyMediumStyle.copyWith(
                 color: theme.textSecondary,
               ),
             ),
@@ -413,7 +413,7 @@ class HermesServerStatusSection extends ConsumerWidget {
               if (entries.isEmpty) {
                 return Text(
                   l10n.hermesNoServerStatus,
-                  style: AppTypography.bodySmallStyle.copyWith(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 );
@@ -426,7 +426,7 @@ class HermesServerStatusSection extends ConsumerWidget {
                       padding: const EdgeInsets.only(bottom: Spacing.xs),
                       child: Text(
                         '${_humanize(entry.key)}: ${entry.value}',
-                        style: AppTypography.bodySmallStyle.copyWith(
+                        style: AppTypography.bodyMediumStyle.copyWith(
                           color: theme.textPrimary,
                         ),
                       ),
@@ -441,7 +441,7 @@ class HermesServerStatusSection extends ConsumerWidget {
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,
-              style: AppTypography.bodySmallStyle.copyWith(
+              style: AppTypography.bodyMediumStyle.copyWith(
                 color: theme.textSecondary,
               ),
             ),

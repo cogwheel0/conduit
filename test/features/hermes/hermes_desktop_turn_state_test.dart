@@ -138,7 +138,7 @@ void main() {
     () async {
       final harness = _GatewayHarness();
       final rpc = HermesDesktopRpcClient(
-        channelFactory: (_, _) => harness.channel,
+        channelFactory: (_, _, {httpClient}) => harness.channel,
       );
       final service = HermesDesktopApiService(
         config: HermesConfig(
@@ -192,7 +192,7 @@ void main() {
   test('a running session.info reports the turn as running', () async {
     final harness = _GatewayHarness();
     final rpc = HermesDesktopRpcClient(
-      channelFactory: (_, _) => harness.channel,
+      channelFactory: (_, _, {httpClient}) => harness.channel,
     );
     final service = HermesDesktopApiService(
       config: HermesConfig(
@@ -236,7 +236,7 @@ void main() {
       final harness = _GatewayHarness();
       final adapter = _StubAdapter();
       final rpc = HermesDesktopRpcClient(
-        channelFactory: (_, _) => harness.channel,
+        channelFactory: (_, _, {httpClient}) => harness.channel,
       );
       final service = HermesDesktopApiService(
         config: HermesConfig(
@@ -298,7 +298,7 @@ void main() {
       PreferencesStore.debugOverride(await SharedPreferences.getInstance());
       final harness = _GatewayHarness();
       final rpc = HermesDesktopRpcClient(
-        channelFactory: (_, _) => harness.channel,
+        channelFactory: (_, _, {httpClient}) => harness.channel,
       );
       final service = HermesDesktopApiService(
         config: HermesConfig(

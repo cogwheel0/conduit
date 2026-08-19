@@ -529,7 +529,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   Widget _buildSsoMethodDescription() => Text(
     _ssoSubtitle(AppLocalizations.of(context)!),
     key: const ValueKey<String>('sso_form'),
-    style: context.conduitTheme.bodySmall?.copyWith(
+    style: context.conduitTheme.bodyMedium?.copyWith(
       color: context.conduitTheme.textSecondary,
       height: 1.4,
     ),

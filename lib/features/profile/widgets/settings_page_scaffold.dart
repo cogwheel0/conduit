@@ -4,6 +4,10 @@ import '../../../shared/theme/theme_extensions.dart';
 
 const settingsSectionGap = SizedBox(height: Spacing.lg);
 
+/// Standalone section header for sections that cannot pass their title to
+/// [InsetGroupedSection] (e.g. a header paired with an action button). Renders
+/// identically to that widget's `title`, including its horizontal inset, so
+/// standalone headers and section titles line up on the same page.
 class SettingsSectionHeader extends StatelessWidget {
   const SettingsSectionHeader({super.key, required this.title});
 
@@ -11,11 +15,19 @@ class SettingsSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: AppTypography.labelMediumStyle.copyWith(
-        color: context.conduitTheme.textSecondary,
-        fontWeight: FontWeight.w600,
+    final native = context.usesCupertinoChrome;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+      child: Text(
+        title,
+        style:
+            (native
+                    ? AppTypography.bodySmallStyle
+                    : AppTypography.labelMediumStyle)
+                .copyWith(
+                  color: context.conduitTheme.textSecondary,
+                  fontWeight: native ? FontWeight.w400 : FontWeight.w600,
+                ),
       ),
     );
   }

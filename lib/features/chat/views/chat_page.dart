@@ -3039,14 +3039,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Clipboard.setData(ClipboardData(text: currentMessage.content));
               }
             },
-            onDelete: () {
-              final currentMessage = rowRef.read(
-                chatMessageByIdProvider(messageId),
-              );
-              if (currentMessage != null) {
-                _deleteMessage(currentMessage);
-              }
-            },
+            onDelete: () => _deleteMessageGroup(<String>[messageId]),
             onRegenerate: () => _regenerateMessage(messageId),
           );
         },
@@ -3082,6 +3075,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required _ChatRowLayoutMetadata rowMetadata,
     required bool suppressStreamingHaptics,
   }) {
+    final groupIds = rowMetadata.groupMessageIds;
     return assistant.AssistantMessageWidget(
       message: latestMessage,
       isStreaming: latestMessage.isStreaming,
@@ -3098,24 +3092,51 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       modelName: rowMetadata.displayModelName,
       modelIconUrl: rowMetadata.modelIconUrl,
       showModelHeader: rowMetadata.showModelHeader,
+      showActionBar: rowMetadata.showActionBar,
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
       onFollowUpSelected: _handleFollowUpSend,
+      // The bar owner acts on the whole grouped response: a Hermes turn is one
+      // answer split across rows, so copying or reading back only this row's
+      // share would hand over a fragment.
+      resolveGroupedResponseText: groupIds.length > 1
+          ? () => _joinGroupedResponseText(rowRef, groupIds)
+          : null,
       onCopy: () {
+        if (groupIds.length > 1) {
+          _copyMessage(_joinGroupedResponseText(rowRef, groupIds));
+          return;
+        }
         final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));
         if (currentMessage != null) {
           _copyMessage(currentMessage.content);
         }
       },
-      onRegenerate: () => _regenerateMessage(messageId),
-      onDelete: () {
-        final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));
-        if (currentMessage != null) {
-          _deleteMessage(currentMessage);
-        }
-      },
+      // Replaying from the first row of the group regenerates the whole turn;
+      // targeting the last would leave its earlier rows stranded above the
+      // replacement.
+      onRegenerate: () =>
+          _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
+      onDelete: () => _deleteMessageGroup(
+        groupIds.isEmpty ? <String>[messageId] : groupIds,
+      ),
     );
+  }
+
+  /// Current text of every row in a grouped response, in display order.
+  ///
+  /// Read at tap time rather than cached with the layout metadata, whose
+  /// signature deliberately ignores message content.
+  String _joinGroupedResponseText(WidgetRef rowRef, List<String> groupIds) {
+    final parts = <String>[];
+    for (final id in groupIds) {
+      final content = rowRef.read(chatMessageByIdProvider(id))?.content.trim();
+      if (content != null && content.isNotEmpty) {
+        parts.add(content);
+      }
+    }
+    return parts.join('\n\n');
   }
 
   void _scheduleMarkdownPrewarm(
@@ -3183,10 +3204,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     Clipboard.setData(ClipboardData(text: cleanedContent));
   }
 
-  Future<void> _deleteMessage(ChatMessage message) async {
+  /// Deletes every row of one grouped assistant response.
+  ///
+  /// The action bar of a grouped response speaks for the whole answer, so a
+  /// single-row delete would leave the rest of the same turn behind. Ids are
+  /// applied bottom-up so each removal only ever reparents rows already
+  /// visited.
+  Future<void> _deleteMessageGroup(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     final currentMessages = ref.read(chatMessagesProvider);
-    final initialRemovedIds = _messageIdsToDelete(currentMessages, message.id);
+    final initialRemovedIds = <String>{
+      for (final id in messageIds) ..._messageIdsToDelete(currentMessages, id),
+    };
+    if (initialRemovedIds.isEmpty) return;
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteMessagesTitle,
@@ -3198,11 +3229,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!confirmed || !mounted) return;
 
     final latestMessages = ref.read(chatMessagesProvider);
-    final removedIds = _messageIdsToDelete(latestMessages, message.id);
-    final updatedMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
-      latestMessages,
-      message.id,
-    );
+    final orderedIds = messageIds.reversed.toList(growable: false);
+    final removedIds = <String>{};
+    var updatedMessages = latestMessages;
+    for (final id in orderedIds) {
+      removedIds.addAll(_messageIdsToDelete(updatedMessages, id));
+      updatedMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
+        updatedMessages,
+        id,
+      );
+    }
 
     final removedStreamingMessage = latestMessages
         .where((candidate) => removedIds.contains(candidate.id))
@@ -3237,10 +3273,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final api = ref.read(apiServiceProvider);
       if (api != null && !isTemporaryChat(updatedConversation.id)) {
         try {
-          await api.deleteConversationMessage(
-            updatedConversation.id,
-            message.id,
-          );
+          for (final id in orderedIds) {
+            await api.deleteConversationMessage(updatedConversation.id, id);
+          }
           ref
               .read(conversationsProvider.notifier)
               .trustConversation(updatedConversation.id);
@@ -4202,6 +4237,103 @@ bool debugAssistantRowContinuesGroupForTesting({
   return name == open;
 }
 
+/// One row's contribution to the grouped-response pass.
+typedef ChatGroupingRow = ({
+  bool isUser,
+  bool isSkipped,
+  bool hasVersions,
+  String? displayModelName,
+});
+
+/// Where a row sits in its grouped response: whether it paints the identity
+/// header, whether it owns the completion action bar, and which rows the bar
+/// acts on.
+typedef ChatGroupingPlacement = ({
+  bool showModelHeader,
+  bool showActionBar,
+  List<int> groupIndices,
+});
+
+/// Assigns every row to a grouped response and picks which member paints the
+/// header and which owns the action bar.
+///
+/// A single Hermes turn lands as several assistant messages. Repeating the
+/// avatar + model name and the copy/listen/regenerate bar for each one reads as
+/// several answers rather than one, so the first member carries the header and
+/// the last carries the bar.
+///
+/// [rows] is the transcript in display order. A row is `isSkipped` when it
+/// renders no response of its own — archived variants (zero-size placeholders)
+/// and restored Hermes decision cards. Skipped rows neither break a group nor
+/// own its bar; treating them as breaks would re-show a header mid-response.
+///
+/// A `hasVersions` row keeps its own bar so its version switcher stays
+/// reachable, and so acts as its own one-row action group. That does not
+/// affect the header pass: header suppression is decided by the model name
+/// alone, exactly as before grouped bars existed.
+@visibleForTesting
+List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
+  List<ChatGroupingRow> rows,
+) {
+  // Display model of the response currently being grouped; null once a user
+  // turn closes it. Drives header suppression only.
+  String? openGroupModelName;
+  // Members of the action group being accumulated. It tracks the header group
+  // except that a versioned row is always alone in its own.
+  var openActionGroup = <int>[];
+  final groupByIndex = List<List<int>>.filled(rows.length, const <int>[]);
+  final showModelHeader = List<bool>.filled(rows.length, false);
+  final ownsActionBar = List<bool>.filled(rows.length, false);
+
+  void closeActionGroup() {
+    if (openActionGroup.isEmpty) return;
+    final members = List<int>.unmodifiable(openActionGroup);
+    for (final index in members) {
+      groupByIndex[index] = members;
+    }
+    // The bar belongs at the bottom of the complete answer.
+    ownsActionBar[members.last] = true;
+    openActionGroup = <int>[];
+  }
+
+  for (var index = 0; index < rows.length; index++) {
+    final row = rows[index];
+    if (row.isUser) {
+      closeActionGroup();
+      openGroupModelName = null;
+      continue;
+    }
+    if (row.isSkipped) {
+      continue;
+    }
+
+    final continuesGroup = debugAssistantRowContinuesGroupForTesting(
+      openGroupModelName: openGroupModelName,
+      displayModelName: row.displayModelName,
+    );
+    showModelHeader[index] = !continuesGroup;
+    openGroupModelName = row.displayModelName;
+
+    if (!continuesGroup || row.hasVersions) {
+      closeActionGroup();
+    }
+    openActionGroup.add(index);
+    if (row.hasVersions) {
+      closeActionGroup();
+    }
+  }
+  closeActionGroup();
+
+  return List<ChatGroupingPlacement>.unmodifiable([
+    for (var index = 0; index < rows.length; index++)
+      (
+        showModelHeader: showModelHeader[index],
+        showActionBar: ownsActionBar[index],
+        groupIndices: groupByIndex[index],
+      ),
+  ]);
+}
+
 @immutable
 class _ChatRowLayoutMetadata {
   const _ChatRowLayoutMetadata({
@@ -4214,6 +4346,8 @@ class _ChatRowLayoutMetadata {
     required this.replacesArchivedAssistant,
     required this.showFollowUps,
     required this.showModelHeader,
+    required this.showActionBar,
+    required this.groupMessageIds,
   });
 
   final String messageId;
@@ -4232,6 +4366,19 @@ class _ChatRowLayoutMetadata {
   /// consecutive assistant rows sharing one model present as one grouped
   /// response, with only the first row carrying the header.
   final bool showModelHeader;
+
+  /// Whether this assistant row paints the completion action bar.
+  ///
+  /// The counterpart to [showModelHeader]: the header sits on the first row of
+  /// a grouped response and the bar on the last, so one answer shows one of
+  /// each. Its actions apply to every row in [groupMessageIds].
+  final bool showActionBar;
+
+  /// Every assistant row in this row's grouped response, in display order.
+  ///
+  /// A single-element list for an ungrouped row, and empty for a row that owns
+  /// no response of its own (user turns, archived variants, decision cards).
+  final List<String> groupMessageIds;
 }
 
 @immutable
@@ -4390,6 +4537,10 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
       ..write('\u0000')
       ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
       ..write('\u0000')
+      // Decision cards are skipped by the grouped-response pass, so the flag
+      // is layout input just like `archivedVariant`.
+      ..write(message.metadata?['restoredDesktopDecision'] == true ? 1 : 0)
+      ..write('\u0000')
       ..write(message.versions.length);
     for (final version in message.versions) {
       buffer
@@ -4416,22 +4567,41 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   final bubbleAdjacency = _buildChatBubbleAdjacency(messages);
   final rows = <_ChatRowLayoutMetadata>[];
   final indexByMessageId = <String, int>{};
-  // Display model of the assistant response currently being grouped; null once
-  // a user turn closes it. Archived variants render as zero-size placeholders,
-  // so they leave the open group untouched instead of re-showing a header.
-  String? openGroupModelName;
+  final presentations = <({String? displayName, Model? matchedModel})>[];
+  final groupingRows = <ChatGroupingRow>[];
 
   for (var index = 0; index < messages.length; index++) {
     final message = messages[index];
     final isUser = message.role == 'user';
-    indexByMessageId[message.id] = index;
-
     final modelPresentation = _resolveChatModelPresentation(
       rawModel: message.model,
       fallbackModelName: _messageModelNameFallback(message),
       models: models,
       modelLookup: modelLookup,
     );
+    presentations.add(modelPresentation);
+    groupingRows.add((
+      isUser: isUser,
+      // Archived variants render as zero-size placeholders, and restored
+      // decision cards carry no response text of their own, so neither breaks
+      // a grouped response nor is a candidate to host its action bar.
+      isSkipped:
+          !isUser &&
+          (message.metadata?['archivedVariant'] == true ||
+              message.metadata?['restoredDesktopDecision'] == true),
+      hasVersions: !isUser && message.versions.isNotEmpty,
+      displayModelName: modelPresentation.displayName,
+    ));
+  }
+
+  final grouping = debugResolveAssistantGroupingForTesting(groupingRows);
+
+  for (var index = 0; index < messages.length; index++) {
+    final message = messages[index];
+    final isUser = message.role == 'user';
+    indexByMessageId[message.id] = index;
+
+    final modelPresentation = presentations[index];
     final versionModelNames = <String?>[];
     final versionModelIconUrls = <String?>[];
     for (final version in message.versions) {
@@ -4455,18 +4625,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
         !isUser && (message.metadata?['archivedVariant'] == true);
     final showFollowUps =
         !isUser && !adjacency.hasUserBelow && !adjacency.hasAssistantBelow;
-    final showModelHeader =
-        !isUser &&
-        !isArchivedVariant &&
-        !debugAssistantRowContinuesGroupForTesting(
-          openGroupModelName: openGroupModelName,
-          displayModelName: modelPresentation.displayName,
-        );
-    if (isUser) {
-      openGroupModelName = null;
-    } else if (!isArchivedVariant) {
-      openGroupModelName = modelPresentation.displayName;
-    }
+    final placement = grouping[index];
 
     rows.add(
       _ChatRowLayoutMetadata(
@@ -4479,7 +4638,11 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
         versionModelNames: List<String?>.unmodifiable(versionModelNames),
         versionModelIconUrls: List<String?>.unmodifiable(versionModelIconUrls),
         isArchivedVariant: isArchivedVariant,
-        showModelHeader: showModelHeader,
+        showModelHeader: placement.showModelHeader,
+        showActionBar: placement.showActionBar,
+        groupMessageIds: List<String>.unmodifiable([
+          for (final member in placement.groupIndices) messages[member].id,
+        ]),
         replacesArchivedAssistant:
             !isUser &&
             index > 0 &&
@@ -4776,9 +4939,29 @@ Object debugCreateChatListStableLayoutCacheForTesting() =>
 int debugChatListStableLayoutSignatureBuildCountForTesting(Object cache) =>
     (cache as _ChatListStableLayoutCache).debugSignatureBuildCount;
 
+/// One row of the cached layout metadata, as the layout tests read it.
+typedef ChatListLayoutRowSummary = ({
+  bool isArchivedVariant,
+  bool showFollowUps,
+  String? displayModelName,
+  bool showModelHeader,
+  bool showActionBar,
+  List<String> groupMessageIds,
+});
+
+ChatListLayoutRowSummary _chatListLayoutRowSummary(
+  _ChatRowLayoutMetadata row,
+) => (
+  isArchivedVariant: row.isArchivedVariant,
+  showFollowUps: row.showFollowUps,
+  displayModelName: row.displayModelName,
+  showModelHeader: row.showModelHeader,
+  showActionBar: row.showActionBar,
+  groupMessageIds: row.groupMessageIds,
+);
+
 @visibleForTesting
-List<({bool isArchivedVariant, bool showFollowUps, String? displayModelName})>
-debugResolveChatListStableLayoutCacheForTesting(
+List<ChatListLayoutRowSummary> debugResolveChatListStableLayoutCacheForTesting(
   Object cache,
   List<ChatMessage> messages, {
   required List<Model>? models,
@@ -4790,20 +4973,11 @@ debugResolveChatListStableLayoutCacheForTesting(
     apiService: null,
     directModelRegistry: directModelRegistry,
   );
-  return metadata.rows
-      .map(
-        (row) => (
-          isArchivedVariant: row.isArchivedVariant,
-          showFollowUps: row.showFollowUps,
-          displayModelName: row.displayModelName,
-        ),
-      )
-      .toList(growable: false);
+  return metadata.rows.map(_chatListLayoutRowSummary).toList(growable: false);
 }
 
 @visibleForTesting
-List<({bool isArchivedVariant, bool showFollowUps, String? displayModelName})>
-debugBuildChatListLayoutSummaryForTesting(
+List<ChatListLayoutRowSummary> debugBuildChatListLayoutSummaryForTesting(
   List<ChatMessage> messages, {
   List<Model>? models,
   DirectModelRegistry? directModelRegistry,
@@ -4814,15 +4988,7 @@ debugBuildChatListLayoutSummaryForTesting(
     apiService: null,
     directModelRegistry: directModelRegistry,
   );
-  return metadata.rows
-      .map(
-        (row) => (
-          isArchivedVariant: row.isArchivedVariant,
-          showFollowUps: row.showFollowUps,
-          displayModelName: row.displayModelName,
-        ),
-      )
-      .toList(growable: false);
+  return metadata.rows.map(_chatListLayoutRowSummary).toList(growable: false);
 }
 
 @visibleForTesting

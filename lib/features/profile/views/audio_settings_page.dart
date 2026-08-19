@@ -13,7 +13,6 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../widgets/adaptive_segmented_selector.dart';
@@ -74,9 +73,8 @@ class AudioSettingsPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.sttSettings),
-        const SizedBox(height: Spacing.sm),
-        ConduitCard(
+        InsetGroupedSection(
+          title: l10n.sttSettings,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -109,9 +107,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 settings.sttPreference == SttPreference.serverOnly
                     ? l10n.sttEngineServerDescription
                     : l10n.sttEngineDeviceDescription,
-                style: theme.bodyMedium?.copyWith(
-                  color: theme.sidebarForeground.withValues(alpha: 0.85),
-                ),
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
               ),
               for (final warning in warnings) ...[
                 const SizedBox(height: Spacing.xs),
@@ -158,14 +154,14 @@ class AudioSettingsPage extends ConsumerWidget {
             onTap: () => showSttLanguagePickerSheet(context, ref, settings),
           ),
           const SizedBox(height: Spacing.sm),
-          ConduitCard(
+          InsetGroupedSection(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   l10n.sttSilenceDuration,
                   style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
+                    color: theme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -173,7 +169,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 Text(
                   l10n.sttSilenceDurationDescription,
                   style: theme.bodySmall?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.75),
+                    color: theme.textSecondary,
                   ),
                 ),
                 const SizedBox(height: Spacing.md),
@@ -254,9 +250,8 @@ class AudioSettingsPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.ttsSettings),
-        const SizedBox(height: Spacing.sm),
-        ConduitCard(
+        InsetGroupedSection(
+          title: l10n.ttsSettings,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -288,9 +283,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 settings.ttsEngine == TtsEngine.server
                     ? l10n.ttsEngineServerDescription
                     : l10n.ttsEngineDeviceDescription,
-                style: theme.bodyMedium?.copyWith(
-                  color: theme.sidebarForeground.withValues(alpha: 0.85),
-                ),
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
               ),
               for (final warning in warnings) ...[
                 const SizedBox(height: Spacing.xs),
@@ -320,14 +313,14 @@ class AudioSettingsPage extends ConsumerWidget {
         ),
         if (settings.ttsEngine == TtsEngine.device) ...[
           const SizedBox(height: Spacing.sm),
-          ConduitCard(
+          InsetGroupedSection(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   l10n.ttsSpeechRate,
                   style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
+                    color: theme.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),

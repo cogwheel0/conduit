@@ -515,7 +515,9 @@ class _WorkspaceAccessGrantSheetState
                 children: [
                   Text(
                     l10n.workspaceAccessCanEdit,
-                    style: theme.caption?.copyWith(color: theme.textSecondary),
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
                   ),
                   AdaptiveSwitch(
                     key: Key(

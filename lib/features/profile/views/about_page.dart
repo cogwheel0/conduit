@@ -41,31 +41,40 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     return UtilityPageScaffold.settings(
       title: l10n.aboutApp,
       children: [
-        SettingsSectionHeader(title: l10n.appInformation),
-        const SizedBox(height: Spacing.sm),
         packageInfoAsync.when(
           data: (info) => _buildAppCard(context, l10n, info),
-          loading: () => _buildLoadingCard(context),
-          error: (_, _) => _buildMessageCard(context, l10n.unableToLoadAppInfo),
+          loading: () => _buildLoadingCard(context, title: l10n.appInformation),
+          error: (_, _) => _buildMessageCard(
+            context,
+            title: l10n.appInformation,
+            message: l10n.unableToLoadAppInfo,
+          ),
         ),
         settingsSectionGap,
-        SettingsSectionHeader(title: l10n.serverInformation),
-        const SizedBox(height: Spacing.sm),
         serverAboutAsync.when(
           data: (about) => about == null
-              ? _buildMessageCard(context, l10n.serverInfoUnavailable)
+              ? _buildMessageCard(
+                  context,
+                  title: l10n.serverInformation,
+                  message: l10n.serverInfoUnavailable,
+                )
               : _buildServerCard(context, l10n, about),
-          loading: () => _buildLoadingCard(context),
-          error: (_, _) =>
-              _buildMessageCard(context, l10n.unableToLoadOpenWebuiSettings),
+          loading: () =>
+              _buildLoadingCard(context, title: l10n.serverInformation),
+          error: (_, _) => _buildMessageCard(
+            context,
+            title: l10n.serverInformation,
+            message: l10n.unableToLoadOpenWebuiSettings,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildLoadingCard(BuildContext context) {
-    return const ConduitCard(
-      child: Padding(
+  Widget _buildLoadingCard(BuildContext context, {required String title}) {
+    return InsetGroupedSection(
+      title: title,
+      child: const Padding(
         padding: EdgeInsets.symmetric(vertical: Spacing.lg),
         child: Center(child: ConduitLoadingIndicator()),
       ),
@@ -77,22 +86,17 @@ class _AboutPageState extends ConsumerState<AboutPage> {
     AppLocalizations l10n,
     ServerAboutInfo about,
   ) {
-    return ConduitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AboutRow(label: l10n.serverNameLabel, value: about.name),
-          const SizedBox(height: Spacing.sm),
-          _AboutRow(label: l10n.serverVersionLabel, value: about.version),
-          if (about.latestVersion != null) ...[
-            const SizedBox(height: Spacing.sm),
-            _AboutRow(
-              label: l10n.latestVersionLabel,
-              value: about.latestVersion!,
-            ),
-          ],
-        ],
-      ),
+    return InsetGroupedList(
+      title: l10n.serverInformation,
+      children: [
+        UtilityValueRow(label: l10n.serverNameLabel, value: about.name),
+        UtilityValueRow(label: l10n.serverVersionLabel, value: about.version),
+        if (about.latestVersion != null)
+          UtilityValueRow(
+            label: l10n.latestVersionLabel,
+            value: about.latestVersion!,
+          ),
+      ],
     );
   }
 
@@ -106,149 +110,60 @@ class _AboutPageState extends ConsumerState<AboutPage> {
         ? info.version
         : '${info.version} (${info.buildNumber})';
 
-    return ConduitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AboutRow(label: l10n.appVersion, value: versionLabel),
-          const SizedBox(height: Spacing.md),
-          Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openReleaseNotes(context, info),
-            child: Padding(
-              padding: const EdgeInsets.only(top: Spacing.md),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.new_releases_rounded,
-                    size: IconSize.medium,
-                    color: theme.buttonPrimary,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.releaseNotesTitle,
-                          style: theme.bodyMedium?.copyWith(
-                            color: theme.sidebarForeground,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: IconSize.small,
-                    color: theme.sidebarForeground.withValues(alpha: 0.7),
-                  ),
-                ],
-              ),
-            ),
+    return InsetGroupedList(
+      title: l10n.appInformation,
+      children: [
+        UtilityValueRow(label: l10n.appVersion, value: versionLabel),
+        UtilityRow(
+          leading: Icon(
+            Icons.new_releases_rounded,
+            size: IconSize.medium,
+            color: theme.buttonPrimary,
           ),
-          const SizedBox(height: Spacing.md),
-          Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openGithub(context),
-            child: Padding(
-              padding: const EdgeInsets.only(top: Spacing.md),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.code_rounded,
-                    size: IconSize.medium,
-                    color: theme.buttonPrimary,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.githubRepository,
-                          style: theme.bodyMedium?.copyWith(
-                            color: theme.sidebarForeground,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          'github.com/cogwheel0/conduit',
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.sidebarForeground.withValues(
-                              alpha: 0.72,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Icon(
-                    Icons.open_in_new_rounded,
-                    size: IconSize.small,
-                    color: theme.sidebarForeground.withValues(alpha: 0.7),
-                  ),
-                ],
-              ),
-            ),
+          title: l10n.releaseNotesTitle,
+          showChevron: true,
+          onTap: () => _openReleaseNotes(context, info),
+        ),
+        UtilityRow(
+          leading: Icon(
+            Icons.code_rounded,
+            size: IconSize.medium,
+            color: theme.buttonPrimary,
           ),
-          const SizedBox(height: Spacing.md),
-          Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
-          Semantics(
-            label: l10n.openSourceLicenses,
-            button: true,
-            onTap: () => _showLicenses(context),
-            excludeSemantics: true,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _showLicenses(context),
-              child: Padding(
-                padding: const EdgeInsets.only(top: Spacing.md),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.description_outlined,
-                      size: IconSize.medium,
-                      color: theme.buttonPrimary,
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Expanded(
-                      child: Text(
-                        l10n.openSourceLicenses,
-                        style: theme.bodyMedium?.copyWith(
-                          color: theme.sidebarForeground,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: Spacing.sm),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: IconSize.small,
-                      color: theme.sidebarForeground.withValues(alpha: 0.7),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          title: l10n.githubRepository,
+          subtitle: 'github.com/cogwheel0/conduit',
+          trailing: Icon(
+            Icons.open_in_new_rounded,
+            size: IconSize.small,
+            color: theme.iconSecondary,
           ),
-        ],
-      ),
+          onTap: () => _openGithub(context),
+        ),
+        UtilityRow(
+          leading: Icon(
+            Icons.description_outlined,
+            size: IconSize.medium,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.openSourceLicenses,
+          showChevron: true,
+          onTap: () => _showLicenses(context),
+        ),
+      ],
     );
   }
 
-  Widget _buildMessageCard(BuildContext context, String message) {
-    return ConduitCard(
+  Widget _buildMessageCard(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) {
+    return InsetGroupedSection(
+      title: title,
       child: Text(
         message,
-        style: context.conduitTheme.bodyMedium?.copyWith(
-          color: context.conduitTheme.sidebarForeground.withValues(alpha: 0.75),
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: context.conduitTheme.textSecondary,
         ),
       ),
     );
@@ -286,43 +201,6 @@ class _AboutPageState extends ConsumerState<AboutPage> {
       context: context,
       currentVersion: info.version,
       notes: notes,
-    );
-  }
-}
-
-class _AboutRow extends StatelessWidget {
-  const _AboutRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 132,
-          child: Text(
-            label,
-            style: theme.bodySmall?.copyWith(
-              color: theme.sidebarForeground.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-        const SizedBox(width: Spacing.sm),
-        Expanded(
-          child: Text(
-            value,
-            style: theme.bodyMedium?.copyWith(
-              color: theme.sidebarForeground,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

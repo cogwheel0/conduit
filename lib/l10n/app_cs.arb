@@ -1135,11 +1135,11 @@
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Vybrat certifikát",
+  "mutualTlsSelectCertificate": "Certifikát",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Vybrat privátní klíč",
+  "mutualTlsSelectPrivateKey": "Privátní klíč",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
@@ -4809,6 +4809,10 @@
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Zobrazit méně",
+  "voiceBargeIn": "Skákat do řeči",
+  "voiceBargeInDescription": "Naslouchá i během mluvení asistenta, takže ho můžete přerušit.",
+  "voiceCallSpeakerOn": "Zapnout reproduktor",
+  "voiceCallSpeakerOff": "Vypnout reproduktor",
   "colorScheme": "Barevné schéma",
   "channelEmptyHint": "Vytvořte kanál a zahajte skupinovou konverzaci.",
   "passwordChangeDescription": "Aktualizovat heslo k účtu",

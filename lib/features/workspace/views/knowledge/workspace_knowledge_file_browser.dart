@@ -815,7 +815,7 @@ class _UploadBanner extends StatelessWidget {
         children: [
           Text(
             l10n.workspaceKnowledgeUploading(progress.filename),
-            style: theme.caption?.copyWith(color: theme.textSecondary),
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

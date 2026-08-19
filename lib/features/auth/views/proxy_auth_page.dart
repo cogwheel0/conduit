@@ -1651,7 +1651,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
               Expanded(
                 child: Text(
                   l10n.proxyAuthHelpTextSimple,
-                  style: context.conduitTheme.bodySmall?.copyWith(
+                  style: context.conduitTheme.bodyMedium?.copyWith(
                     color: context.conduitTheme.textSecondary,
                   ),
                 ),

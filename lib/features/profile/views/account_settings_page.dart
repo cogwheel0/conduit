@@ -103,50 +103,43 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   ) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsSectionHeader(title: l10n.accountDetails),
-        const SizedBox(height: Spacing.sm),
-        profileAsync.when(
-          data: (profile) {
-            if (profile == null) {
-              return _buildInfoCard(
-                context,
-                child: Text(l10n.signInToManageAccount),
-              );
-            }
-
-            return _buildInfoCard(
-              context,
-              child: Column(
-                children: [
-                  _buildReadOnlyRow(
-                    context,
-                    label: l10n.emailLabel,
-                    value: profile.email,
-                  ),
-                  const SizedBox(height: Spacing.sm),
-                  _buildReadOnlyRow(
-                    context,
-                    label: l10n.roleLabel,
-                    value: profile.role,
-                  ),
-                  const SizedBox(height: Spacing.sm),
-                  _buildReadOnlyRow(
-                    context,
-                    label: l10n.accountStatus,
-                    value: _statusLabel(context, profile),
-                  ),
-                ],
+    return profileAsync.when(
+      data: (profile) {
+        if (profile == null) {
+          return _buildInfoCard(
+            context,
+            title: l10n.accountDetails,
+            child: Text(
+              l10n.signInToManageAccount,
+              style: context.conduitTheme.bodySmall?.copyWith(
+                color: context.conduitTheme.textSecondary,
               ),
-            );
-          },
-          loading: () => _buildLoadingCard(context, l10n.loadingProfile),
-          error: (_, _) =>
-              _buildLoadingCard(context, l10n.unableToLoadOpenWebuiSettings),
-        ),
-      ],
+            ),
+          );
+        }
+
+        return InsetGroupedList(
+          title: l10n.accountDetails,
+          children: [
+            UtilityValueRow(label: l10n.emailLabel, value: profile.email),
+            UtilityValueRow(label: l10n.roleLabel, value: profile.role),
+            UtilityValueRow(
+              label: l10n.accountStatus,
+              value: _statusLabel(context, profile),
+            ),
+          ],
+        );
+      },
+      loading: () => _buildLoadingCard(
+        context,
+        title: l10n.accountDetails,
+        message: l10n.loadingProfile,
+      ),
+      error: (_, _) => _buildLoadingCard(
+        context,
+        title: l10n.accountDetails,
+        message: l10n.unableToLoadOpenWebuiSettings,
+      ),
     );
   }
 
@@ -157,50 +150,42 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   ) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsSectionHeader(title: l10n.profileDetails),
-        const SizedBox(height: Spacing.sm),
-        _buildInfoCard(
-          context,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildAvatarSection(context, api),
-              const SizedBox(height: Spacing.lg),
-              ConduitInput(
-                label: l10n.name,
-                controller: _nameController,
-                isRequired: true,
-                onChanged: _handleNameChanged,
-              ),
-              const SizedBox(height: Spacing.md),
-              ConduitInput(
-                label: l10n.bioLabel,
-                controller: _bioController,
-                hint: l10n.bioHint,
-                maxLines: 3,
-              ),
-              const SizedBox(height: Spacing.md),
-              _buildGenderField(context),
-              const SizedBox(height: Spacing.md),
-              _buildBirthDateField(context),
-              const SizedBox(height: Spacing.md),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ConduitButton(
-                  text: l10n.saveProfile,
-                  isLoading: _savingProfile,
-                  onPressed: profileAsync.isLoading || _savingProfile
-                      ? null
-                      : _save,
-                ),
-              ),
-            ],
+    return _buildInfoCard(
+      context,
+      title: l10n.profileDetails,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAvatarSection(context, api),
+          const SizedBox(height: Spacing.lg),
+          ConduitInput(
+            label: l10n.name,
+            controller: _nameController,
+            isRequired: true,
+            onChanged: _handleNameChanged,
           ),
-        ),
-      ],
+          const SizedBox(height: Spacing.md),
+          ConduitInput(
+            label: l10n.bioLabel,
+            controller: _bioController,
+            hint: l10n.bioHint,
+            maxLines: 3,
+          ),
+          const SizedBox(height: Spacing.md),
+          _buildGenderField(context),
+          const SizedBox(height: Spacing.md),
+          _buildBirthDateField(context),
+          const SizedBox(height: Spacing.md),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ConduitButton(
+              text: l10n.saveProfile,
+              isLoading: _savingProfile,
+              onPressed: profileAsync.isLoading || _savingProfile ? null : _save,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -210,15 +195,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.currentAvatar,
-          style: context.conduitTheme.bodySmall?.copyWith(
-            color: context.conduitTheme.sidebarForeground.withValues(
-              alpha: 0.7,
-            ),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(l10n.currentAvatar, style: _fieldLabelStyle(context)),
         const SizedBox(height: Spacing.md),
         Center(
           child: UserAvatar(
@@ -282,14 +259,11 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.genderLabel,
-          style: theme.bodySmall?.copyWith(
-            color: theme.sidebarForeground.withValues(alpha: 0.7),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(l10n.genderLabel, style: _fieldLabelStyle(context)),
         const SizedBox(height: Spacing.sm),
+        // Kept as a ConduitCard rather than a grouped surface: this is a form
+        // field sitting inside a section, so it takes the input background and
+        // border like the ConduitInputs above and below it.
         ConduitCard(
           onTap: _savingProfile
               ? null
@@ -307,8 +281,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
               Expanded(
                 child: Text(
                   genderLabel,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.sidebarForeground,
+                  style: AppTypography.standard.copyWith(
+                    color: theme.textPrimary,
                   ),
                 ),
               ),
@@ -347,14 +321,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l10n.birthDateLabel,
-          style: theme.bodySmall?.copyWith(
-            color: theme.sidebarForeground.withValues(alpha: 0.7),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(l10n.birthDateLabel, style: _fieldLabelStyle(context)),
         const SizedBox(height: Spacing.sm),
+        // Form field, not a grouped surface — see the note on the gender field.
         ConduitCard(
           onTap: _savingProfile
               ? null
@@ -365,6 +334,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
             horizontal: Spacing.md,
             vertical: Spacing.md,
           ),
+          backgroundColor: theme.inputBackground,
+          borderColor: theme.inputBorder,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -373,10 +344,10 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                   Expanded(
                     child: Text(
                       dateLabel,
-                      style: theme.bodyMedium?.copyWith(
+                      style: AppTypography.standard.copyWith(
                         color: selectedDate == null
-                            ? theme.sidebarForeground.withValues(alpha: 0.65)
-                            : theme.sidebarForeground,
+                            ? theme.textSecondary
+                            : theme.textPrimary,
                       ),
                     ),
                   ),
@@ -385,8 +356,8 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                       ios: CupertinoIcons.calendar,
                       android: Icons.calendar_today_outlined,
                     ),
-                    size: 18,
-                    color: theme.sidebarForeground.withValues(alpha: 0.8),
+                    size: IconSize.small,
+                    color: theme.iconSecondary,
                   ),
                 ],
               ),
@@ -417,106 +388,82 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
   }) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsSectionHeader(title: l10n.changePasswordTitle),
-        const SizedBox(height: Spacing.sm),
-        _buildInfoCard(
-          context,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!passwordChangeEnabled) ...[
-                Text(
-                  l10n.passwordChangeUnavailable,
-                  style: context.conduitTheme.bodyMedium?.copyWith(
-                    color: context.conduitTheme.sidebarForeground.withValues(
-                      alpha: 0.8,
-                    ),
-                  ),
-                ),
-              ] else ...[
-                ConduitInput(
-                  label: l10n.currentPassword,
-                  controller: _currentPasswordController,
-                  obscureText: true,
-                ),
-                const SizedBox(height: Spacing.md),
-                ConduitInput(
-                  label: l10n.newPassword,
-                  controller: _newPasswordController,
-                  obscureText: true,
-                ),
-                const SizedBox(height: Spacing.md),
-                ConduitInput(
-                  label: l10n.confirmNewPassword,
-                  controller: _confirmPasswordController,
-                  obscureText: true,
-                ),
-                const SizedBox(height: Spacing.md),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ConduitButton(
-                    text: l10n.changePasswordTitle,
-                    isLoading: _changingPassword,
-                    onPressed: _changingPassword ? null : _changePassword,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInfoCard(BuildContext context, {required Widget child}) {
-    return ConduitCard(child: child);
-  }
-
-  Widget _buildLoadingCard(BuildContext context, String message) {
     return _buildInfoCard(
       context,
-      child: Text(
-        message,
-        style: context.conduitTheme.bodyMedium?.copyWith(
-          color: context.conduitTheme.sidebarForeground.withValues(alpha: 0.75),
-        ),
+      title: l10n.changePasswordTitle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!passwordChangeEnabled) ...[
+            Text(
+              l10n.passwordChangeUnavailable,
+              style: context.conduitTheme.bodySmall?.copyWith(
+                color: context.conduitTheme.textSecondary,
+              ),
+            ),
+          ] else ...[
+            ConduitInput(
+              label: l10n.currentPassword,
+              controller: _currentPasswordController,
+              obscureText: true,
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitInput(
+              label: l10n.newPassword,
+              controller: _newPasswordController,
+              obscureText: true,
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitInput(
+              label: l10n.confirmNewPassword,
+              controller: _confirmPasswordController,
+              obscureText: true,
+            ),
+            const SizedBox(height: Spacing.md),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ConduitButton(
+                text: l10n.changePasswordTitle,
+                isLoading: _changingPassword,
+                onPressed: _changingPassword ? null : _changePassword,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _buildReadOnlyRow(
-    BuildContext context, {
-    required String label,
-    required String value,
-  }) {
-    final theme = context.conduitTheme;
+  /// Matches the label `ConduitInput` renders above its field, so the picker
+  /// fields in this section line up with the text fields around them.
+  TextStyle _fieldLabelStyle(BuildContext context) =>
+      AppTypography.standard.copyWith(
+        fontWeight: FontWeight.w500,
+        color: context.conduitTheme.textPrimary,
+      );
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 96,
-          child: Text(
-            label,
-            style: theme.bodySmall?.copyWith(
-              color: theme.sidebarForeground.withValues(alpha: 0.7),
-            ),
-          ),
+  Widget _buildInfoCard(
+    BuildContext context, {
+    required Widget child,
+    String? title,
+  }) {
+    return InsetGroupedSection(title: title, child: child);
+  }
+
+  Widget _buildLoadingCard(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) {
+    return _buildInfoCard(
+      context,
+      title: title,
+      child: Text(
+        message,
+        style: context.conduitTheme.bodySmall?.copyWith(
+          color: context.conduitTheme.textSecondary,
         ),
-        const SizedBox(width: Spacing.sm),
-        Expanded(
-          child: Text(
-            value,
-            style: theme.bodyMedium?.copyWith(
-              color: theme.sidebarForeground,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -849,9 +796,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
                 const SizedBox(height: Spacing.xs),
                 Text(
                   AppLocalizations.of(context)!.birthDateLabel,
-                  style: textTheme?.copyWith(
-                    color: theme.sidebarForeground.withValues(alpha: 0.7),
-                  ),
+                  style: textTheme?.copyWith(color: theme.textSecondary),
                 ),
               ],
             ),

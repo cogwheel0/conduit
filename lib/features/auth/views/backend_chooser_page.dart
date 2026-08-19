@@ -27,7 +27,7 @@ class BackendChooserPage extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
             child: Text(
               l10n.backendChooserPrompt,
-              style: AppTypography.bodySmallStyle.copyWith(
+              style: AppTypography.bodyMediumStyle.copyWith(
                 color: theme.textSecondary,
               ),
             ),
@@ -95,6 +95,11 @@ Widget _chooserChevron(BuildContext context) => Icon(
 
 enum _ProviderLogoKind { openWebUI, hermes }
 
+/// Matches the 40x40 icon-badge footprint used by `SettingsIconBadge` and the
+/// Cupertino leading slot in `UtilitySelectionRow`; a larger box gets squeezed
+/// into 40 there, which crops the edges off a full-bleed logo.
+const double _providerLogoSize = 40;
+
 class _ProviderLogo extends StatelessWidget {
   const _ProviderLogo({required this.assetName, required this.kind});
 
@@ -110,8 +115,8 @@ class _ProviderLogo extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
         child: Image.asset(
           assetName,
-          width: TouchTarget.minimum,
-          height: TouchTarget.minimum,
+          width: _providerLogoSize,
+          height: _providerLogoSize,
           fit: BoxFit.cover,
           filterQuality: FilterQuality.medium,
           excludeFromSemantics: true,
@@ -120,8 +125,8 @@ class _ProviderLogo extends StatelessWidget {
     }
 
     return Container(
-      width: TouchTarget.minimum,
-      height: TouchTarget.minimum,
+      width: _providerLogoSize,
+      height: _providerLogoSize,
       padding: const EdgeInsets.all(Spacing.xs),
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
@@ -147,8 +152,8 @@ class _DirectConnectionIcon extends StatelessWidget {
     final theme = context.conduitTheme;
 
     return Container(
-      width: TouchTarget.minimum,
-      height: TouchTarget.minimum,
+      width: _providerLogoSize,
+      height: _providerLogoSize,
       decoration: BoxDecoration(
         color: theme.buttonPrimary.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppBorderRadius.md),

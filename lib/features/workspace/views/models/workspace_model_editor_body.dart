@@ -82,12 +82,7 @@ final class WorkspaceModelEditorBody extends StatelessWidget {
             children: [
               Text(
                 l10n.workspaceModelProfileImage,
-                style: context.usesCupertinoChrome
-                    ? AppTypography.bodyMediumStyle.copyWith(
-                        color: theme.textPrimary,
-                        fontWeight: FontWeight.w400,
-                      )
-                    : theme.label,
+                style: theme.label,
               ),
               const SizedBox(height: Spacing.xs),
               if (!controller.readOnly)

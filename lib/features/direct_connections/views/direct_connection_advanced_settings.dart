@@ -345,7 +345,7 @@ final class _AdvancedSettingsContent extends StatelessWidget {
                 children: [
                   Text(
                     l10n.directCustomHeaders,
-                    style: theme.bodySmall?.copyWith(
+                    style: theme.bodyMedium?.copyWith(
                       color: theme.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -473,7 +473,7 @@ final class _AdvancedApiBehavior extends StatelessWidget {
       children: [
         Text(
           l10n.directCompletionApi,
-          style: AppTypography.bodySmallStyle.copyWith(
+          style: AppTypography.bodyMediumStyle.copyWith(
             color: theme.textPrimary,
             fontWeight: FontWeight.w600,
           ),

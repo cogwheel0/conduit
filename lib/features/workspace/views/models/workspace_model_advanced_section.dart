@@ -105,12 +105,7 @@ final class WorkspaceModelAdvancedSection extends StatelessWidget {
         children: [
           Text(
             l10n.workspaceModelCapabilities,
-            style: usesCupertinoChrome
-                ? AppTypography.bodyMediumStyle.copyWith(
-                    color: context.conduitTheme.textPrimary,
-                    fontWeight: FontWeight.w400,
-                  )
-                : context.conduitTheme.label,
+            style: context.conduitTheme.label,
           ),
           for (final entry in controller.draft.capabilities.entries)
             AdaptiveListTile(

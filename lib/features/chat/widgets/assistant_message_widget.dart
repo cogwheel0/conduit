@@ -73,6 +73,20 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   /// False for a row that continues the response above it (a Hermes turn can
   /// emit several assistant messages), so one logical answer shows one header.
   final bool showModelHeader;
+
+  /// Whether to paint the completion action bar below this response.
+  ///
+  /// The counterpart to [showModelHeader]: within one grouped response the
+  /// header sits on the first row and the bar on the last, so a single answer
+  /// shows one of each. Sources and the version chip still render on their own
+  /// row when this is false — only the buttons move.
+  final bool showActionBar;
+
+  /// Supplies the full text of the grouped response for read-aloud.
+  ///
+  /// Called at tap time, not during build, so a row never has to observe its
+  /// siblings. Null means this row speaks its own content.
+  final String Function()? resolveGroupedResponseText;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
   final bool suppressStreamingHaptics;
@@ -98,6 +112,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.modelName,
     this.modelIconUrl,
     this.showModelHeader = true,
+    this.showActionBar = true,
+    this.resolveGroupedResponseText,
     this.versionModelNames = const <String?>[],
     this.versionModelIconUrls = const <String?>[],
     this.suppressStreamingHaptics = false,
@@ -607,7 +623,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return;
     }
 
-    final speechText = await _buildTtsPlainTextOnDemand(_displayedContent);
+    // A grouped response is one answer, so read it whole rather than stopping
+    // at this row's share of it.
+    final rawText =
+        widget.resolveGroupedResponseText?.call() ?? _displayedContent;
+    final speechText = await _buildTtsPlainTextOnDemand(rawText);
     if (!mounted || speechText.trim().isEmpty) {
       return;
     }
@@ -1071,7 +1091,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? contentSources
         : const <ChatSourceReference>[];
     final footer = shouldBuildActionFooter
-        ? _buildFooterBar(activeSources: activeSources)
+        ? _buildFooterBar(
+            activeSources: activeSources,
+            includeActions: widget.showActionBar,
+          )
         : null;
 
     final content = Container(
@@ -1783,17 +1806,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  Widget? _buildFooterBar({required List<ChatSourceReference> activeSources}) {
+  Widget? _buildFooterBar({
+    required List<ChatSourceReference> activeSources,
+    required bool includeActions,
+  }) {
     const maxInlineActions = 3;
-    final actions = _buildFooterActions();
+    // A row that does not own its grouped response's bar still shows its own
+    // sources and version chip; only the buttons collapse onto the last row.
+    final actions = includeActions
+        ? _buildFooterActions()
+        : const <_AssistantFooterAction>[];
     final forcedOverflowActions = actions
         .where((action) => action.id == 'delete')
         .toList(growable: false);
     final inlineCandidateActions = actions
         .where((action) => action.id != 'delete')
         .toList(growable: false);
-    final visibleActions = actions
-        .where((action) => action.id != 'delete')
+    final visibleActions = inlineCandidateActions
         .take(maxInlineActions)
         .toList(growable: false);
     final overflowActions = [

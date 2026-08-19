@@ -709,6 +709,119 @@ void main() {
   );
 
   test(
+    'a Hermes turn gets one header on top and one action bar at the bottom',
+    () {
+      // Hermes lands one turn as several flat sibling assistant rows sharing a
+      // model. Before grouping, each of them painted its own toolbar.
+      final messages = <ChatMessage>[
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Question',
+          timestamp: DateTime(2026),
+        ),
+        for (final part in const ['Planning', 'Working', 'Answer'])
+          ChatMessage(
+            id: 'hermes-${part.toLowerCase()}',
+            role: 'assistant',
+            content: part,
+            timestamp: DateTime(2026),
+            model: 'hermes',
+            metadata: const {'modelName': 'Hermes'},
+          ),
+      ];
+
+      final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+
+      check(summary.map((row) => row.showModelHeader).toList())
+          .deepEquals([false, true, false, false]);
+      check(summary.map((row) => row.showActionBar).toList())
+          .deepEquals([false, false, false, true]);
+      // The bar owner acts on the whole turn, so copy/listen/delete reach every
+      // part rather than the tail alone.
+      check(summary.last.groupMessageIds)
+          .deepEquals(['hermes-planning', 'hermes-working', 'hermes-answer']);
+      check(summary.first.groupMessageIds).isEmpty();
+    },
+  );
+
+  test('archived and decision rows drop out of the grouped response', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'hermes-1',
+        role: 'assistant',
+        content: 'First part',
+        timestamp: DateTime(2026),
+        model: 'hermes',
+        metadata: const {'modelName': 'Hermes'},
+      ),
+      ChatMessage(
+        id: 'hermes-decision',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        model: 'hermes',
+        metadata: const {
+          'modelName': 'Hermes',
+          'restoredDesktopDecision': true,
+        },
+      ),
+      ChatMessage(
+        id: 'hermes-archived',
+        role: 'assistant',
+        content: 'Superseded',
+        timestamp: DateTime(2026),
+        model: 'hermes',
+        metadata: const {'modelName': 'Hermes', 'archivedVariant': true},
+      ),
+      ChatMessage(
+        id: 'hermes-2',
+        role: 'assistant',
+        content: 'Last part',
+        timestamp: DateTime(2026),
+        model: 'hermes',
+        metadata: const {'modelName': 'Hermes'},
+      ),
+    ];
+
+    final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+
+    check(summary.map((row) => row.showActionBar).toList())
+        .deepEquals([false, false, false, true]);
+    check(summary.last.groupMessageIds).deepEquals(['hermes-1', 'hermes-2']);
+    check(summary[1].groupMessageIds).isEmpty();
+    check(summary[2].groupMessageIds).isEmpty();
+  });
+
+  test('the layout signature reacts to the decision-card flag', () {
+    // Decision cards are skipped by the grouped-response pass, so the flag is
+    // layout input; a stale cache would leave the bar on the wrong row.
+    ChatMessage row({required bool isDecision}) => ChatMessage(
+      id: 'hermes-1',
+      role: 'assistant',
+      content: 'Part',
+      timestamp: DateTime(2026),
+      model: 'hermes',
+      metadata: {
+        'modelName': 'Hermes',
+        if (isDecision) 'restoredDesktopDecision': true,
+      },
+    );
+
+    check(
+      debugBuildChatListStableLayoutSignatureForTesting([
+        row(isDecision: true),
+      ]),
+    ).not(
+      (it) => it.equals(
+        debugBuildChatListStableLayoutSignatureForTesting([
+          row(isDecision: false),
+        ]),
+      ),
+    );
+  });
+
+  test(
     'layout metadata uses Open WebUI modelName before model lookup loads',
     () {
       final messages = <ChatMessage>[

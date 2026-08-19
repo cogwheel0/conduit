@@ -74,7 +74,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
           const SizedBox(height: Spacing.sm),
           Text(
             l10n.hermesJobAdminDisabled,
-            style: AppTypography.captionStyle.copyWith(
+            style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
             ),
           ),
@@ -252,7 +252,6 @@ class _JobCardState extends ConsumerState<_JobCard> {
                         job.schedule,
                         style: AppTypography.codeStyle.copyWith(
                           color: theme.textSecondary,
-                          fontSize: 11,
                         ),
                       ),
                   ],
@@ -277,27 +276,27 @@ class _JobCardState extends ConsumerState<_JobCard> {
               children: [
                 Text(
                   '${l10n.hermesJobStateLabel}: ${job.state ?? (job.enabled ? 'active' : 'paused')}',
-                  style: AppTypography.captionStyle.copyWith(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 ),
                 Text(
                   '${l10n.hermesJobDeliveryLabel}: ${job.deliveryTarget ?? 'local'}',
-                  style: AppTypography.captionStyle.copyWith(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 ),
                 if (job.lastRun != null)
                   Text(
                     '${l10n.hermesJobLastLabel}: ${_formatJobTime(context, job.lastRun!)}',
-                    style: AppTypography.captionStyle.copyWith(
+                    style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
                 if (job.nextRun != null)
                   Text(
                     '${l10n.hermesJobNextLabel}: ${_formatJobTime(context, job.nextRun!)}',
-                    style: AppTypography.captionStyle.copyWith(
+                    style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
@@ -306,19 +305,19 @@ class _JobCardState extends ConsumerState<_JobCard> {
             if (job.lastStatus?.isNotEmpty == true)
               Text(
                 job.lastStatus!,
-                style: AppTypography.captionStyle.copyWith(
+                style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),
               ),
             if (job.lastError?.isNotEmpty == true)
               Text(
                 job.lastError!,
-                style: AppTypography.captionStyle.copyWith(color: theme.error),
+                style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
               ),
             if (job.lastDeliveryError?.isNotEmpty == true)
               Text(
                 'Delivery: ${job.lastDeliveryError}',
-                style: AppTypography.captionStyle.copyWith(color: theme.error),
+                style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
               ),
             const SizedBox(height: Spacing.xs),
             Align(
@@ -378,13 +377,13 @@ class _JobCardState extends ConsumerState<_JobCard> {
       ),
       error: (_, _) => Text(
         'Could not load run history.',
-        style: AppTypography.captionStyle.copyWith(color: theme.error),
+        style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
       ),
       data: (items) {
         if (items.isEmpty) {
           return Text(
             'No runs yet.',
-            style: AppTypography.captionStyle.copyWith(
+            style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
             ),
           );

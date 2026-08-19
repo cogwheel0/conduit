@@ -54,12 +54,7 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
         children: [
           Text(
             l10n.workspaceModelSuggestionPrompts,
-            style: context.usesCupertinoChrome
-                ? AppTypography.bodyMediumStyle.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w400,
-                  )
-                : theme.label,
+            style: theme.label,
           ),
           const SizedBox(height: Spacing.xs),
           for (

@@ -258,7 +258,7 @@ class HermesJobsSheet extends ConsumerWidget {
                     const SizedBox(height: Spacing.xxs),
                     Text(
                       l10n.hermesJobsSheetSubtitle,
-                      style: AppTypography.captionStyle.copyWith(
+                      style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.textSecondary,
                       ),
                     ),
@@ -391,7 +391,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                 const SizedBox(height: Spacing.xxs),
                 Text(
                   hermesJobTimingDetail(job, locale: locale),
-                  style: AppTypography.captionStyle.copyWith(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                   ),
                 ),
@@ -399,7 +399,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                   const SizedBox(height: Spacing.xxs),
                   Text(
                     l10n.hermesLastStatus(job.lastStatus!.trim()),
-                    style: AppTypography.captionStyle.copyWith(
+                    style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
@@ -410,7 +410,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                     job.prompt.trim().replaceAll(RegExp(r'\s+'), ' '),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTypography.captionStyle.copyWith(
+                    style: AppTypography.bodySmallStyle.copyWith(
                       color: theme.textSecondary,
                     ),
                   ),
@@ -421,7 +421,6 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
                     job.schedule,
                     style: AppTypography.codeStyle.copyWith(
                       color: theme.textSecondary,
-                      fontSize: 11,
                     ),
                   ),
                 ],

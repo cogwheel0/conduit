@@ -253,7 +253,7 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
               alignment: Alignment.centerLeft,
               child: Text(
                 l10n.hermesJobScheduleHelp,
-                style: AppTypography.captionStyle.copyWith(
+                style: AppTypography.bodySmallStyle.copyWith(
                   color: theme.textSecondary,
                 ),
               ),

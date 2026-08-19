@@ -203,11 +203,9 @@ class WorkspaceLabeledField extends StatelessWidget {
           ),
           child: Text(
             helper,
-            style:
-                (usesCupertinoChrome
-                        ? AppTypography.bodySmallStyle
-                        : theme.caption)
-                    ?.copyWith(color: theme.textSecondary),
+            style: AppTypography.bodySmallStyle.copyWith(
+              color: theme.textSecondary,
+            ),
           ),
         ),
       ],
@@ -251,15 +249,7 @@ class WorkspaceTagField extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: usesCupertinoChrome
-                  ? AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w400,
-                    )
-                  : theme.label,
-            ),
+            Text(label, style: theme.label),
             const SizedBox(height: Spacing.xs),
             Wrap(
               spacing: Spacing.xs,

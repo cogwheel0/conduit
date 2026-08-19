@@ -1303,7 +1303,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   children: [
                     Text(
                       l10n.allowSelfSignedCertificates,
-                      style: theme.bodySmall?.copyWith(
+                      style: theme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: theme.textPrimary,
                       ),
@@ -1311,7 +1311,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                     const SizedBox(height: Spacing.xxs),
                     Text(
                       l10n.allowSelfSignedCertificatesDescription,
-                      style: AppTypography.labelSmallStyle.copyWith(
+                      style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.textSecondary,
                         height: 1.3,
                       ),
@@ -1348,7 +1348,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               children: [
                 Text(
                   l10n.mutualTlsSectionTitle,
-                  style: AppTypography.bodySmallStyle.copyWith(
+                  style: AppTypography.bodyMediumStyle.copyWith(
                     fontWeight: FontWeight.w600,
                     color: theme.textPrimary,
                   ),
@@ -1356,7 +1356,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 const SizedBox(height: Spacing.xxs),
                 Text(
                   l10n.mutualTlsSectionDescription,
-                  style: AppTypography.labelSmallStyle.copyWith(
+                  style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                     height: 1.3,
                   ),
@@ -1451,7 +1451,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                       children: [
                         Text(
                           l10n.customHeaders,
-                          style: AppTypography.bodySmallStyle.copyWith(
+                          style: AppTypography.bodyMediumStyle.copyWith(
                             fontWeight: FontWeight.w600,
                             color: theme.textPrimary,
                           ),
@@ -1459,7 +1459,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                         const SizedBox(height: Spacing.xxs),
                         Text(
                           l10n.customHeadersDescription,
-                          style: AppTypography.labelSmallStyle.copyWith(
+                          style: AppTypography.bodySmallStyle.copyWith(
                             color: theme.textSecondary,
                             height: 1.3,
                           ),

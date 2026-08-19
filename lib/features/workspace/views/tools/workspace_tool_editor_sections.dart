@@ -200,7 +200,7 @@ final class WorkspaceToolWarning extends StatelessWidget {
         Expanded(
           child: Text(
             l10n.workspaceToolWarning,
-            style: theme.caption?.copyWith(color: theme.textSecondary),
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
           ),
         ),
       ],
@@ -316,7 +316,7 @@ final class _ToolSpecsSummary extends StatelessWidget {
           if (specs.isEmpty)
             Text(
               l10n.workspaceToolSpecsEmpty,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
             )
           else
             for (final spec in specs)
@@ -334,7 +334,7 @@ final class _ToolSpecsSummary extends StatelessWidget {
                     if ((spec['description']?.toString() ?? '').isNotEmpty)
                       Text(
                         spec['description'].toString(),
-                        style: theme.caption?.copyWith(
+                        style: theme.bodySmall?.copyWith(
                           color: theme.textSecondary,
                         ),
                       ),
