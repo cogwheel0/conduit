@@ -12,6 +12,7 @@
   "back": "Назад",
   "you": "Вы",
   "loadingProfile": "Загрузка профиля...",
+  "unableToLoadProfile": "Не удалось загрузить профиль.",
   "pleaseCheckConnection": "Пожалуйста, проверьте соединение и повторите попытку",
   "connectionIssueTitle": "Не удается подключиться к серверу",
   "@connectionIssueTitle": {

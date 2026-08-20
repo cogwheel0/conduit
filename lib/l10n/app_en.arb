@@ -24,6 +24,10 @@
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
+  "unableToLoadProfile": "Unable to load profile.",
+  "@unableToLoadProfile": {
+    "description": "Error shown when account profile data cannot be loaded."
+  },
   "pleaseCheckConnection": "Please check your connection and try again",
   "connectionIssueTitle": "Can't reach your server",
   "@connectionIssueTitle": {

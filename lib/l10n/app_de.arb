@@ -12,6 +12,7 @@
   "back": "Zurück",
   "you": "Du",
   "loadingProfile": "Profil wird geladen...",
+  "unableToLoadProfile": "Profil konnte nicht geladen werden.",
   "pleaseCheckConnection": "Bitte überprüfe deine Verbindung und versuche es erneut",
   "connectionIssueTitle": "Server nicht erreichbar",
   "@connectionIssueTitle": {

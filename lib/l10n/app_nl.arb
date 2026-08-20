@@ -12,6 +12,7 @@
   "back": "Terug",
   "you": "Jij",
   "loadingProfile": "Profiel laden...",
+  "unableToLoadProfile": "Kan het profiel niet laden.",
   "pleaseCheckConnection": "Controleer je verbinding en probeer het opnieuw",
   "connectionIssueTitle": "Kan je server niet bereiken",
   "@connectionIssueTitle": {
@@ -256,8 +257,8 @@
   },
   "mutualTlsSectionTitle": "mTLS-clientcertificaat",
   "mutualTlsSectionDescription": "Voeg een PEM-certificaatketen en PEM-privésleutel toe wanneer je server wederzijdse TLS vereist tijdens het opzetten van de verbinding.",
-  "mutualTlsSelectCertificate": "Certificaat",
-  "mutualTlsSelectPrivateKey": "Privésleutel",
+  "mutualTlsSelectCertificate": "Certificaat selecteren",
+  "mutualTlsSelectPrivateKey": "Privésleutel selecteren",
   "mutualTlsCertificateReady": "Certificaat",
   "mutualTlsPrivateKeyReady": "Privésleutel",
   "mutualTlsPrivateKeyPasswordHint": "Wachtwoord voor privésleutel (optioneel)",

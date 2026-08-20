@@ -138,7 +138,7 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
       error: (_, _) => _buildLoadingCard(
         context,
         title: l10n.accountDetails,
-        message: l10n.unableToLoadOpenWebuiSettings,
+        message: l10n.unableToLoadProfile,
       ),
     );
   }
@@ -181,7 +181,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
             child: ConduitButton(
               text: l10n.saveProfile,
               isLoading: _savingProfile,
-              onPressed: profileAsync.isLoading || _savingProfile ? null : _save,
+              onPressed: profileAsync.isLoading || _savingProfile
+                  ? null
+                  : _save,
             ),
           ),
         ],

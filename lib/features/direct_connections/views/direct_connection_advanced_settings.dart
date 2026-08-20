@@ -473,7 +473,7 @@ final class _AdvancedApiBehavior extends StatelessWidget {
       children: [
         Text(
           l10n.directCompletionApi,
-          style: AppTypography.bodyMediumStyle.copyWith(
+          style: theme.bodyMedium?.copyWith(
             color: theme.textPrimary,
             fontWeight: FontWeight.w600,
           ),

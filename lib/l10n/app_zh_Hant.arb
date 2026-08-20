@@ -12,6 +12,7 @@
   "back": "返回",
   "you": "你",
   "loadingProfile": "加載個人資料中...",
+  "unableToLoadProfile": "無法載入個人資料。",
   "pleaseCheckConnection": "請檢查您的連接並重試",
   "connectionIssueTitle": "無法連接到您的服務器",
   "@connectionIssueTitle": {
@@ -3159,8 +3160,8 @@
   "markdownShowLess": "收合",
   "voiceBargeIn": "插話",
   "voiceBargeInDescription": "助理說話時持續聆聽，讓你隨時打斷。",
-  "voiceCallSpeakerOn": "開啟擴音器",
-  "voiceCallSpeakerOff": "關閉擴音器",
+  "voiceCallSpeakerOn": "開啟揚聲器",
+  "voiceCallSpeakerOff": "關閉揚聲器",
   "colorScheme": "配色方案",
   "channelEmptyHint": "建立頻道以開始群組對話。",
   "passwordChangeDescription": "更新帳號密碼",

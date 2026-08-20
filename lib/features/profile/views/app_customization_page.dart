@@ -10,6 +10,7 @@ import '../../../core/models/model.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
@@ -710,7 +711,19 @@ class AppCustomizationPage extends ConsumerWidget {
       onSave: (value) async {
         await api.updateModelSystemPrompt(model.id, value);
       },
-      afterSave: () => unawaited(ref.read(modelsProvider.notifier).refresh()),
+      afterSave: () => unawaited(
+        ref.read(modelsProvider.notifier).refresh().onError((
+          error,
+          stackTrace,
+        ) {
+          DebugLogger.error(
+            'refresh-failed',
+            scope: 'settings/models',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }),
+      ),
     );
   }
 

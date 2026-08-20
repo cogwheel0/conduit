@@ -12,6 +12,7 @@
   "back": "返回",
   "you": "你",
   "loadingProfile": "加载个人资料中...",
+  "unableToLoadProfile": "无法加载个人资料。",
   "pleaseCheckConnection": "请检查您的连接并重试",
   "connectionIssueTitle": "无法连接到您的服务器",
   "@connectionIssueTitle": {

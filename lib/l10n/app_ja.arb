@@ -27,6 +27,7 @@
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
+  "unableToLoadProfile": "プロフィールを読み込めませんでした。",
   "pleaseCheckConnection": "接続を確認して、もう一度お試しください",
   "connectionIssueTitle": "サーバーに接続できません",
   "@connectionIssueTitle": {

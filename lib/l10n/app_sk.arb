@@ -27,6 +27,7 @@
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
+  "unableToLoadProfile": "Profil sa nepodarilo načítať.",
   "pleaseCheckConnection": "Skontrolujte pripojenie a skúste to znova",
   "connectionIssueTitle": "Server nie je dostupný",
   "@connectionIssueTitle": {
@@ -1135,11 +1136,11 @@
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Certifikát",
+  "mutualTlsSelectCertificate": "Vybrať certifikát",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Súkromný kľúč",
+  "mutualTlsSelectPrivateKey": "Vybrať súkromný kľúč",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },

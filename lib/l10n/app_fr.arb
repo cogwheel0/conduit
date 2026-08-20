@@ -12,6 +12,7 @@
   "back": "Retour",
   "you": "Vous",
   "loadingProfile": "Chargement du profil...",
+  "unableToLoadProfile": "Impossible de charger le profil.",
   "pleaseCheckConnection": "Veuillez vérifier votre connexion et réessayer",
   "connectionIssueTitle": "Impossible d'atteindre votre serveur",
   "@connectionIssueTitle": {
@@ -3158,7 +3159,7 @@
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Afficher moins",
   "voiceBargeIn": "Interruption",
-  "voiceBargeInDescription": "Continue d'écouter pendant que l'assistant parle afin que vous puissiez l'interrompre.",
+  "voiceBargeInDescription": "Continue à écouter pendant que l'assistant parle pour pouvoir l'interrompre.",
   "voiceCallSpeakerOn": "Activer le haut-parleur",
   "voiceCallSpeakerOff": "Désactiver le haut-parleur",
   "channelEmptyHint": "Créez un canal pour démarrer une conversation de groupe.",

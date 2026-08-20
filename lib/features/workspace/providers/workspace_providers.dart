@@ -99,7 +99,16 @@ List<T> _mergeById<T>(
 }
 
 void _syncModels(Ref ref) {
-  unawaited(ref.read(modelsProvider.notifier).refresh());
+  unawaited(
+    ref.read(modelsProvider.notifier).refresh().onError((error, stackTrace) {
+      DebugLogger.error(
+        'refresh-failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
 }
 
 void _syncKnowledge(Ref ref) {
@@ -114,7 +123,7 @@ void _syncPrompts(Ref ref) {
 
 void _syncSkills(Ref ref) {
   // Model metadata can contain skill relationships, so refresh resolved models.
-  unawaited(ref.read(modelsProvider.notifier).refresh());
+  _syncModels(ref);
 }
 
 @Riverpod(keepAlive: true)

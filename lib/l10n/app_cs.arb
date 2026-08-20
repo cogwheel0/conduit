@@ -27,6 +27,7 @@
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
+  "unableToLoadProfile": "Profil se nepodařilo načíst.",
   "pleaseCheckConnection": "Zkontrolujte připojení a zkuste to znovu",
   "connectionIssueTitle": "Server není dostupný",
   "@connectionIssueTitle": {

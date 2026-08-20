@@ -12,6 +12,7 @@
   "back": "Indietro",
   "you": "Tu",
   "loadingProfile": "Caricamento profilo...",
+  "unableToLoadProfile": "Impossibile caricare il profilo.",
   "pleaseCheckConnection": "Controlla la connessione e riprova",
   "connectionIssueTitle": "Impossibile raggiungere il server",
   "@connectionIssueTitle": {
