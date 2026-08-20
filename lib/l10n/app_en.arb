@@ -2657,6 +2657,9 @@
   },
   "channelEmptyState": "No channels yet",
   "channelEmptyHint": "Create a channel to start a group conversation.",
+  "@channelEmptyHint": {
+    "description": "Empty-state hint on the channels list when no channels exist."
+  },
   "@channelEmptyState": {
     "description": "Message shown when there are no channels"
   },
@@ -5251,54 +5254,203 @@
     "description": "Title of the Hermes schedules launcher."
   },
   "hermesJobNew": "New scheduled job",
+  "@hermesJobNew": {
+    "description": "Action and editor title for creating a Hermes scheduled job."
+  },
   "hermesJobAdminDisabled": "Job administration is disabled on this server. Schedules are read-only.",
+  "@hermesJobAdminDisabled": {
+    "description": "Notice that Hermes job administration is read-only on this server."
+  },
   "hermesJobEmptyMessage": "Create a scheduled job to run a prompt automatically.",
+  "@hermesJobEmptyMessage": {
+    "description": "Empty-state hint explaining how to create a scheduled Hermes job."
+  },
   "hermesJobLoadFailed": "Could not load scheduled jobs. Check the Hermes connection and try again.",
+  "@hermesJobLoadFailed": {
+    "description": "Error shown when scheduled Hermes jobs cannot be loaded."
+  },
   "hermesJobCreateFailed": "Could not create scheduled job.",
+  "@hermesJobCreateFailed": {
+    "description": "Error shown when creating a scheduled Hermes job fails."
+  },
   "hermesJobCreated": "Scheduled job created.",
+  "@hermesJobCreated": {
+    "description": "Success message after creating a scheduled Hermes job."
+  },
   "hermesJobPaused": "Paused",
+  "@hermesJobPaused": {
+    "description": "Status label for a paused Hermes scheduled job."
+  },
   "hermesJobRunNow": "Run now",
+  "@hermesJobRunNow": {
+    "description": "Button that runs a Hermes scheduled job immediately."
+  },
   "hermesJobEdit": "Edit scheduled job",
+  "@hermesJobEdit": {
+    "description": "Tooltip for editing a Hermes scheduled job."
+  },
   "hermesJobDelete": "Delete scheduled job",
+  "@hermesJobDelete": {
+    "description": "Tooltip for deleting a Hermes scheduled job."
+  },
   "hermesJobResumeFailed": "Could not resume scheduled job.",
+  "@hermesJobResumeFailed": {
+    "description": "Error shown when resuming a paused Hermes job fails."
+  },
   "hermesJobPauseFailed": "Could not pause scheduled job.",
+  "@hermesJobPauseFailed": {
+    "description": "Error shown when pausing a Hermes job fails."
+  },
   "hermesJobResumed": "Scheduled job resumed.",
+  "@hermesJobResumed": {
+    "description": "Success message after resuming a Hermes scheduled job."
+  },
   "hermesJobPausedSuccess": "Scheduled job paused.",
+  "@hermesJobPausedSuccess": {
+    "description": "Success message after pausing a Hermes scheduled job."
+  },
   "hermesJobRunFailed": "Could not run scheduled job.",
+  "@hermesJobRunFailed": {
+    "description": "Error shown when starting a Hermes scheduled job fails."
+  },
   "hermesJobStarted": "Scheduled job started.",
+  "@hermesJobStarted": {
+    "description": "Success message after starting a Hermes scheduled job."
+  },
   "hermesJobUpdateFailed": "Could not update scheduled job.",
+  "@hermesJobUpdateFailed": {
+    "description": "Error shown when saving edits to a Hermes job fails."
+  },
   "hermesJobUpdated": "Scheduled job updated.",
+  "@hermesJobUpdated": {
+    "description": "Success message after updating a Hermes scheduled job."
+  },
   "hermesJobDeleteTitle": "Delete job",
+  "@hermesJobDeleteTitle": {
+    "description": "Title of the dialog that confirms deleting a Hermes job."
+  },
   "hermesJobDeleteMessage": "Delete this scheduled job? This cannot be undone.",
+  "@hermesJobDeleteMessage": {
+    "description": "Confirmation body for deleting a Hermes scheduled job."
+  },
   "hermesJobDeleteFailed": "Could not delete scheduled job.",
+  "@hermesJobDeleteFailed": {
+    "description": "Error shown when deleting a Hermes scheduled job fails."
+  },
   "hermesJobDeleted": "Scheduled job deleted.",
+  "@hermesJobDeleted": {
+    "description": "Success message after deleting a Hermes scheduled job."
+  },
   "hermesJobEditorEditTitle": "Edit job",
+  "@hermesJobEditorEditTitle": {
+    "description": "Title of the editor when changing an existing Hermes job."
+  },
   "hermesJobNameHint": "Daily summary",
+  "@hermesJobNameHint": {
+    "description": "Example placeholder for a Hermes job name field."
+  },
   "hermesJobPromptLabel": "Prompt",
+  "@hermesJobPromptLabel": {
+    "description": "Label for the prompt field in the Hermes job editor."
+  },
   "hermesJobPromptHint": "What should the agent do each run?",
+  "@hermesJobPromptHint": {
+    "description": "Hint describing what the Hermes job prompt should contain."
+  },
   "hermesJobScheduleLabel": "Schedule",
+  "@hermesJobScheduleLabel": {
+    "description": "Label for the schedule field in the Hermes job editor."
+  },
   "hermesJobScheduleHint": "0 9 * * * or every 2h",
+  "@hermesJobScheduleHint": {
+    "description": "Example placeholder for a Hermes job schedule."
+  },
   "hermesJobTooLong": "Use {count} characters or fewer",
-  "@hermesJobTooLong": {"placeholders": {"count": {"type": "int"}}},
+  "@hermesJobTooLong": {
+    "description": "Validation error when a Hermes job name or prompt exceeds the character limit.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hermesJobScheduleInvalid": "Enter a duration, interval, date, time, or valid cron schedule.",
+  "@hermesJobScheduleInvalid": {
+    "description": "Validation error for an unrecognized Hermes job schedule."
+  },
   "hermesJobScheduleHelp": "Use cron (0 9 * * *), an interval (every 2h), a delay (30m), or an ISO date and time.",
+  "@hermesJobScheduleHelp": {
+    "description": "Help text listing accepted Hermes job schedule formats."
+  },
   "hermesJobsSheetSubtitle": "Pause schedules or review what runs next.",
+  "@hermesJobsSheetSubtitle": {
+    "description": "Subtitle on the compact Hermes jobs sheet."
+  },
   "hermesJobsSheetReview": "Review run times and pause schedules.",
+  "@hermesJobsSheetReview": {
+    "description": "Review-mode subtitle on the compact Hermes jobs sheet."
+  },
   "hermesJobsManageDescription": "Create, edit, run, or delete schedules.",
+  "@hermesJobsManageDescription": {
+    "description": "Description of the manage action for Hermes schedules."
+  },
   "hermesJobsEmptyManageHint": "Use Manage to create a scheduled prompt.",
+  "@hermesJobsEmptyManageHint": {
+    "description": "Empty-state hint pointing users to Manage to create a Hermes schedule."
+  },
   "hermesLastStatus": "Last status: {status}",
-  "@hermesLastStatus": {"placeholders": {"status": {"type": "String"}}},
+  "@hermesLastStatus": {
+    "description": "Label showing the most recent status of a Hermes job.",
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "hermesSessionUntitled": "Untitled conversation",
+  "@hermesSessionUntitled": {
+    "description": "Fallback title for a Hermes conversation without a name."
+  },
   "hermesSessionFork": "Fork",
+  "@hermesSessionFork": {
+    "description": "Action that duplicates a Hermes conversation into a new session."
+  },
   "hermesSessionRenameTitle": "Rename conversation",
+  "@hermesSessionRenameTitle": {
+    "description": "Title of the dialog that renames a Hermes conversation."
+  },
   "hermesSessionNameHint": "Conversation name",
+  "@hermesSessionNameHint": {
+    "description": "Placeholder for a Hermes conversation name field."
+  },
   "hermesSessionDeleteTitle": "Delete conversation",
+  "@hermesSessionDeleteTitle": {
+    "description": "Title of the dialog that confirms deleting a Hermes conversation."
+  },
   "hermesSessionDeleteMessage": "Delete this Hermes conversation? This cannot be undone.",
+  "@hermesSessionDeleteMessage": {
+    "description": "Confirmation body for deleting a Hermes conversation."
+  },
   "hermesSessionForkFailed": "Could not fork conversation.",
+  "@hermesSessionForkFailed": {
+    "description": "Error shown when forking a Hermes conversation fails."
+  },
   "hermesSessionRenameFailed": "Could not rename conversation.",
+  "@hermesSessionRenameFailed": {
+    "description": "Error shown when renaming a Hermes conversation fails."
+  },
   "hermesSessionDeleteFailed": "Could not delete conversation.",
+  "@hermesSessionDeleteFailed": {
+    "description": "Error shown when deleting a Hermes conversation fails."
+  },
   "hermesSessionLoadFailed": "Could not load this conversation. Check the connection and try again.",
+  "@hermesSessionLoadFailed": {
+    "description": "Error shown when a Hermes conversation cannot be loaded."
+  },
   "hermesMemoryKeyFieldLabel": "Memory key",
+  "@hermesMemoryKeyFieldLabel": {
+    "description": "Label for the Hermes long-term memory key field."
+  },
   "ollamaThinking": "Thinking",
   "@ollamaThinking": {
     "description": "Title for an Ollama Cloud model thinking-level setting."
@@ -5376,51 +5528,189 @@
   "hermesNoServerStatus": "No status reported by the server.",
   "@hermesNoServerStatus": {"description":"Empty state when a Hermes server reports no diagnostic status."},
   "hermesLegacySessionToken": "Legacy session token",
+  "@hermesLegacySessionToken": {
+    "description": "Label for the legacy Hermes session-token field."
+  },
   "hermesLegacySessionTokenHint": "Paste the Hermes session token",
+  "@hermesLegacySessionTokenHint": {
+    "description": "Placeholder for pasting a legacy Hermes session token."
+  },
   "hermesGatewayStopped": "The Hermes dashboard is online, but Desktop Gateway is stopped. Start the gateway on the Hermes server, then test again.",
+  "@hermesGatewayStopped": {
+    "description": "Error when the Hermes dashboard is up but Desktop Gateway is stopped."
+  },
   "hermesProfile": "Hermes profile",
+  "@hermesProfile": {
+    "description": "Title for the Hermes profile picker."
+  },
   "hermesProfileLabel": "Profile",
+  "@hermesProfileLabel": {
+    "description": "Field label for the selected Hermes profile."
+  },
   "hermesRefreshProfiles": "Refresh profiles",
+  "@hermesRefreshProfiles": {
+    "description": "Action that reloads available Hermes profiles."
+  },
   "hermesDesktopAuthentication": "Desktop authentication",
+  "@hermesDesktopAuthentication": {
+    "description": "Section title for Hermes desktop sign-in methods."
+  },
   "hermesDashboardAuthHelp": "Open the Hermes dashboard in the sign-in window, then return here to test the connection.",
+  "@hermesDashboardAuthHelp": {
+    "description": "Help text for signing in through the Hermes dashboard window."
+  },
   "hermesAuthLegacy": "Legacy",
+  "@hermesAuthLegacy": {
+    "description": "Segment label for legacy Hermes token authentication."
+  },
   "hermesAuthNative": "Native",
+  "@hermesAuthNative": {
+    "description": "Segment label for native Hermes sign-in."
+  },
   "hermesAuthDashboard": "Dashboard",
+  "@hermesAuthDashboard": {
+    "description": "Segment label for Hermes dashboard sign-in."
+  },
   "hermesNativeSignIn": "Sign in with Hermes",
+  "@hermesNativeSignIn": {
+    "description": "Button that starts native Hermes sign-in."
+  },
   "hermesDashboardSignIn": "Open dashboard sign in",
+  "@hermesDashboardSignIn": {
+    "description": "Button that opens Hermes dashboard sign-in."
+  },
   "hermesGatewayAccessHeaders": "Headers and certificates",
+  "@hermesGatewayAccessHeaders": {
+    "description": "Title for custom Hermes gateway headers and certificates."
+  },
   "hermesGatewayAccessHeadersHelp": "Custom request headers and TLS trust for a protected Hermes server.",
+  "@hermesGatewayAccessHeadersHelp": {
+    "description": "Help text for custom request headers and TLS trust on a protected Hermes server."
+  },
   "hermesDesktopGateway": "Desktop Gateway",
+  "@hermesDesktopGateway": {
+    "description": "Section title for Hermes Desktop Gateway settings."
+  },
   "hermesReloadSkills": "Reload skills",
+  "@hermesReloadSkills": {
+    "description": "Action that reloads installed Hermes skills."
+  },
   "hermesNoInstalledSkills": "No installed skills",
+  "@hermesNoInstalledSkills": {
+    "description": "Empty-state message when the Hermes server reports no skills."
+  },
   "hermesMcpServers": "MCP servers",
+  "@hermesMcpServers": {
+    "description": "Section title for Hermes MCP server settings."
+  },
   "hermesSignOut": "Sign out of Hermes",
+  "@hermesSignOut": {
+    "description": "Action that signs the user out of Hermes."
+  },
   "hermesActionFailed": "Hermes action failed.",
+  "@hermesActionFailed": {
+    "description": "Generic error when a Hermes settings action fails."
+  },
   "hermesToolsetUpdateFailed": "Hermes toolset update failed.",
+  "@hermesToolsetUpdateFailed": {
+    "description": "Error shown when updating Hermes toolsets fails."
+  },
   "hermesJobStateLabel": "State",
+  "@hermesJobStateLabel": {
+    "description": "Label for a Hermes job state in the job details list."
+  },
   "hermesJobDeliveryLabel": "Delivery",
+  "@hermesJobDeliveryLabel": {
+    "description": "Label for a Hermes job delivery target in the job details list."
+  },
   "hermesJobLastLabel": "Last",
+  "@hermesJobLastLabel": {
+    "description": "Label for the last-run time of a Hermes job."
+  },
   "hermesJobNextLabel": "Next",
+  "@hermesJobNextLabel": {
+    "description": "Label for the next-run time of a Hermes job."
+  },
   "hermesJobRunHistory": "Run history",
+  "@hermesJobRunHistory": {
+    "description": "Disclosure title for a Hermes job run history."
+  },
   "hermesApprovalAllowOnce": "Allow once",
+  "@hermesApprovalAllowOnce": {
+    "description": "Approval option that permits a Hermes tool call once."
+  },
   "hermesApprovalAllowSession": "Allow for session",
+  "@hermesApprovalAllowSession": {
+    "description": "Approval option that permits a Hermes tool call for the session."
+  },
   "hermesApprovalAlwaysAllow": "Always allow",
+  "@hermesApprovalAlwaysAllow": {
+    "description": "Approval option that always permits a Hermes tool call."
+  },
   "hermesClarificationTitle": "Hermes needs clarification",
+  "@hermesClarificationTitle": {
+    "description": "Title of a Hermes card asking the user to clarify a request."
+  },
   "hermesSudoTitle": "Hermes needs sudo access",
+  "@hermesSudoTitle": {
+    "description": "Title of a Hermes card requesting sudo access."
+  },
   "hermesSecretTitle": "Hermes needs a secret",
+  "@hermesSecretTitle": {
+    "description": "Title of a Hermes card requesting a secret."
+  },
   "hermesMcpSetupTitle": "Hermes needs MCP setup",
+  "@hermesMcpSetupTitle": {
+    "description": "Title of a Hermes card requesting MCP setup."
+  },
   "hermesResponseSent": "Response sent",
+  "@hermesResponseSent": {
+    "description": "Status shown after sending a reply to a Hermes decision card."
+  },
   "hermesNotNow": "Not now",
+  "@hermesNotNow": {
+    "description": "Button that dismisses a Hermes setup request for now."
+  },
   "hermesSetUp": "Set up",
+  "@hermesSetUp": {
+    "description": "Button that starts setup from a Hermes decision card."
+  },
   "hermesSensitiveResponse": "Sensitive response",
+  "@hermesSensitiveResponse": {
+    "description": "Label for a sensitive reply field on a Hermes decision card."
+  },
   "hermesResponse": "Response",
+  "@hermesResponse": {
+    "description": "Label for the reply field on a Hermes decision card."
+  },
   "hermesSendResponse": "Send response",
+  "@hermesSendResponse": {
+    "description": "Button that sends a reply from a Hermes decision card."
+  },
   "hermesFastTier": "Fast tier",
+  "@hermesFastTier": {
+    "description": "Title of the Hermes fast-tier toggle in the model picker."
+  },
   "hermesFastTierOn": "On",
+  "@hermesFastTierOn": {
+    "description": "Status label when Hermes fast tier is enabled."
+  },
   "hermesFastTierOff": "Off",
+  "@hermesFastTierOff": {
+    "description": "Status label when Hermes fast tier is disabled."
+  },
   "hermesTurnSteer": "Steer",
+  "@hermesTurnSteer": {
+    "description": "Chat-input action that steers the current Hermes turn."
+  },
   "hermesTurnSendNext": "Send next",
+  "@hermesTurnSendNext": {
+    "description": "Chat-input action that sends the next Hermes turn."
+  },
   "hermesTurnControlsUnsupported": "Upgrade Hermes to enable safe turn controls.",
+  "@hermesTurnControlsUnsupported": {
+    "description": "Notice that the connected Hermes server cannot use turn controls."
+  },
   "sidebarHermesTab": "Hermes",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
