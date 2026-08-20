@@ -2196,6 +2196,7 @@ class Models extends _$Models {
       return;
     }
     await ref.read(directModelDiscoveryProvider.notifier).refresh();
+    if (!ref.mounted) return;
     final hermesConfig = ref.read(hermesConfigProvider);
     if (hermesConfig.isUsable &&
         hermesConfig.mode == HermesBackendMode.desktopGateway) {
@@ -2210,6 +2211,7 @@ class Models extends _$Models {
           stackTrace: stackTrace,
         );
       }
+      if (!ref.mounted) return;
     }
     final modelAuth = ref.read(_modelAuthReadinessProvider);
     if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
@@ -2895,6 +2897,7 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
   ref.watch(modelToolsAutoSelectionProvider);
   ref.watch(modelTerminalAutoSelectionProvider);
   ref.watch(modelFiltersAutoSelectionProvider);
+  ref.watch(modelsProvider);
   ref.watch(defaultModelProvider);
 
   ref.listen<AppSettings>(appSettingsProvider, (previous, next) {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart'
     show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter_driver/driver_extension.dart';
@@ -122,6 +123,8 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      // Conduit intentionally owns separate direct-local and per-server files.
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
       RasterMediaPolicy.configureGlobalImageCache();
       // Measure the complete Dart-side startup path, including the first plugin
       // calls. Package metadata is not required to paint the auth/theme shell;

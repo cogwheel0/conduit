@@ -72,9 +72,29 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
     final service = ref.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService || _opening) return;
     setState(() => _opening = true);
-    String storedId;
     try {
-      storedId = await service.openBotChat(bot);
+      final storedId = await service.openBotChat(bot);
+      // A connection edit during the resolve invalidates the id we just bound.
+      if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
+        return;
+      }
+      final avatar = bot.hasAvatar
+          ? await ref.read(hermesBotAvatarProvider(bot.name).future)
+          : null;
+      if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
+        return;
+      }
+      await openHermesSession(
+        context,
+        ref,
+        HermesSessionSummary(
+          id: storedId,
+          title: bot.title,
+          updatedAt: bot.lastActive,
+        ),
+        bot: bot,
+        botAvatar: avatar,
+      );
     } catch (error) {
       DebugLogger.error(
         'open-bot-chat-failed',
@@ -92,26 +112,5 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
     } finally {
       if (mounted) setState(() => _opening = false);
     }
-    // A connection edit during the resolve invalidates the id we just bound.
-    if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
-      return;
-    }
-    final avatar = bot.hasAvatar
-        ? await ref.read(hermesBotAvatarProvider(bot.name).future)
-        : null;
-    if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
-      return;
-    }
-    await openHermesSession(
-      context,
-      ref,
-      HermesSessionSummary(
-        id: storedId,
-        title: bot.title,
-        updatedAt: bot.lastActive,
-      ),
-      bot: bot,
-      botAvatar: avatar,
-    );
   }
 }

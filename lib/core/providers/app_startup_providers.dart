@@ -1437,6 +1437,9 @@ class AppStartupFlow extends _$AppStartupFlow {
       if (!_hasAuthenticatedSession()) {
         return;
       }
+      if (keepDefaultModelAutoSelectionAlive) {
+        _keepDefaultModelAutoSelectionAlive();
+      }
       try {
         await ref.read(defaultModelProvider.future);
       } catch (e) {
@@ -1445,10 +1448,6 @@ class AppStartupFlow extends _$AppStartupFlow {
           scope: 'startup',
           data: {'error': e},
         );
-      } finally {
-        if (_hasAuthenticatedSession() && keepDefaultModelAutoSelectionAlive) {
-          _keepDefaultModelAutoSelectionAlive();
-        }
       }
     });
   }

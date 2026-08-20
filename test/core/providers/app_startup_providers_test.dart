@@ -644,6 +644,34 @@ void main() {
   });
 
   test(
+    'post-auth startup retains auto-selection before preload resolves',
+    () async {
+      final defaultModelStarted = Completer<void>();
+      final releaseDefaultModel = Completer<Model?>();
+      var autoSelectionStarts = 0;
+      final container = await _createAuthenticatedWarmupContainer(
+        extraOverrides: [
+          defaultModelProvider.overrideWith((ref) {
+            defaultModelStarted.complete();
+            return releaseDefaultModel.future;
+          }),
+          defaultModelAutoSelectionProvider.overrideWith((ref) {
+            autoSelectionStarts += 1;
+            ref.watch(defaultModelProvider);
+          }),
+        ],
+      );
+
+      container.read(appStartupFlowProvider.notifier).activateForTesting();
+
+      await defaultModelStarted.future.timeout(const Duration(seconds: 1));
+      expect(autoSelectionStarts, 1);
+      releaseDefaultModel.complete(null);
+      await _flushMicrotasks(4);
+    },
+  );
+
+  test(
     'direct completion relay is owned only by an authenticated session',
     () async {
       var navState = AuthNavigationState.authenticated;

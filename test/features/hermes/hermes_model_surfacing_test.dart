@@ -182,6 +182,26 @@ class _PendingModels extends Models {
   }
 }
 
+class _InvalidatedModels extends Models {
+  _InvalidatedModels(this.firstBuild, this.firstBuildStarted);
+
+  final Completer<List<Model>> firstBuild;
+  final Completer<void> firstBuildStarted;
+  int builds = 0;
+
+  @override
+  Future<List<Model>> build() {
+    builds += 1;
+    if (builds == 1) {
+      firstBuildStarted.complete();
+      return firstBuild.future;
+    }
+    return Future<List<Model>>.value(const [
+      Model(id: 'owui-model', name: 'OpenWebUI model'),
+    ]);
+  }
+}
+
 const _usableHermes = HermesConfig(
   enabled: true,
   baseUrl: 'https://hermes.example/v1',
@@ -579,6 +599,67 @@ void main() {
         final selected = container.read(selectedModelProvider);
         check(selected).isNotNull();
         check(isHermesModel(selected!)).isTrue();
+      },
+    );
+
+    test(
+      'default model survives account certification invalidating models',
+      () async {
+        final firstBuild = Completer<List<Model>>();
+        final firstBuildStarted = Completer<void>();
+        final models = _InvalidatedModels(firstBuild, firstBuildStarted);
+        final workerManager = WorkerManager();
+        final api = _ModelsApiService(workerManager);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.owui),
+            ),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            isAuthLoadingProvider2.overrideWithValue(false),
+            authStatusProvider.overrideWithValue(AuthStatus.authenticated),
+            authTokenProvider3.overrideWithValue('token'),
+            activeServerProvider.overrideWith((ref) async => _modelsServer),
+            apiServiceProvider.overrideWithValue(api),
+            appSettingsProvider.overrideWithValue(
+              const AppSettings(defaultModel: 'owui-model'),
+            ),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_incompleteHermes),
+            ),
+            modelsProvider.overrideWith(() => models),
+          ],
+        );
+        _addOwnedApiCleanup(container, api, workerManager);
+        addTearDown(() {
+          if (!firstBuild.isCompleted) firstBuild.complete(const []);
+        });
+        await container.read(activeServerProvider.future);
+
+        final autoSelection = container.listen<void>(
+          defaultModelAutoSelectionProvider,
+          (previous, next) {},
+          fireImmediately: true,
+        );
+        addTearDown(autoSelection.close);
+        final pendingDefault = container.read(defaultModelProvider.future);
+        await firstBuildStarted.future;
+        container.invalidate(modelsProvider);
+        await Future<void>.delayed(Duration.zero);
+        check(models.builds).equals(2);
+
+        final selected = await pendingDefault.timeout(
+          const Duration(seconds: 5),
+        );
+        check(selected)
+            .isNotNull()
+            .has((model) => model.id, 'id')
+            .equals('owui-model');
+        check(container.read(selectedModelProvider)).identicalTo(selected);
       },
     );
 
