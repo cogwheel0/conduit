@@ -117,7 +117,7 @@ class NativeSheetHydrationService {
       return modelsAsync.requireValue;
     }
     if (modelsAsync.hasError && refreshOnError) {
-      _ref.invalidate(modelsProvider);
+      await _ref.read(modelsProvider.notifier).refresh();
     }
     return _ref.read(modelsProvider.future);
   }

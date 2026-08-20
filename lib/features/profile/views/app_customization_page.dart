@@ -710,7 +710,7 @@ class AppCustomizationPage extends ConsumerWidget {
       onSave: (value) async {
         await api.updateModelSystemPrompt(model.id, value);
       },
-      afterSave: () => ref.invalidate(modelsProvider),
+      afterSave: () => unawaited(ref.read(modelsProvider.notifier).refresh()),
     );
   }
 
@@ -1100,7 +1100,10 @@ class AppCustomizationPage extends ConsumerWidget {
       padding: EdgeInsets.zero,
       leading: _buildIconBadge(
         context,
-        UiUtils.platformIcon(ios: CupertinoIcons.globe, android: Icons.language),
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.globe,
+          android: Icons.language,
+        ),
         color: theme.buttonPrimary,
       ),
       title: l10n.sttTranscriptionLanguage,

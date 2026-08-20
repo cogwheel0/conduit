@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,6 +43,68 @@ void main() {
     // Display names are server-provided; "hermes" and "Hermes" may be two
     // different configured models and must not be silently merged.
     check(continues(open: 'Hermes', row: 'hermes')).isFalse();
+  });
+
+  group('Hermes tool status placement', () {
+    const search = ChatStatusUpdate(
+      action: 'hermes_tool_web_search',
+      description: 'web_search',
+      done: true,
+    );
+    const terminal = ChatStatusUpdate(
+      action: 'hermes_tool_terminal',
+      description: 'terminal',
+      done: true,
+    );
+    const reasoning = ChatStatusUpdate(
+      action: 'reasoning',
+      description: 'Thinking',
+      done: true,
+    );
+
+    test('tool calls stay on the first row to avoid a blank gap above', () {
+      final grouped = debugGroupHermesToolStatusesForTesting(const [
+        [search],
+        [reasoning, terminal],
+      ]);
+
+      check(grouped[0]).deepEquals([search, terminal]);
+      check(grouped[1]).deepEquals([reasoning]);
+    });
+
+    test('a single tool call stays on its original row', () {
+      const histories = <List<ChatStatusUpdate>>[
+        [reasoning],
+        [search],
+      ];
+
+      check(debugGroupHermesToolStatusesForTesting(histories))
+          .identicalTo(histories);
+    });
+
+    test('an emptied continuation row collapses instead of leaving a gap', () {
+      final message = ChatMessage(
+        id: 'tool-only',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      check(
+        debugCanCollapseGroupedAssistantRowForTesting(
+          message,
+          showModelHeader: false,
+          showActionBar: false,
+        ),
+      ).isTrue();
+      check(
+        debugCanCollapseGroupedAssistantRowForTesting(
+          message,
+          showModelHeader: false,
+          showActionBar: true,
+        ),
+      ).isFalse();
+    });
   });
 
   group('action bar placement', () {

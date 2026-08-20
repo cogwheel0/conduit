@@ -1,6 +1,8 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/widgets/assistant_detail_header.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -16,6 +18,8 @@ void main() {
   }) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
+      localizationsDelegates: conduitLocalizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
             .copyWith(disableAnimations: disableAnimations),
@@ -153,6 +157,54 @@ void main() {
       expect(find.text('Generating image...'), findsOneWidget);
     },
   );
+
+  testWidgets('groups Hermes tools with OpenWebUI-style counts', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness(const [
+        ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: true,
+        ),
+        ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: true,
+        ),
+        ChatStatusUpdate(
+          action: 'hermes_tool_terminal',
+          description: 'terminal',
+          done: true,
+        ),
+      ], isStreaming: false),
+    );
+
+    expect(find.text('Explored web_search (2), terminal'), findsOneWidget);
+    expect(find.text('terminal'), findsNothing);
+  });
+
+  testWidgets('keeps a grouped Hermes title pending while any tool runs', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness(const [
+        ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: true,
+        ),
+        ChatStatusUpdate(
+          action: 'hermes_tool_terminal',
+          description: 'terminal',
+          done: false,
+        ),
+      ]),
+    );
+
+    expect(find.text('Exploring web_search, terminal'), findsOneWidget);
+  });
 
   testWidgets('reduced motion skips status-chip entrance effects', (
     tester,

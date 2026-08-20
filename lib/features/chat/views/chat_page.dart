@@ -3076,8 +3076,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
+    final displayedMessage = groupIds.length > 1
+        ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
+        : latestMessage;
+    if (displayedMessage.statusHistory.length <
+            latestMessage.statusHistory.length &&
+        debugCanCollapseGroupedAssistantRowForTesting(
+          displayedMessage,
+          showModelHeader: rowMetadata.showModelHeader,
+          showActionBar: rowMetadata.showActionBar,
+        )) {
+      return const SizedBox.shrink();
+    }
     return assistant.AssistantMessageWidget(
-      message: latestMessage,
+      message: displayedMessage,
       isStreaming: latestMessage.isStreaming,
       showFollowUps: rowMetadata.showFollowUps,
       // Suppress the mount fade for a settled (completed or failed) assistant so
@@ -3122,6 +3134,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         groupIds.isEmpty ? <String>[messageId] : groupIds,
       ),
     );
+  }
+
+  ChatMessage _messageWithGroupedHermesToolStatuses(
+    WidgetRef rowRef,
+    ChatMessage message,
+    List<String> groupIds,
+  ) {
+    final histories = <List<ChatStatusUpdate>>[];
+    for (final id in groupIds) {
+      histories.add(
+        rowRef.watch(chatMessageByIdProvider(id))?.statusHistory ??
+            const <ChatStatusUpdate>[],
+      );
+    }
+    final grouped = debugGroupHermesToolStatusesForTesting(histories);
+    final index = groupIds.indexOf(message.id);
+    if (index < 0 || identical(grouped[index], message.statusHistory)) {
+      return message;
+    }
+    return message.copyWith(statusHistory: grouped[index]);
   }
 
   /// Current text of every row in a grouped response, in display order.
@@ -4332,6 +4364,62 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
         groupIndices: groupByIndex[index],
       ),
   ]);
+}
+
+/// Moves Hermes tool statuses from a grouped response onto its first tool row.
+/// Non-tool statuses stay on their original rows.
+@visibleForTesting
+List<List<ChatStatusUpdate>> debugGroupHermesToolStatusesForTesting(
+  List<List<ChatStatusUpdate>> histories,
+) {
+  final tools = <ChatStatusUpdate>[];
+  var owner = -1;
+  for (var index = 0; index < histories.length; index++) {
+    final rowTools = histories[index].where(_isHermesToolStatus).toList();
+    if (owner < 0 && rowTools.isNotEmpty) owner = index;
+    tools.addAll(rowTools);
+  }
+  if (tools.length < 2 || owner < 0) return histories;
+
+  return List<List<ChatStatusUpdate>>.unmodifiable([
+    for (var index = 0; index < histories.length; index++)
+      if (index != owner)
+        List<ChatStatusUpdate>.unmodifiable(
+          histories[index].where((status) => !_isHermesToolStatus(status)),
+        )
+      else
+        List<ChatStatusUpdate>.unmodifiable([
+          for (final status in histories[index])
+            if (!_isHermesToolStatus(status)) status,
+          ...tools,
+        ]),
+  ]);
+}
+
+bool _isHermesToolStatus(ChatStatusUpdate status) =>
+    status.action?.startsWith('hermes_tool_') ?? false;
+
+@visibleForTesting
+bool debugCanCollapseGroupedAssistantRowForTesting(
+  ChatMessage message, {
+  required bool showModelHeader,
+  required bool showActionBar,
+}) {
+  final metadata = message.metadata;
+  return !showModelHeader &&
+      !showActionBar &&
+      message.content.trim().isEmpty &&
+      (message.attachmentIds?.isEmpty ?? true) &&
+      (message.files?.isEmpty ?? true) &&
+      (message.output?.isEmpty ?? true) &&
+      (message.embeds?.isEmpty ?? true) &&
+      message.statusHistory.isEmpty &&
+      message.followUps.isEmpty &&
+      message.codeExecutions.isEmpty &&
+      message.sources.isEmpty &&
+      message.error == null &&
+      metadata?['hermesApproval'] == null &&
+      metadata?['hermesDecision'] == null;
 }
 
 @immutable

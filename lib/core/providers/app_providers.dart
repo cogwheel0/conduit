@@ -1730,6 +1730,21 @@ List<Model> appendHermesModelIfUsable(
       : <Model>[...safeModels, ...directModels];
 }
 
+bool _sameModelCacheOwnership(
+  OpenWebUiCacheOwnershipSnapshot? previous,
+  OpenWebUiCacheOwnershipSnapshot next,
+) =>
+    previous != null &&
+    identical(previous.api, next.api) &&
+    previous.serverId == next.serverId &&
+    previous.activeServerId == next.activeServerId &&
+    identical(previous.authSessionEpoch, next.authSessionEpoch) &&
+    previous.authToken == next.authToken &&
+    previous.authenticated == next.authenticated &&
+    previous.databaseAccessPhase == next.databaseAccessPhase &&
+    previous.certifiedDatabaseServerId == next.certifiedDatabaseServerId &&
+    previous.rawActiveServerId == next.rawActiveServerId;
+
 String _modelBackendForDiagnostics(Model? model) {
   if (model == null) return 'none';
   if (isLocallyMintedDirectModel(model)) return 'direct';
@@ -1740,6 +1755,8 @@ String _modelBackendForDiagnostics(Model? model) {
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
   bool _terminalDirectDiscoveryNeedsReconciliation = false;
+  Future<void>? _refreshInFlight;
+  OpenWebUiCacheOwnershipSnapshot? _warmRefreshOwnership;
 
   @override
   Future<List<Model>> build() async {
@@ -1895,19 +1912,23 @@ class Models extends _$Models {
         if (visibleCached.length != cached.length && cacheOwnership != null) {
           _persistModelsAsync(visibleCached, ownership: cacheOwnership);
         }
-        Future.microtask(() async {
-          if (!ref.mounted) return;
-          try {
-            await refresh();
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'warm-refresh-failed',
-              scope: 'models/cache',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          }
-        });
+        if (cacheOwnership != null &&
+            !_sameModelCacheOwnership(_warmRefreshOwnership, cacheOwnership)) {
+          _warmRefreshOwnership = cacheOwnership;
+          Future.microtask(() async {
+            if (!ref.mounted) return;
+            try {
+              await refresh();
+            } catch (error, stackTrace) {
+              DebugLogger.error(
+                'warm-refresh-failed',
+                scope: 'models/cache',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          });
+        }
         return _returnWithSelectionReconciliation(
           _withLocalModels(visibleCached, directModels: directModels),
           deferDirectSelection: deferDirectSelectionReconciliation,
@@ -2155,7 +2176,21 @@ class Models extends _$Models {
     DebugLogger.warning('hermes-selection-unavailable', scope: 'models');
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+
+    late final Future<void> operation;
+    operation = _refresh().whenComplete(() {
+      if (identical(_refreshInFlight, operation)) {
+        _refreshInFlight = null;
+      }
+    });
+    _refreshInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _refresh() async {
     if (ref.read(reviewerModeProvider)) {
       state = AsyncData<List<Model>>(_reconcileLocalSelection(_demoModels()));
       return;
@@ -2301,6 +2336,7 @@ class Models extends _$Models {
           'hidden': models.length - visibleModels.length,
         },
       );
+      _warmRefreshOwnership = ownership;
       _persistModelsAsync(visibleModels, ownership: ownership);
       return (models: visibleModels, ownership: ownership);
     } catch (e, stackTrace) {

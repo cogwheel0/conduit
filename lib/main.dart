@@ -526,7 +526,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         final api = ref.read(apiServiceProvider);
         if (api == null) return;
         await api.updateModelSystemPrompt(modelId, value);
-        ref.invalidate(modelsProvider);
+        await ref.read(modelsProvider.notifier).refresh();
         return;
       }
 
