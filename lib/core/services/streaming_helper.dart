@@ -147,6 +147,23 @@ bool _statusHistoriesEquivalent(
   return true;
 }
 
+List<ChatStatusUpdate> mergeStatusHistoryPreservingSettledLocal(
+  List<ChatStatusUpdate> local,
+  List<ChatStatusUpdate> server,
+) {
+  final missingSettled = local
+      .where((status) => status.done != false)
+      .where(
+        (localStatus) => !server.any(
+          (serverStatus) => _statusUpdatesEquivalent(localStatus, serverStatus),
+        ),
+      )
+      .toList(growable: false);
+  return missingSettled.isEmpty
+      ? server
+      : <ChatStatusUpdate>[...missingSettled, ...server];
+}
+
 bool _deepEquals(Object? previous, Object? next) {
   if (identical(previous, next)) {
     return true;
@@ -1961,6 +1978,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final serverComparableBody = stripRenderedSemanticDetails(content);
     final shouldAdoptContent =
         content.isNotEmpty &&
+        !serverBodyDropsLocalSemanticDetails(
+          comparisonSnapshot.comparisonContent,
+          content,
+        ) &&
         serverComparableBody.length >= localComparableBody.length;
     if (shouldAdoptContent) {
       DebugLogger.log(
@@ -2098,13 +2119,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final nextFollowUps = assistant.followUps.isNotEmpty
               ? List<String>.from(assistant.followUps)
               : current.followUps;
-          final nextStatusHistory = assistant.statusHistory.isNotEmpty
-              ? assistant.statusHistory
-              : current.isStreaming
+          final nextStatusHistory =
+              assistant.statusHistory.isEmpty && current.isStreaming
               ? current.statusHistory
-              : current.statusHistory
-                    .where((status) => status.done != false)
-                    .toList(growable: false);
+              : mergeStatusHistoryPreservingSettledLocal(
+                  current.statusHistory,
+                  assistant.statusHistory,
+                );
           final nextSources =
               assistant.sources.isNotEmpty || !current.isStreaming
               ? assistant.sources
@@ -2124,10 +2145,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           // before comparing — their attributes (reasoning duration, done
           // flags) differ between local and server renders and would defeat
           // the prefix check.
-          final keepLocalContent = serverBodyTruncatesLocal(
-            current.content,
-            assistant.content,
-          );
+          final keepLocalContent =
+              serverBodyTruncatesLocal(current.content, assistant.content) ||
+              serverBodyDropsLocalSemanticDetails(
+                current.content,
+                assistant.content,
+              );
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -3242,11 +3265,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             // adopting it would rebase later deltas onto a shortened buffer.
             // Rendered semantic <details> wrappers are stripped before the
             // comparison; their attributes differ between renders.
-            final isStalePrefix = serverBodyTruncatesLocal(
-              renderedStreamingContent.value,
-              raw,
-            );
-            if (raw.isNotEmpty && !isStalePrefix) {
+            final keepLocalContent =
+                serverBodyTruncatesLocal(renderedStreamingContent.value, raw) ||
+                serverBodyDropsLocalSemanticDetails(
+                  renderedStreamingContent.value,
+                  raw,
+                );
+            if (raw.isNotEmpty && !keepLocalContent) {
               replaceVisibleAssistantContent(raw);
             }
           }

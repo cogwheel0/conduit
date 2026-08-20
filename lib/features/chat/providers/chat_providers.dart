@@ -47,6 +47,7 @@ import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
+import '../../../core/services/streaming_helper.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/conversation_parsing.dart';
 import '../../../core/services/worker_manager.dart';
@@ -1737,7 +1738,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
 
         if (next != null) {
           final nextMessages = _restoreLiveTransportRunState(
-            _preserveFreshLocalAssistantState(next.messages),
+            _preserveFreshLocalMessageState(next.messages),
             next,
             settleOrphanedDirect: true,
           );
@@ -2400,7 +2401,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     // empty echo under the foreign server id could replace the local streaming
     // tail and retire the stream early.
     state = _restoreLiveTransportRunState(
-      _preserveFreshLocalAssistantState(serverMessages),
+      _preserveFreshLocalMessageState(serverMessages),
       ref.read(activeConversationProvider),
     );
     _syncStreamingProfileWithState();
@@ -2534,23 +2535,37 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     return true;
   }
 
-  List<ChatMessage> _preserveFreshLocalAssistantState(
+  List<ChatMessage> _preserveFreshLocalMessageState(
     List<ChatMessage> serverMessages,
   ) {
     if (state.isEmpty || serverMessages.isEmpty) {
       return serverMessages;
     }
 
+    final localTrailingUserId = state
+        .where((message) => message.role == 'user')
+        .lastOrNull
+        ?.id;
+    final serverTrailingUserId = serverMessages
+        .where((message) => message.role == 'user')
+        .lastOrNull
+        ?.id;
     final localById = <String, ChatMessage>{
       for (final message in state)
         // Also index empty placeholders that still carry a local-only
         // streaming state or `modelName`, so a stale pre-first-token snapshot
-        // can't drop local turn state before the metadata merge runs.
-        if (message.role == 'assistant' &&
-            (message.isStreaming ||
-                message.content.trim().isNotEmpty ||
-                message.followUps.isNotEmpty ||
-                _messageModelName(message) != null))
+        // can't drop local turn state before the metadata merge runs. Keep the
+        // trailing user's attachments for the same lagging-snapshot window.
+        if ((message.role == 'assistant' &&
+                (message.isStreaming ||
+                    message.content.trim().isNotEmpty ||
+                    message.statusHistory.isNotEmpty ||
+                    message.followUps.isNotEmpty ||
+                    _messageModelName(message) != null)) ||
+            (message.id == localTrailingUserId &&
+                message.id == serverTrailingUserId &&
+                (message.attachmentIds?.isNotEmpty == true ||
+                    message.files?.isNotEmpty == true)))
           message.id: message,
     };
     if (localById.isEmpty) {
@@ -2577,42 +2592,63 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       final localMessage =
           localById[serverMessage.id] ??
           (boundToTail ? localById[localTailId] : null);
-      final isStreamingTail =
-          localMessage != null &&
-          (serverMessage.id == localTailId || boundToTail);
+      if (localMessage == null) {
+        merged.add(serverMessage);
+        continue;
+      }
+      final isStreamingTail = serverMessage.id == localTailId || boundToTail;
       final preserveContent =
-          localMessage != null &&
           isStreamingTail &&
           _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
       final shouldPreserveStreamingState =
-          localMessage != null &&
           _shouldPreserveLocalAssistantStreamingState(
             localMessage,
             serverMessage,
             isStreamingTail: isStreamingTail,
             serverHasAdditionalMessages: serverHasAdditionalMessages,
           );
-      final sameResponseContent =
-          localMessage != null &&
-          _sameAssistantResponseText(
-            localMessage.content,
-            serverMessage.content,
-          );
+      final sameResponseContent = _sameAssistantResponseText(
+        localMessage.content,
+        serverMessage.content,
+      );
       final shouldPreserveFollowUps =
-          localMessage != null &&
           localMessage.followUps.isNotEmpty &&
           serverMessage.role == 'assistant' &&
           serverMessage.followUps.isEmpty &&
           (sameResponseContent || preserveContent);
+      final serverStatusHistory = serverMessage.statusHistory;
+      final mergedStatusHistory =
+          localMessage.statusHistory.isNotEmpty &&
+              serverMessage.role == 'assistant' &&
+              isStreamingTail &&
+              (sameResponseContent || preserveContent)
+          ? mergeStatusHistoryPreservingSettledLocal(
+              localMessage.statusHistory,
+              serverStatusHistory,
+            )
+          : serverStatusHistory;
+      final shouldPreserveStatusHistory = !identical(
+        mergedStatusHistory,
+        serverStatusHistory,
+      );
+      final shouldPreserveUserAttachments =
+          localMessage.role == 'user' &&
+          serverMessage.role == 'user' &&
+          localMessage.content == serverMessage.content &&
+          (localMessage.attachmentIds?.isNotEmpty == true ||
+              localMessage.files?.isNotEmpty == true) &&
+          serverMessage.attachmentIds?.isNotEmpty != true &&
+          serverMessage.files?.isNotEmpty != true;
       // Preserve a local-only modelName the server snapshot hasn't caught up to
       // (notably an empty placeholder whose first token hasn't landed).
       final shouldPreserveModelName =
-          localMessage != null &&
           serverMessage.role == 'assistant' &&
           _messageModelName(localMessage) != null &&
           _messageModelName(serverMessage) == null;
       if (!preserveContent &&
           !shouldPreserveFollowUps &&
+          !shouldPreserveStatusHistory &&
+          !shouldPreserveUserAttachments &&
           !shouldPreserveModelName &&
           !shouldPreserveStreamingState) {
         merged.add(serverMessage);
@@ -2620,24 +2656,27 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       }
 
       changed = true;
+      final preservedLocalMessage = localMessage;
       // Merge local + server metadata so local-only fields (e.g. `modelName`)
       // survive a server snapshot captured before the durable payload was
       // finalized. Server values take precedence; local fills only the gaps.
       final metadata = <String, dynamic>{
-        ...?localMessage.metadata,
+        ...?preservedLocalMessage.metadata,
         ...?serverMessage.metadata,
       };
       if (shouldPreserveFollowUps) {
         // Overwrite (not putIfAbsent): the merged map may carry a stale
         // `followUps` from the server snapshot (e.g. an explicit empty list),
         // which must mirror the preserved typed `.followUps` field below.
-        metadata['followUps'] = List<String>.from(localMessage.followUps);
+        metadata['followUps'] = List<String>.from(
+          preservedLocalMessage.followUps,
+        );
       }
       if (shouldPreserveModelName) {
         // The raw server map may carry an empty/whitespace `modelName` that the
         // union spread on top of the local one; restore the normalized local
         // value so an empty server field can't blank the displayed model name.
-        metadata['modelName'] = _messageModelName(localMessage);
+        metadata['modelName'] = _messageModelName(preservedLocalMessage);
       }
       merged.add(
         serverMessage.copyWith(
@@ -2645,11 +2684,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
               ? true
               : serverMessage.isStreaming,
           content: preserveContent
-              ? localMessage.content
+              ? preservedLocalMessage.content
               : serverMessage.content,
           followUps: shouldPreserveFollowUps
-              ? List<String>.from(localMessage.followUps)
+              ? List<String>.from(preservedLocalMessage.followUps)
               : serverMessage.followUps,
+          statusHistory: mergedStatusHistory,
+          attachmentIds: shouldPreserveUserAttachments
+              ? preservedLocalMessage.attachmentIds
+              : serverMessage.attachmentIds,
+          files: shouldPreserveUserAttachments
+              ? preservedLocalMessage.files
+              : serverMessage.files,
           metadata: metadata.isEmpty ? null : metadata,
         ),
       );
@@ -3233,6 +3279,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
     }
     if (!_hasLocalStreamingProvenance(localMessage)) {
       return false;
+    }
+    if (serverBodyDropsLocalSemanticDetails(
+      localMessage.content,
+      serverMessage.content,
+    )) {
+      return true;
     }
     // Compare answer bodies with rendered semantic <details> wrappers
     // stripped. Local and server renders of the same turn carry different
@@ -4297,7 +4349,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>>
       return false;
     }
 
-    final mergedServerMessages = _preserveFreshLocalAssistantState(
+    final mergedServerMessages = _preserveFreshLocalMessageState(
       serverMessages,
     );
     var serverTail = mergedServerMessages[serverIndex];

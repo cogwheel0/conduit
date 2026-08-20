@@ -81,6 +81,7 @@ void main() {
       find.byKey(const ValueKey<String>('tree-guides-folder-child-folder')),
     );
     expect(nestedHierarchy.child, isA<ConduitContextMenu>());
+    expect(nestedHierarchy.guideInset, kConversationTileHorizontalGutter);
     final nestedConversationHierarchy = tester.widget<FolderTreeHierarchyNode>(
       find.byKey(ValueKey<String>('tree-guides-chat-$nestedConversationId')),
     );

@@ -101,6 +101,7 @@ class FolderTreeHierarchyNode extends StatelessWidget {
     required this.showBranch,
     required this.hasMoreSiblings,
     required this.child,
+    this.guideInset = 0,
   });
 
   /// Horizontal space per nesting level for guide lines.
@@ -117,6 +118,9 @@ class FolderTreeHierarchyNode extends StatelessWidget {
 
   /// Content placed to the right of the guide column (folder tile, etc.).
   final Widget child;
+
+  /// Extra leading inset for the painted guides, without moving [child].
+  final double guideInset;
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +143,7 @@ class FolderTreeHierarchyNode extends StatelessWidget {
           child: child,
         ),
         Positioned(
-          left: 0,
+          left: guideInset,
           top: 0,
           bottom: 0,
           width: guideWidth,
@@ -228,10 +232,14 @@ class FolderTreeIntergroupGap extends StatelessWidget {
   const FolderTreeIntergroupGap({
     super.key,
     required this.ancestorHasMoreSiblings,
+    this.guideInset = 0,
   });
 
   /// Same ancestry flags as the rows below this gap.
   final List<bool> ancestorHasMoreSiblings;
+
+  /// Extra leading inset for the painted guides.
+  final double guideInset;
 
   @override
   Widget build(BuildContext context) {
@@ -244,10 +252,13 @@ class FolderTreeIntergroupGap extends StatelessWidget {
     return SizedBox(
       height: Spacing.sm,
       width: double.infinity,
-      child: CustomPaint(
-        painter: _FolderTreeIntergroupGapPainter(
-          ancestorHasMoreSiblings: ancestorHasMoreSiblings,
-          lineColor: lineColor,
+      child: Padding(
+        padding: EdgeInsets.only(left: guideInset),
+        child: CustomPaint(
+          painter: _FolderTreeIntergroupGapPainter(
+            ancestorHasMoreSiblings: ancestorHasMoreSiblings,
+            lineColor: lineColor,
+          ),
         ),
       ),
     );

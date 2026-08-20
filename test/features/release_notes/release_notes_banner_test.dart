@@ -11,7 +11,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/test_fonts.dart';
+
 void main() {
+  setUpAll(loadTestFonts);
+
   testWidgets('presents the 4.0 announcement below the greeting', (
     tester,
   ) async {

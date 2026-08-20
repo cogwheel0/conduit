@@ -1886,6 +1886,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                       hintStyle: titleTextStyle.copyWith(
                                         color: conduitTheme.textSecondary
                                             .withValues(alpha: 0.6),
+                                        fontWeight: FontWeight.w300,
                                       ),
                                       contentPadding: EdgeInsets.zero,
                                       isDense: true,

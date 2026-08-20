@@ -401,7 +401,9 @@ class ConduitGlassSearchField extends StatelessWidget {
         decoration: InputDecoration(
           isDense: true,
           hintText: hintText,
-          hintStyle: AppTypography.standard.copyWith(color: placeholderColor),
+          hintStyle: AppTypography.inputHintStyle.copyWith(
+            color: placeholderColor,
+          ),
           prefixIcon: Icon(Icons.search, color: hintColor, size: 18),
           prefixIconConstraints: const BoxConstraints(
             minWidth: TouchTarget.minimum,

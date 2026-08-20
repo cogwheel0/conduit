@@ -21,6 +21,7 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
+import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/navigation/views/folder_page.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
@@ -661,6 +662,48 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
+  });
+
+  testWidgets('chat page mount defers the initial transcript reset', (
+    tester,
+  ) async {
+    final timestamp = DateTime(2026, 1, 1);
+    final message = ChatMessage(
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Hi',
+      timestamp: timestamp,
+    );
+    final active = Conversation(
+      id: 'folder-chat-1',
+      title: 'Folder Chat',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      folderId: 'work',
+      messages: [message],
+    );
+    final container = _createContainer(
+      activeConversation: active,
+      initialMessages: [message],
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChatPage(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(container.read(chatTranscriptPagingProvider).loadedCount, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    container.dispose();
   });
 
   testWidgets(

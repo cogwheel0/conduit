@@ -50,6 +50,16 @@ bool isStaleServerPrefix({
 String comparableAssistantBody(String content) =>
     stripRenderedSemanticDetails(content).trim();
 
+bool serverBodyDropsLocalSemanticDetails(
+  String localContent,
+  String serverContent,
+) {
+  return containsRenderedSemanticDetails(localContent) &&
+      !containsRenderedSemanticDetails(serverContent) &&
+      comparableAssistantBody(localContent) ==
+          comparableAssistantBody(serverContent);
+}
+
 /// [isStaleServerPrefix] on details-stripped renders of the two contents.
 bool serverBodyTruncatesLocal(String localContent, String serverContent) {
   return isStaleServerPrefix(

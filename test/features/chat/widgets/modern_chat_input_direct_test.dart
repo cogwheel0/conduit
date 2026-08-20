@@ -1016,10 +1016,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    final expandButton = tester.widget<AdaptiveButton>(
-      find.byKey(const ValueKey<String>('composer-expand-button')),
+    final expandButton = find.byKey(
+      const ValueKey<String>('composer-expand-button'),
     );
-    expect(expandButton.sfSymbol, isNull);
+    expect(
+      find.descendant(of: expandButton, matching: find.byType(AdaptiveButton)),
+      findsNothing,
+    );
     expect(
       tester
           .widget<ConduitSystemAdaptiveIcon>(
@@ -1029,8 +1032,9 @@ void main() {
             ),
           )
           .size,
-      IconSize.medium,
+      IconSize.large,
     );
+    expect(tester.getSize(expandButton), const Size.square(32));
     final overflowButton = tester.widget<AdaptiveButton>(
       find.descendant(
         of: find.byKey(const ValueKey<String>('composer-overflow-button')),
@@ -1051,12 +1055,6 @@ void main() {
           .size,
       IconSize.large,
     );
-    expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('composer-expand-button')),
-      ),
-      const Size.square(TouchTarget.minimum),
-    );
     final expandRect = tester.getRect(
       find.byKey(const ValueKey<String>('composer-expand-button')),
     );
@@ -1068,11 +1066,8 @@ void main() {
       find.byKey(const ValueKey<String>('composer-expand-row')),
       findsNothing,
     );
-    expect(expandRect.top, inputRect.top + Spacing.sm);
-    expect(
-      textFieldRect.right + Spacing.xs,
-      lessThanOrEqualTo(expandRect.left),
-    );
+    expect(expandRect.top, inputRect.top + Spacing.sm + Spacing.xs);
+    expect(textFieldRect.right, lessThanOrEqualTo(expandRect.left));
   });
 
   testWidgets('iOS 26 composer preserves native surfaces across layout swaps', (

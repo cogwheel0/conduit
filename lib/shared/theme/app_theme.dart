@@ -106,7 +106,6 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
-      fontFamily: AppTypography.fontFamily,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: surfaces.background,
       canvasColor: surfaces.background,
@@ -163,7 +162,7 @@ class AppTheme {
           shadows.shadowXs.first.color,
           conduitExtension.inputBackground,
         ),
-        hintStyle: textTheme.bodyMedium?.copyWith(
+        hintStyle: AppTypography.inputHintStyle.copyWith(
           color: conduitExtension.inputPlaceholder,
         ),
         border: baseInputBorder,

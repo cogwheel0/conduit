@@ -705,6 +705,34 @@ void main() {
     expect(find.text('Document'), findsOneWidget);
   });
 
+  testWidgets('Material segments leave their full width for labels', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            child: AdaptiveSegmentedControl(
+              labels: ['Legacy', 'Native', 'Dashboard'],
+              selectedIndex: 2,
+              onValueChanged: _discardIndex,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final control = tester.widget<SegmentedButton<int>>(
+      find.byType(SegmentedButton<int>),
+    );
+    expect(control.showSelectedIcon, isFalse);
+    expect(control.style?.textStyle?.resolve(const {})?.fontSize, 14);
+    expect(find.byIcon(Icons.check), findsNothing);
+  });
+
   testWidgets('Cupertino fields retain decoration prefix and suffix widgets', (
     tester,
   ) async {

@@ -6848,7 +6848,7 @@ void main() {
       'does not protect the local tail',
       () async {
         // Greptile P1: `_adoptServerMessages` used to drop transport (clearing
-        // `_boundRemoteMessageId`) before `_preserveFreshLocalAssistantState`.
+        // `_boundRemoteMessageId`) before `_preserveFreshLocalMessageState`.
         // Tracked-but-unprotected transport is the path that exercises that
         // ordering — e.g. a stale transport id that no longer matches the tail.
         final container = _buildContainer();
@@ -7507,6 +7507,154 @@ void main() {
 
       check(container.read(chatMessagesProvider).last.followUps)
           .deepEquals(['Ask again']);
+    });
+
+    test(
+      'server snapshots do not clear completed statuses for the same response',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localAssistant =
+            _assistantMessage(id: 'assistant-1', content: 'Answer').copyWith(
+              statusHistory: const [
+                ChatStatusUpdate(
+                  action: 'web_search',
+                  description: 'Search complete',
+                  done: true,
+                ),
+              ],
+            );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, localAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('chat-1', [
+                userMessage,
+                _assistantMessage(
+                  id: 'assistant-1',
+                  content: 'Answer',
+                ).copyWith(
+                  statusHistory: const [
+                    ChatStatusUpdate(
+                      action: 'reasoning',
+                      description: 'Thinking...',
+                      done: false,
+                      hidden: true,
+                    ),
+                  ],
+                ),
+              ]),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        final statuses = container
+            .read(chatMessagesProvider)
+            .last
+            .statusHistory
+            .where((status) => status.hidden != true && status.done != false)
+            .toList(growable: false);
+        check(statuses).single
+          ..has(
+            (status) => status.description,
+            'description',
+          ).equals('Search complete')
+          ..has((status) => status.done, 'done').equals(true);
+      },
+    );
+
+    test('server snapshots do not clear sent user images', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
+
+      final localUser = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'What is in this image?',
+        timestamp: DateTime(2024, 1, 1),
+        attachmentIds: const ['image-1'],
+        files: const [
+          {'type': 'image', 'id': 'image-1', 'url': 'image-1'},
+        ],
+      );
+      final assistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'A landscape.',
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [localUser, assistant]));
+      await Future<void>.delayed(Duration.zero);
+
+      final laggingServerUser = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: localUser.content,
+        timestamp: localUser.timestamp,
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [laggingServerUser, assistant]));
+      await Future<void>.delayed(Duration.zero);
+
+      final mergedUser = container.read(chatMessagesProvider).first;
+      check(mergedUser.attachmentIds).isNotNull().deepEquals(['image-1']);
+      check(mergedUser.files).isNotNull();
+      check(mergedUser.files!.single['id']).equals('image-1');
+    });
+
+    test('server snapshots do not clear completed reasoning details', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
+
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Think carefully',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      const localContent =
+          '<details type="reasoning" done="true" duration="0">\n'
+          '<summary>Thought for 0 seconds</summary>\n'
+          '&gt; Plan\n'
+          '</details>\n'
+          'Answer';
+      final localAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: localContent,
+        metadata: const {'transport': 'httpStream'},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, localAssistant]));
+      await Future<void>.delayed(Duration.zero);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-1', [
+              userMessage,
+              _assistantMessage(id: 'assistant-1', content: 'Answer'),
+            ]),
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(chatMessagesProvider).last.content)
+          .equals(localContent);
     });
 
     test(

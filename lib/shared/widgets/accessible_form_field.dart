@@ -114,7 +114,7 @@ class AccessibleFormField extends StatelessWidget {
             ),
             materialDecoration: InputDecoration(
               hintText: hint,
-              hintStyle: AppTypography.standard.copyWith(
+              hintStyle: AppTypography.inputHintStyle.copyWith(
                 color: context.conduitTheme.inputPlaceholder,
               ),
               filled: true,

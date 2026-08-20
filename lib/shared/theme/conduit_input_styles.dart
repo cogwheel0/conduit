@@ -29,7 +29,7 @@ class ConduitInputStyles {
       BorderRadius.circular(AppBorderRadius.input);
 
   TextStyle get _hintStyle =>
-      AppTypography.bodyMediumStyle.copyWith(color: theme.inputPlaceholder);
+      AppTypography.inputHintStyle.copyWith(color: theme.inputPlaceholder);
 
   TextStyle get _errorStyle => AppTypography.small.copyWith(color: theme.error);
 

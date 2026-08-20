@@ -12,17 +12,12 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/test_fonts.dart';
+
 void main() {
-  setUpAll(() async {
-    final fontLoader = FontLoader('Geist Sans')
-      ..addFont(rootBundle.load('assets/fonts/geist/Geist-Regular.ttf'))
-      ..addFont(rootBundle.load('assets/fonts/geist/Geist-SemiBold.ttf'))
-      ..addFont(rootBundle.load('assets/fonts/geist/Geist-Bold.ttf'));
-    await fontLoader.load();
-  });
+  setUpAll(loadTestFonts);
 
   for (final localeName in [
     'cs',

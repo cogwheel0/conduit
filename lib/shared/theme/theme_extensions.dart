@@ -60,8 +60,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
       Color.lerp(surfaces.border, surfaces.ring, isDark ? 0.4 : 0.2)!;
   Color get inputBorderFocused => surfaces.ring;
   Color get inputText => tokens.neutralOnSurface;
-  Color get inputPlaceholder =>
-      isDark ? tokens.neutralTone80 : tokens.neutralTone60;
+  Color get inputPlaceholder => textSecondary.withValues(alpha: 0.5);
   Color get inputError => tokens.statusError60;
 
   Color get cardBackground => surfaces.card;
@@ -1104,10 +1103,9 @@ class _AppTypographyScale {
     required Color primary,
     required Color secondary,
     required Color tertiary,
-    required String fontFamily,
   }) {
     TextStyle withColor(TextStyle style, Color color) {
-      return style.copyWith(color: color, fontFamily: fontFamily);
+      return style.copyWith(color: color);
     }
 
     return TextTheme(
@@ -1139,13 +1137,11 @@ bool _usesAppleTypographyRamp(TargetPlatform platform) {
 
 /// Product typography shared by every platform.
 ///
-/// Content and product UI use one stable hierarchy so the same conversation,
-/// sheet, or settings page does not change density between Android and iOS.
-/// Native navigation chrome can opt into the explicit Material or Cupertino
-/// ramps exposed below.
+/// Content and product UI use one stable hierarchy on every platform.
 class AppTypography {
-  static const String fontFamily = 'Geist Sans';
-  static const String monospaceFontFamily = 'Geist Mono';
+  static const String? fontFamily = null;
+  static String get monospaceFontFamily =>
+      _usesAppleTypographyRamp(defaultTargetPlatform) ? 'Menlo' : 'monospace';
 
   // These semantic spacing values are used in a few custom layouts.
   static const double letterSpacingTight = 0.0;
@@ -1153,20 +1149,14 @@ class AppTypography {
   static const double letterSpacingWide = 0.0;
   static const double letterSpacingExtraWide = 0.0;
 
-  // Preserve the previously shipped Apple product hierarchy as the common
-  // baseline. This keeps iOS stable while bringing Android content into parity.
   static _AppTypographyScale get _scale => _appleScale;
 
-  // Geometry can continue to follow platform conventions without changing the
-  // text hierarchy. Android inputs remain roomier while Cupertino controls keep
-  // their existing compact metrics.
   static _AppTypographyScale get _platformMetricScale =>
       _usesAppleTypographyRamp(defaultTargetPlatform)
       ? _appleScale
       : _materialScale;
 
-  static TextStyle _primaryFont(TextStyle style) =>
-      style.copyWith(fontFamily: fontFamily);
+  static TextStyle _primaryFont(TextStyle style) => style;
 
   static TextStyle _monospaceFont(TextStyle style) =>
       style.copyWith(fontFamily: monospaceFontFamily);
@@ -1230,6 +1220,9 @@ class AppTypography {
 
   static TextStyle get standard => bodyMediumStyle;
 
+  static TextStyle get inputHintStyle =>
+      bodyMediumStyle.copyWith(fontWeight: FontWeight.w300);
+
   static TextStyle get large => bodyLargeStyle;
 
   static TextStyle get sidebarTitleStyle => bodyLargeStyle;
@@ -1271,7 +1264,6 @@ class AppTypography {
     primary: primary,
     secondary: secondary,
     tertiary: tertiary,
-    fontFamily: fontFamily,
   );
 
   /// Material typography reserved for genuine Material navigation chrome.
@@ -1283,7 +1275,6 @@ class AppTypography {
     primary: primary,
     secondary: secondary,
     tertiary: tertiary,
-    fontFamily: fontFamily,
   );
 
   static TextStyle get materialChromeLabelSmallStyle =>
@@ -1298,7 +1289,6 @@ class AppTypography {
     primary: primary,
     secondary: secondary,
     tertiary: tertiary,
-    fontFamily: fontFamily,
   );
 
   static TextStyle get cupertinoChromeMicroStyle =>
@@ -1400,7 +1390,6 @@ class AppTypography {
       fontWeight: FontWeight.w400,
       letterSpacing: 0,
       height: 1.4,
-      fontFamily: monospaceFontFamily,
     ),
     microStyle: TextStyle(
       fontSize: 11,
@@ -1515,7 +1504,6 @@ class AppTypography {
       fontWeight: FontWeight.w400,
       letterSpacing: 0,
       height: 1.38,
-      fontFamily: monospaceFontFamily,
     ),
     microStyle: TextStyle(
       fontSize: 11,

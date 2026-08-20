@@ -293,6 +293,10 @@ class AdaptiveSegmentedControl extends StatelessWidget {
     Widget control = ConstrainedBox(
       constraints: BoxConstraints(minHeight: height),
       child: SegmentedButton<int>(
+        style: SegmentedButton.styleFrom(
+          textStyle: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(fontSize: 14),
+        ),
         segments: [
           for (var index = 0; index < count; index++)
             ButtonSegment<int>(
@@ -306,6 +310,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
             ),
         ],
         selected: {selectedIndex},
+        showSelectedIcon: false,
         onSelectionChanged: enabled
             ? (selection) => handleSelection(selection.first)
             : null,

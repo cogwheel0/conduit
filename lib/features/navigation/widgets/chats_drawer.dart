@@ -668,6 +668,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         SliverToBoxAdapter(
           child: FolderTreeIntergroupGap(
             ancestorHasMoreSiblings: nextAncestorHasMoreSiblings,
+            guideInset: kConversationTileHorizontalGutter,
           ),
         ),
       );
@@ -1353,6 +1354,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 ancestorHasMoreSiblings: ancestorHasMoreSiblings,
                 showBranch: true,
                 hasMoreSiblings: hasMoreSiblings,
+                guideInset: kConversationTileHorizontalGutter,
                 child: contextTile,
               );
       },
@@ -1804,6 +1806,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             ancestorHasMoreSiblings: ancestorHasMoreSiblings,
             showBranch: true,
             hasMoreSiblings: hasMoreSiblings,
+            guideInset: kConversationTileHorizontalGutter,
             child: contextTile,
           )
         : contextTile;

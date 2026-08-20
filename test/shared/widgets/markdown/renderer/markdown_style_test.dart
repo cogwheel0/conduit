@@ -33,7 +33,7 @@ void main() {
       check(style.tableSpacing).equals(Spacing.md);
     });
 
-    testWidgets('uses bundled Geist font families', (tester) async {
+    testWidgets('uses system font families', (tester) async {
       late ThemeData materialTheme;
       late ConduitThemeExtension conduitTheme;
 
@@ -50,15 +50,14 @@ void main() {
         ),
       );
 
-      check(materialTheme.textTheme.bodyMedium?.fontFamily)
-          .equals(AppTypography.fontFamily);
+      check(materialTheme.textTheme.bodyMedium?.fontFamily).equals('Roboto');
       check(AppTypography.codeStyle.fontFamily)
           .equals(AppTypography.monospaceFontFamily);
       check(conduitTheme.code?.fontFamily)
           .equals(AppTypography.monospaceFontFamily);
     });
 
-    testWidgets('uses the same reading hierarchy on Android and iOS', (
+    testWidgets('uses one reading hierarchy with native font families', (
       tester,
     ) async {
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -84,18 +83,17 @@ void main() {
       final ios = await resolveStyle(TargetPlatform.iOS);
       debugDefaultTargetPlatformOverride = null;
 
-      expect(android.body, ios.body);
-      expect(android.h1, ios.h1);
-      expect(android.h2, ios.h2);
-      expect(android.h3, ios.h3);
-      expect(android.h4, ios.h4);
-      expect(android.h5, ios.h5);
-      expect(android.h6, ios.h6);
-      expect(android.codeBlock, ios.codeBlock);
+      expect(android.codeBlock.fontFamily, 'monospace');
+      expect(ios.codeBlock.fontFamily, 'Menlo');
+      expect(android.codeBlock.fontSize, ios.codeBlock.fontSize);
       expect(android.h1.fontSize, 24);
       expect(android.h2.fontSize, 22);
       expect(android.body.fontSize, 17);
       expect(android.body.height, 1.29);
+      expect(ios.h1.fontSize, 24);
+      expect(ios.h2.fontSize, 22);
+      expect(ios.body.fontSize, 17);
+      expect(ios.body.height, 1.29);
     });
   });
 }

@@ -909,14 +909,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       });
     });
-    _conversationIdSub = ref.listenManual(
-      activeConversationProvider.select(
-        (conversation) =>
-            conversation == null ? null : conversationScopedId(conversation),
-      ),
-      (_, next) => _handleConversationChanged(next),
-      fireImmediately: true,
+    final conversationIdListenable = activeConversationProvider.select(
+      (conversation) =>
+          conversation == null ? null : conversationScopedId(conversation),
     );
+    _conversationIdSub = ref.listenManual(
+      conversationIdListenable,
+      (_, next) => _handleConversationChanged(next),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _handleConversationChanged(ref.read(conversationIdListenable));
+      }
+    });
     _authEpochSub = ref.listenManual(openWebUiAuthSessionEpochProvider, (
       previous,
       next,

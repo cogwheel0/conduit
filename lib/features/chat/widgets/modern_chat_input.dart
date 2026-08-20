@@ -336,7 +336,6 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
     );
 
 const double _maxCompactComposerControlScale = 1.25;
-const double _composerExpandIconExtent = IconSize.medium;
 const double _cupertinoComposerOverflowIconExtent = IconSize.large;
 const double _materialComposerOverflowIconExtent = 28;
 
@@ -3109,7 +3108,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               Padding(
                 padding: EdgeInsetsDirectional.only(
                   end: _showExpandButton && !_expandModalOpen
-                      ? conduitScaledControlExtent(context) + Spacing.xs
+                      ? conduitScaledIconExtent(context, IconSize.large) +
+                            (Spacing.xs * 3)
                       : 0,
                 ),
                 child: _buildComposerTextField(
@@ -3132,8 +3132,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ),
               if (_showExpandButton && !_expandModalOpen)
                 PositionedDirectional(
-                  top: 0,
-                  end: 0,
+                  top: Spacing.xs,
+                  end: Spacing.xs,
                   child: _buildExpandButton(_showExpandTextModal),
                 ),
             ],
@@ -3711,6 +3711,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     .copyWith(
                       hintStyle: baseChatStyle.copyWith(
                         color: animatedPlaceholder,
+                        fontWeight: FontWeight.w300,
                       ),
                       contentPadding: contentPadding,
                       isDense: true,
@@ -3819,29 +3820,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildExpandButton(VoidCallback onTap) {
-    final l10n = AppLocalizations.of(context)!;
-    final buttonSize = conduitScaledControlExtent(context);
-    final iconSize = conduitScaledIconExtent(
-      context,
-      _composerExpandIconExtent,
-    );
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
     final iconColor = context.conduitTheme.textSecondary.withValues(alpha: 0.7);
     return AdaptiveTooltip(
-      message: l10n.edit,
-      child: _buildComposerIconButton(
+      message: AppLocalizations.of(context)!.edit,
+      child: GestureDetector(
         key: const ValueKey<String>('composer-expand-button'),
-        onPressed: onTap,
-        size: buttonSize,
-        forcePlain: true,
-        iosSymbol: 'arrow.up.left.and.arrow.down.right',
-        iosSymbolSize: iconSize,
-        iosSymbolColor: iconColor,
-        child: ConduitSystemAdaptiveIcon(
-          Platform.isIOS
-              ? CupertinoIcons.arrow_up_left_arrow_down_right
-              : Icons.open_in_full,
-          size: iconSize,
-          color: iconColor,
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.xs),
+          child: ConduitSystemAdaptiveIcon(
+            Platform.isIOS
+                ? CupertinoIcons.arrow_up_left_arrow_down_right
+                : Icons.open_in_full,
+            size: iconSize,
+            color: iconColor,
+          ),
         ),
       ),
     );

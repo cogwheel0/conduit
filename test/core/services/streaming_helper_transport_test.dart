@@ -1435,6 +1435,47 @@ void main() {
       },
     );
 
+    test('taskSocket plain snapshots do not clear reasoning details', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'reasoning_content': 'Plan'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'Answer'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+      registrar.emitChatEvent('chat:completion', {
+        'content': 'Answer',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content)
+        ..contains('<details type="reasoning"')
+        ..contains('Answer');
+    });
+
     test(
       'taskSocket helper leaves direct-completion RPC to global relay',
       () async {
@@ -4558,6 +4599,79 @@ void main() {
 
       check(log.finishCount).equals(1);
       check(log.messages.last.statusHistory).isEmpty();
+    });
+
+    test('httpStream snapshot refresh keeps completed local statuses missing '
+        'from partial server history', () async {
+      final log = _CallbackLog(
+        initialMessages: [
+          ChatMessage(
+            id: 'msg-1',
+            role: 'assistant',
+            content: 'Answer',
+            timestamp: DateTime.now(),
+            isStreaming: true,
+            statusHistory: const [
+              ChatStatusUpdate(
+                action: 'web_search',
+                description: 'Search complete',
+                done: true,
+              ),
+              ChatStatusUpdate(
+                action: 'reasoning',
+                description: 'Thinking...',
+                done: false,
+              ),
+            ],
+          ),
+        ],
+      );
+      final api = _buildFakeApi(
+        pollResponse: _serverConversationResponse(
+          messages: [
+            _serverAssistantMessage(
+              content: 'Answer',
+              statusHistory: const [
+                {
+                  'action': 'reasoning',
+                  'description': 'Thinking...',
+                  'done': false,
+                  'hidden': true,
+                },
+              ],
+            ),
+          ],
+        ),
+      );
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+        activeConversationId: 'conv-1',
+      );
+
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      for (var i = 0; i < 3; i++) {
+        await pumpMicrotasks();
+      }
+
+      final settledStatuses = log.messages.last.statusHistory
+          .where((status) => status.hidden != true && status.done != false)
+          .toList(growable: false);
+      check(settledStatuses).single
+        ..has(
+          (status) => status.description,
+          'description',
+        ).equals('Search complete')
+        ..has((status) => status.done, 'done').equals(true);
     });
 
     test('httpStream snapshot refresh keeps status rows with unspecified done after finish', () async {

@@ -17,8 +17,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'direct_connections_ui_test_support.dart';
+import '../../support/test_fonts.dart';
 
 void main() {
+  setUpAll(loadTestFonts);
+
   testWidgets('server editor reuses the form with a synced-source label', (
     tester,
   ) async {
@@ -84,6 +87,9 @@ void main() {
   testWidgets('local editor builds its authentication dropdown on iOS', (
     tester,
   ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
