@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/features/hermes/models/hermes_bot.dart';
+import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
@@ -228,8 +230,58 @@ void main() {
         .equals(HermesDesktopTurnState.running);
   });
 
+  test('a new bot chat opens before its first prompt is persisted', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final harness = _GatewayHarness();
+    final adapter = _StubAdapter();
+    final rpc = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => harness.channel,
+    );
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'default',
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: rpc,
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+
+    harness.responder = (method) => switch (method) {
+      // No existing "Bot Chat" title match.
+      'session.resume' => const {},
+      'session.create' => {
+        'session_id': 'runtime-new-bot',
+        'stored_session_id': 'stored-new-bot',
+        'info': const {},
+      },
+      _ => const {},
+    };
+
+    final storedId = await service.openBotChat(
+      const HermesBot(name: 'researcher', title: 'Research'),
+    );
+    check(storedId).equals('stored-new-bot');
+    check(await service.getSessionMessages(storedId)).isEmpty();
+
+    check(
+      harness.sent.where((frame) => frame['method'] == 'session.resume').length,
+    ).equals(1);
+    check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
+        .isEmpty();
+  });
+
   test(
-    'bot chat transcript reads carry the bot profile, not the connection one',
+    'bot chat transcripts use gateway history instead of dashboard REST',
     () async {
       SharedPreferences.setMockInitialValues({});
       PreferencesStore.debugOverride(await SharedPreferences.getInstance());
@@ -266,6 +318,11 @@ void main() {
           'info': const {'running': false},
           'running': false,
         },
+        'session.history' => {
+          'messages': const [
+            {'role': 'assistant', 'content': 'Hello from Research'},
+          ],
+        },
         _ => const {},
       };
 
@@ -276,18 +333,16 @@ void main() {
           chatSessionId: 'stored-bot',
         ),
       );
-      await service.getSessionMessages('stored-bot');
+      final messages = await service.getSessionMessages('stored-bot');
 
-      final reads = adapter.requested
-          .where((uri) => uri.path.endsWith('/messages'))
-          .toList();
-      check(reads).isNotEmpty();
-      for (final uri in reads) {
-        check(
-          uri.queryParameters['profile'],
-          because: 'unscoped bot transcript read: \$uri',
-        ).equals('researcher');
-      }
+      check(messages.single['content']).equals('Hello from Research');
+      check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
+          .isEmpty();
+      final history = harness.sent.singleWhere(
+        (frame) => frame['method'] == 'session.history',
+      );
+      check((history['params'] as Map)['session_id']).equals('runtime-bot');
+      check((history['params'] as Map)['profile']).equals('researcher');
     },
   );
 
@@ -382,4 +437,74 @@ void main() {
       }
     },
   );
+
+  test('bot sends keep the bot profile model settings', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    final harness = _GatewayHarness();
+    final rpc = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => harness.channel,
+    );
+    final adapter = _StubAdapter();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'default',
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: rpc,
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+
+    harness.responder = (method) => switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-bot',
+        'stored_session_id': 'stored-bot',
+        'info': const {'running': false},
+        'running': false,
+      },
+      'session.history' => {'messages': const []},
+      _ => const {},
+    };
+
+    await service.openBotChat(
+      const HermesBot(
+        name: 'researcher',
+        title: 'Research',
+        chatSessionId: 'stored-bot',
+      ),
+    );
+    final response = await service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'stored-bot',
+      options: const HermesDesktopSessionOptions(
+        model: 'other-model',
+        provider: 'other-provider',
+        reasoningEffort: 'high',
+        fast: true,
+      ),
+    );
+    harness.sessionInfo('runtime-bot', running: false);
+    await response.events.toList();
+
+    check(
+      harness.sent
+          .map((frame) => frame['method'])
+          .where((method) => method == 'config.get' || method == 'config.set'),
+    ).isEmpty();
+    final submit = harness.sent.singleWhere(
+      (frame) => frame['method'] == 'prompt.submit',
+    );
+    check((submit['params'] as Map)['profile']).equals('researcher');
+    check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
+        .isEmpty();
+  });
 }

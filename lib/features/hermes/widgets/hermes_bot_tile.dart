@@ -5,13 +5,13 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/model_avatar.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../models/hermes_bot.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_desktop_api_service.dart';
 import 'hermes_session_tile.dart';
+import 'hermes_bot_avatar.dart';
 
 /// One Bot Mode agent in the sidebar roster. Tapping opens the bot's canonical
 /// "Bot Chat" — the same forever-chat the Hermes desktop app opens.
@@ -36,8 +36,6 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
     final activeSessionId = ref.watch(hermesActiveSessionProvider);
     final selected =
         bot.chatSessionId != null && activeSessionId == bot.chatSessionId;
-    final subtitle = bot.preview ?? bot.description;
-
     return ChatStyleSidebarTile(
       selected: selected,
       enabled: !_opening,
@@ -48,8 +46,14 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
       child: SidebarListTileContent(
         title: bot.title,
         selected: selected,
-        subtitle: subtitle,
-        leading: ModelAvatar(size: 32, imageUrl: avatar, label: bot.title),
+        leading: HermesBotAvatar(
+          size: 32,
+          imageUrl: avatar,
+          label: bot.title,
+          shape: bot.avatarShape,
+          color: bot.avatarColor,
+          imageKind: bot.avatarImageKind,
+        ),
         trailing: _opening
             ? const SizedBox(
                 width: IconSize.sm,
@@ -92,6 +96,12 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
     if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
       return;
     }
+    final avatar = bot.hasAvatar
+        ? await ref.read(hermesBotAvatarProvider(bot.name).future)
+        : null;
+    if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
+    }
     await openHermesSession(
       context,
       ref,
@@ -100,6 +110,8 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
         title: bot.title,
         updatedAt: bot.lastActive,
       ),
+      bot: bot,
+      botAvatar: avatar,
     );
   }
 }

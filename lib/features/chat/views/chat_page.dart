@@ -36,6 +36,7 @@ import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
+import '../../hermes/models/hermes_bot.dart';
 import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_decision_projection.dart';
@@ -44,6 +45,7 @@ import '../../hermes/services/hermes_local_document_trust_store.dart';
 import '../../hermes/services/hermes_message_mapper.dart';
 import '../../hermes/services/hermes_pending_decision_store.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
+import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -168,10 +170,166 @@ const double _chatMessageScrollCachePixels = 600.0;
 bool shouldShowChatModelDropdown({
   required Model? selectedModel,
   required bool isHermesOnly,
+  bool isHermesBot = false,
 }) {
-  return selectedModel == null ||
-      !isHermesModel(selectedModel) ||
-      !isHermesOnly;
+  return !isHermesBot &&
+      (selectedModel == null || !isHermesModel(selectedModel) || !isHermesOnly);
+}
+
+@visibleForTesting
+bool shouldShowTemporaryChatAction({
+  required bool isHermes,
+  required Conversation? activeConversation,
+}) =>
+    !isHermes &&
+    (activeConversation == null || isTemporaryChat(activeConversation.id));
+
+@visibleForTesting
+String? chatHermesBotTitle(Conversation? conversation) {
+  return chatHermesBotPresentation(conversation)?.title;
+}
+
+typedef HermesBotChatPresentation = ({
+  String title,
+  String? avatar,
+  String shape,
+  String color,
+  String? imageKind,
+});
+
+@visibleForTesting
+Widget debugBuildHermesBotToolbarTitleForTesting({
+  required HermesBotChatPresentation bot,
+  required double maxWidth,
+  bool active = false,
+}) => _HermesBotToolbarTitle(bot: bot, maxWidth: maxWidth, active: active);
+
+@visibleForTesting
+HermesBotChatPresentation? chatHermesBotPresentation(
+  Conversation? conversation,
+) {
+  if (!isNativeHermesConversation(conversation)) return null;
+  final title = conversation!.metadata[kHermesBotTitleMetadataKey];
+  if (title is! String || title.trim().isEmpty) return null;
+  final avatar = conversation.metadata[kHermesBotAvatarMetadataKey];
+  final shape = conversation.metadata[kHermesBotShapeMetadataKey];
+  final color = conversation.metadata[kHermesBotColorMetadataKey];
+  final imageKind = conversation.metadata[kHermesBotImageKindMetadataKey];
+  return (
+    title: title.trim(),
+    avatar: avatar is String && avatar.startsWith('data:image/')
+        ? avatar
+        : null,
+    shape: shape is String ? shape : 'squircle',
+    color: color is String ? color : '#8b5cf6',
+    imageKind: imageKind is String ? imageKind : null,
+  );
+}
+
+class _HermesBotToolbarTitle extends StatelessWidget {
+  const _HermesBotToolbarTitle({
+    required this.bot,
+    required this.maxWidth,
+    required this.active,
+  });
+
+  final HermesBotChatPresentation bot;
+  final double maxWidth;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: bot.title,
+      header: true,
+      excludeSemantics: true,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            HermesBotAvatar(
+              key: const ValueKey('hermes-bot-toolbar-avatar'),
+              size: 28,
+              label: bot.title,
+              imageUrl: bot.avatar,
+              shape: bot.shape,
+              color: bot.color,
+              imageKind: bot.imageKind,
+              active: active,
+            ),
+            const SizedBox(width: Spacing.sm),
+            Flexible(
+              child: Text(
+                bot.title,
+                key: const ValueKey('hermes-bot-toolbar-title'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: conduitAdaptiveToolbarLeadingTitleTextStyle(context)
+                    .copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (active) ...[
+              const SizedBox(width: Spacing.sm),
+              const _HermesBotActivityDot(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HermesBotActivityDot extends StatefulWidget {
+  const _HermesBotActivityDot();
+
+  @override
+  State<_HermesBotActivityDot> createState() => _HermesBotActivityDotState();
+}
+
+class _HermesBotActivityDotState extends State<_HermesBotActivityDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: AnimationDuration.slow,
+  );
+  late final Animation<double> _opacity = Tween<double>(begin: 1, end: 0.35)
+      .animate(
+        CurvedAnimation(parent: _controller, curve: AnimationCurves.easeInOut),
+      );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (context.reduceMotion) {
+      _controller
+        ..stop()
+        ..value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: DecoratedBox(
+        key: const ValueKey('hermes-bot-activity-dot'),
+        decoration: BoxDecoration(
+          color: context.conduitTheme.buttonPrimary,
+          shape: BoxShape.circle,
+        ),
+        child: const SizedBox.square(dimension: 6),
+      ),
+    );
+  }
 }
 
 @visibleForTesting
@@ -414,6 +572,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       models: models,
       apiService: apiService,
       directModelRegistry: ref.read(directModelRegistryProvider),
+      hermesBot: chatHermesBotPresentation(
+        ref.read(activeConversationProvider),
+      ),
     );
   }
 
@@ -3597,10 +3758,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ),
     );
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
+    final activeConversation = ref.watch(activeConversationProvider);
+    final hermesBot = chatHermesBotPresentation(activeConversation);
     final formattedModelName = selectedModel != null
         ? _formatModelDisplayName(selectedModel.name)
         : null;
-    final modelLabel = formattedModelName ?? l10n.chooseModel;
+    final modelLabel =
+        hermesBot?.title ?? formattedModelName ?? l10n.chooseModel;
     final overlayStyle = theme.appBarTheme.systemOverlayStyle;
 
     // Whether the messages list can actually scroll (avoids showing button when not needed)
@@ -3654,6 +3818,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ref: ref,
           isLoadingConversation: isLoadingConversation,
           modelLabel: modelLabel,
+          hermesBot: hermesBot,
         ),
         body: GestureDetector(
           behavior: HitTestBehavior.translucent,
@@ -3801,6 +3966,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required WidgetRef ref,
     required bool isLoadingConversation,
     required String modelLabel,
+    required HermesBotChatPresentation? hermesBot,
   }) {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
@@ -3819,6 +3985,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showModelDropdown = shouldShowChatModelDropdown(
       selectedModel: selectedModel,
       isHermesOnly: ref.watch(hermesOnlyModeProvider),
+      isHermesBot: hermesBot != null,
     );
     final title = _buildChatToolbarTitle(
       context: context,
@@ -3826,10 +3993,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       modelLabel: modelLabel,
       maxModelWidth: maxModelWidth,
       showModelDropdown: showModelDropdown,
+      hermesBot: hermesBot,
+      hermesBotActive: hermesBot != null && ref.watch(isChatStreamingProvider),
     );
     final actionDescriptors = _buildAdaptiveToolbarActions(
       context: context,
       activeConversation: activeConversation,
+      isHermes:
+          (selectedModel != null && isHermesModel(selectedModel)) ||
+          isNativeHermesConversation(activeConversation),
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       showNewChatAction: showNewChatAction,
@@ -3872,7 +4044,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String modelLabel,
     required double maxModelWidth,
     required bool showModelDropdown,
+    required HermesBotChatPresentation? hermesBot,
+    required bool hermesBotActive,
   }) {
+    if (hermesBot != null) {
+      return _HermesBotToolbarTitle(
+        bot: hermesBot,
+        maxWidth: maxModelWidth,
+        active: hermesBotActive,
+      );
+    }
     return ConduitAdaptiveAppBarModelSelector(
       label: modelLabel,
       maxWidth: maxModelWidth,
@@ -3885,6 +4066,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   List<_ChatToolbarActionDescriptor> _buildAdaptiveToolbarActions({
     required BuildContext context,
     required Conversation? activeConversation,
+    required bool isHermes,
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
@@ -3895,6 +4077,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final temporaryAction = _buildTemporaryChatToolbarAction(
       context: context,
       activeConversation: activeConversation,
+      isHermes: isHermes,
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       tintColor: defaultTint,
@@ -3954,12 +4137,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _ChatToolbarActionDescriptor? _buildTemporaryChatToolbarAction({
     required BuildContext context,
     required Conversation? activeConversation,
+    required bool isHermes,
     required bool isTemporary,
     required bool hasMessages,
     required Color tintColor,
   }) {
-    final showTemporaryAction =
-        activeConversation == null || isTemporaryChat(activeConversation.id);
+    final showTemporaryAction = shouldShowTemporaryChatAction(
+      isHermes: isHermes,
+      activeConversation: activeConversation,
+    );
     if (!showTemporaryAction) {
       return null;
     }
@@ -4491,12 +4677,14 @@ class _ChatListStableLayoutCacheKey {
     required this.models,
     required this.apiService,
     required this.directModelRegistryRevision,
+    required this.hermesBot,
   });
 
   final _ChatListStableLayoutSignature signature;
   final List<Model>? models;
   final ApiService? apiService;
   final int directModelRegistryRevision;
+  final HermesBotChatPresentation? hermesBot;
 
   @override
   bool operator ==(Object other) =>
@@ -4505,7 +4693,8 @@ class _ChatListStableLayoutCacheKey {
           signature == other.signature &&
           identical(models, other.models) &&
           identical(apiService, other.apiService) &&
-          directModelRegistryRevision == other.directModelRegistryRevision;
+          directModelRegistryRevision == other.directModelRegistryRevision &&
+          hermesBot == other.hermesBot;
 
   @override
   int get hashCode => Object.hash(
@@ -4513,6 +4702,7 @@ class _ChatListStableLayoutCacheKey {
     identityHashCode(models),
     identityHashCode(apiService),
     directModelRegistryRevision,
+    hermesBot,
   );
 }
 
@@ -4523,6 +4713,7 @@ final class _ChatListStableLayoutCache {
   List<Model>? _models;
   ApiService? _apiService;
   int? _directModelRegistryRevision;
+  HermesBotChatPresentation? _hermesBot;
   int _signatureBuildCount = 0;
 
   void invalidate() {
@@ -4532,6 +4723,7 @@ final class _ChatListStableLayoutCache {
     _models = null;
     _apiService = null;
     _directModelRegistryRevision = null;
+    _hermesBot = null;
   }
 
   _ChatListStableLayoutMetadata resolve({
@@ -4539,6 +4731,7 @@ final class _ChatListStableLayoutCache {
     required List<Model>? models,
     required ApiService? apiService,
     required DirectModelRegistry directModelRegistry,
+    HermesBotChatPresentation? hermesBot,
   }) {
     final cached = _metadata;
     final registryRevision = directModelRegistry.revision;
@@ -4549,7 +4742,8 @@ final class _ChatListStableLayoutCache {
         identical(_messages, messages) &&
         identical(_models, models) &&
         identical(_apiService, apiService) &&
-        _directModelRegistryRevision == registryRevision) {
+        _directModelRegistryRevision == registryRevision &&
+        _hermesBot == hermesBot) {
       return cached;
     }
 
@@ -4559,11 +4753,13 @@ final class _ChatListStableLayoutCache {
       models: models,
       apiService: apiService,
       directModelRegistryRevision: registryRevision,
+      hermesBot: hermesBot,
     );
     _messages = messages;
     _models = models;
     _apiService = apiService;
     _directModelRegistryRevision = registryRevision;
+    _hermesBot = hermesBot;
     if (cached != null && _key == nextKey) return cached;
 
     final next = _buildChatListStableLayoutMetadata(
@@ -4571,6 +4767,7 @@ final class _ChatListStableLayoutCache {
       models: models,
       apiService: apiService,
       directModelRegistry: directModelRegistry,
+      hermesBot: hermesBot,
     );
     _metadata = next;
     _key = nextKey;
@@ -4647,6 +4844,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   required List<Model>? models,
   required ApiService? apiService,
   DirectModelRegistry? directModelRegistry,
+  HermesBotChatPresentation? hermesBot,
 }) {
   final modelLookup = _buildChatModelLookup(
     models,
@@ -4661,12 +4859,14 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   for (var index = 0; index < messages.length; index++) {
     final message = messages[index];
     final isUser = message.role == 'user';
-    final modelPresentation = _resolveChatModelPresentation(
-      rawModel: message.model,
-      fallbackModelName: _messageModelNameFallback(message),
-      models: models,
-      modelLookup: modelLookup,
-    );
+    final modelPresentation = !isUser && hermesBot != null
+        ? (displayName: hermesBot.title, matchedModel: null)
+        : _resolveChatModelPresentation(
+            rawModel: message.model,
+            fallbackModelName: _messageModelNameFallback(message),
+            models: models,
+            modelLookup: modelLookup,
+          );
     presentations.add(modelPresentation);
     groupingRows.add((
       isUser: isUser,
@@ -4699,12 +4899,15 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
         models: models,
         modelLookup: modelLookup,
       );
-      versionModelNames.add(versionPresentation.displayName);
+      versionModelNames.add(
+        hermesBot?.title ?? versionPresentation.displayName,
+      );
       versionModelIconUrls.add(
-        resolveModelIconUrlForModel(
-          apiService,
-          versionPresentation.matchedModel,
-        ),
+        hermesBot?.avatar ??
+            resolveModelIconUrlForModel(
+              apiService,
+              versionPresentation.matchedModel,
+            ),
       );
     }
 
@@ -4719,10 +4922,12 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
       _ChatRowLayoutMetadata(
         messageId: message.id,
         displayModelName: modelPresentation.displayName,
-        modelIconUrl: resolveModelIconUrlForModel(
-          apiService,
-          modelPresentation.matchedModel,
-        ),
+        modelIconUrl:
+            hermesBot?.avatar ??
+            resolveModelIconUrlForModel(
+              apiService,
+              modelPresentation.matchedModel,
+            ),
         versionModelNames: List<String?>.unmodifiable(versionModelNames),
         versionModelIconUrls: List<String?>.unmodifiable(versionModelIconUrls),
         isArchivedVariant: isArchivedVariant,
@@ -5032,6 +5237,7 @@ typedef ChatListLayoutRowSummary = ({
   bool isArchivedVariant,
   bool showFollowUps,
   String? displayModelName,
+  String? modelIconUrl,
   bool showModelHeader,
   bool showActionBar,
   List<String> groupMessageIds,
@@ -5043,6 +5249,7 @@ ChatListLayoutRowSummary _chatListLayoutRowSummary(
   isArchivedVariant: row.isArchivedVariant,
   showFollowUps: row.showFollowUps,
   displayModelName: row.displayModelName,
+  modelIconUrl: row.modelIconUrl,
   showModelHeader: row.showModelHeader,
   showActionBar: row.showActionBar,
   groupMessageIds: row.groupMessageIds,
@@ -5069,12 +5276,14 @@ List<ChatListLayoutRowSummary> debugBuildChatListLayoutSummaryForTesting(
   List<ChatMessage> messages, {
   List<Model>? models,
   DirectModelRegistry? directModelRegistry,
+  HermesBotChatPresentation? hermesBot,
 }) {
   final metadata = _buildChatListStableLayoutMetadata(
     messages: messages,
     models: models,
     apiService: null,
     directModelRegistry: directModelRegistry,
+    hermesBot: hermesBot,
   );
   return metadata.rows.map(_chatListLayoutRowSummary).toList(growable: false);
 }

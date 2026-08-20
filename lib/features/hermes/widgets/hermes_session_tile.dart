@@ -16,6 +16,7 @@ import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
 import '../../navigation/widgets/conversation_tile.dart';
 import '../models/hermes_model.dart';
 import '../models/hermes_session.dart';
+import '../models/hermes_bot.dart';
 import '../providers/hermes_providers.dart';
 import '../services/hermes_backend_service.dart';
 import '../services/hermes_desktop_api_service.dart';
@@ -248,8 +249,10 @@ Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
 Future<void> openHermesSession(
   BuildContext context,
   WidgetRef ref,
-  HermesSessionSummary session,
-) async {
+  HermesSessionSummary session, {
+  HermesBot? bot,
+  String? botAvatar,
+}) async {
   final openEpoch = ref
       .read(hermesSessionNavigationEpochProvider.notifier)
       .bump();
@@ -357,6 +360,11 @@ Future<void> openHermesSession(
       metadata: {
         'backend': 'hermes',
         'hermesSessionId': session.id,
+        if (bot != null) kHermesBotTitleMetadataKey: bot.title,
+        kHermesBotAvatarMetadataKey: ?botAvatar,
+        if (bot != null) kHermesBotShapeMetadataKey: bot.avatarShape,
+        if (bot != null) kHermesBotColorMetadataKey: bot.avatarColor,
+        kHermesBotImageKindMetadataKey: ?bot?.avatarImageKind,
         kHermesConnectionIdentityMetadataKey: ?connectionIdentity,
       },
     ),

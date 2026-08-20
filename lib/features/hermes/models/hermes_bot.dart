@@ -4,6 +4,21 @@ import '../utils/hermes_time_parsing.dart';
 
 const int kMaxHermesBotTitleCharacters = 256;
 const int kMaxHermesBotPreviewCharacters = 512;
+const String kHermesBotTitleMetadataKey = 'hermesBotTitle';
+const String kHermesBotAvatarMetadataKey = 'hermesBotAvatar';
+const String kHermesBotShapeMetadataKey = 'hermesBotShape';
+const String kHermesBotColorMetadataKey = 'hermesBotColor';
+const String kHermesBotImageKindMetadataKey = 'hermesBotImageKind';
+
+const _hermesBotShapes = {
+  'circle',
+  'squircle',
+  'pill',
+  'triangle',
+  'hexagon',
+  'cloud',
+  'drop',
+};
 
 /// A Hermes Bot Mode agent. Upstream, a bot *is* a Hermes profile — this is one
 /// `profiles.list` row projected onto the sidebar roster.
@@ -15,6 +30,9 @@ class HermesBot {
     this.preview,
     this.chatSessionId,
     this.hasAvatar = false,
+    this.avatarShape = 'squircle',
+    this.avatarColor = '#8b5cf6',
+    this.avatarImageKind,
     this.lastActive,
   });
 
@@ -34,6 +52,10 @@ class HermesBot {
 
   final bool hasAvatar;
 
+  final String avatarShape;
+  final String avatarColor;
+  final String? avatarImageKind;
+
   final DateTime? lastActive;
 
   /// Parses one `profiles.list` row, or null when it is not a usable bot.
@@ -45,6 +67,18 @@ class HermesBot {
     final botMeta = meta is Map ? meta['hermes-bots'] : null;
     final session = json['preferred_session'] ?? json['last_session'];
     final sessionRow = session is Map ? session : const {};
+    final rawShape = validateHermesBoundedString(
+      botMeta is Map ? botMeta['shape'] : null,
+      maxCharacters: 96,
+    );
+    final rawColor = validateHermesBoundedString(
+      botMeta is Map ? botMeta['color'] : null,
+      maxCharacters: 7,
+    );
+    final rawImageKind = validateHermesBoundedString(
+      botMeta is Map ? botMeta['imageKind'] : null,
+      maxCharacters: 16,
+    );
 
     return HermesBot(
       name: name,
@@ -66,7 +100,27 @@ class HermesBot {
         botMeta is Map ? botMeta['chat'] : null,
       ),
       hasAvatar: json['has_avatar'] == true,
+      avatarShape: _validHermesBotShape(rawShape) ?? 'squircle',
+      avatarColor: _validHermesBotColor(rawColor) ?? '#8b5cf6',
+      avatarImageKind: rawImageKind == 'photo' || rawImageKind == 'shape'
+          ? rawImageKind
+          : null,
       lastActive: parseHermesTimestamp(sessionRow['last_active']),
     );
   }
+}
+
+String? _validHermesBotShape(String? value) {
+  if (value == null) return null;
+  if (_hermesBotShapes.contains(value) || value.startsWith('blobatar')) {
+    return value;
+  }
+  return null;
+}
+
+String? _validHermesBotColor(String? value) {
+  if (value == null || !RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)) {
+    return null;
+  }
+  return value.toLowerCase();
 }

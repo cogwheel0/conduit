@@ -23,7 +23,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         'Upgrade Hermes and try again.',
       );
     }
-    await _applySessionOptions(binding, options);
+    if (!_sessionProfiles.containsKey(binding.storedId)) {
+      await _applySessionOptions(binding, options);
+    }
     final attached = await _attachInput(binding.runtimeId, input);
     var text = attached.text;
     final stagedPaths = attached.paths;
@@ -499,7 +501,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
       sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[storedId],
+      profile: _sessionProfiles[storedId],
     );
   }
 
@@ -524,7 +526,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     choices: choices,
     multiSelect: multiSelect,
     sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
+    profile: _sessionProfiles[binding.storedId],
   );
 
   Future<void> _applySessionOptions(
@@ -862,23 +864,31 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     String storedId,
     String text,
   ) async {
-    final rows = _objects(
-      await _requestJson(
-        'GET',
-        '/api/sessions/${Uri.encodeComponent(storedId)}/messages',
-        query: {
-          'limit': 20,
-          'offset': 0,
-          'order': 'recent',
-          'include_compacted': true,
-          // Bot chats live in another profile. Without this scope the REST
-          // layer defaults to the configured profile and this would read a
-          // DIFFERENT conversation that happens to share the session id.
-          ..._sessionScope(storedId),
-        },
-      ),
-      'messages',
-    );
+    final rows = _sessionProfiles.containsKey(storedId)
+        ? _objects(
+            await _rpc.request<Object?>(
+              'session.history',
+              params: {
+                'session_id': (await _resume(storedId)).runtimeId,
+                ..._sessionScope(storedId),
+              },
+            ),
+            'messages',
+          )
+        : _objects(
+            await _requestJson(
+              'GET',
+              '/api/sessions/${Uri.encodeComponent(storedId)}/messages',
+              query: {
+                'limit': 20,
+                'offset': 0,
+                'order': 'recent',
+                'include_compacted': true,
+                ..._sessionScope(storedId),
+              },
+            ),
+            'messages',
+          );
     return {
       for (final row in rows)
         if (row['role'] == 'user' &&

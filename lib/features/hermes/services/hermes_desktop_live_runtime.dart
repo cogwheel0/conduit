@@ -390,27 +390,51 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     String id, {
     CancelToken? cancelToken,
   }) async {
+    // Hermes persists session.create lazily; resume fails until the first prompt.
+    if (_freshSessionIds.contains(id) &&
+        _bindings.containsKey(id) &&
+        _rpc.isReady &&
+        _bindingSocketGenerations[id] == _rpc.socketGeneration) {
+      return const [];
+    }
     final binding = await _resume(id, refresh: true);
     final hadBufferedEvent = _eventBuffer.take(binding.runtimeId).isNotEmpty;
+    final isBotChat = _sessionProfiles.containsKey(binding.storedId);
 
-    Future<List<Map<String, dynamic>>> load() =>
-        loadHermesDesktopTranscriptPages(
-          (offset, limit) async => _objects(
-            await _requestJson(
-              'GET',
-              '/api/sessions/${Uri.encodeComponent(binding.storedId)}/messages',
-              query: {
-                'limit': limit,
-                'offset': offset,
-                'order': 'oldest',
-                'include_compacted': true,
-                ..._sessionScope(binding.storedId),
-              },
-              cancelToken: cancelToken,
-            ),
-            'messages',
+    Future<List<Map<String, dynamic>>> load() async {
+      if (isBotChat) {
+        if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+        final messages = _objects(
+          await _rpc.request<Object?>(
+            'session.history',
+            params: {
+              'session_id': binding.runtimeId,
+              ..._sessionScope(binding.storedId),
+            },
           ),
+          'messages',
         );
+        if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+        return messages;
+      }
+      return loadHermesDesktopTranscriptPages(
+        (offset, limit) async => _objects(
+          await _requestJson(
+            'GET',
+            '/api/sessions/${Uri.encodeComponent(binding.storedId)}/messages',
+            query: {
+              'limit': limit,
+              'offset': offset,
+              'order': 'oldest',
+              'include_compacted': true,
+              ..._sessionScope(binding.storedId),
+            },
+            cancelToken: cancelToken,
+          ),
+          'messages',
+        ),
+      );
+    }
 
     var forceReload = hadBufferedEvent;
     var messages = const <Map<String, dynamic>>[];

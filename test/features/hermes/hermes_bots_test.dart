@@ -13,7 +13,13 @@ void main() {
       'description': 'Reads papers',
       'has_avatar': true,
       'ui_meta': {
-        'hermes-bots': {'title': 'Research', 'chat': 'session-7'},
+        'hermes-bots': {
+          'title': 'Research',
+          'chat': 'session-7',
+          'shape': 'cloud',
+          'color': '#14B8A6',
+          'imageKind': 'shape',
+        },
       },
       'last_session': {
         'preview': 'Found three candidates',
@@ -27,6 +33,9 @@ void main() {
     check(bot.chatSessionId).equals('session-7');
     check(bot.preview).equals('Found three candidates');
     check(bot.hasAvatar).isTrue();
+    check(bot.avatarShape).equals('cloud');
+    check(bot.avatarColor).equals('#14b8a6');
+    check(bot.avatarImageKind).equals('shape');
     check(bot.lastActive).isNotNull();
   });
 
@@ -47,6 +56,23 @@ void main() {
     check(HermesBot.fromJson({'name': 'Upper'})).isNull();
     check(HermesBot.fromJson({'name': ''})).isNull();
     check(HermesBot.fromJson(const {})).isNull();
+  });
+
+  test('falls back from invalid avatar metadata', () {
+    final bot = HermesBot.fromJson({
+      'name': 'bot',
+      'ui_meta': {
+        'hermes-bots': {
+          'shape': '<script>',
+          'color': 'red',
+          'imageKind': 'remote-url',
+        },
+      },
+    })!;
+
+    check(bot.avatarShape).equals('squircle');
+    check(bot.avatarColor).equals('#8b5cf6');
+    check(bot.avatarImageKind).isNull();
   });
 
   test('ignores a hostile pinned chat id instead of routing to it', () {
