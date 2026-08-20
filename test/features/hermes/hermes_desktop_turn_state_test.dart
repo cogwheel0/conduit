@@ -503,7 +503,11 @@ void main() {
     final submit = harness.sent.singleWhere(
       (frame) => frame['method'] == 'prompt.submit',
     );
-    check((submit['params'] as Map)['profile']).equals('researcher');
+    final params = submit['params'] as Map;
+    check(params['profile']).equals('researcher');
+    for (final key in ['model', 'provider', 'reasoningEffort', 'fast']) {
+      check(params.containsKey(key)).isFalse();
+    }
     check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
         .isEmpty();
   });

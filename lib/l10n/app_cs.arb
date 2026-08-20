@@ -1135,11 +1135,11 @@
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Certifikát",
+  "mutualTlsSelectCertificate": "Vybrat certifikát",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Privátní klíč",
+  "mutualTlsSelectPrivateKey": "Vybrat privátní klíč",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
