@@ -24,7 +24,14 @@
   "@loadingProfile": {
     "description": "Progress message while fetching profile data."
   },
+  "unableToLoadProfile": "Nie można wczytać profilu.",
+  "@unableToLoadProfile": {
+    "description": "Error shown when account profile data cannot be loaded."
+  },
   "pleaseCheckConnection": "Sprawdź połączenie i spróbuj ponownie",
+  "@pleaseCheckConnection": {
+    "description": "Generic connectivity hint after an error."
+  },
   "connectionIssueTitle": "Nie można połączyć się z serwerem",
   "@connectionIssueTitle": {
     "description": "Title shown when the configured server is unreachable"
@@ -82,9 +89,6 @@
   "serverIncompatibleStillUnsupported": "Ten serwer jest nadal nowszy niż wersja obsługiwana przez tę aplikację.",
   "@serverIncompatibleStillUnsupported": {
     "description": "Status shown after a recheck when the server version is still too new"
-  },
-  "@pleaseCheckConnection": {
-    "description": "Generic connectivity hint after an error."
   },
   "settingsCategoryApp": "Aplikacja",
   "@settingsCategoryApp": {
@@ -417,6 +421,10 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
+  "jwt": "Token",
+  "@jwt": {
+    "description": "Authentication method label for JWT token sign-in."
+  },
   "usernameOrEmail": "E-mail lub nazwa użytkownika",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -440,10 +448,6 @@
   "connectToServer": "Połącz z serwerem",
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
-  },
-  "enterServerAddress": "Wpisz adres, którego używasz do otwierania Open WebUI.",
-  "@enterServerAddress": {
-    "description": "Instruction telling user to provide server URL to begin."
   },
   "serverUrl": "Adres Open WebUI",
   "@serverUrl": {
@@ -1080,12 +1084,12 @@
     "description": "Language name: Czech."
   },
   "slovak": "Slovenčina",
+  "@slovak": {
+    "description": "Language name: Slovak."
+  },
   "polish": "Polski",
   "@polish": {
     "description": "Language name: Polish."
-  },
-  "@slovak": {
-    "description": "Language name: Slovak."
   },
   "deleteMessagesTitle": "Usuń wiadomości",
   "@deleteMessagesTitle": {
@@ -1164,6 +1168,10 @@
   "darkMode": "Tryb ciemny",
   "@darkMode": {
     "description": "Label for toggling dark theme."
+  },
+  "colorScheme": "Schemat kolorów",
+  "@colorScheme": {
+    "description": "Label for choosing System, Light, or Dark appearance."
   },
   "webSearch": "Wyszukiwanie w sieci",
   "@webSearch": {
@@ -1333,11 +1341,11 @@
   },
   "mutualTlsSelectCertificate": "Wybierz certyfikat",
   "@mutualTlsSelectCertificate": {
-    "description": "Button label for picking a PEM client certificate chain file."
+    "description": "Button label for picking a PEM client certificate chain file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
   "mutualTlsSelectPrivateKey": "Wybierz klucz prywatny",
   "@mutualTlsSelectPrivateKey": {
-    "description": "Button label for picking a PEM private key file."
+    "description": "Button label for picking a PEM private key file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
   "mutualTlsCertificateReady": "Certyfikat",
   "@mutualTlsCertificateReady": {
@@ -2446,6 +2454,23 @@
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
   },
+  "sidebarResizeHandle": "Zmień szerokość panelu bocznego",
+  "@sidebarResizeHandle": {
+    "description": "Accessibility label for the draggable tablet sidebar divider."
+  },
+  "sidebarResizeResetHint": "Kliknij dwukrotnie, aby zresetować szerokość panelu bocznego",
+  "@sidebarResizeResetHint": {
+    "description": "Accessibility hint for resetting the tablet sidebar width."
+  },
+  "sidebarWidthValue": "{width} punktów",
+  "@sidebarWidthValue": {
+    "description": "Accessibility value describing the current tablet sidebar width.",
+    "placeholders": {
+      "width": {
+        "type": "int"
+      }
+    }
+  },
   "terminalSelectServer": "Wybierz serwer terminala",
   "@terminalSelectServer": {
     "description": "Prompt shown when the user needs to choose a terminal server."
@@ -2642,6 +2667,7 @@
   "@channelEmptyState": {
     "description": "Message shown when there are no channels"
   },
+  "channelEmptyHint": "Utwórz kanał, aby rozpocząć grupową rozmowę.",
   "channelNoMessages": "Brak wiadomości. Rozpocznij rozmowę!",
   "@channelNoMessages": {
     "description": "Message shown when a channel has no messages"
@@ -2686,6 +2712,15 @@
   "searchChannels": "Szukaj kanałów…",
   "@searchChannels": {
     "description": "Hint text for the channel search field"
+  },
+  "channelUnreadCount": "{count, plural, one{1 nieprzeczytana wiadomość} few{{count} nieprzeczytane wiadomości} many{{count} nieprzeczytanych wiadomości} other{{count} nieprzeczytanej wiadomości}}",
+  "@channelUnreadCount": {
+    "description": "Accessibility text describing unread messages in a channel.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "channelCreateError": "Nie udało się utworzyć kanału",
   "@channelCreateError": {
@@ -2759,15 +2794,15 @@
   },
   "globalSystemPrompt": "Globalny prompt systemowy",
   "@globalSystemPrompt": {
-    "description": "Title for the OpenWebUI user-level system prompt setting."
+    "description": "Title for the Open WebUI user-level system prompt setting."
   },
   "modelSystemPrompts": "Prompty systemowe modeli",
   "@modelSystemPrompts": {
-    "description": "Title for the OpenWebUI model-level system prompts list."
+    "description": "Title for the Open WebUI model-level system prompts list."
   },
   "folderSystemPrompts": "Prompty systemowe folderów",
   "@folderSystemPrompts": {
-    "description": "Title for the OpenWebUI folder-level system prompts list."
+    "description": "Title for the Open WebUI folder-level system prompts list."
   },
   "openWebuiModelSettings": "Ustawienia modeli Open WebUI",
   "@openWebuiModelSettings": {
@@ -2799,7 +2834,7 @@
   },
   "unableToLoadOpenWebuiSettings": "Nie można wczytać ustawień Open WebUI.",
   "@unableToLoadOpenWebuiSettings": {
-    "description": "Error shown when user settings cannot be loaded from OpenWebUI."
+    "description": "Error shown when user settings cannot be loaded from Open WebUI."
   },
   "unableToLoadModels": "Nie można wczytać modeli.",
   "@unableToLoadModels": {
@@ -2890,20 +2925,20 @@
     "description": "Title for the personalization settings page."
   },
   "personalizationSubtitle": "Domyślny model, osobisty prompt i pamięć",
+  "@personalizationSubtitle": {
+    "description": "Subtitle for the personalization hub tile."
+  },
   "defaultImageGenerationModel": "Domyślny model generowania obrazów",
-  "defaultImageGenerationModelDescription": "Wpisz identyfikator modelu obrazów OpenRouter. Pozostaw puste, aby użyć domyślnego modelu OpenRouter.",
-  "openRouterDefaultImageGenerationModel": "Domyślny model OpenRouter (openai/gpt-5-image)",
   "@defaultImageGenerationModel": {
     "description": "Label for choosing the default image generation model."
   },
+  "defaultImageGenerationModelDescription": "Wpisz identyfikator modelu obrazów OpenRouter. Pozostaw puste, aby użyć domyślnego modelu OpenRouter.",
   "@defaultImageGenerationModelDescription": {
     "description": "Instructions for entering an OpenRouter image model identifier."
   },
+  "openRouterDefaultImageGenerationModel": "Domyślny model OpenRouter (openai/gpt-5-image)",
   "@openRouterDefaultImageGenerationModel": {
     "description": "Label for using OpenRouter's default image generation model."
-  },
-  "@personalizationSubtitle": {
-    "description": "Subtitle for the personalization hub tile."
   },
   "yourSystemPrompt": "Twój prompt systemowy",
   "@yourSystemPrompt": {
@@ -3236,6 +3271,14 @@
   "passwordChangesLabel": "Zmiany hasła",
   "@passwordChangesLabel": {
     "description": "Label for whether password changes are enabled."
+  },
+  "passwordChangeDescription": "Zaktualizuj hasło do konta",
+  "@passwordChangeDescription": {
+    "description": "Subtitle for the action that updates the account password."
+  },
+  "profileDetailsSummary": "Bio, płeć i data urodzenia",
+  "@profileDetailsSummary": {
+    "description": "Subtitle for the profile details editor."
   },
   "apiKeysLabel": "Klucze API",
   "@apiKeysLabel": {
@@ -3853,6 +3896,22 @@
   "@notificationChannelDescription": {
     "description": "Toggle description for channel-message notifications."
   },
+  "notificationRequiresMaster": "Włącz powiadomienia, aby zmienić to ustawienie.",
+  "@notificationRequiresMaster": {
+    "description": "Shown when an option is unavailable because notifications are off."
+  },
+  "notificationRequiresSound": "Włącz dźwięk, aby zmienić to ustawienie.",
+  "@notificationRequiresSound": {
+    "description": "Shown when Always play sound is unavailable because Sound is off."
+  },
+  "enabled": "Wł.",
+  "@enabled": {
+    "description": "Short status label for an enabled setting."
+  },
+  "disabled": "Wył.",
+  "@disabled": {
+    "description": "Short status label for a disabled setting."
+  },
   "notificationChannelMessagesName": "Wiadomości",
   "@notificationChannelMessagesName": {
     "description": "Android notification channel name for chat and channel messages."
@@ -3874,70 +3933,70 @@
     "description": "Shown when the user enables notifications but the OS permission was denied."
   },
   "workspaceTitle": "Obszar roboczy",
-  "workspaceSubtitle": "Zarządzaj zasobami serwera i dostępem do nich.",
-  "workspaceModels": "Modele",
-  "workspaceKnowledge": "Wiedza",
-  "workspacePrompts": "Prompty",
-  "workspaceTools": "Narzędzia",
-  "workspaceSkills": "Umiejętności",
-  "workspaceCreate": "Utwórz",
-  "workspaceEmpty": "Brak zasobów.",
-  "workspaceDenied": "Nie masz uprawnień do zarządzania tą sekcją obszaru roboczego.",
-  "workspaceUnsupported": "Ten serwer nie obsługuje zarządzania obszarem roboczym.",
-  "workspaceLoadFailed": "Nie można wczytać obszaru roboczego.",
-  "workspaceRetry": "Ponów",
-  "workspaceSelectItem": "Wybierz element, aby wyświetlić jego szczegóły.",
-  "workspaceEditorComingSoon": "Ten edytor będzie dostępny w kolejnym etapie obszaru roboczego.",
-  "workspaceSearchHint": "Szukaj zasobów obszaru roboczego",
-  "workspaceLoadMore": "Wczytaj więcej",
   "@workspaceTitle": {
     "description": "App bar title for the Workspace feature."
   },
+  "workspaceSubtitle": "Zarządzaj zasobami serwera i dostępem do nich.",
   "@workspaceSubtitle": {
     "description": "Subtitle describing the Workspace shown on the section rail."
   },
+  "workspaceModels": "Modele",
   "@workspaceModels": {
     "description": "Label for the Models section of the Workspace."
   },
+  "workspaceKnowledge": "Wiedza",
   "@workspaceKnowledge": {
     "description": "Label for the Knowledge section of the Workspace."
   },
+  "workspacePrompts": "Prompty",
   "@workspacePrompts": {
     "description": "Label for the Prompts section of the Workspace."
   },
+  "workspaceTools": "Narzędzia",
   "@workspaceTools": {
     "description": "Label for the Tools section of the Workspace."
   },
+  "workspaceSkills": "Umiejętności",
   "@workspaceSkills": {
     "description": "Label for the Skills section of the Workspace."
   },
+  "workspaceCreate": "Utwórz",
   "@workspaceCreate": {
     "description": "Button and tooltip label to create a new workspace resource."
   },
+  "workspaceEmpty": "Brak zasobów.",
   "@workspaceEmpty": {
     "description": "Empty-state message when a workspace section has no resources."
   },
+  "workspaceDenied": "Nie masz uprawnień do zarządzania tą sekcją obszaru roboczego.",
   "@workspaceDenied": {
     "description": "Shown when the user lacks permission to manage a workspace section."
   },
+  "workspaceUnsupported": "Ten serwer nie obsługuje zarządzania obszarem roboczym.",
   "@workspaceUnsupported": {
     "description": "Shown when the connected server does not support Workspace management."
   },
+  "workspaceLoadFailed": "Nie można wczytać obszaru roboczego.",
   "@workspaceLoadFailed": {
     "description": "Error message shown when the Workspace fails to load."
   },
+  "workspaceRetry": "Ponów",
   "@workspaceRetry": {
     "description": "Retry button label on the Workspace error state."
   },
+  "workspaceSelectItem": "Wybierz element, aby wyświetlić jego szczegóły.",
   "@workspaceSelectItem": {
     "description": "Placeholder prompting the user to select a resource to view its details."
   },
+  "workspaceEditorComingSoon": "Ten edytor będzie dostępny w kolejnym etapie obszaru roboczego.",
   "@workspaceEditorComingSoon": {
     "description": "Placeholder shown for workspace section editors that are not yet implemented."
   },
+  "workspaceSearchHint": "Szukaj zasobów obszaru roboczego",
   "@workspaceSearchHint": {
     "description": "Hint text for the workspace resource search field."
   },
+  "workspaceLoadMore": "Wczytaj więcej",
   "@workspaceLoadMore": {
     "description": "Button label to load the next page of workspace resources."
   },
@@ -5206,6 +5265,19 @@
   "@workspaceToolSpecs": {
     "description": "Heading for the read-only server-generated tool function specifications."
   },
+  "workspaceToolDetails": "Szczegóły narzędzia",
+  "@workspaceToolDetails": {
+    "description": "Disclosure title for secondary tool manifest and function metadata."
+  },
+  "workspaceToolFunctionCount": "{count, plural, one{1 funkcja} few{{count} funkcje} many{{count} funkcji} other{{count} funkcji}}",
+  "@workspaceToolFunctionCount": {
+    "description": "Quiet collection status showing how many functions a tool provides.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "workspaceToolSpecsEmpty": "Dla tego narzędzia nie wygenerowano żadnych specyfikacji.",
   "@workspaceToolSpecsEmpty": {
     "description": "Empty state when a tool produced no function specifications."
@@ -5686,6 +5758,10 @@
   "@directManualModelIds": {
     "description": "Label for newline-separated model identifiers."
   },
+  "directManualModelIdsDescription": "Opcjonalne. Wpisz jedno ID w wierszu, gdy serwer nie może wyświetlić listy modeli.",
+  "@directManualModelIdsDescription": {
+    "description": "Help text for manually entered model IDs."
+  },
   "directModelIdPrefix": "Prefiks identyfikatora modelu",
   "@directModelIdPrefix": {
     "description": "Label for a visible namespace added to direct model IDs."
@@ -5745,10 +5821,6 @@
   "directConnectionsSectionTitle": "Połączenia",
   "@directConnectionsSectionTitle": {
     "description": "Section title above configured direct provider profiles."
-  },
-  "directSetupRequiresConnection": "Dodaj i włącz co najmniej jedno prawidłowe połączenie, aby kontynuować.",
-  "@directSetupRequiresConnection": {
-    "description": "Onboarding hint shown until a usable direct connection exists."
   },
   "directSavedDataUnreadable": "Nie można odczytać zapisanych danych połączenia.",
   "@directSavedDataUnreadable": {
@@ -5902,6 +5974,10 @@
   "@hermesConversationsTitle": {
     "description": "Section title above the Hermes conversation list."
   },
+  "hermesBotsTitle": "Boty",
+  "@hermesBotsTitle": {
+    "description": "Section title above the Hermes Bot Mode roster."
+  },
   "hermesConversationsLoadError": "Nie można wczytać rozmów Hermes.\nSprawdź połączenie w Ustawienia → Hermes Agent.",
   "@hermesConversationsLoadError": {
     "description": "Error shown when Hermes conversations cannot be loaded."
@@ -5940,6 +6016,67 @@
   "@hermesScheduledAgentsTitle": {
     "description": "Title of the Hermes schedules launcher."
   },
+  "hermesJobNew": "Nowe zaplanowane zadanie",
+  "hermesJobAdminDisabled": "Administracja zadaniami jest wyłączona na tym serwerze. Harmonogramy są tylko do odczytu.",
+  "hermesJobEmptyMessage": "Utwórz zaplanowane zadanie, aby automatycznie uruchamiać prompt.",
+  "hermesJobLoadFailed": "Nie można wczytać zaplanowanych zadań. Sprawdź połączenie Hermes i spróbuj ponownie.",
+  "hermesJobCreateFailed": "Nie można utworzyć zaplanowanego zadania.",
+  "hermesJobCreated": "Utworzono zaplanowane zadanie.",
+  "hermesJobPaused": "Wstrzymane",
+  "hermesJobRunNow": "Uruchom teraz",
+  "hermesJobEdit": "Edytuj zaplanowane zadanie",
+  "hermesJobDelete": "Usuń zaplanowane zadanie",
+  "hermesJobResumeFailed": "Nie można wznowić zaplanowanego zadania.",
+  "hermesJobPauseFailed": "Nie można wstrzymać zaplanowanego zadania.",
+  "hermesJobResumed": "Wznowiono zaplanowane zadanie.",
+  "hermesJobPausedSuccess": "Wstrzymano zaplanowane zadanie.",
+  "hermesJobRunFailed": "Nie można uruchomić zaplanowanego zadania.",
+  "hermesJobStarted": "Uruchomiono zaplanowane zadanie.",
+  "hermesJobUpdateFailed": "Nie można zaktualizować zaplanowanego zadania.",
+  "hermesJobUpdated": "Zaktualizowano zaplanowane zadanie.",
+  "hermesJobDeleteTitle": "Usuń zadanie",
+  "hermesJobDeleteMessage": "Usunąć to zaplanowane zadanie? Tej operacji nie można cofnąć.",
+  "hermesJobDeleteFailed": "Nie można usunąć zaplanowanego zadania.",
+  "hermesJobDeleted": "Usunięto zaplanowane zadanie.",
+  "hermesJobEditorEditTitle": "Edytuj zadanie",
+  "hermesJobNameHint": "Codzienne podsumowanie",
+  "hermesJobPromptLabel": "Prompt",
+  "hermesJobPromptHint": "Co agent ma robić przy każdym uruchomieniu?",
+  "hermesJobScheduleLabel": "Harmonogram",
+  "hermesJobScheduleHint": "0 9 * * * lub every 2h",
+  "hermesJobTooLong": "Użyj co najwyżej {count} znaków",
+  "@hermesJobTooLong": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesJobScheduleInvalid": "Wpisz czas trwania, interwał, datę, godzinę lub prawidłowy harmonogram cron.",
+  "hermesJobScheduleHelp": "Użyj cron (0 9 * * *), interwału (every 2h), opóźnienia (30m) albo daty i godziny ISO.",
+  "hermesJobsSheetSubtitle": "Wstrzymaj harmonogramy lub sprawdź, co uruchomi się dalej.",
+  "hermesJobsSheetReview": "Przejrzyj czasy uruchomień i wstrzymaj harmonogramy.",
+  "hermesJobsManageDescription": "Twórz, edytuj, uruchamiaj lub usuwaj harmonogramy.",
+  "hermesJobsEmptyManageHint": "Użyj opcji Zarządzaj, aby utworzyć zaplanowany prompt.",
+  "hermesLastStatus": "Ostatni stan: {status}",
+  "@hermesLastStatus": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesSessionUntitled": "Rozmowa bez tytułu",
+  "hermesSessionFork": "Rozgałęź",
+  "hermesSessionRenameTitle": "Zmień nazwę rozmowy",
+  "hermesSessionNameHint": "Nazwa rozmowy",
+  "hermesSessionDeleteTitle": "Usuń rozmowę",
+  "hermesSessionDeleteMessage": "Usunąć tę rozmowę Hermes? Tej operacji nie można cofnąć.",
+  "hermesSessionForkFailed": "Nie można rozgałęzić rozmowy.",
+  "hermesSessionRenameFailed": "Nie można zmienić nazwy rozmowy.",
+  "hermesSessionDeleteFailed": "Nie można usunąć rozmowy.",
+  "hermesSessionLoadFailed": "Nie można wczytać tej rozmowy. Sprawdź połączenie i spróbuj ponownie.",
+  "hermesMemoryKeyFieldLabel": "Klucz pamięci",
   "ollamaThinking": "Poziom myślenia",
   "@ollamaThinking": {
     "description": "Title for an Ollama Cloud model thinking-level setting."
@@ -5977,11 +6114,160 @@
     "description": "Maximum Ollama thinking level."
   },
   "releaseNotesSupportPromptHeading": "Podoba Ci się Conduit?",
-  "releaseNotesSupportPromptMessage": "Krótka opinia pomaga większej liczbie osób znaleźć Conduit. Niewielki datek pomaga mi w dalszym rozwoju. Każde z tych działań wiele znaczy.",
   "@releaseNotesSupportPromptHeading": {
     "description": "Heading above the combined review and donation actions in release notes."
   },
+  "releaseNotesSupportPromptMessage": "Krótka opinia pomaga większej liczbie osób znaleźć Conduit. Niewielki datek pomaga mi w dalszym rozwoju. Każde z tych działań wiele znaczy.",
   "@releaseNotesSupportPromptMessage": {
     "description": "Combined message explaining how a review or donation supports Conduit."
+  },
+  "directConnectProvider": "Połącz dostawcę",
+  "@directConnectProvider": {
+    "description": "Primary onboarding action that tests and saves a direct provider."
+  },
+  "directConnectProviderTitle": "Połącz dostawcę",
+  "@directConnectProviderTitle": {
+    "description": "Heading above the direct provider setup form."
+  },
+  "directConnectionEnabledSubtitle": "Pokazuj modele z tego połączenia w selektorze modeli.",
+  "@directConnectionEnabledSubtitle": {
+    "description": "Description of an enabled direct connection."
+  },
+  "directConnectionDetailsTitle": "Szczegóły połączenia",
+  "@directConnectionDetailsTitle": {
+    "description": "Section title above direct provider endpoint and authentication fields."
+  },
+  "directBaseUrlDescription": "Dołącz prefiks API oczekiwany przez dostawcę, zwykle /v1.",
+  "@directBaseUrlDescription": {
+    "description": "Help text below a generic direct provider base URL."
+  },
+  "directConfiguredReplacePlaceholder": "Skonfigurowano — wpisz, aby zastąpić",
+  "@directConfiguredReplacePlaceholder": {
+    "description": "Placeholder for a configured direct provider secret."
+  },
+  "directApiKeyPlaceholder": "Wpisz klucz API",
+  "@directApiKeyPlaceholder": {
+    "description": "Placeholder for an unconfigured direct provider API key."
+  },
+  "hermesOnboardingFailed": "Nie można dokończyć konfiguracji Hermes. Sprawdź bezpieczne przechowywanie i spróbuj ponownie.",
+  "@hermesOnboardingFailed": {
+    "description": "Error shown when Hermes onboarding fails after the server was reached."
+  },
+  "hermesConnectionDetailsTitle": "Szczegóły połączenia",
+  "@hermesConnectionDetailsTitle": {
+    "description": "Section title above Hermes endpoint and API key fields."
+  },
+  "hermesMemoryKeyShortDescription": "Powiązuje pamięć długoterminową z Tobą.",
+  "@hermesMemoryKeyShortDescription": {
+    "description": "Concise summary shown on the collapsed Hermes memory-key disclosure."
+  },
+  "hermesConnectAction": "Połącz Hermes",
+  "@hermesConnectAction": {
+    "description": "Primary onboarding action that tests and saves a Hermes connection."
+  },
+  "hermesToolCount": "{count, plural, one{1 narzędzie} few{{count} narzędzia} many{{count} narzędzi} other{{count} narzędzia}}",
+  "@hermesToolCount": {
+    "description": "Tool count shown for a Hermes toolset.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesNoToolsets": "Serwer nie zgłosił żadnych zestawów narzędzi.",
+  "@hermesNoToolsets": {
+    "description": "Empty state when a Hermes server reports no toolsets."
+  },
+  "hermesToolsetsNewSessions": "Zmiany dotyczą nowych sesji Hermes. Istniejące czaty zachowają obecne narzędzia.",
+  "@hermesToolsetsNewSessions": {
+    "description": "Explains that Desktop toolset changes do not reset existing chats."
+  },
+  "hermesServerStatusTitle": "Stan serwera",
+  "@hermesServerStatusTitle": {
+    "description": "Section title above Hermes server diagnostic status."
+  },
+  "hermesNoServerStatus": "Serwer nie zgłosił żadnego stanu.",
+  "@hermesNoServerStatus": {
+    "description": "Empty state when a Hermes server reports no diagnostic status."
+  },
+  "hermesLegacySessionToken": "Starszy token sesji",
+  "hermesLegacySessionTokenHint": "Wklej token sesji Hermes",
+  "hermesGatewayStopped": "Panel Hermes jest online, ale Desktop Gateway jest zatrzymany. Uruchom bramę na serwerze Hermes, a następnie przetestuj ponownie.",
+  "hermesProfile": "Profil Hermes",
+  "hermesProfileLabel": "Profil",
+  "hermesRefreshProfiles": "Odśwież profile",
+  "hermesDesktopAuthentication": "Uwierzytelnianie pulpitu",
+  "hermesDashboardAuthHelp": "Otwórz panel Hermes w oknie logowania, a następnie wróć tutaj, aby przetestować połączenie.",
+  "hermesAuthLegacy": "Starsze",
+  "hermesAuthNative": "Natywne",
+  "hermesAuthDashboard": "Panel",
+  "hermesNativeSignIn": "Zaloguj się przez Hermes",
+  "hermesDashboardSignIn": "Otwórz logowanie do panelu",
+  "hermesGatewayAccessHeaders": "Nagłówki i certyfikaty",
+  "hermesGatewayAccessHeadersHelp": "Niestandardowe nagłówki żądań i zaufanie TLS dla chronionego serwera Hermes.",
+  "hermesDesktopGateway": "Desktop Gateway",
+  "hermesReloadSkills": "Ponownie wczytaj umiejętności",
+  "hermesNoInstalledSkills": "Brak zainstalowanych umiejętności",
+  "hermesMcpServers": "Serwery MCP",
+  "hermesSignOut": "Wyloguj się z Hermes",
+  "hermesActionFailed": "Akcja Hermes nie powiodła się.",
+  "hermesToolsetUpdateFailed": "Aktualizacja zestawu narzędzi Hermes nie powiodła się.",
+  "hermesJobStateLabel": "Stan",
+  "hermesJobDeliveryLabel": "Dostarczanie",
+  "hermesJobLastLabel": "Ostatnie",
+  "hermesJobNextLabel": "Następne",
+  "hermesJobRunHistory": "Historia uruchomień",
+  "hermesApprovalAllowOnce": "Zezwól raz",
+  "hermesApprovalAllowSession": "Zezwól w sesji",
+  "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",
+  "hermesClarificationTitle": "Hermes potrzebuje doprecyzowania",
+  "hermesSudoTitle": "Hermes potrzebuje dostępu sudo",
+  "hermesSecretTitle": "Hermes potrzebuje sekretu",
+  "hermesMcpSetupTitle": "Hermes potrzebuje konfiguracji MCP",
+  "hermesResponseSent": "Wysłano odpowiedź",
+  "hermesNotNow": "Nie teraz",
+  "hermesSetUp": "Skonfiguruj",
+  "hermesSensitiveResponse": "Wrażliwa odpowiedź",
+  "hermesResponse": "Odpowiedź",
+  "hermesSendResponse": "Wyślij odpowiedź",
+  "hermesFastTier": "Szybki poziom",
+  "hermesFastTierOn": "Wł.",
+  "hermesFastTierOff": "Wył.",
+  "hermesTurnSteer": "Skieruj",
+  "hermesTurnSendNext": "Wyślij następne",
+  "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
+  "sidebarHermesTab": "Hermes",
+  "@sidebarHermesTab": {
+    "description": "Compact label for the Hermes sidebar tab."
+  },
+  "markdownShowMoreLines": "{count, plural, one{Pokaż jeszcze 1 wiersz} few{Pokaż jeszcze {count} wiersze} many{Pokaż jeszcze {count} wierszy} other{Pokaż jeszcze {count} wiersza}}",
+  "@markdownShowMoreLines": {
+    "description": "Action that expands a collapsed Markdown code block.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "markdownShowLess": "Pokaż mniej",
+  "@markdownShowLess": {
+    "description": "Action that collapses an expanded Markdown code block."
+  },
+  "voiceBargeIn": "Przerywanie",
+  "@voiceBargeIn": {
+    "description": "Setting that allows speech to interrupt a voice response."
+  },
+  "voiceBargeInDescription": "Nasłuchuj, gdy asystent mówi, aby móc go przerwać.",
+  "@voiceBargeInDescription": {
+    "description": "Explains the voice barge-in setting."
+  },
+  "voiceCallSpeakerOn": "Włącz głośnik",
+  "@voiceCallSpeakerOn": {
+    "description": "Tooltip for routing a voice call through the loudspeaker."
+  },
+  "voiceCallSpeakerOff": "Wyłącz głośnik",
+  "@voiceCallSpeakerOff": {
+    "description": "Tooltip for disabling the loudspeaker during a voice call."
   }
 }

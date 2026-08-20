@@ -134,6 +134,21 @@ void main() {
       check(l10n.directConnectionProbeConnectedModels(5))
           .contains('5 modeli');
     });
+
+    test('new catalog plurals follow Polish one/few/many', () {
+      check(l10n.channelUnreadCount(1)).equals('1 nieprzeczytana wiadomość');
+      check(l10n.channelUnreadCount(2)).equals('2 nieprzeczytane wiadomości');
+      check(l10n.channelUnreadCount(5)).equals('5 nieprzeczytanych wiadomości');
+      check(l10n.workspaceToolFunctionCount(1)).equals('1 funkcja');
+      check(l10n.workspaceToolFunctionCount(3)).equals('3 funkcje');
+      check(l10n.workspaceToolFunctionCount(5)).equals('5 funkcji');
+      check(l10n.hermesToolCount(1)).equals('1 narzędzie');
+      check(l10n.hermesToolCount(2)).equals('2 narzędzia');
+      check(l10n.hermesToolCount(5)).equals('5 narzędzi');
+      check(l10n.markdownShowMoreLines(1)).equals('Pokaż jeszcze 1 wiersz');
+      check(l10n.markdownShowMoreLines(3)).equals('Pokaż jeszcze 3 wiersze');
+      check(l10n.markdownShowMoreLines(12)).equals('Pokaż jeszcze 12 wierszy');
+    });
   });
 }
 
