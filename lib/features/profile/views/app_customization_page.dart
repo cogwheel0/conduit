@@ -1671,6 +1671,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return AppLocalizations.of(context)!.czech;
       case 'sk':
         return AppLocalizations.of(context)!.slovak;
+      case 'pl':
+        return AppLocalizations.of(context)!.polish;
       case 'de':
         return AppLocalizations.of(context)!.deutsch;
       case 'fr':
@@ -1709,6 +1711,9 @@ class AppCustomizationPage extends ConsumerWidget {
         }
         if (normalizedCode == 'sk') {
           return AppLocalizations.of(context)!.slovak;
+        }
+        if (normalizedCode == 'pl') {
+          return AppLocalizations.of(context)!.polish;
         }
         return AppLocalizations.of(context)!.system;
     }
@@ -1946,6 +1951,7 @@ class AppCustomizationPage extends ConsumerWidget {
       (value: 'en', label: l10n.english),
       (value: 'cs', label: l10n.czech),
       (value: 'sk', label: l10n.slovak),
+      (value: 'pl', label: l10n.polish),
       (value: 'de', label: l10n.deutsch),
       (value: 'es', label: l10n.espanol),
       (value: 'fr', label: l10n.francais),

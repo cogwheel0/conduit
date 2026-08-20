@@ -29,6 +29,7 @@ void main() {
     'ja',
     'ko',
     'nl',
+    'pl',
     'ru',
     'sk',
     'zh',

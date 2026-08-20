@@ -195,6 +195,7 @@
   "japanese": "日本語",
   "czech": "Čeština",
   "slovak": "Slovenčina",
+  "polish": "Польский",
   "deleteMessagesTitle": "Удалить сообщения",
   "deleteMessagesMessage": "Удалить {count, plural, one{{count} сообщение} few{{count} сообщения} other{{count} сообщений}}?",
   "@deleteMessagesMessage": {
