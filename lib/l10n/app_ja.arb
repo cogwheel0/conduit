@@ -69,7 +69,7 @@
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
   "releaseNotesTitle": "新機能",
-  "releaseNotesAnnouncementTitle": "Conduit {version} が登場",
+  "releaseNotesAnnouncementTitle": "{version} の新機能",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "詳細を見る",
   "releaseNotesReviewButton": "Conduit をレビュー",

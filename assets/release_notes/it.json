@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "Novità",
-      "intro": "Ciao! È il più grande aggiornamento di Conduit e sono felicissimo di condividerlo. Le tue chat ora vivono prima sul dispositivo, e Conduit funziona senza server.",
+      "intro": "Ciao! Hermes può usare un Desktop Gateway, e i bot stanno nella barra laterale. Ho rifatto liste e schede, e sistemato un po' di bug che se ne stavano lì da troppo tempo.",
       "bullets": [
         {
-          "text": "Hermes Agent: collega il server, segui gli strumenti, approva i passaggi delicati e pianifica gli agenti.",
+          "text": "Hermes Bot Mode: collega un Desktop Gateway, scegli un bot nella barra laterale, e le risposte consecutive condividono un'unica intestazione.",
           "icon": "hermes"
         },
         {
-          "text": "Connessioni dirette: chatta via OpenAI o Ollama, con OpenRouter, LM Studio e Ollama Cloud.",
-          "icon": "direct"
+          "text": "Liste raggruppate native, vetro su iOS 26, font di sistema e una barra laterale su tablet di cui puoi trascinare la larghezza.",
+          "icon": "polish"
         },
         {
-          "text": "Dettagli curati: chat più fluide, navigazione più tranquilla. Grazie di essere qui!",
-          "icon": "polish"
+          "text": "Meno scatti durante lo streaming. Il LaTeX si disegna davvero. La voce non si risponde più da sola. Il polacco è nella lista delle lingue.",
+          "icon": "direct"
         }
       ]
     }

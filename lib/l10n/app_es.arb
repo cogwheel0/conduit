@@ -30,7 +30,7 @@
   "buyMeACoffeeTitle": "Buy Me a Coffee",
   "buyMeACoffeeSubtitle": "Haz una donación única para agradecer.",
   "releaseNotesTitle": "Novedades",
-  "releaseNotesAnnouncementTitle": "Conduit {version} ya está aquí",
+  "releaseNotesAnnouncementTitle": "Novedades de {version}",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "Saber más",
   "releaseNotesReviewButton": "Valorar Conduit",

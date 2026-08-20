@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "新变化",
-      "intro": "你好！这是 Conduit 有史以来最大的一次更新，很高兴能与你分享。你的聊天现在优先保存在设备上，而且完全不需要服务器也能使用 Conduit。",
+      "intro": "你好！Hermes 现在可以接 Desktop Gateway，机器人会出现在侧边栏。列表和面板重做了一遍，攒了太久的几个问题也修了。",
       "bullets": [
         {
-          "text": "Hermes Agent: 连接服务器，查看工具运行，批准敏感步骤，也可预约 Agent 稍后执行。",
+          "text": "Hermes Bot Mode: 连接 Desktop Gateway，在侧边栏选一个机器人，连续回复会共用一个标题。",
           "icon": "hermes"
         },
         {
-          "text": "直连: 与 OpenRouter、LM Studio、Ollama Cloud 等 OpenAI 兼容服务或 Ollama 对话。",
-          "icon": "direct"
+          "text": "原生分组列表、iOS 26 玻璃效果、系统字体，以及可以拖动宽度的平板侧边栏。",
+          "icon": "polish"
         },
         {
-          "text": "贴心细节: 聊天更流畅，导航更从容。谢谢你的陪伴！",
-          "icon": "polish"
+          "text": "流式输出时更少卡顿。LaTeX 真的会画出来。语音不会再自己答自己。语言列表里有波兰语了。",
+          "icon": "direct"
         }
       ]
     }

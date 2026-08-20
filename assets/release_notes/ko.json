@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "새로운 소식",
-      "intro": "안녕하세요! Conduit 역사상 가장 큰 업데이트를 나누게 되어 정말 기쁩니다. 이제 채팅은 기기에 먼저 저장되고, 서버가 전혀 없어도 Conduit을 쓸 수 있습니다.",
+      "intro": "안녕하세요! Hermes가 Desktop Gateway를 쓸 수 있고, 봇은 사이드바에 있습니다. 목록과 시트를 다시 만들었고, 너무 오래 남아 있던 버그도 고쳤습니다.",
       "bullets": [
         {
-          "text": "Hermes Agent: 서버를 연결하고 도구 작업을 확인하며, 민감한 단계를 승인하고 에이전트를 예약할 수 있습니다.",
+          "text": "Hermes Bot Mode: Desktop Gateway를 연결하고 사이드바에서 봇을 고르면, 이어지는 답변이 하나의 헤더를 공유합니다.",
           "icon": "hermes"
         },
         {
-          "text": "직접 연결: OpenRouter, LM Studio, Ollama Cloud를 비롯한 OpenAI 호환 서비스 또는 Ollama와 대화할 수 있습니다.",
-          "icon": "direct"
+          "text": "네이티브 그룹 목록, iOS 26 글래스, 시스템 글꼴, 너비를 끌어 조절할 수 있는 태블릿 사이드바.",
+          "icon": "polish"
         },
         {
-          "text": "세심한 개선: 채팅은 더 부드럽게, 탐색은 더 편안하게 다듬었습니다. 함께해 주셔서 고맙습니다!",
-          "icon": "polish"
+          "text": "스트리밍 중 끊김이 줄었습니다. LaTeX가 실제로 그려집니다. 음성이 스스로 답하지 않습니다. 언어 목록에 폴란드어가 있습니다.",
+          "icon": "direct"
         }
       ]
     }

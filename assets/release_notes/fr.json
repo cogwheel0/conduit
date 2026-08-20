@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "Nouveautés",
-      "intro": "Bonjour ! C’est la plus grande mise à jour de Conduit, et je suis ravi de la partager. Vos conversations vivent d’abord sur votre appareil, et Conduit fonctionne sans serveur.",
+      "intro": "Bonjour ! Hermes peut utiliser une Desktop Gateway, et les bots vivent dans la barre latérale. J'ai aussi refait les listes et les panneaux, et corrigé quelques bugs qui traînaient trop longtemps.",
       "bullets": [
         {
-          "text": "Hermes Agent : connectez le serveur, suivez ses outils, validez les étapes sensibles et planifiez vos agents.",
+          "text": "Hermes Bot Mode : connectez une Desktop Gateway, choisissez un bot dans la barre latérale, et les réponses d'affilée partagent un seul en-tête.",
           "icon": "hermes"
         },
         {
-          "text": "Connexions directes : discutez via OpenAI ou Ollama, avec OpenRouter, LM Studio ou Ollama Cloud.",
-          "icon": "direct"
+          "text": "Listes groupées natives, verre sur iOS 26, polices système, et une barre latérale tablette dont vous pouvez changer la largeur.",
+          "icon": "polish"
         },
         {
-          "text": "Détails soignés : des discussions fluides, une navigation sereine. Merci d’être là !",
-          "icon": "polish"
+          "text": "Le défilement saccade moins pendant le streaming. LaTeX s'affiche vraiment. La voix ne se répond plus à elle-même. Le polonais est dans la liste des langues.",
+          "icon": "direct"
         }
       ]
     }

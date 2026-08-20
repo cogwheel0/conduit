@@ -30,7 +30,7 @@
   "buyMeACoffeeTitle": "Buy Me a Coffee",
   "buyMeACoffeeSubtitle": "Doe een eenmalige donatie om bedankt te zeggen.",
   "releaseNotesTitle": "Nieuw",
-  "releaseNotesAnnouncementTitle": "Conduit {version} is er",
+  "releaseNotesAnnouncementTitle": "Nieuw in {version}",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "Meer informatie",
   "releaseNotesReviewButton": "Beoordeel Conduit",

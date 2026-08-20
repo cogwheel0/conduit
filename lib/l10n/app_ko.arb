@@ -24,7 +24,7 @@
   "buyMeACoffeeTitle": "Buy Me a Coffee",
   "buyMeACoffeeSubtitle": "일회성 기부로 감사를 표하세요.",
   "releaseNotesTitle": "새로운 소식",
-  "releaseNotesAnnouncementTitle": "Conduit {version} 출시",
+  "releaseNotesAnnouncementTitle": "{version}의 새로운 소식",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "자세히 보기",
   "releaseNotesReviewButton": "Conduit 리뷰하기",

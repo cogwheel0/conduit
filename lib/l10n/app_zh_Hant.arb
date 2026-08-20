@@ -30,7 +30,7 @@
   "buyMeACoffeeTitle": "Buy Me a Coffee",
   "buyMeACoffeeSubtitle": "一次性捐贈以表達感謝。",
   "releaseNotesTitle": "新變化",
-  "releaseNotesAnnouncementTitle": "Conduit {version} 來了",
+  "releaseNotesAnnouncementTitle": "{version} 新變化",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "瞭解更多",
   "releaseNotesReviewButton": "評價 Conduit",

@@ -154,9 +154,9 @@
   "@releaseNotesTitle": {
     "description": "Title for the baked in-app release notes sheet."
   },
-  "releaseNotesAnnouncementTitle": "Conduit {version} już dostępne",
+  "releaseNotesAnnouncementTitle": "Co nowego w {version}",
   "@releaseNotesAnnouncementTitle": {
-    "description": "Announcement title shown in the chat banner and release notes header.",
+    "description": "Title shown in the chat banner. {version} is the major.minor series, such as 4.1.",
     "placeholders": {
       "version": {
         "type": "String"

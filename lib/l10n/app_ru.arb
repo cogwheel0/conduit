@@ -30,7 +30,7 @@
   "buyMeACoffeeTitle": "Buy Me a Coffee",
   "buyMeACoffeeSubtitle": "Сделайте разовое пожертвование в знак благодарности.",
   "releaseNotesTitle": "Что нового",
-  "releaseNotesAnnouncementTitle": "Conduit {version} уже здесь",
+  "releaseNotesAnnouncementTitle": "Что нового в {version}",
   "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
   "releaseNotesLearnMore": "Подробнее",
   "releaseNotesReviewButton": "Оценить Conduit",

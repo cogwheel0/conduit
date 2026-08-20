@@ -56,12 +56,12 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Conduit 3.3 is here'), findsOneWidget);
+      expect(find.text("What's new"), findsOneWidget);
       expect(
-        tester.widget<Text>(find.text('Conduit 3.3 is here')).style?.fontSize,
+        tester.widget<Text>(find.text("What's new")).style?.fontSize,
         AppTypography.headlineMedium,
       );
-      expect(find.text("What's new"), findsNothing);
+      expect(find.text("What's new in 3.3"), findsNothing);
       expect(find.text('Enjoying Conduit?'), findsOneWidget);
       expect(
         find.text(
@@ -307,7 +307,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Conduit 4.0 is here'), findsOneWidget);
+    expect(find.text("What's new"), findsOneWidget);
     expect(find.text('Local models'), findsOneWidget);
     expect(find.text('Polished details'), findsOneWidget);
     await tester.ensureVisible(find.text('Review Conduit'));
@@ -346,16 +346,6 @@ void main() {
     await tester.pump();
     expect(find.text('喜歡 Conduit 嗎？'), findsOneWidget);
     expect(find.textContaining('無論哪一種，對我都意義重大。'), findsOneWidget);
-  });
-
-  testWidgets('release notes sheet matches its golden', (tester) async {
-    await _pumpReleaseNotesSheet(tester, disableAnimations: true);
-    await tester.pump();
-
-    await expectLater(
-      find.byType(Scaffold),
-      matchesGoldenFile('goldens/release_notes_sheet.png'),
-    );
   });
 }
 

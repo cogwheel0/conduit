@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "Nieuw",
-      "intro": "Hoi! Dit is Conduits grootste update, en ik ben ontzettend blij om hem te delen. Je chats leven nu eerst op je apparaat, en Conduit werkt helemaal zonder server.",
+      "intro": "Hoi! Hermes kan nu een Desktop Gateway gebruiken, en bots staan in de zijbalk. Ik heb lijsten en schermen opnieuw gebouwd, en een paar bugs weggewerkt die te lang hadden liggen wachten.",
       "bullets": [
         {
-          "text": "Hermes Agent: koppel je server, volg tools, keur gevoelige stappen goed en plan agents.",
+          "text": "Hermes Bot Mode: koppel een Desktop Gateway, kies een bot in de zijbalk, en opeenvolgende antwoorden delen één kop.",
           "icon": "hermes"
         },
         {
-          "text": "Directe verbindingen: chat via OpenAI of Ollama, met OpenRouter, LM Studio en Ollama Cloud.",
-          "icon": "direct"
+          "text": "Native gegroepeerde lijsten, glas op iOS 26, systeemfonts, en een tablet-zijbalk waarvan je de breedte kunt slepen.",
+          "icon": "polish"
         },
         {
-          "text": "Zorgvuldige details: soepelere chats, rustigere navigatie. Fijn dat je er bent!",
-          "icon": "polish"
+          "text": "Minder haperen tijdens streamen. LaTeX tekent nu echt. Stem antwoordt zichzelf niet meer. Pools staat in de talenlijst.",
+          "icon": "direct"
         }
       ]
     }

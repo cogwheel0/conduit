@@ -65,9 +65,7 @@ class ReleaseNotesSheet extends StatelessWidget {
         _StaggeredReveal(
           index: revealIndex++,
           child: _ReleaseHeader(
-            title: l10n.releaseNotesAnnouncementTitle(
-              currentVersion.split('.').take(2).join('.'),
-            ),
+            title: l10n.releaseNotesTitle,
             version: currentVersion,
             intro: intro,
           ),

@@ -1,21 +1,21 @@
 {
   "notes": [
     {
-      "version": "4.0.3",
+      "version": "4.1.0",
       "title": "Novinky",
-      "intro": "Ahoj! Tohle je největší aktualizace Conduitu a mám radost, že se o ni můžu podělit. Vaše chaty teď žijí nejprve v zařízení a Conduit funguje bez serveru.",
+      "intro": "Ahoj! Hermes teď umí Desktop Gateway a boti žijí v postranním panelu. Seznamy a panely jsem postavil znovu a pár chyb, které tam ležely moc dlouho, jsem opravil.",
       "bullets": [
         {
-          "text": "Hermes Agent: připojte server, sledujte nástroje, schvalujte citlivé kroky a plánujte agenty.",
+          "text": "Hermes Bot Mode: připojte Desktop Gateway, vyberte bota v panelu a po sobě jdoucí odpovědi sdílejí jednu hlavičku.",
           "icon": "hermes"
         },
         {
-          "text": "Přímá připojení: chatujte přes OpenAI služby či Ollamu, třeba OpenRouter, LM Studio a Ollama Cloud.",
-          "icon": "direct"
+          "text": "Nativní seskupené seznamy, sklo na iOS 26, systémová písma a postranní panel na tabletu, jehož šířku můžete táhnout.",
+          "icon": "polish"
         },
         {
-          "text": "Promyšlené detaily: plynulejší chaty, klidnější navigace. Díky, že jste tu!",
-          "icon": "polish"
+          "text": "Méně cukání při streamování. LaTeX se opravdu vykreslí. Hlas si už neodpovídá sám. Polština je v seznamu jazyků.",
+          "icon": "direct"
         }
       ]
     }
