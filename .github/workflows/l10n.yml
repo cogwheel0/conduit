@@ -1,10 +1,9 @@
 name: L10n
 
 on:
-  pull_request:
-    paths:
-      - 'lib/l10n/*.arb'
   push:
+    branches:
+      - main
     paths:
       - 'lib/l10n/*.arb'
 
