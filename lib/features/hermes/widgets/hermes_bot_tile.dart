@@ -78,9 +78,14 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
       if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
         return;
       }
-      final avatar = bot.hasAvatar
-          ? await ref.read(hermesBotAvatarProvider(bot.name).future)
-          : null;
+      String? avatar;
+      if (bot.hasAvatar) {
+        try {
+          avatar = await ref.read(hermesBotAvatarProvider(bot.name).future);
+        } catch (_) {
+          // Fall back to the shape avatar so a failed image cannot block chat.
+        }
+      }
       if (!mounted || !identical(ref.read(hermesApiServiceProvider), service)) {
         return;
       }
