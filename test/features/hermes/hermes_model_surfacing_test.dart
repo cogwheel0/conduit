@@ -83,6 +83,13 @@ class _MutableReviewerMode extends ReviewerMode {
   Future<void> setEnabled(bool enabled) async => state = enabled;
 }
 
+class _MutableModels extends Models {
+  @override
+  Future<List<Model>> build() async => const [];
+
+  void publish(List<Model> models) => state = AsyncData(models);
+}
+
 class _PendingInitialAuthStateManager extends AuthStateManager {
   _PendingInitialAuthStateManager(this._result, this.started);
 
@@ -194,6 +201,33 @@ const _usableDesktopHermes = HermesConfig(
 
 void main() {
   group('Hermes model surfacing without an OWUI server', () {
+    test('late model availability retries startup auto-selection', () async {
+      const model = Model(id: 'late-model', name: 'Late model');
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(true),
+          modelsProvider.overrideWith(_MutableModels.new),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final autoSelection = container.listen<void>(
+        defaultModelAutoSelectionProvider,
+        (_, _) {},
+      );
+      addTearDown(autoSelection.close);
+
+      check(await container.read(defaultModelProvider.future)).isNull();
+      (container.read(modelsProvider.notifier) as _MutableModels).publish(
+        const [model],
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(selectedModelProvider)).identicalTo(model);
+    });
+
     test('synthetic model requires a usable Hermes connection', () {
       const remote = <Model>[Model(id: 'safe', name: 'Safe')];
 

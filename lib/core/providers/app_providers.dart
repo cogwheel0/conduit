@@ -2895,6 +2895,7 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
   ref.watch(modelToolsAutoSelectionProvider);
   ref.watch(modelTerminalAutoSelectionProvider);
   ref.watch(modelFiltersAutoSelectionProvider);
+  ref.watch(defaultModelProvider);
 
   ref.listen<AppSettings>(appSettingsProvider, (previous, next) {
     // Only react when default model value changes
@@ -4497,6 +4498,7 @@ Future<Model?> defaultModel(Ref ref) async {
   ref.watch(apiServiceProvider);
   ref.watch(_modelAuthReadinessProvider);
   ref.watch(reviewerModeProvider);
+  ref.watch(modelsProvider);
   return resolved;
 }
 
