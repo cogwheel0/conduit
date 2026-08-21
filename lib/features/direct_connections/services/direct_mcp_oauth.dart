@@ -789,10 +789,14 @@ final class DirectMcpOAuthCoordinator {
   void _requireCurrent(_PendingOAuthFlow flow) {
     _requireOpen();
     if (!identical(_pending[flow.server.id], flow) ||
-        _generations[flow.server.id] != flow.generation ||
-        _now().toUtc().isAfter(flow.expiresAt)) {
+        _generations[flow.server.id] != flow.generation) {
       throw const DirectMcpOAuthException(
         'The MCP OAuth connection is no longer pending.',
+      );
+    }
+    if (_now().toUtc().isAfter(flow.expiresAt)) {
+      throw const DirectMcpOAuthException(
+        'The MCP OAuth connection timed out. Try again.',
       );
     }
   }
