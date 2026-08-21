@@ -57,6 +57,80 @@ void main() {
     },
   );
 
+  test(
+    'injects an OAuth token only through the selected server client',
+    () async {
+      final fixture = await _McpFixture.start();
+      addTearDown(fixture.close);
+      final server = _oauthServerFor(fixture, accessToken: 'oauth-secret');
+
+      final session = await DirectMcpToolSession.open(
+        [server],
+        authorizationResolver: (server, {forceRefresh = false}) async =>
+            server.oauthTokens!.accessToken,
+      );
+      addTearDown(session.close);
+
+      expect(fixture.authorizationHeaders, isNotEmpty);
+      expect(fixture.authorizationHeaders, everyElement('Bearer oauth-secret'));
+    },
+  );
+
+  test(
+    'refreshes once and retries idempotent MCP preflight after 401',
+    () async {
+      final fixture = await _McpFixture.start(
+        requiredAuthorization: 'Bearer fresh-token',
+      );
+      addTearDown(fixture.close);
+      var forcedRefreshes = 0;
+
+      final session = await DirectMcpToolSession.open(
+        [_oauthServerFor(fixture, accessToken: 'stale-token')],
+        authorizationResolver: (server, {forceRefresh = false}) async {
+          if (forceRefresh) forcedRefreshes++;
+          return forceRefresh ? 'fresh-token' : server.oauthTokens!.accessToken;
+        },
+      );
+      addTearDown(session.close);
+
+      expect(session.definitions, hasLength(1));
+      expect(forcedRefreshes, 1);
+      expect(fixture.authorizationHeaders, contains('Bearer stale-token'));
+      expect(fixture.authorizationHeaders, contains('Bearer fresh-token'));
+    },
+  );
+
+  test('does not replay a tool call after an ambiguous OAuth 401', () async {
+    final fixture = await _McpFixture.start(unauthorizedToolCalls: true);
+    addTearDown(fixture.close);
+    var forcedRefreshes = 0;
+    final session = await DirectMcpToolSession.open(
+      [_oauthServerFor(fixture, accessToken: 'oauth-secret')],
+      authorizationResolver: (server, {forceRefresh = false}) async {
+        if (forceRefresh) forcedRefreshes++;
+        return 'oauth-secret';
+      },
+    );
+    addTearDown(session.close);
+
+    await expectLater(
+      session.execute(session.definitions.single.modelName, const {
+        'value': 'once',
+      }),
+      throwsA(
+        isA<DirectProviderException>().having(
+          (error) => error.message,
+          'message',
+          contains('Retry the model turn'),
+        ),
+      ),
+    );
+
+    expect(fixture.callCount, 1);
+    expect(forcedRefreshes, 1);
+  });
+
   test('close settles an in-flight tool call', () async {
     final fixture = await _McpFixture.start(holdToolCalls: true);
     addTearDown(fixture.close);
@@ -223,6 +297,27 @@ DirectMcpServer _serverFor(_McpFixture fixture, {String id = 'test'}) =>
       endpoint: fixture.endpoint.toString(),
     );
 
+DirectMcpServer _oauthServerFor(
+  _McpFixture fixture, {
+  required String accessToken,
+}) => DirectMcpServer(
+  id: 'oauth-test',
+  name: 'OAuth test server',
+  endpoint: fixture.endpoint.toString(),
+  authMode: DirectMcpAuthMode.oauth,
+  oauthTokens: DirectMcpOAuthTokens(
+    accessToken: accessToken,
+    refreshToken: 'refresh-secret',
+    expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
+    authorizationServerIssuer: fixture.endpoint
+        .replace(path: '/issuer')
+        .toString(),
+    resource: fixture.endpoint.toString(),
+    clientId: 'public-client',
+    tokenEndpoint: fixture.endpoint.replace(path: '/token').toString(),
+  ),
+);
+
 final class _McpFixture {
   _McpFixture._(
     this.server,
@@ -236,6 +331,8 @@ final class _McpFixture {
     required this.repeatListCursor,
     required this.listPageCount,
     required this.toolDescriptionCharacters,
+    required this.requiredAuthorization,
+    required this.unauthorizedToolCalls,
   });
 
   final HttpServer server;
@@ -249,6 +346,8 @@ final class _McpFixture {
   final bool repeatListCursor;
   final int listPageCount;
   final int toolDescriptionCharacters;
+  final String? requiredAuthorization;
+  final bool unauthorizedToolCalls;
   final Completer<void> toolCallReceived = Completer<void>();
   final List<String?> authorizationHeaders = [];
   final List<String?> customHeaders = [];
@@ -269,6 +368,8 @@ final class _McpFixture {
     bool repeatListCursor = false,
     int listPageCount = 1,
     int toolDescriptionCharacters = 0,
+    String? requiredAuthorization,
+    bool unauthorizedToolCalls = false,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _McpFixture fixture;
@@ -285,6 +386,8 @@ final class _McpFixture {
       repeatListCursor: repeatListCursor,
       listPageCount: listPageCount,
       toolDescriptionCharacters: toolDescriptionCharacters,
+      requiredAuthorization: requiredAuthorization,
+      unauthorizedToolCalls: unauthorizedToolCalls,
     );
     return fixture;
   }
@@ -294,6 +397,13 @@ final class _McpFixture {
       request.headers.value(HttpHeaders.authorizationHeader),
     );
     customHeaders.add(request.headers.value('X-Conduit-Test'));
+    if (requiredAuthorization != null &&
+        request.headers.value(HttpHeaders.authorizationHeader) !=
+            requiredAuthorization) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      await request.response.close();
+      return;
+    }
     if (request.method != 'POST' || request.uri.path != '/mcp') {
       request.response.statusCode = HttpStatus.methodNotAllowed;
       await request.response.close();
@@ -359,6 +469,11 @@ final class _McpFixture {
         };
       case mcp.Method.toolsCall:
         callCount++;
+        if (unauthorizedToolCalls) {
+          request.response.statusCode = HttpStatus.unauthorized;
+          await request.response.close();
+          return;
+        }
         if (!toolCallReceived.isCompleted) toolCallReceived.complete();
         if (holdToolCalls) return;
         final params = body['params'] as Map<String, dynamic>;

@@ -11,6 +11,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../models/direct_mcp_server.dart';
 import '../providers/direct_mcp_providers.dart';
+import '../services/direct_mcp_oauth.dart';
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
   const DirectMcpServerEditorPage({super.key, required this.serverId});
@@ -28,10 +29,13 @@ class _DirectMcpServerEditorPageState
   final _endpoint = TextEditingController();
   final _token = TextEditingController();
   final _headers = TextEditingController();
+  final _newServerId = const Uuid().v4();
   DirectMcpServer? _previous;
   bool _enabled = true;
+  DirectMcpAuthMode _authMode = DirectMcpAuthMode.none;
   bool _initialized = false;
   bool _busy = false;
+  bool _oauthPending = false;
   String? _message;
 
   bool get _isNew => widget.serverId == 'new';
@@ -56,7 +60,10 @@ class _DirectMcpServerEditorPageState
     if (server == null) return;
     _name.text = server.name;
     _endpoint.text = server.endpoint;
-    _token.text = server.bearerToken ?? '';
+    _authMode = server.authMode;
+    _token.text = server.authMode == DirectMcpAuthMode.bearer
+        ? server.bearerToken ?? ''
+        : '';
     _headers.text = server.customHeaders.entries
         .map((entry) => '${entry.key}: ${entry.value}')
         .join('\n');
@@ -64,7 +71,7 @@ class _DirectMcpServerEditorPageState
   }
 
   DirectMcpServer _draft({bool forceEnabled = false}) {
-    final id = _isNew ? const Uuid().v4() : widget.serverId;
+    final id = _isNew ? _newServerId : widget.serverId;
     final customHeaders = <String, String>{};
     final normalizedHeaderNames = <String>{};
     for (final rawLine in _headers.text.split('\n')) {
@@ -85,7 +92,15 @@ class _DirectMcpServerEditorPageState
       name: _name.text.trim(),
       endpoint: _endpoint.text.trim(),
       enabled: forceEnabled || _enabled,
-      bearerToken: _token.text.isEmpty ? null : _token.text,
+      authMode: _authMode,
+      bearerToken: _authMode == DirectMcpAuthMode.bearer
+          ? (_token.text.isEmpty ? null : _token.text)
+          : null,
+      oauthTokens: _authMode == DirectMcpAuthMode.oauth
+          ? (_sameEndpointOrigin(_previous?.endpoint, _endpoint.text)
+                ? _previous?.oauthTokens
+                : null)
+          : null,
       customHeaders: customHeaders,
     );
     server.validate();
@@ -191,6 +206,86 @@ class _DirectMcpServerEditorPageState
     }
   }
 
+  Future<void> _connectOAuth() async {
+    final l10n = AppLocalizations.of(context)!;
+    DirectMcpServer draft;
+    try {
+      draft = _draft();
+    } on FormatException catch (error) {
+      setState(() => _message = error.message);
+      return;
+    }
+    setState(() {
+      _oauthPending = true;
+      _message = l10n.directMcpOAuthPending;
+    });
+    try {
+      final saved = await ref
+          .read(directMcpServersProvider.notifier)
+          .upsert(draft, expectedPrevious: _previous);
+      final persisted = saved.firstWhere((server) => server.id == draft.id);
+      final connected = await ref
+          .read(directMcpOAuthCoordinatorProvider)
+          .connect(persisted);
+      await ref.read(directMcpServersProvider.notifier).reload();
+      if (mounted) {
+        setState(() {
+          _previous = connected;
+          _message = l10n.directMcpOAuthConnected;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _message = switch (error) {
+            FormatException() => error.message,
+            DirectMcpOAuthException() => error.message,
+            _ => l10n.directMcpOAuthConnectFailed,
+          },
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _oauthPending = false);
+    }
+  }
+
+  Future<void> _cancelOAuth() async {
+    await ref
+        .read(directMcpOAuthCoordinatorProvider)
+        .cancel(_isNew ? _newServerId : widget.serverId);
+    if (mounted) {
+      setState(() {
+        _oauthPending = false;
+        _message = null;
+      });
+    }
+  }
+
+  Future<void> _disconnectOAuth() async {
+    final l10n = AppLocalizations.of(context)!;
+    final previous = _previous;
+    if (previous == null) return;
+    setState(() => _busy = true);
+    try {
+      final disconnected = await ref
+          .read(directMcpOAuthCoordinatorProvider)
+          .disconnect(previous);
+      await ref.read(directMcpServersProvider.notifier).reload();
+      if (mounted) {
+        setState(() {
+          _previous = disconnected;
+          _message = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message = l10n.directMcpOAuthDisconnectFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -240,16 +335,86 @@ class _DirectMcpServerEditorPageState
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    key: const ValueKey('direct-mcp-token'),
-                    controller: _token,
-                    enabled: !_busy,
-                    obscureText: true,
-                    autocorrect: false,
+                  DropdownButtonFormField<DirectMcpAuthMode>(
+                    key: const ValueKey('direct-mcp-auth-mode'),
+                    initialValue: _authMode,
                     decoration: InputDecoration(
-                      labelText: l10n.directMcpBearerToken,
+                      labelText: l10n.directMcpAuthMode,
                     ),
+                    items: [
+                      DropdownMenuItem(
+                        value: DirectMcpAuthMode.none,
+                        child: Text(l10n.directMcpAuthNone),
+                      ),
+                      DropdownMenuItem(
+                        value: DirectMcpAuthMode.bearer,
+                        child: Text(l10n.directMcpAuthBearer),
+                      ),
+                      DropdownMenuItem(
+                        value: DirectMcpAuthMode.oauth,
+                        child: Text(l10n.directMcpAuthOAuth),
+                      ),
+                    ],
+                    onChanged: _busy || _oauthPending
+                        ? null
+                        : (mode) {
+                            if (mode == null) return;
+                            setState(() {
+                              _authMode = mode;
+                              _message = null;
+                              if (mode != DirectMcpAuthMode.bearer) {
+                                _token.clear();
+                              }
+                            });
+                          },
                   ),
+                  if (_authMode == DirectMcpAuthMode.bearer) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey('direct-mcp-token'),
+                      controller: _token,
+                      enabled: !_busy,
+                      obscureText: true,
+                      autocorrect: false,
+                      decoration: InputDecoration(
+                        labelText: l10n.directMcpBearerToken,
+                      ),
+                    ),
+                  ],
+                  if (_authMode == DirectMcpAuthMode.oauth) ...[
+                    const SizedBox(height: 12),
+                    if (_previous?.oauthTokens case final tokens?) ...[
+                      Text(
+                        l10n.directMcpOAuthConnectionDetails(
+                          Uri.parse(tokens.authorizationServerIssuer).host,
+                          tokens.grantedScope ?? l10n.directMcpOAuthNoScopes,
+                        ),
+                        key: const ValueKey('direct-mcp-oauth-details'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    ConduitButton(
+                      key: const ValueKey('direct-mcp-oauth-connect'),
+                      text: _oauthPending
+                          ? l10n.cancel
+                          : (_previous?.oauthTokens == null
+                                ? l10n.directMcpOAuthConnect
+                                : l10n.directMcpOAuthReconnect),
+                      isSecondary: true,
+                      onPressed: _busy
+                          ? null
+                          : (_oauthPending ? _cancelOAuth : _connectOAuth),
+                    ),
+                    if (_previous?.oauthTokens != null && !_oauthPending) ...[
+                      const SizedBox(height: 8),
+                      ConduitButton(
+                        key: const ValueKey('direct-mcp-oauth-disconnect'),
+                        text: l10n.directMcpOAuthDisconnect,
+                        isDestructive: true,
+                        onPressed: _busy ? null : _disconnectOAuth,
+                      ),
+                    ],
+                  ],
                   const SizedBox(height: 12),
                   TextField(
                     key: const ValueKey('direct-mcp-headers'),
@@ -308,4 +473,15 @@ class _DirectMcpServerEditorPageState
       },
     );
   }
+}
+
+bool _sameEndpointOrigin(String? first, String second) {
+  final left = first == null ? null : Uri.tryParse(first.trim());
+  final right = Uri.tryParse(second.trim());
+  if (left == null || right == null) return false;
+  int port(Uri uri) =>
+      uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+  return left.scheme.toLowerCase() == right.scheme.toLowerCase() &&
+      left.host.toLowerCase() == right.host.toLowerCase() &&
+      port(left) == port(right);
 }

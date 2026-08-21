@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:conduit/core/models/tool.dart';
+import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit/features/direct_connections/services/direct_mcp_server_store.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
@@ -11,10 +16,15 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
-  tearDown(PlatformUiCapabilities.resetDebugOverrides);
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  tearDown(() {
+    PlatformUiCapabilities.resetDebugOverrides();
+  });
 
   test('direct native actions expose only local MCP tool bundles', () {
     const tool = Tool(id: 'local_mcp:home', name: 'Home MCP');
@@ -159,4 +169,144 @@ void main() {
     expect(find.byKey(const ValueKey('direct-mcp-name')), findsOneWidget);
     expect(find.byKey(const ValueKey('direct-mcp-endpoint')), findsOneWidget);
   });
+
+  testWidgets('OAuth editor renders no secrets and disconnects', (
+    tester,
+  ) async {
+    final store = _managementStore();
+    final server = await _saveManagementOAuthServer(
+      store,
+      Uri.parse('https://resource.example/mcp'),
+      connected: true,
+    );
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+
+    expect(find.textContaining('auth.example'), findsOneWidget);
+    expect(find.textContaining('tools.read'), findsOneWidget);
+    expect(find.text('Reconnect in browser'), findsOneWidget);
+    expect(find.text('Disconnect OAuth'), findsOneWidget);
+    expect(find.textContaining('access-ui-secret'), findsNothing);
+    expect(find.textContaining('refresh-ui-secret'), findsNothing);
+    expect(find.textContaining('authorization-code'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-disconnect')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connect in browser'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('direct-mcp-oauth-details')),
+      findsNothing,
+    );
+    expect((await store.load()).single.oauthTokens, isNull);
+  });
+
+  testWidgets('OAuth editor can cancel a pending browser flow', (tester) async {
+    final store = _managementStore();
+    final server = await _saveManagementOAuthServer(
+      store,
+      Uri.parse('https://resource.example/mcp'),
+    );
+    final client = _BlockedHttpClient();
+    final coordinator = DirectMcpOAuthCoordinator(store: store, client: client);
+    addTearDown(coordinator.close);
+    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+
+    final connect = find.byKey(const ValueKey('direct-mcp-oauth-connect'));
+    await tester.ensureVisible(connect);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect in browser'));
+    await tester.pump();
+    expect(find.text('Cancel'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-connect')));
+    for (
+      var attempt = 0;
+      attempt < 100 && coordinator.isPending(server.id);
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(coordinator.isPending(server.id), isFalse);
+    client.release();
+    await tester.pumpAndSettle();
+
+    expect((await store.load()).single.oauthTokens, isNull);
+  });
+}
+
+DirectMcpServerStore _managementStore() => DirectMcpServerStore(
+  SecureCredentialStorage(instance: const FlutterSecureStorage()),
+);
+
+Future<DirectMcpServer> _saveManagementOAuthServer(
+  DirectMcpServerStore store,
+  Uri endpoint, {
+  bool connected = false,
+}) async {
+  final server = DirectMcpServer(
+    id: 'oauth-ui',
+    name: 'OAuth UI',
+    endpoint: endpoint.toString(),
+    authMode: DirectMcpAuthMode.oauth,
+    oauthTokens: connected
+        ? DirectMcpOAuthTokens(
+            accessToken: 'access-ui-secret',
+            refreshToken: 'refresh-ui-secret',
+            grantedScope: 'tools.read',
+            expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
+            authorizationServerIssuer: 'https://auth.example/issuer',
+            resource: endpoint.toString(),
+            clientId: 'public-ui-client',
+            tokenEndpoint: 'https://auth.example/token',
+          )
+        : null,
+  );
+  await store.upsert(server);
+  return server;
+}
+
+Future<void> _pumpOAuthEditor(
+  WidgetTester tester,
+  DirectMcpServerStore store,
+  DirectMcpOAuthCoordinator coordinator,
+  String serverId,
+) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        directMcpServerStoreProvider.overrideWithValue(store),
+        directMcpOAuthCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectMcpServerEditorPage(serverId: serverId),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+final class _BlockedHttpClient extends http.BaseClient {
+  final Completer<http.StreamedResponse> _response = Completer();
+  bool _released = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    if (_released) {
+      return Future.value(http.StreamedResponse(const Stream.empty(), 404));
+    }
+    return _response.future;
+  }
+
+  void release() {
+    if (_released) return;
+    _released = true;
+    _response.complete(http.StreamedResponse(const Stream.empty(), 404));
+  }
+
+  @override
+  void close() => release();
 }

@@ -52,6 +52,11 @@ final class DirectMcpToolCallResult {
   final bool isError;
 }
 
+typedef DirectMcpAuthorizationResolver = Future<String?> Function(
+  DirectMcpServer server, {
+  bool forceRefresh,
+});
+
 /// One Streamable HTTP MCP connection owned by one Direct run.
 final class DirectMcpClient {
   DirectMcpClient({
@@ -161,16 +166,25 @@ final class DirectMcpClient {
 
 /// Per-run MCP inventory and execution boundary.
 final class DirectMcpToolSession {
-  DirectMcpToolSession._(this._clients, this.definitions, this._targets);
+  DirectMcpToolSession._(
+    this._clients,
+    this.definitions,
+    this._targets,
+    this._servers,
+    this._authorizationResolver,
+  );
 
   final Map<String, DirectMcpClient> _clients;
   final List<DirectMcpToolDefinition> definitions;
   final Map<String, ({String serverId, String remoteName})> _targets;
+  final Map<String, DirectMcpServer> _servers;
+  final DirectMcpAuthorizationResolver? _authorizationResolver;
   bool _closed = false;
 
   static Future<DirectMcpToolSession> open(
-    Iterable<DirectMcpServer> selectedServers,
-  ) async {
+    Iterable<DirectMcpServer> selectedServers, {
+    DirectMcpAuthorizationResolver? authorizationResolver,
+  }) async {
     final servers = List<DirectMcpServer>.unmodifiable(selectedServers);
     if (servers.isEmpty) {
       throw const DirectProviderException('No MCP servers were selected.');
@@ -198,13 +212,24 @@ final class DirectMcpToolSession {
             'Selected MCP server ids must be unique.',
           );
         }
-        final client = DirectMcpClient(
-          endpoint: server.endpointUri,
-          headers: server.requestHeaders,
-        );
-        await client.connect();
+        ({DirectMcpClient client, List<mcp.Tool> tools}) connected;
+        try {
+          connected = await _connectAndList(server, authorizationResolver);
+        } catch (error) {
+          if (!_isUnauthorizedError(error) ||
+              server.authMode != DirectMcpAuthMode.oauth ||
+              authorizationResolver == null) {
+            rethrow;
+          }
+          connected = await _connectAndList(
+            server,
+            authorizationResolver,
+            forceRefresh: true,
+          );
+        }
+        final client = connected.client;
+        final tools = connected.tools;
         clients[server.id] = client;
-        final tools = await client.listTools();
         for (var index = 0; index < tools.length; index++) {
           if (definitions.length >= kDirectMcpMaxTools) {
             throw const DirectProviderException(
@@ -262,6 +287,8 @@ final class DirectMcpToolSession {
         Map.unmodifiable(clients),
         List.unmodifiable(definitions),
         Map.unmodifiable(targets),
+        Map.unmodifiable({for (final server in servers) server.id: server}),
+        authorizationResolver,
       );
     } catch (error) {
       await _closeClients(clients.values, suppressErrors: true);
@@ -309,8 +336,22 @@ final class DirectMcpToolSession {
         isError: result.isError,
       );
     } catch (error) {
-      if (error is DirectProviderException) rethrow;
-      throw const DirectProviderException('The MCP tool call failed.');
+      if (!_isUnauthorizedError(error)) {
+        if (error is DirectProviderException) rethrow;
+        throw const DirectProviderException('The MCP tool call failed.');
+      }
+      final server = _servers[target.serverId]!;
+      final resolver = _authorizationResolver;
+      if (server.authMode == DirectMcpAuthMode.oauth && resolver != null) {
+        try {
+          await resolver(server, forceRefresh: true);
+        } catch (_) {
+          // The original tool call remains the public outcome.
+        }
+      }
+      throw const DirectProviderException(
+        'MCP authorization expired after a tool call. Retry the model turn.',
+      );
     }
   }
 
@@ -318,6 +359,59 @@ final class DirectMcpToolSession {
     if (_closed) return;
     _closed = true;
     await _closeClients(_clients.values);
+  }
+}
+
+Future<DirectMcpClient> _connectAuthorizedClient(
+  DirectMcpServer server,
+  DirectMcpAuthorizationResolver? resolver, {
+  bool forceRefresh = false,
+}) async {
+  final headers = Map<String, String>.from(server.customHeaders);
+  if (server.authMode == DirectMcpAuthMode.bearer) {
+    headers['Authorization'] = 'Bearer ${server.bearerToken}';
+  } else if (server.authMode == DirectMcpAuthMode.oauth) {
+    if (resolver == null) {
+      throw const DirectProviderException(
+        'MCP OAuth credentials are unavailable.',
+      );
+    }
+    final token = await resolver(server, forceRefresh: forceRefresh);
+    if (token == null || token.isEmpty) {
+      throw const DirectProviderException(
+        'MCP OAuth credentials are unavailable.',
+      );
+    }
+    headers['Authorization'] = 'Bearer $token';
+  }
+  final client = DirectMcpClient(
+    endpoint: server.endpointUri,
+    headers: headers,
+  );
+  try {
+    await client.connect();
+    return client;
+  } catch (_) {
+    await client.close();
+    rethrow;
+  }
+}
+
+Future<({DirectMcpClient client, List<mcp.Tool> tools})> _connectAndList(
+  DirectMcpServer server,
+  DirectMcpAuthorizationResolver? resolver, {
+  bool forceRefresh = false,
+}) async {
+  final client = await _connectAuthorizedClient(
+    server,
+    resolver,
+    forceRefresh: forceRefresh,
+  );
+  try {
+    return (client: client, tools: await client.listTools());
+  } catch (_) {
+    await client.close();
+    rethrow;
   }
 }
 
@@ -393,3 +487,7 @@ String _safeName(String value) {
   final safe = value.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').trim();
   return _truncate(safe, 128);
 }
+
+bool _isUnauthorizedError(Object error) =>
+    error is mcp.UnauthorizedError ||
+    (error is mcp.McpError && error.message.contains('HTTP 401'));

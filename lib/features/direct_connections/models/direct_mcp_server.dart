@@ -77,8 +77,12 @@ final class DirectMcpOAuthTokens {
         (scope.length > 4096 || _containsForbiddenCredentialCharacter(scope))) {
       return 'The OAuth scope is invalid.';
     }
-    if (_validOAuthUri(authorizationServerIssuer) == null ||
-        _validOAuthUri(tokenEndpoint) == null) {
+    final issuerUri = _validOAuthUri(authorizationServerIssuer);
+    final tokenUri = _validOAuthUri(tokenEndpoint);
+    if (issuerUri == null ||
+        tokenUri == null ||
+        DirectMcpServer._originOf(authorizationServerIssuer) !=
+            DirectMcpServer._originOf(tokenEndpoint)) {
       return 'The OAuth authorization server is invalid.';
     }
     if (DirectMcpServer._originOf(resource) != serverOrigin) {
@@ -490,15 +494,26 @@ DirectMcpAuthMode _readAuthMode(Object? value) {
 
 Uri? _validOAuthUri(String value) {
   final uri = Uri.tryParse(value);
+  final isLoopback = uri != null && _isLoopbackHost(uri.host);
   if (uri == null ||
       !uri.isAbsolute ||
-      !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+      (uri.scheme.toLowerCase() != 'https' &&
+          !(uri.scheme.toLowerCase() == 'http' && isLoopback)) ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
       uri.hasFragment) {
     return null;
   }
   return uri;
+}
+
+bool _isLoopbackHost(String host) {
+  final normalized = host.toLowerCase();
+  if (normalized == 'localhost' || normalized == '::1') return true;
+  final octets = normalized.split('.').map(int.tryParse).toList();
+  return octets.length == 4 &&
+      octets.every((value) => value != null && value >= 0 && value <= 255) &&
+      octets.first == 127;
 }
 
 bool _sameOAuthTokens(

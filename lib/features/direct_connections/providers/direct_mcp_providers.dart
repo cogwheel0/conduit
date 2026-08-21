@@ -7,12 +7,24 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../models/direct_mcp_server.dart';
 import '../services/direct_mcp_client.dart';
+import '../services/direct_mcp_oauth.dart';
 import '../services/direct_mcp_server_store.dart';
 
 final directMcpServerStoreProvider = Provider<DirectMcpServerStore>((ref) {
   return DirectMcpServerStore(
     SecureCredentialStorage(instance: ref.watch(secureStorageProvider)),
   );
+});
+
+final directMcpOAuthCoordinatorProvider = Provider<DirectMcpOAuthCoordinator>((
+  ref,
+) {
+  ref.watch(incompleteLogoutFenceProvider);
+  final coordinator = DirectMcpOAuthCoordinator(
+    store: ref.watch(directMcpServerStoreProvider),
+  );
+  ref.onDispose(() => unawaited(coordinator.close()));
+  return coordinator;
 });
 
 final class DirectMcpServersController
@@ -37,6 +49,7 @@ final class DirectMcpServersController
     bool oauthFlowCompletedForExactMutation = false,
   }) => _serialize(() async {
     _requireMutationAdmission();
+    await ref.read(directMcpOAuthCoordinatorProvider).cancel(server.id);
     final servers = await ref
         .read(directMcpServerStoreProvider)
         .upsert(
@@ -53,6 +66,7 @@ final class DirectMcpServersController
 
   Future<List<DirectMcpServer>> remove(String id) => _serialize(() async {
     _requireMutationAdmission();
+    await ref.read(directMcpOAuthCoordinatorProvider).cancel(id);
     final servers = await ref.read(directMcpServerStoreProvider).remove(id);
     if (ref.mounted) state = AsyncData(servers);
     ref.invalidate(directMcpToolsProvider);
@@ -61,6 +75,7 @@ final class DirectMcpServersController
 
   Future<void> clear() => _serialize(() async {
     _requireMutationAdmission();
+    await ref.read(directMcpOAuthCoordinatorProvider).cancelAll();
     await ref.read(directMcpServerStoreProvider).clear();
     if (ref.mounted) state = const AsyncData([]);
     ref.invalidate(directMcpToolsProvider);
@@ -94,9 +109,15 @@ typedef DirectMcpSessionBuilder = Future<DirectMcpToolSession> Function(
   List<DirectMcpServer> servers,
 );
 
-final directMcpSessionBuilderProvider = Provider<DirectMcpSessionBuilder>(
-  (ref) => DirectMcpToolSession.open,
-);
+final directMcpSessionBuilderProvider = Provider<DirectMcpSessionBuilder>((
+  ref,
+) {
+  final oauth = ref.watch(directMcpOAuthCoordinatorProvider);
+  return (servers) => DirectMcpToolSession.open(
+    servers,
+    authorizationResolver: oauth.accessTokenFor,
+  );
+});
 
 /// Volatile server bundles for the Direct composer; never persisted to Drift.
 final directMcpToolsProvider = FutureProvider<List<Tool>>((ref) async {
