@@ -1,16 +1,21 @@
 import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
+import 'package:conduit/features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
   test('direct native actions expose only local MCP tool bundles', () {
     const tool = Tool(id: 'local_mcp:home', name: 'Home MCP');
     final actions = buildIosKeyboardAttachmentActions(
@@ -124,5 +129,34 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('No MCP servers yet'), findsNothing);
+  });
+
+  testWidgets('MCP editor hosts Material fields on an iOS utility route', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directMcpServersProvider.overrideWithBuild(
+            (ref, notifier) async => const [],
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.iOS),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectMcpServerEditorPage(serverId: 'new'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('direct-mcp-name')), findsOneWidget);
+    expect(find.byKey(const ValueKey('direct-mcp-endpoint')), findsOneWidget);
   });
 }

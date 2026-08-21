@@ -215,82 +215,94 @@ class _DirectMcpServerEditorPageState
         return UtilityPageScaffold.settings(
           title: _isNew ? l10n.directMcpAddTitle : l10n.directMcpEditorTitle,
           children: [
-            Text(l10n.directMcpReachabilityHelp),
-            const SizedBox(height: 16),
-            TextField(
-              key: const ValueKey('direct-mcp-name'),
-              controller: _name,
-              enabled: !_busy,
-              decoration: InputDecoration(labelText: l10n.directMcpName),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('direct-mcp-endpoint'),
-              controller: _endpoint,
-              enabled: !_busy,
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-              decoration: InputDecoration(labelText: l10n.directMcpEndpoint),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('direct-mcp-token'),
-              controller: _token,
-              enabled: !_busy,
-              obscureText: true,
-              autocorrect: false,
-              decoration: InputDecoration(labelText: l10n.directMcpBearerToken),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('direct-mcp-headers'),
-              controller: _headers,
-              enabled: !_busy,
-              minLines: 2,
-              maxLines: 5,
-              autocorrect: false,
-              decoration: InputDecoration(
-                labelText: l10n.directMcpCustomHeaders,
-                hintText: l10n.directMcpCustomHeadersHint,
+            Material(
+              type: MaterialType.transparency,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(l10n.directMcpReachabilityHelp),
+                  const SizedBox(height: 16),
+                  TextField(
+                    key: const ValueKey('direct-mcp-name'),
+                    controller: _name,
+                    enabled: !_busy,
+                    decoration: InputDecoration(labelText: l10n.directMcpName),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('direct-mcp-endpoint'),
+                    controller: _endpoint,
+                    enabled: !_busy,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: l10n.directMcpEndpoint,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('direct-mcp-token'),
+                    controller: _token,
+                    enabled: !_busy,
+                    obscureText: true,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: l10n.directMcpBearerToken,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('direct-mcp-headers'),
+                    controller: _headers,
+                    enabled: !_busy,
+                    minLines: 2,
+                    maxLines: 5,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: l10n.directMcpCustomHeaders,
+                      hintText: l10n.directMcpCustomHeadersHint,
+                    ),
+                  ),
+                  SwitchListTile.adaptive(
+                    key: const ValueKey('direct-mcp-enabled'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l10n.enabledLabel),
+                    value: _enabled,
+                    onChanged: _busy
+                        ? null
+                        : (value) => setState(() => _enabled = value),
+                  ),
+                  if (_message != null) ...[
+                    const SizedBox(height: 8),
+                    Semantics(liveRegion: true, child: Text(_message!)),
+                  ],
+                  const SizedBox(height: 16),
+                  ConduitButton(
+                    key: const ValueKey('direct-mcp-test'),
+                    text: l10n.directMcpTestConnection,
+                    isSecondary: true,
+                    isLoading: _busy,
+                    onPressed: _busy ? null : _testConnection,
+                  ),
+                  const SizedBox(height: 8),
+                  ConduitButton(
+                    key: const ValueKey('direct-mcp-save'),
+                    text: l10n.save,
+                    isLoading: _busy,
+                    onPressed: _busy ? null : _save,
+                  ),
+                  if (!_isNew) ...[
+                    const SizedBox(height: 8),
+                    ConduitButton(
+                      key: const ValueKey('direct-mcp-delete'),
+                      text: l10n.delete,
+                      isDestructive: true,
+                      onPressed: _busy ? null : _delete,
+                    ),
+                  ],
+                ],
               ),
             ),
-            SwitchListTile.adaptive(
-              key: const ValueKey('direct-mcp-enabled'),
-              contentPadding: EdgeInsets.zero,
-              title: Text(l10n.enabledLabel),
-              value: _enabled,
-              onChanged: _busy
-                  ? null
-                  : (value) => setState(() => _enabled = value),
-            ),
-            if (_message != null) ...[
-              const SizedBox(height: 8),
-              Semantics(liveRegion: true, child: Text(_message!)),
-            ],
-            const SizedBox(height: 16),
-            ConduitButton(
-              key: const ValueKey('direct-mcp-test'),
-              text: l10n.directMcpTestConnection,
-              isSecondary: true,
-              isLoading: _busy,
-              onPressed: _busy ? null : _testConnection,
-            ),
-            const SizedBox(height: 8),
-            ConduitButton(
-              key: const ValueKey('direct-mcp-save'),
-              text: l10n.save,
-              isLoading: _busy,
-              onPressed: _busy ? null : _save,
-            ),
-            if (!_isNew) ...[
-              const SizedBox(height: 8),
-              ConduitButton(
-                key: const ValueKey('direct-mcp-delete'),
-                text: l10n.delete,
-                isDestructive: true,
-                onPressed: _busy ? null : _delete,
-              ),
-            ],
           ],
         );
       },
