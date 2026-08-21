@@ -51,7 +51,6 @@ final class DirectMcpServerStore {
     bool secretsConfirmedForNewOrigin = false,
     bool oauthFlowCompletedForExactMutation = false,
   }) => _serializeMutation(() async {
-    server.validate();
     final current = await load();
     final index = current.indexWhere((item) => item.id == server.id);
     final previous = index < 0 ? null : current[index];
@@ -69,6 +68,7 @@ final class DirectMcpServerStore {
             oauthFlowCompletedForExactMutation:
                 oauthFlowCompletedForExactMutation,
           );
+    safe.validate();
     final updated = [...current];
     if (index < 0) {
       updated.add(safe);

@@ -55,7 +55,21 @@ final class DirectMcpOAuthTokens {
     tokenEndpoint: tokenEndpoint,
   );
 
-  String? validateOrNull({required String serverOrigin}) {
+  bool appliesToEndpoint(String endpoint) {
+    final resourceUri = _validOAuthUri(resource);
+    final endpointUri = Uri.tryParse(endpoint.trim());
+    if (resourceUri == null ||
+        endpointUri == null ||
+        DirectMcpServer._originOf(resource) !=
+            DirectMcpServer._originOf(endpoint)) {
+      return false;
+    }
+    final resourcePath = resourceUri.path.isEmpty ? '/' : resourceUri.path;
+    final endpointPath = endpointUri.path.isEmpty ? '/' : endpointUri.path;
+    return resourcePath == '/' || resourcePath == endpointPath;
+  }
+
+  String? validateOrNull({required String serverEndpoint}) {
     if (accessToken.isEmpty ||
         accessToken.length > 16384 ||
         _containsForbiddenCredentialCharacter(accessToken)) {
@@ -85,7 +99,7 @@ final class DirectMcpOAuthTokens {
             DirectMcpServer._originOf(tokenEndpoint)) {
       return 'The OAuth authorization server is invalid.';
     }
-    if (DirectMcpServer._originOf(resource) != serverOrigin) {
+    if (!appliesToEndpoint(serverEndpoint)) {
       return 'The OAuth token is bound to a different MCP server.';
     }
     if (clientId.isEmpty ||
@@ -231,7 +245,7 @@ final class DirectMcpServer {
         }
         final oauth = oauthTokens;
         if (oauth != null) {
-          final oauthError = oauth.validateOrNull(serverOrigin: origin!);
+          final oauthError = oauth.validateOrNull(serverEndpoint: endpoint);
           if (oauthError != null) return oauthError;
         }
     }
@@ -289,6 +303,11 @@ final class DirectMcpServer {
     }
     if (previous.authMode != next.authMode &&
         !oauthFlowCompletedForExactMutation) {
+      return next.withoutAuthCredentials();
+    }
+    if (next.oauthTokens case final oauth?
+        when !oauth.appliesToEndpoint(next.endpoint) &&
+            !oauthFlowCompletedForExactMutation) {
       return next.withoutAuthCredentials();
     }
     final previousIssuer = previous.oauthTokens?.authorizationServerIssuer;

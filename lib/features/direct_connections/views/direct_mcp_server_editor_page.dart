@@ -97,8 +97,8 @@ class _DirectMcpServerEditorPageState
           ? (_token.text.isEmpty ? null : _token.text)
           : null,
       oauthTokens: _authMode == DirectMcpAuthMode.oauth
-          ? (_sameEndpointOrigin(_previous?.endpoint, _endpoint.text)
-                ? _previous?.oauthTokens
+          ? (_previous?.oauthTokens?.appliesToEndpoint(_endpoint.text) == true
+                ? _previous!.oauthTokens
                 : null)
           : null,
       customHeaders: customHeaders,
@@ -473,15 +473,4 @@ class _DirectMcpServerEditorPageState
       },
     );
   }
-}
-
-bool _sameEndpointOrigin(String? first, String second) {
-  final left = first == null ? null : Uri.tryParse(first.trim());
-  final right = Uri.tryParse(second.trim());
-  if (left == null || right == null) return false;
-  int port(Uri uri) =>
-      uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
-  return left.scheme.toLowerCase() == right.scheme.toLowerCase() &&
-      left.host.toLowerCase() == right.host.toLowerCase() &&
-      port(left) == port(right);
 }

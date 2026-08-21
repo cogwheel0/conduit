@@ -117,6 +117,18 @@ void main() {
       ).validate(),
       throwsFormatException,
     );
+    expect(
+      () => DirectMcpServer(
+        id: 'wrong-resource-path',
+        name: 'Wrong resource path',
+        endpoint: 'https://resource.example/mcp',
+        authMode: DirectMcpAuthMode.oauth,
+        oauthTokens: _oauthTokens(
+          resource: 'https://resource.example/other-mcp',
+        ),
+      ).validate(),
+      throwsFormatException,
+    );
   });
 
   test('document rejects duplicate ids', () {
@@ -201,7 +213,7 @@ void main() {
     expect(confirmed.customHeaders['X-Secret'], 'new-header');
   });
 
-  test('origin, issuer, and auth mode changes clear OAuth credentials', () {
+  test('unsafe OAuth credential mutations are cleared', () {
     final previous = DirectMcpServer(
       id: 'server',
       name: 'Server',
@@ -214,6 +226,17 @@ void main() {
     final moved = DirectMcpServer.secureUpdate(
       previous: previous,
       next: previous.copyWith(endpoint: 'https://new.example/mcp'),
+    );
+    final pathMoved = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(endpoint: 'https://resource.example/other-mcp'),
+    );
+    final rootBound = previous.copyWith(
+      oauthTokens: _oauthTokens(resource: 'https://resource.example/'),
+    );
+    final rootPathMoved = DirectMcpServer.secureUpdate(
+      previous: rootBound,
+      next: rootBound.copyWith(endpoint: 'https://resource.example/other-mcp'),
     );
     final issuerChanged = DirectMcpServer.secureUpdate(
       previous: previous,
@@ -239,6 +262,9 @@ void main() {
     expect(moved.authMode, DirectMcpAuthMode.oauth);
     expect(moved.oauthTokens, isNull);
     expect(moved.customHeaders, isEmpty);
+    expect(pathMoved.oauthTokens, isNull);
+    expect(pathMoved.customHeaders, {'X-Tenant': 'one'});
+    expect(rootPathMoved.oauthTokens, isNotNull);
     expect(issuerChanged.oauthTokens, isNull);
     expect(modeChanged.authMode, DirectMcpAuthMode.none);
     expect(modeChanged.oauthTokens, isNull);

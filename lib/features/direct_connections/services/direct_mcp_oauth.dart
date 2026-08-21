@@ -616,7 +616,7 @@ final class DirectMcpOAuthCoordinator {
       tokenEndpoint: metadata.tokenEndpoint.toString(),
     );
     final error = tokens.validateOrNull(
-      serverOrigin: _origin(metadata.resource),
+      serverEndpoint: metadata.resource.toString(),
     );
     if (error != null) throw DirectMcpOAuthException(error);
     return tokens;
