@@ -189,10 +189,11 @@ final class DirectMcpOAuthCoordinator {
 
   Future<DirectMcpServer> disconnect(DirectMcpServer server) async {
     await cancel(server.id);
-    final updated = server.copyWith(oauthTokens: null);
+    final current = await _currentOAuthServer(server);
+    final updated = current.copyWith(oauthTokens: null);
     final servers = await _store.upsert(
       updated,
-      expectedPrevious: server,
+      expectedPrevious: current,
       oauthFlowCompletedForExactMutation: true,
     );
     return servers.firstWhere((item) => item.id == server.id);

@@ -112,6 +112,31 @@ void main() {
     expect(additions, 1);
   });
 
+  test('server mutation refreshes its dependent tool inventory', () async {
+    final store = _managementStore();
+    final container = ProviderContainer(
+      overrides: [directMcpServerStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    final subscription = container.listen(directMcpToolsProvider, (_, _) {});
+    addTearDown(subscription.close);
+
+    expect(await container.read(directMcpToolsProvider.future), isEmpty);
+    final servers = await container
+        .read(directMcpServersProvider.notifier)
+        .upsert(
+          DirectMcpServer(
+            id: 'disabled-smoke',
+            name: 'Disabled smoke server',
+            endpoint: 'http://127.0.0.1:1234/mcp',
+            enabled: false,
+          ),
+        );
+
+    expect(servers.single.id, 'disabled-smoke');
+    expect(await container.read(directMcpToolsProvider.future), isEmpty);
+  });
+
   testWidgets('management shows an MCP secure-storage load failure', (
     tester,
   ) async {
@@ -170,6 +195,39 @@ void main() {
     expect(find.byKey(const ValueKey('direct-mcp-endpoint')), findsOneWidget);
   });
 
+  testWidgets('MCP editor reinitializes after the new route gets an id', (
+    tester,
+  ) async {
+    final store = _managementStore();
+    final server = await _saveManagementOAuthServer(
+      store,
+      Uri.parse('https://resource.example/mcp'),
+    );
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+
+    await _pumpOAuthEditor(
+      tester,
+      store,
+      coordinator,
+      'new',
+      editorKey: const ValueKey('same-route-editor'),
+    );
+    expect(find.text('Add MCP server'), findsOneWidget);
+
+    await _pumpOAuthEditor(
+      tester,
+      store,
+      coordinator,
+      server.id,
+      editorKey: const ValueKey('same-route-editor'),
+    );
+    expect(find.text('Edit MCP server'), findsOneWidget);
+    expect(find.text('OAuth UI'), findsOneWidget);
+    expect(find.text('https://resource.example/mcp'), findsOneWidget);
+    expect(find.text('This MCP server no longer exists.'), findsNothing);
+  });
+
   testWidgets('OAuth editor renders no secrets and disconnects', (
     tester,
   ) async {
@@ -202,7 +260,53 @@ void main() {
     expect((await store.load()).single.oauthTokens, isNull);
   });
 
-  testWidgets('OAuth editor can cancel a pending browser flow', (tester) async {
+  testWidgets('OAuth editor adopts a token-only secure-store reload', (
+    tester,
+  ) async {
+    final store = _managementStore();
+    final server = await _saveManagementOAuthServer(
+      store,
+      Uri.parse('https://resource.example/mcp'),
+    );
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+    final container = ProviderContainer(
+      overrides: [
+        directMcpServerStoreProvider.overrideWithValue(store),
+        directMcpOAuthCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectMcpServerEditorPage(serverId: server.id),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Connect in browser'), findsOneWidget);
+
+    await store.upsert(
+      server.copyWith(oauthTokens: _managementOAuthTokens(server.endpoint)),
+      expectedPrevious: server,
+      oauthFlowCompletedForExactMutation: true,
+    );
+    await container.read(directMcpServersProvider.notifier).reload();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reconnect in browser'), findsOneWidget);
+    expect(find.textContaining('auth.example'), findsOneWidget);
+    expect(find.textContaining('access-ui-secret'), findsNothing);
+    expect(find.textContaining('refresh-ui-secret'), findsNothing);
+  });
+
+  testWidgets('OAuth editor restores and cancels a pending browser flow', (
+    tester,
+  ) async {
     final store = _managementStore();
     final server = await _saveManagementOAuthServer(
       store,
@@ -211,13 +315,29 @@ void main() {
     final client = _BlockedHttpClient();
     final coordinator = DirectMcpOAuthCoordinator(store: store, client: client);
     addTearDown(coordinator.close);
-    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+    await _pumpOAuthEditor(
+      tester,
+      store,
+      coordinator,
+      server.id,
+      editorKey: const ValueKey('first-editor'),
+    );
 
     final connect = find.byKey(const ValueKey('direct-mcp-oauth-connect'));
     await tester.ensureVisible(connect);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Connect in browser'));
     await tester.pump();
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(coordinator.isPending(server.id), isTrue);
+
+    await _pumpOAuthEditor(
+      tester,
+      store,
+      coordinator,
+      server.id,
+      editorKey: const ValueKey('remounted-editor'),
+    );
     expect(find.text('Cancel'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-connect')));
@@ -250,29 +370,31 @@ Future<DirectMcpServer> _saveManagementOAuthServer(
     name: 'OAuth UI',
     endpoint: endpoint.toString(),
     authMode: DirectMcpAuthMode.oauth,
-    oauthTokens: connected
-        ? DirectMcpOAuthTokens(
-            accessToken: 'access-ui-secret',
-            refreshToken: 'refresh-ui-secret',
-            grantedScope: 'tools.read',
-            expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
-            authorizationServerIssuer: 'https://auth.example/issuer',
-            resource: endpoint.toString(),
-            clientId: 'public-ui-client',
-            tokenEndpoint: 'https://auth.example/token',
-          )
-        : null,
+    oauthTokens: connected ? _managementOAuthTokens(endpoint.toString()) : null,
   );
   await store.upsert(server);
   return server;
 }
 
+DirectMcpOAuthTokens _managementOAuthTokens(String resource) =>
+    DirectMcpOAuthTokens(
+      accessToken: 'access-ui-secret',
+      refreshToken: 'refresh-ui-secret',
+      grantedScope: 'tools.read',
+      expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
+      authorizationServerIssuer: 'https://auth.example/issuer',
+      resource: resource,
+      clientId: 'public-ui-client',
+      tokenEndpoint: 'https://auth.example/token',
+    );
+
 Future<void> _pumpOAuthEditor(
   WidgetTester tester,
   DirectMcpServerStore store,
   DirectMcpOAuthCoordinator coordinator,
-  String serverId,
-) async {
+  String serverId, {
+  Key? editorKey,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -282,7 +404,7 @@ Future<void> _pumpOAuthEditor(
       child: MaterialApp(
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: DirectMcpServerEditorPage(serverId: serverId),
+        home: DirectMcpServerEditorPage(key: editorKey, serverId: serverId),
       ),
     ),
   );

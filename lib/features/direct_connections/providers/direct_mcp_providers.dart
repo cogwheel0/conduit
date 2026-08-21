@@ -60,7 +60,6 @@ final class DirectMcpServersController
               oauthFlowCompletedForExactMutation,
         );
     if (ref.mounted) state = AsyncData(servers);
-    ref.invalidate(directMcpToolsProvider);
     return servers;
   });
 
@@ -69,7 +68,6 @@ final class DirectMcpServersController
     await ref.read(directMcpOAuthCoordinatorProvider).cancel(id);
     final servers = await ref.read(directMcpServerStoreProvider).remove(id);
     if (ref.mounted) state = AsyncData(servers);
-    ref.invalidate(directMcpToolsProvider);
     return servers;
   });
 
@@ -78,7 +76,6 @@ final class DirectMcpServersController
     await ref.read(directMcpOAuthCoordinatorProvider).cancelAll();
     await ref.read(directMcpServerStoreProvider).clear();
     if (ref.mounted) state = const AsyncData([]);
-    ref.invalidate(directMcpToolsProvider);
   });
 
   Future<T> _serialize<T>(Future<T> Function() operation) {

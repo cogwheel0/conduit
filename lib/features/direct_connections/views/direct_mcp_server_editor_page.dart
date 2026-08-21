@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -41,6 +42,14 @@ class _DirectMcpServerEditorPageState
   bool get _isNew => widget.serverId == 'new';
 
   @override
+  void didUpdateWidget(covariant DirectMcpServerEditorPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.serverId == widget.serverId) return;
+    _initialized = false;
+    _previous = null;
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _endpoint.dispose();
@@ -50,7 +59,18 @@ class _DirectMcpServerEditorPageState
   }
 
   void _initialize(List<DirectMcpServer> servers) {
-    if (_initialized) return;
+    if (_initialized) {
+      final previous = _previous;
+      if (previous != null) {
+        final persisted = servers
+            .where((server) => server.id == widget.serverId)
+            .firstOrNull;
+        if (persisted != null && _sameServerExceptOAuth(previous, persisted)) {
+          _previous = persisted;
+        }
+      }
+      return;
+    }
     _initialized = true;
     if (_isNew) return;
     _previous = servers
@@ -69,6 +89,14 @@ class _DirectMcpServerEditorPageState
         .join('\n');
     _enabled = server.enabled;
   }
+
+  bool _sameServerExceptOAuth(
+    DirectMcpServer previous,
+    DirectMcpServer persisted,
+  ) => sameDirectMcpServerValues(
+    previous.copyWith(oauthTokens: persisted.oauthTokens),
+    persisted,
+  );
 
   DirectMcpServer _draft({bool forceEnabled = false}) {
     final id = _isNew ? _newServerId : widget.serverId;
@@ -208,6 +236,8 @@ class _DirectMcpServerEditorPageState
 
   Future<void> _connectOAuth() async {
     final l10n = AppLocalizations.of(context)!;
+    final servers = ref.read(directMcpServersProvider.notifier);
+    final oauth = ref.read(directMcpOAuthCoordinatorProvider);
     DirectMcpServer draft;
     try {
       draft = _draft();
@@ -220,14 +250,18 @@ class _DirectMcpServerEditorPageState
       _message = l10n.directMcpOAuthPending;
     });
     try {
-      final saved = await ref
-          .read(directMcpServersProvider.notifier)
-          .upsert(draft, expectedPrevious: _previous);
+      final saved = await servers.upsert(draft, expectedPrevious: _previous);
       final persisted = saved.firstWhere((server) => server.id == draft.id);
-      final connected = await ref
-          .read(directMcpOAuthCoordinatorProvider)
-          .connect(persisted);
-      await ref.read(directMcpServersProvider.notifier).reload();
+      if (_isNew) {
+        if (!mounted) return;
+        context.replaceNamed(
+          RouteNames.directMcpServerEditor,
+          pathParameters: {'id': persisted.id},
+          extra: const NativeSheetNavigationOrigin(),
+        );
+      }
+      final connected = await oauth.connect(persisted);
+      await servers.reload();
       if (mounted) {
         setState(() {
           _previous = connected;
@@ -250,9 +284,8 @@ class _DirectMcpServerEditorPageState
   }
 
   Future<void> _cancelOAuth() async {
-    await ref
-        .read(directMcpOAuthCoordinatorProvider)
-        .cancel(_isNew ? _newServerId : widget.serverId);
+    final oauth = ref.read(directMcpOAuthCoordinatorProvider);
+    await oauth.cancel(_isNew ? _newServerId : widget.serverId);
     if (mounted) {
       setState(() {
         _oauthPending = false;
@@ -265,12 +298,12 @@ class _DirectMcpServerEditorPageState
     final l10n = AppLocalizations.of(context)!;
     final previous = _previous;
     if (previous == null) return;
+    final servers = ref.read(directMcpServersProvider.notifier);
+    final oauth = ref.read(directMcpOAuthCoordinatorProvider);
     setState(() => _busy = true);
     try {
-      final disconnected = await ref
-          .read(directMcpOAuthCoordinatorProvider)
-          .disconnect(previous);
-      await ref.read(directMcpServersProvider.notifier).reload();
+      final disconnected = await oauth.disconnect(previous);
+      await servers.reload();
       if (mounted) {
         setState(() {
           _previous = disconnected;
@@ -301,6 +334,11 @@ class _DirectMcpServerEditorPageState
       ),
       data: (items) {
         _initialize(items);
+        final oauthPending =
+            _oauthPending ||
+            ref
+                .watch(directMcpOAuthCoordinatorProvider)
+                .isPending(_isNew ? _newServerId : widget.serverId);
         if (!_isNew && _previous == null) {
           return UtilityPageScaffold.settings(
             title: l10n.directMcpEditorTitle,
@@ -355,7 +393,7 @@ class _DirectMcpServerEditorPageState
                         child: Text(l10n.directMcpAuthOAuth),
                       ),
                     ],
-                    onChanged: _busy || _oauthPending
+                    onChanged: _busy || oauthPending
                         ? null
                         : (mode) {
                             if (mode == null) return;
@@ -395,7 +433,7 @@ class _DirectMcpServerEditorPageState
                     ],
                     ConduitButton(
                       key: const ValueKey('direct-mcp-oauth-connect'),
-                      text: _oauthPending
+                      text: oauthPending
                           ? l10n.cancel
                           : (_previous?.oauthTokens == null
                                 ? l10n.directMcpOAuthConnect
@@ -403,9 +441,9 @@ class _DirectMcpServerEditorPageState
                       isSecondary: true,
                       onPressed: _busy
                           ? null
-                          : (_oauthPending ? _cancelOAuth : _connectOAuth),
+                          : (oauthPending ? _cancelOAuth : _connectOAuth),
                     ),
-                    if (_previous?.oauthTokens != null && !_oauthPending) ...[
+                    if (_previous?.oauthTokens != null && !oauthPending) ...[
                       const SizedBox(height: 8),
                       ConduitButton(
                         key: const ValueKey('direct-mcp-oauth-disconnect'),

@@ -423,6 +423,31 @@ void main() {
     expect((await store.load()).single.oauthTokens, isNull);
   });
 
+  test('disconnect accepts a securely rotated OAuth token record', () async {
+    final fixture = await _OAuthFixture.start();
+    addTearDown(fixture.close);
+    final store = _store();
+    final staleServer = await _saveTokenServer(store, fixture, expired: false);
+    final rotatedServer = staleServer.copyWith(
+      oauthTokens: staleServer.oauthTokens!.copyWith(
+        accessToken: 'rotated-access',
+        refreshToken: 'refresh-two',
+      ),
+    );
+    await store.upsert(
+      rotatedServer,
+      expectedPrevious: staleServer,
+      oauthFlowCompletedForExactMutation: true,
+    );
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+
+    final disconnected = await coordinator.disconnect(staleServer);
+
+    expect(disconnected.oauthTokens, isNull);
+    expect((await store.load()).single.oauthTokens, isNull);
+  });
+
   test('cancellation prevents a late refresh write', () async {
     final fixture = await _OAuthFixture.start(holdRefresh: true);
     addTearDown(fixture.close);
