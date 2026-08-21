@@ -69,6 +69,17 @@ void main() {
     }
   });
 
+  test('validation rejects case-insensitive duplicate header names', () {
+    final server = DirectMcpServer(
+      id: 'duplicate-headers',
+      name: 'Duplicate headers',
+      endpoint: 'https://example.test/mcp',
+      customHeaders: const {'X-Tenant': 'one', 'x-tenant': 'two'},
+    );
+
+    expect(server.validate, throwsFormatException);
+  });
+
   test('origin changes clear credentials unless explicitly confirmed', () {
     final previous = DirectMcpServer(
       id: 'server',

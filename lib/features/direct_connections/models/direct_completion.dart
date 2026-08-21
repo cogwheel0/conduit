@@ -136,6 +136,8 @@ final class DirectToolResult {
 
 enum DirectToolApprovalDecision { allowOnce, deny }
 
+const Duration kDirectToolApprovalTimeout = Duration(minutes: 5);
+
 final class DirectToolApprovalRequest {
   const DirectToolApprovalRequest({
     required this.id,
@@ -169,6 +171,24 @@ final class DirectToolApprovalHandle {
 
   final DirectToolApprovalRequest request;
   final Future<DirectToolApprovalDecision> decision;
+}
+
+Future<DirectToolApprovalDecision?> waitForDirectToolApproval({
+  required DirectToolApprovalHandle approval,
+  required Duration timeout,
+  required Iterable<Future<void>> cancellations,
+}) {
+  final timedOut = Completer<DirectToolApprovalDecision>();
+  final timer = Timer(
+    timeout,
+    () => timedOut.complete(DirectToolApprovalDecision.deny),
+  );
+  return Future.any<DirectToolApprovalDecision?>([
+    approval.decision,
+    timedOut.future,
+    for (final cancellation in cancellations)
+      cancellation.then<DirectToolApprovalDecision?>((_) => null),
+  ]).whenComplete(timer.cancel);
 }
 
 typedef DirectToolApprovalCallback = DirectToolApprovalHandle Function(

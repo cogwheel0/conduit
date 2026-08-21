@@ -120,6 +120,37 @@ void main() {
     );
   });
 
+  test('rejects a repeated tools/list pagination cursor', () async {
+    final fixture = await _McpFixture.start(repeatListCursor: true);
+    addTearDown(fixture.close);
+    final client = DirectMcpClient(endpoint: fixture.endpoint);
+    addTearDown(client.close);
+    await client.connect();
+
+    await expectLater(
+      client.listTools(),
+      throwsA(isA<DirectProviderException>()),
+    );
+    expect(fixture.listCount, 2);
+  });
+
+  test('rejects cumulative paginated inventory overflow', () async {
+    final fixture = await _McpFixture.start(
+      listPageCount: 9,
+      toolDescriptionCharacters: kDirectMcpMaxInventoryBytes ~/ 8,
+    );
+    addTearDown(fixture.close);
+    final client = DirectMcpClient(endpoint: fixture.endpoint);
+    addTearDown(client.close);
+    await client.connect();
+
+    await expectLater(
+      client.listTools(),
+      throwsA(isA<DirectProviderException>()),
+    );
+    expect(fixture.listCount, greaterThan(1));
+  });
+
   test('rejects oversized arguments before tools/call', () async {
     final fixture = await _McpFixture.start();
     addTearDown(fixture.close);
@@ -202,6 +233,9 @@ final class _McpFixture {
     required this.resultText,
     required this.includeImage,
     required this.failDiscovery,
+    required this.repeatListCursor,
+    required this.listPageCount,
+    required this.toolDescriptionCharacters,
   });
 
   final HttpServer server;
@@ -212,6 +246,9 @@ final class _McpFixture {
   final String resultText;
   final bool includeImage;
   final bool failDiscovery;
+  final bool repeatListCursor;
+  final int listPageCount;
+  final int toolDescriptionCharacters;
   final Completer<void> toolCallReceived = Completer<void>();
   final List<String?> authorizationHeaders = [];
   final List<String?> customHeaders = [];
@@ -229,6 +266,9 @@ final class _McpFixture {
     String resultText = '',
     bool includeImage = false,
     bool failDiscovery = false,
+    bool repeatListCursor = false,
+    int listPageCount = 1,
+    int toolDescriptionCharacters = 0,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _McpFixture fixture;
@@ -242,6 +282,9 @@ final class _McpFixture {
       resultText: resultText,
       includeImage: includeImage,
       failDiscovery: failDiscovery,
+      repeatListCursor: repeatListCursor,
+      listPageCount: listPageCount,
+      toolDescriptionCharacters: toolDescriptionCharacters,
     );
     return fixture;
   }
@@ -284,12 +327,19 @@ final class _McpFixture {
         ).toJson();
       case mcp.Method.toolsList:
         listCount++;
+        final params = body['params'] as Map<String, dynamic>?;
+        final cursor = params?['cursor'] as String?;
+        final page = cursor?.startsWith('page-') == true
+            ? int.parse(cursor!.substring('page-'.length))
+            : 0;
         result = {
           'tools': [
             for (final name in toolNames)
               {
                 'name': name,
-                'description': 'Returns its value.',
+                'description': toolDescriptionCharacters == 0
+                    ? 'Returns its value.'
+                    : 'x' * toolDescriptionCharacters,
                 'inputSchema': invalidSchema
                     ? {'type': 'string'}
                     : {
@@ -300,6 +350,10 @@ final class _McpFixture {
                       },
               },
           ],
+          if (repeatListCursor)
+            'nextCursor': 'repeat'
+          else if (page + 1 < listPageCount)
+            'nextCursor': 'page-${page + 1}',
           'ttlMs': 0,
           'cacheScope': mcp.CacheScope.private,
         };

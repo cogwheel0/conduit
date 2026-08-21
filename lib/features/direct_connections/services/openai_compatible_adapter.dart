@@ -41,6 +41,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     this.maxStreamEvents = kMaxDirectStreamEvents,
     this.successDrainTimeout = kDirectSuccessDrainTimeout,
     this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
+    this.toolApprovalTimeout = kDirectToolApprovalTimeout,
     this.maxSseLineCharacters = 4 * 1024 * 1024,
     this.maxSseFrameDataCharacters = 4 * 1024 * 1024,
   }) : _dioFactory = dioFactory,
@@ -62,6 +63,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     if (maxSuccessDrainBytes <= 0) {
       throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
     }
+    if (toolApprovalTimeout <= Duration.zero) {
+      throw ArgumentError.value(toolApprovalTimeout, 'toolApprovalTimeout');
+    }
     if (maxSseFrameDataCharacters <= 0) {
       throw ArgumentError.value(
         maxSseFrameDataCharacters,
@@ -81,6 +85,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   final int maxStreamEvents;
   final Duration successDrainTimeout;
   final int maxSuccessDrainBytes;
+  final Duration toolApprovalTimeout;
   final int maxSseLineCharacters;
   final int maxSseFrameDataCharacters;
 
@@ -846,11 +851,11 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           arguments,
         );
         emitter.approvalRequested(approval.request);
-        final decision = await Future.any<DirectToolApprovalDecision?>([
-          approval.decision,
-          runCancelToken.whenCancel.then((_) => null),
-          cancelToken.whenCancel.then((_) => null),
-        ]);
+        final decision = await waitForDirectToolApproval(
+          approval: approval,
+          timeout: toolApprovalTimeout,
+          cancellations: [runCancelToken.whenCancel, cancelToken.whenCancel],
+        );
         if (decision == null) return;
         emitter.approvalResolved(approval.request.id, decision);
         if (runCancelToken.isCancelled || cancelToken.isCancelled) return;

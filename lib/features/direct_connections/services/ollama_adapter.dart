@@ -34,6 +34,7 @@ final class OllamaAdapter
     this.maxStreamEvents = kMaxDirectStreamEvents,
     this.successDrainTimeout = kDirectSuccessDrainTimeout,
     this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
+    this.toolApprovalTimeout = kDirectToolApprovalTimeout,
   }) : _dioFactory = dioFactory,
        _clientPool = clientPool ?? DirectHttpClientPool(),
        _ownsClientPool = clientPool == null {
@@ -50,6 +51,9 @@ final class OllamaAdapter
     if (maxSuccessDrainBytes <= 0) {
       throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
     }
+    if (toolApprovalTimeout <= Duration.zero) {
+      throw ArgumentError.value(toolApprovalTimeout, 'toolApprovalTimeout');
+    }
   }
 
   final DirectDioFactory? _dioFactory;
@@ -63,6 +67,7 @@ final class OllamaAdapter
   final int maxStreamEvents;
   final Duration successDrainTimeout;
   final int maxSuccessDrainBytes;
+  final Duration toolApprovalTimeout;
 
   @override
   String get key => kOllamaAdapterKey;
@@ -739,12 +744,12 @@ final class OllamaAdapter
               'tool_calls': [for (final call in roundToolCalls) call.toJson()],
             });
             for (final call in roundToolCalls) {
-              final localDefinition = localTools?.definitions
-                  .where((definition) => definition.name == call.name)
-                  .firstOrNull;
               final isWebTool =
                   webToolsEnabled &&
                   const {'web_search', 'web_fetch'}.contains(call.name);
+              final localDefinition = isWebTool
+                  ? null
+                  : localTools?.definition(call.name);
               if (localDefinition == null && !isWebTool) {
                 throw const DirectProviderException(
                   'The model requested an unavailable local tool.',
@@ -761,11 +766,14 @@ final class OllamaAdapter
                 );
                 budget.add(jsonEncode(approval.request.toMetadata('pending')));
                 controller.add(DirectMcpApprovalRequested(approval.request));
-                final decision = await Future.any<DirectToolApprovalDecision?>([
-                  approval.decision,
-                  cancelToken.whenCancel.then((_) => null),
-                  transportCancelToken.whenCancel.then((_) => null),
-                ]);
+                final decision = await waitForDirectToolApproval(
+                  approval: approval,
+                  timeout: toolApprovalTimeout,
+                  cancellations: [
+                    cancelToken.whenCancel,
+                    transportCancelToken.whenCancel,
+                  ],
+                );
                 if (decision == null) break;
                 budget.add(approval.request.id);
                 controller.add(

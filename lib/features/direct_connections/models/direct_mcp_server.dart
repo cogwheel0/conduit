@@ -69,8 +69,12 @@ final class DirectMcpServer {
     if (token != null && _containsForbiddenCredentialCharacter(token)) {
       return 'The bearer token contains an invalid character.';
     }
+    final normalizedHeaderNames = <String>{};
     for (final entry in customHeaders.entries) {
       final normalizedName = entry.key.trim().toLowerCase();
+      if (!normalizedHeaderNames.add(normalizedName)) {
+        return 'Custom header names must be unique.';
+      }
       if (!DirectConnectionProfile.isValidCustomHeaderName(entry.key) ||
           !DirectConnectionProfile.isValidCustomHeaderValue(entry.value)) {
         return 'A custom header is invalid.';

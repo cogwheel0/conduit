@@ -96,4 +96,33 @@ void main() {
     await tester.tap(find.text('No MCP servers yet'));
     expect(additions, 1);
   });
+
+  testWidgets('management shows an MCP secure-storage load failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: const [],
+            mcpLoadFailed: true,
+            syncWithOpenWebUi: false,
+            isOnboarding: false,
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Could not load MCP servers from secure storage.'),
+      findsOneWidget,
+    );
+    expect(find.text('No MCP servers yet'), findsNothing);
+  });
 }

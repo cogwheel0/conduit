@@ -143,6 +143,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       data: (items) => DirectConnectionsContent(
         profiles: items,
         mcpServers: mcpServers.value ?? const [],
+        mcpLoadFailed: mcpServers.hasError,
         openWebUiConnections: openWebUiConnections,
         showOpenWebUi: showOpenWebUi,
         showHistorySync: showOpenWebUi,
@@ -209,6 +210,7 @@ class DirectConnectionsContent extends StatelessWidget {
     super.key,
     required this.profiles,
     this.mcpServers = const [],
+    this.mcpLoadFailed = false,
     this.openWebUiConnections = const AsyncValue.data(null),
     this.showOpenWebUi = false,
     this.showHistorySync = false,
@@ -227,6 +229,7 @@ class DirectConnectionsContent extends StatelessWidget {
 
   final List<DirectConnectionProfile> profiles;
   final List<DirectMcpServer> mcpServers;
+  final bool mcpLoadFailed;
   final AsyncValue<OpenWebUiDirectConnectionsSnapshot?> openWebUiConnections;
   final bool showOpenWebUi;
   final bool showHistorySync;
@@ -297,6 +300,7 @@ class DirectConnectionsContent extends StatelessWidget {
       const SizedBox(height: Spacing.xl),
       _DirectMcpSection(
         servers: mcpServers,
+        loadFailed: mcpLoadFailed,
         onAdd: onAddMcp,
         onEdit: onEditMcp,
         flat: isOnboarding,
@@ -320,12 +324,14 @@ class DirectConnectionsContent extends StatelessWidget {
 class _DirectMcpSection extends StatelessWidget {
   const _DirectMcpSection({
     required this.servers,
+    required this.loadFailed,
     required this.onAdd,
     required this.onEdit,
     required this.flat,
   });
 
   final List<DirectMcpServer> servers;
+  final bool loadFailed;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
   final bool flat;
@@ -341,7 +347,9 @@ class _DirectMcpSection extends StatelessWidget {
           onAdd: servers.isNotEmpty ? onAdd : null,
         ),
         const SizedBox(height: Spacing.sm),
-        if (servers.isEmpty)
+        if (loadFailed)
+          InsetGroupedSection(child: Text(l10n.directMcpLoadFailed))
+        else if (servers.isEmpty)
           _DirectConnectionsEmptyState(
             title: l10n.directMcpEmptyTitle,
             subtitle: l10n.directMcpReachabilityHelp,

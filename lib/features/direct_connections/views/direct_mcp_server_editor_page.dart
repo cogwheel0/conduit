@@ -66,6 +66,7 @@ class _DirectMcpServerEditorPageState
   DirectMcpServer _draft({bool forceEnabled = false}) {
     final id = _isNew ? const Uuid().v4() : widget.serverId;
     final customHeaders = <String, String>{};
+    final normalizedHeaderNames = <String>{};
     for (final rawLine in _headers.text.split('\n')) {
       final line = rawLine.trim();
       if (line.isEmpty) continue;
@@ -74,7 +75,7 @@ class _DirectMcpServerEditorPageState
         throw const FormatException('Enter custom headers as Name: Value.');
       }
       final name = line.substring(0, separator).trim();
-      if (customHeaders.containsKey(name)) {
+      if (!normalizedHeaderNames.add(name.toLowerCase())) {
         throw const FormatException('Custom header names must be unique.');
       }
       customHeaders[name] = line.substring(separator + 1).trim();

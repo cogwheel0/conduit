@@ -4607,11 +4607,12 @@ void main() {
       ], contentType: 'text/event-stream'),
     ]);
     var executions = 0;
+    Map<String, dynamic>? executedArguments;
     final runtime = _localToolRuntime(
       decision: DirectToolApprovalDecision.allowOnce,
       execute: (arguments) async {
         executions++;
-        expect(arguments, {'city': 'Paris'});
+        executedArguments = arguments;
         return const DirectToolResult(text: 'sunny');
       },
     );
@@ -4633,6 +4634,7 @@ void main() {
         .toList();
 
     expect(executions, 1);
+    expect(executedArguments, {'city': 'Paris'});
     expect(events.whereType<DirectMcpApprovalRequested>(), hasLength(1));
     expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
     expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
@@ -4702,6 +4704,81 @@ void main() {
     expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 
+  test('OpenAI Chat denies a pending approval after its timeout', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {
+                  'id': 'call-1',
+                  'type': 'function',
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'I did not run it.'},
+          },
+        ],
+      }),
+    ]);
+    final pendingDecision = Completer<DirectToolApprovalDecision>();
+    var executions = 0;
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+      toolApprovalTimeout: const Duration(milliseconds: 5),
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              approvalDecision: pendingDecision.future,
+              execute: (_) async {
+                executions++;
+                return const DirectToolResult(text: 'unexpected');
+              },
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(executions, 0);
+    expect(
+      events.whereType<DirectMcpApprovalResolved>().single.decision,
+      DirectToolApprovalDecision.deny,
+    );
+    expect(events.whereType<DirectToolCallCompleted>().single.isError, isTrue);
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'I did not run it.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = secondRequest['messages'] as List;
+    expect(
+      (messages.last as Map)['content'],
+      'The user denied this tool call.',
+    );
+  });
+
   test(
     'OpenAI Chat cancellation interrupts a pending local approval',
     () async {
@@ -4741,17 +4818,28 @@ void main() {
         ),
       );
       final approvalRequested = Completer<void>();
+      final streamDone = Completer<void>();
+      final events = <DirectStreamEvent>[];
       final subscription = run.events.listen((event) {
+        events.add(event);
         if (event is DirectMcpApprovalRequested &&
             !approvalRequested.isCompleted) {
           approvalRequested.complete();
         }
-      });
+      }, onDone: streamDone.complete);
       addTearDown(subscription.cancel);
 
-      await approvalRequested.future;
+      await approvalRequested.future.timeout(const Duration(seconds: 1));
       await run.cancel().timeout(const Duration(seconds: 1));
+      await streamDone.future.timeout(const Duration(seconds: 1));
+
+      expect(run.isCancelled, isTrue);
       expect(pendingDecision.isCompleted, isFalse);
+      expect(events.whereType<DirectMcpApprovalRequested>(), hasLength(1));
+      expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+      expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+      expect(http.requests, hasLength(1));
     },
   );
 
@@ -4815,6 +4903,83 @@ void main() {
     expect(events.whereType<DirectToolCallStarted>(), isEmpty);
     expect(events.whereType<DirectToolCallCompleted>().single.isError, isTrue);
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('Ollama denies a pending approval after its timeout', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'model',
+            'message': {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': {'city': 'Paris'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'model',
+            'message': {'role': 'assistant', 'content': 'I did not run it.'},
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final pendingDecision = Completer<DirectToolApprovalDecision>();
+    var executions = 0;
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+      toolApprovalTimeout: const Duration(milliseconds: 5),
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _ollamaProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              approvalDecision: pendingDecision.future,
+              execute: (_) async {
+                executions++;
+                return const DirectToolResult(text: 'unexpected');
+              },
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(executions, 0);
+    expect(
+      events.whereType<DirectMcpApprovalResolved>().single.decision,
+      DirectToolApprovalDecision.deny,
+    );
+    expect(events.whereType<DirectToolCallCompleted>().single.isError, isTrue);
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'I did not run it.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = secondRequest['messages'] as List;
+    expect(
+      (messages.last as Map)['content'],
+      'The user denied this tool call.',
+    );
   });
 
   test('Ollama Cloud runs a bounded native web-search agent loop', () async {

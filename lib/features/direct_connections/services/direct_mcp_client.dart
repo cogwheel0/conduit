@@ -9,6 +9,8 @@ import 'ollama_cloud_tools.dart';
 
 const int kDirectMcpMaxServers = 8;
 const int kDirectMcpMaxTools = 128;
+const int kDirectMcpMaxListPages = 32;
+const int kDirectMcpMaxInventoryBytes = 512 * 1024;
 const int kDirectMcpMaxDescriptionCharacters = 4096;
 const int kDirectMcpMaxInputSchemaBytes = 64 * 1024;
 const int kDirectMcpMaxDefinitionsBytes = 512 * 1024;
@@ -88,7 +90,9 @@ final class DirectMcpClient {
       await client.connect(transport);
       _client = client;
     } catch (_) {
-      await client.close();
+      try {
+        await client.close();
+      } catch (_) {}
       rethrow;
     }
   }
@@ -96,13 +100,41 @@ final class DirectMcpClient {
   Future<List<mcp.Tool>> listTools() async {
     final client = _requireClient();
     final tools = <mcp.Tool>[];
+    final seenCursors = <String>{};
     String? cursor;
+    var pageCount = 0;
+    var inventoryBytes = 0;
     do {
+      if (pageCount >= kDirectMcpMaxListPages) {
+        throw const DirectProviderException(
+          'The MCP tool inventory has too many pages.',
+        );
+      }
+      pageCount++;
       final result = await client.listTools(
         params: cursor == null ? null : mcp.ListToolsRequest(cursor: cursor),
       );
+      if (tools.length + result.tools.length > kDirectMcpMaxTools) {
+        throw const DirectProviderException(
+          'The MCP server exposes more than 128 tools.',
+        );
+      }
+      for (final tool in result.tools) {
+        inventoryBytes += utf8.encode(jsonEncode(tool.toJson())).length;
+        if (inventoryBytes > kDirectMcpMaxInventoryBytes) {
+          throw const DirectProviderException(
+            'The MCP tool inventory is too large.',
+          );
+        }
+      }
       tools.addAll(result.tools);
-      cursor = result.nextCursor;
+      final nextCursor = result.nextCursor;
+      if (nextCursor != null && !seenCursors.add(nextCursor)) {
+        throw const DirectProviderException(
+          'The MCP tool inventory repeated a pagination cursor.',
+        );
+      }
+      cursor = nextCursor;
     } while (cursor != null);
     return List.unmodifiable(tools);
   }
@@ -232,7 +264,7 @@ final class DirectMcpToolSession {
         Map.unmodifiable(targets),
       );
     } catch (error) {
-      await Future.wait(clients.values.map((client) => client.close()));
+      await _closeClients(clients.values, suppressErrors: true);
       if (error is DirectProviderException) rethrow;
       throw const DirectProviderException(
         'A selected MCP server could not be reached.',
@@ -285,7 +317,26 @@ final class DirectMcpToolSession {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await Future.wait(_clients.values.map((client) => client.close()));
+    await _closeClients(_clients.values);
+  }
+}
+
+Future<void> _closeClients(
+  Iterable<DirectMcpClient> clients, {
+  bool suppressErrors = false,
+}) async {
+  Object? firstError;
+  StackTrace? firstStack;
+  for (final client in clients) {
+    try {
+      await client.close();
+    } catch (error, stack) {
+      firstError ??= error;
+      firstStack ??= stack;
+    }
+  }
+  if (!suppressErrors && firstError != null) {
+    Error.throwWithStackTrace(firstError, firstStack!);
   }
 }
 
