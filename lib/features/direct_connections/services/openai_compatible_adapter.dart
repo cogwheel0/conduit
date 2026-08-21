@@ -1019,6 +1019,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final replayBudget = _ResponsesReplayBudget();
     Map<String, dynamic>? combinedUsage;
     for (var round = 0; round < kDirectMaxToolRounds; round++) {
+      if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
       emitter.beginResponsesRound();
       final roundCancelToken = CancelToken();
       unawaited(

@@ -14,6 +14,7 @@ import 'package:conduit/features/direct_connections/services/ollama_adapter.dart
 import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -5279,6 +5280,45 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test('OpenAI Responses enforces the response replay byte limit', () async {
+    final replaySizedText = base64Encode(Uint8List(6 * 1024 * 1024));
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-large-replay',
+          output: [
+            _responsesMessage('msg-large', replaySizedText),
+            _responsesFunctionCall(id: 'fc-1', callId: 'call-1'),
+          ],
+        ),
+      ),
+    ]);
+
+    final events =
+        await OpenAiCompatibleAdapter(
+              dioFactory: (_) => _dio(http),
+              closeClients: false,
+            )
+            .startCompletion(
+              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('response replay limit'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
   test('OpenAI Responses cancellation interrupts pending approval', () async {
     final http = _QueuedAdapter([
       _Reply.json(
@@ -5365,6 +5405,58 @@ void main() {
     expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
     expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
     expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(http.requests, hasLength(1));
+  });
+
+  test('OpenAI Responses cancellation after tool completion prevents another request', () async {
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-tool',
+          output: [_responsesFunctionCall(id: 'fc-1', callId: 'call-1')],
+        ),
+      ),
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-final',
+          output: [_responsesMessage('msg-final', 'Finished.')],
+        ),
+      ),
+    ]);
+    final pendingExecution = Completer<DirectToolResult>();
+    final dio = _CountingPostDio(http);
+    final run =
+        OpenAiCompatibleAdapter(
+          dioFactory: (_) => dio,
+          closeClients: false,
+        ).startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(execute: (_) => pendingExecution.future),
+          ),
+        );
+    final executionStarted = Completer<void>();
+    final streamDone = Completer<void>();
+    final events = <DirectStreamEvent>[];
+    final subscription = run.events.listen((event) {
+      events.add(event);
+      if (event is DirectToolCallStarted && !executionStarted.isCompleted) {
+        executionStarted.complete();
+      }
+    }, onDone: streamDone.complete);
+    addTearDown(subscription.cancel);
+
+    await executionStarted.future.timeout(const Duration(seconds: 1));
+    pendingExecution.complete(const DirectToolResult(text: 'sunny'));
+    final cancelFuture = run.cancel();
+    await cancelFuture.timeout(const Duration(seconds: 1));
+    await streamDone.future.timeout(const Duration(seconds: 1));
+
+    expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(dio.postCount, 1);
     expect(http.requests, hasLength(1));
   });
 
@@ -6195,6 +6287,36 @@ Dio _dio(HttpClientAdapter adapter) {
   final dio = Dio();
   dio.httpClientAdapter = adapter;
   return dio;
+}
+
+final class _CountingPostDio extends DioForNative {
+  _CountingPostDio(HttpClientAdapter adapter) {
+    httpClientAdapter = adapter;
+  }
+
+  int postCount = 0;
+
+  @override
+  Future<Response<T>> post<T>(
+    String path, {
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+    CancelToken? cancelToken,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) {
+    postCount += 1;
+    return super.post<T>(
+      path,
+      data: data,
+      queryParameters: queryParameters,
+      options: options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+  }
 }
 
 final class _QueuedAdapter implements HttpClientAdapter {
