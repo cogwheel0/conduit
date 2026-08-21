@@ -400,11 +400,13 @@ final class _McpFixture {
     if (requiredAuthorization != null &&
         request.headers.value(HttpHeaders.authorizationHeader) !=
             requiredAuthorization) {
+      await request.drain<void>();
       request.response.statusCode = HttpStatus.unauthorized;
       await request.response.close();
       return;
     }
     if (request.method != 'POST' || request.uri.path != '/mcp') {
+      await request.drain<void>();
       request.response.statusCode = HttpStatus.methodNotAllowed;
       await request.response.close();
       return;

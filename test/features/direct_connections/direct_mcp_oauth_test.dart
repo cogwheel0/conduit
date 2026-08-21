@@ -277,18 +277,26 @@ void main() {
     final store = _store();
     final server = await _saveOAuthServer(store, fixture.endpoint);
     var launches = 0;
-    var secondCallbackRejected = false;
+    final firstLaunch = Completer<void>();
+    final repeatedCallback = Completer<bool>();
     final coordinator = DirectMcpOAuthCoordinator(
       store: store,
       launchBrowser: (uri) async {
         launches++;
-        if (launches == 2) {
+        if (launches == 1) {
+          firstLaunch.complete();
+        } else if (launches == 2) {
           unawaited(() async {
-            await _deliverCallback(uri, issuer: fixture.issuer.toString());
             try {
               await _deliverCallback(uri, issuer: fixture.issuer.toString());
-            } catch (_) {
-              secondCallbackRejected = true;
+              try {
+                await _deliverCallback(uri, issuer: fixture.issuer.toString());
+                repeatedCallback.complete(false);
+              } catch (_) {
+                repeatedCallback.complete(true);
+              }
+            } catch (error, stackTrace) {
+              repeatedCallback.completeError(error, stackTrace);
             }
           }());
         }
@@ -298,14 +306,14 @@ void main() {
     addTearDown(coordinator.close);
 
     final first = coordinator.connect(server);
-    while (launches < 1) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
+    await firstLaunch.future.timeout(const Duration(seconds: 2));
     final second = coordinator.connect(server);
 
     await expectLater(first, throwsA(isA<DirectMcpOAuthException>()));
     final connected = await second;
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final secondCallbackRejected = await repeatedCallback.future.timeout(
+      const Duration(seconds: 2),
+    );
     expect(connected.oauthTokens?.accessToken, 'access-one');
     expect(fixture.tokenForms, hasLength(1));
     expect(secondCallbackRejected, isTrue);

@@ -75,8 +75,13 @@ void main() {
     expect(decoded.oauthTokens?.accessToken, accessToken);
     expect(decoded.oauthTokens?.refreshToken, refreshToken);
     expect(decoded.oauthTokens?.grantedScope, 'tools.read tools.call');
-    expect(decoded.toString(), isNot(contains(accessToken)));
-    expect(decoded.oauthTokens.toString(), isNot(contains(refreshToken)));
+    for (final diagnostic in [
+      decoded.toString(),
+      decoded.oauthTokens.toString(),
+    ]) {
+      expect(diagnostic, isNot(contains(accessToken)));
+      expect(diagnostic, isNot(contains(refreshToken)));
+    }
   });
 
   test('OAuth JSON rejects malformed and mixed credentials', () {
