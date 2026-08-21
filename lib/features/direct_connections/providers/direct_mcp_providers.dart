@@ -1,11 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
 import '../../../core/models/tool.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
+import '../models/direct_completion.dart';
 import '../models/direct_mcp_server.dart';
+import '../models/direct_mcp_content.dart';
 import '../services/direct_mcp_client.dart';
 import '../services/direct_mcp_oauth.dart';
 import '../services/direct_mcp_server_store.dart';
@@ -194,6 +198,113 @@ final directMcpSessionBuilderProvider = Provider<DirectMcpSessionBuilder>((
     }
   };
 });
+
+typedef DirectMcpContentSessionBuilder =
+    Future<DirectMcpContentSession> Function(DirectMcpServer server);
+
+Future<T> _withDirectMcpContentSession<T>(
+  DirectMcpContentSessionBuilder buildSession,
+  DirectMcpServer server,
+  Future<T> Function(DirectMcpContentSession session) operation,
+) async {
+  final session = await buildSession(server);
+  return runDirectMcpContentOperation(
+    operation: () => operation(session),
+    close: session.close,
+  );
+}
+
+@visibleForTesting
+Future<T> runDirectMcpContentOperation<T>({
+  required Future<T> Function() operation,
+  required Future<void> Function() close,
+}) async {
+  Object? operationError;
+  try {
+    return await operation();
+  } catch (error) {
+    operationError = error;
+    rethrow;
+  } finally {
+    try {
+      await close();
+    } catch (_) {
+      if (operationError == null) rethrow;
+    }
+  }
+}
+
+final directMcpContentSessionBuilderProvider =
+    Provider<DirectMcpContentSessionBuilder>((ref) {
+      final oauth = ref.watch(directMcpOAuthCoordinatorProvider);
+      return (server) => DirectMcpContentSession.open(
+        server,
+        authorizationResolver: oauth.accessTokenFor,
+      );
+    });
+
+typedef DirectMcpContentInventoryLoader =
+    Future<DirectMcpContentInventory> Function(DirectMcpServer server);
+
+final directMcpContentInventoryLoaderProvider =
+    Provider<DirectMcpContentInventoryLoader>((ref) {
+      final buildSession = ref.watch(directMcpContentSessionBuilderProvider);
+      return (server) => _withDirectMcpContentSession(
+        buildSession,
+        server,
+        (session) => session.loadInventory(),
+      );
+    });
+
+typedef DirectMcpPromptPreviewLoader = Future<DirectMcpPromptPreview> Function(
+  DirectMcpServer server,
+  DirectMcpPromptSummary prompt,
+  Map<String, String> arguments,
+  mcp.AbortSignal signal,
+);
+
+final directMcpPromptPreviewLoaderProvider =
+    Provider<DirectMcpPromptPreviewLoader>((ref) {
+      final buildSession = ref.watch(directMcpContentSessionBuilderProvider);
+      return (server, prompt, arguments, signal) =>
+          _withDirectMcpContentSession(
+            buildSession,
+            server,
+            (session) => session.getPrompt(prompt, arguments, signal: signal),
+          );
+    });
+
+typedef DirectMcpResourcePreviewLoader =
+    Future<DirectMcpResourcePreview> Function(
+      DirectMcpServer server,
+      DirectMcpResourceSummary resource,
+      mcp.AbortSignal signal,
+    );
+
+final directMcpResourcePreviewLoaderProvider =
+    Provider<DirectMcpResourcePreviewLoader>((ref) {
+      final buildSession = ref.watch(directMcpContentSessionBuilderProvider);
+      return (server, resource, signal) => _withDirectMcpContentSession(
+        buildSession,
+        server,
+        (session) => session.readResource(resource, signal: signal),
+      );
+    });
+
+/// Volatile prompt/resource summaries for one enabled server.
+final directMcpContentInventoryProvider = FutureProvider.autoDispose
+    .family<DirectMcpContentInventory, String>((ref, serverId) async {
+      final servers = await ref.watch(directMcpServersProvider.future);
+      final matches = servers.where(
+        (server) => server.id == serverId && server.enabled,
+      );
+      if (matches.length != 1) {
+        throw const DirectProviderException(
+          'The MCP content server is unavailable.',
+        );
+      }
+      return ref.watch(directMcpContentInventoryLoaderProvider)(matches.single);
+    });
 
 /// Volatile server bundles for the Direct composer; never persisted to Drift.
 final directMcpToolsProvider = FutureProvider<List<Tool>>((ref) async {

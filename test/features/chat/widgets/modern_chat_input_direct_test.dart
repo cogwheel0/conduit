@@ -9,9 +9,11 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
+import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
@@ -24,6 +26,68 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'composer insertion replaces selection and preserves surrounding draft',
+    () {
+      const current = TextEditingValue(
+        text: 'before OLD after',
+        selection: TextSelection(baseOffset: 7, extentOffset: 10),
+        composing: TextRange(start: 7, end: 10),
+      );
+
+      final inserted = composerTextValueAfterInsertion(current, 'MCP');
+
+      expect(inserted.text, 'before MCP after');
+      expect(inserted.selection, const TextSelection.collapsed(offset: 10));
+      expect(inserted.composing, TextRange.empty);
+    },
+  );
+
+  test('MCP insertion enforces the final UTF-8 composer limit', () {
+    expect(
+      directMcpInsertionFitsComposer(
+        const TextEditingValue(text: 'draft'),
+        'x' * (256 * 1024 - 5),
+      ),
+      isTrue,
+    );
+    expect(
+      directMcpInsertionFitsComposer(
+        const TextEditingValue(text: 'draft'),
+        'é' * (128 * 1024),
+      ),
+      isFalse,
+    );
+  });
+
+  test('MCP content native action is Direct-only', () {
+    Iterable<String> actionIds(bool directMode) =>
+        buildIosKeyboardAttachmentActions(
+          l10n: AppLocalizationsEn(),
+          attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+            mcpContent: true,
+          ),
+          hermesMode: false,
+          directMode: directMode,
+          webSearchAvailable: false,
+          webSearchEnabled: false,
+          imageGenerationAvailable: false,
+          imageGenerationEnabled: false,
+          availableTools: const [],
+          selectedToolIds: const [],
+          availableFilters: const [],
+          selectedFilterIds: const [],
+        ).map((action) => action.id);
+
+    expect(
+      actionIds(
+        false,
+      ).where((actionId) => actionId == ComposerOverflowActionIds.mcpContent),
+      isEmpty,
+    );
+    expect(actionIds(true).single, ComposerOverflowActionIds.mcpContent);
+  });
+
   test('native composer glass uses non-animated cursor opacity', () {
     check(composerCursorOpacityAnimates(usesNativePlatformView: true))
         .equals(false);

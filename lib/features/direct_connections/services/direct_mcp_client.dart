@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
 import '../models/direct_completion.dart';
+import '../models/direct_mcp_content.dart';
 import '../models/direct_mcp_server.dart';
 import 'ollama_cloud_tools.dart';
 
@@ -17,6 +18,15 @@ const int kDirectMcpMaxDefinitionsBytes = 512 * 1024;
 const int kDirectMcpMaxArgumentsBytes = 64 * 1024;
 const int kDirectMcpApprovalFingerprintMaxDepth = 32;
 const int kDirectMcpApprovalFingerprintMaxNodes = 8192;
+const int kDirectMcpMaxContentListPages = 10;
+const int kDirectMcpMaxPrompts = 512;
+const int kDirectMcpMaxResources = 512;
+const int kDirectMcpMaxContentNameCharacters = 4096;
+const int kDirectMcpMaxPromptArguments = 32;
+const int kDirectMcpMaxPromptArgumentNameCharacters = 128;
+const int kDirectMcpMaxPromptArgumentValueBytes = 16 * 1024;
+const int kDirectMcpMaxContentItemBytes = 128 * 1024;
+const int kDirectMcpMaxInsertionBytes = 256 * 1024;
 
 String directMcpApprovalFingerprint({
   required String serverId,
@@ -91,6 +101,11 @@ final class DirectMcpClient {
   mcp.McpClient? _client;
 
   bool get isConnected => _client != null;
+
+  bool get supportsPrompts => _client?.getServerCapabilities()?.prompts != null;
+
+  bool get supportsResources =>
+      _client?.getServerCapabilities()?.resources != null;
 
   Future<void> connect() async {
     if (_client != null) return;
@@ -173,16 +188,468 @@ final class DirectMcpClient {
     mcp.CallToolRequest(name: name, arguments: arguments),
   );
 
+  Future<List<mcp.Prompt>> listPrompts({
+    mcp.AbortSignal? signal,
+  }) => _listBounded<mcp.Prompt>(
+    maxPages: kDirectMcpMaxContentListPages,
+    maxItems: kDirectMcpMaxPrompts,
+    tooManyPages: 'The MCP prompt inventory has too many pages.',
+    tooManyItems: 'The MCP server exposes more than 512 prompts.',
+    tooLarge: 'The MCP prompt inventory is too large.',
+    repeatedCursor: 'The MCP prompt inventory repeated a pagination cursor.',
+    loadPage: (cursor) async {
+      final result = await _requireClient().listPrompts(
+        params: cursor == null ? null : mcp.ListPromptsRequest(cursor: cursor),
+        options: mcp.RequestOptions(signal: signal),
+      );
+      return (items: result.prompts, nextCursor: result.nextCursor);
+    },
+    toJson: (prompt) => prompt.toJson(),
+  );
+
+  Future<mcp.GetPromptResult> getPrompt(
+    String name,
+    Map<String, String> arguments, {
+    mcp.AbortSignal? signal,
+  }) => _requireClient().getPrompt(
+    mcp.GetPromptRequest(name: name, arguments: arguments),
+    mcp.RequestOptions(signal: signal),
+  );
+
+  Future<List<mcp.Resource>> listResources({mcp.AbortSignal? signal}) =>
+      _listBounded<mcp.Resource>(
+        maxPages: kDirectMcpMaxContentListPages,
+        maxItems: kDirectMcpMaxResources,
+        tooManyPages: 'The MCP resource inventory has too many pages.',
+        tooManyItems: 'The MCP server exposes more than 512 resources.',
+        tooLarge: 'The MCP resource inventory is too large.',
+        repeatedCursor:
+            'The MCP resource inventory repeated a pagination cursor.',
+        loadPage: (cursor) async {
+          final result = await _requireClient().listResources(
+            params: cursor == null
+                ? null
+                : mcp.ListResourcesRequest(cursor: cursor),
+            options: mcp.RequestOptions(signal: signal),
+          );
+          return (items: result.resources, nextCursor: result.nextCursor);
+        },
+        toJson: (resource) => resource.toJson(),
+      );
+
+  Future<mcp.ReadResourceResult> readResource(
+    String uri, {
+    mcp.AbortSignal? signal,
+  }) => _requireClient().readResource(
+    mcp.ReadResourceRequest(uri: uri),
+    mcp.RequestOptions(signal: signal),
+  );
+
+  Future<List<T>> _listBounded<T>({
+    required int maxPages,
+    required int maxItems,
+    required String tooManyPages,
+    required String tooManyItems,
+    required String tooLarge,
+    required String repeatedCursor,
+    required Future<({List<T> items, String? nextCursor})> Function(
+      String? cursor,
+    )
+    loadPage,
+    required Map<String, dynamic> Function(T item) toJson,
+  }) async {
+    final items = <T>[];
+    final cursors = <String>{};
+    String? cursor;
+    var pages = 0;
+    var bytes = 0;
+    do {
+      if (pages++ >= maxPages) throw DirectProviderException(tooManyPages);
+      final page = await loadPage(cursor);
+      if (items.length + page.items.length > maxItems) {
+        throw DirectProviderException(tooManyItems);
+      }
+      for (final item in page.items) {
+        try {
+          bytes += utf8
+              .encode(_CanonicalJsonEncoder().encode(toJson(item)))
+              .length;
+        } on FormatException {
+          throw const DirectProviderException(
+            'The MCP content inventory is too complex.',
+          );
+        }
+        if (bytes > kDirectMcpMaxInventoryBytes) {
+          throw DirectProviderException(tooLarge);
+        }
+      }
+      items.addAll(page.items);
+      cursor = page.nextCursor;
+      if (cursor != null && !cursors.add(cursor)) {
+        throw DirectProviderException(repeatedCursor);
+      }
+    } while (cursor != null);
+    return List.unmodifiable(items);
+  }
+
   Future<void> close() async {
     final client = _client;
-    _client = null;
-    await client?.close();
+    if (client == null) return;
+    await client.close();
+    if (identical(_client, client)) _client = null;
   }
 
   mcp.McpClient _requireClient() {
     final client = _client;
     if (client == null) throw StateError('MCP client is not connected.');
     return client;
+  }
+}
+
+DirectMcpPromptSummary _normalizePrompt(mcp.Prompt prompt) {
+  _requireBoundedLabel(prompt.name, 'An MCP prompt name is invalid.');
+  final arguments = prompt.arguments ?? const <mcp.PromptArgument>[];
+  if (arguments.length > kDirectMcpMaxPromptArguments) {
+    throw const DirectProviderException(
+      'An MCP prompt declares more than 32 arguments.',
+    );
+  }
+  final seen = <String>{};
+  final normalizedArguments = <DirectMcpPromptArgument>[];
+  for (final argument in arguments) {
+    if (argument.name.isEmpty ||
+        argument.name.length > kDirectMcpMaxPromptArgumentNameCharacters ||
+        !seen.add(argument.name)) {
+      throw const DirectProviderException(
+        'An MCP prompt argument name is invalid.',
+      );
+    }
+    normalizedArguments.add(
+      DirectMcpPromptArgument(
+        name: argument.name,
+        label: _boundedOptionalLabel(argument.title) ?? argument.name,
+        description: _boundedDescription(argument.description),
+        required: argument.required ?? false,
+      ),
+    );
+  }
+  return DirectMcpPromptSummary(
+    name: prompt.name,
+    displayName: _boundedOptionalLabel(prompt.title) ?? prompt.name,
+    description: _boundedDescription(prompt.description),
+    arguments: normalizedArguments,
+    inventoryIdentity: _contentIdentity(prompt.toJson()),
+  );
+}
+
+DirectMcpResourceSummary _normalizeResource(mcp.Resource resource) {
+  _requireBoundedLabel(resource.name, 'An MCP resource name is invalid.');
+  if (resource.uri.isEmpty ||
+      resource.uri.length > kDirectMcpMaxContentNameCharacters) {
+    throw const DirectProviderException('An MCP resource URI is invalid.');
+  }
+  return DirectMcpResourceSummary(
+    uri: resource.uri,
+    displayName: _boundedOptionalLabel(resource.title) ?? resource.name,
+    description: _boundedDescription(resource.description),
+    mimeType: resource.mimeType,
+    inventoryIdentity: _contentIdentity(resource.toJson()),
+  );
+}
+
+void _validatePromptArguments(
+  DirectMcpPromptSummary prompt,
+  Map<String, String> values,
+) {
+  if (values.length > kDirectMcpMaxPromptArguments) {
+    throw const DirectProviderException('Too many MCP prompt arguments.');
+  }
+  final definitions = {
+    for (final argument in prompt.arguments) argument.name: argument,
+  };
+  if (values.keys.any((name) => !definitions.containsKey(name))) {
+    throw const DirectProviderException(
+      'The MCP prompt arguments no longer match this prompt.',
+    );
+  }
+  for (final argument in prompt.arguments) {
+    final value = values[argument.name];
+    if (argument.required && (value == null || value.trim().isEmpty)) {
+      throw DirectProviderException(
+        'The required MCP prompt argument "${_safeName(argument.label)}" is empty.',
+      );
+    }
+    if (value != null &&
+        utf8.encode(value).length > kDirectMcpMaxPromptArgumentValueBytes) {
+      throw const DirectProviderException(
+        'An MCP prompt argument is larger than 16 KiB.',
+      );
+    }
+  }
+}
+
+String _contentIdentity(Map<String, dynamic> value) {
+  try {
+    return _CanonicalJsonEncoder().encode(value);
+  } on FormatException {
+    throw const DirectProviderException('The MCP content is too complex.');
+  }
+}
+
+void _validateBoundedJson(Map<String, dynamic> value) {
+  _contentIdentity(value);
+}
+
+void _requireBoundedLabel(String value, String message) {
+  if (value.isEmpty || value.length > kDirectMcpMaxContentNameCharacters) {
+    throw DirectProviderException(message);
+  }
+}
+
+String? _boundedOptionalLabel(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  _requireBoundedLabel(value, 'An MCP content title is invalid.');
+  return value;
+}
+
+String _boundedDescription(String? value) {
+  if (value == null) return '';
+  if (value.length > kDirectMcpMaxDescriptionCharacters) {
+    throw const DirectProviderException(
+      'An MCP content description is too large.',
+    );
+  }
+  return value;
+}
+
+bool _isTextMimeType(String? mimeType) =>
+    mimeType == null || mimeType.toLowerCase().startsWith('text/');
+
+/// One authenticated MCP connection for explicit prompt/resource browsing.
+final class DirectMcpContentSession {
+  DirectMcpContentSession._(
+    this.server,
+    this._client,
+    this._authorizationResolver,
+  );
+
+  final DirectMcpServer server;
+  DirectMcpClient _client;
+  final DirectMcpAuthorizationResolver? _authorizationResolver;
+  bool _closed = false;
+
+  static Future<DirectMcpContentSession> open(
+    DirectMcpServer server, {
+    DirectMcpAuthorizationResolver? authorizationResolver,
+  }) async {
+    server.validate();
+    if (!server.enabled) {
+      throw const DirectProviderException('The MCP server is disabled.');
+    }
+    try {
+      final client = await _connectAuthorizedClient(
+        server,
+        authorizationResolver,
+      );
+      return DirectMcpContentSession._(server, client, authorizationResolver);
+    } catch (error) {
+      if (error is DirectProviderException) rethrow;
+      if (!_isUnauthorizedError(error) ||
+          server.authMode != DirectMcpAuthMode.oauth ||
+          authorizationResolver == null) {
+        throw const DirectProviderException(
+          'The MCP content server could not be reached.',
+        );
+      }
+      try {
+        final client = await _connectAuthorizedClient(
+          server,
+          authorizationResolver,
+          forceRefresh: true,
+        );
+        return DirectMcpContentSession._(server, client, authorizationResolver);
+      } catch (refreshError) {
+        if (refreshError is DirectProviderException) rethrow;
+        throw const DirectProviderException(
+          'The MCP content server could not be reached.',
+        );
+      }
+    }
+  }
+
+  Future<DirectMcpContentInventory> loadInventory({mcp.AbortSignal? signal}) =>
+      _guarded(() async {
+        final prompts = _client.supportsPrompts
+            ? await _client.listPrompts(signal: signal)
+            : const <mcp.Prompt>[];
+        signal?.throwIfAborted();
+        final resources = _client.supportsResources
+            ? await _client.listResources(signal: signal)
+            : const <mcp.Resource>[];
+        final normalizedPrompts = prompts.map(_normalizePrompt).toList();
+        final normalizedResources = resources.map(_normalizeResource).toList();
+        if (normalizedPrompts.map((prompt) => prompt.name).toSet().length !=
+                normalizedPrompts.length ||
+            normalizedResources
+                    .map((resource) => resource.uri)
+                    .toSet()
+                    .length !=
+                normalizedResources.length) {
+          throw const DirectProviderException(
+            'The MCP content inventory contains duplicate identities.',
+          );
+        }
+        return DirectMcpContentInventory(
+          serverId: server.id,
+          serverName: server.name,
+          prompts: normalizedPrompts,
+          resources: normalizedResources,
+        );
+      });
+
+  Future<DirectMcpPromptPreview> getPrompt(
+    DirectMcpPromptSummary selected,
+    Map<String, String> arguments, {
+    mcp.AbortSignal? signal,
+  }) => _guarded(() async {
+    final fresh = (await _client.listPrompts(signal: signal))
+        .map(_normalizePrompt)
+        .where((prompt) => prompt.name == selected.name)
+        .toList();
+    if (fresh.length != 1 ||
+        fresh.single.inventoryIdentity != selected.inventoryIdentity) {
+      throw const DirectProviderException(
+        'This MCP prompt changed. Refresh and try again.',
+      );
+    }
+    _validatePromptArguments(fresh.single, arguments);
+    signal?.throwIfAborted();
+    final result = await _client.getPrompt(
+      selected.name,
+      arguments,
+      signal: signal,
+    );
+    _validateBoundedJson(result.toJson());
+    var totalBytes = 0;
+    final messages = <DirectMcpPromptMessage>[];
+    for (final message in result.messages) {
+      final content = message.content;
+      if (content is! mcp.TextContent) {
+        throw const DirectProviderException(
+          'This MCP prompt contains unsupported non-text content.',
+        );
+      }
+      final bytes = utf8.encode(content.text).length;
+      if (bytes > kDirectMcpMaxContentItemBytes) {
+        throw const DirectProviderException(
+          'An MCP prompt message is larger than 128 KiB.',
+        );
+      }
+      totalBytes += bytes;
+      if (totalBytes > kDirectMcpMaxInsertionBytes) {
+        throw const DirectProviderException(
+          'The MCP prompt is larger than 256 KiB.',
+        );
+      }
+      messages.add(
+        DirectMcpPromptMessage(role: message.role.name, text: content.text),
+      );
+    }
+    return DirectMcpPromptPreview(messages: messages);
+  });
+
+  Future<DirectMcpResourcePreview> readResource(
+    DirectMcpResourceSummary selected, {
+    mcp.AbortSignal? signal,
+  }) => _guarded(() async {
+    final fresh = (await _client.listResources(signal: signal))
+        .map(_normalizeResource)
+        .where((resource) => resource.uri == selected.uri)
+        .toList();
+    if (fresh.length != 1 ||
+        fresh.single.inventoryIdentity != selected.inventoryIdentity) {
+      throw const DirectProviderException(
+        'This MCP resource changed. Refresh and try again.',
+      );
+    }
+    signal?.throwIfAborted();
+    final result = await _client.readResource(selected.uri, signal: signal);
+    _validateBoundedJson(result.toJson());
+    final parts = <String>[];
+    var totalBytes = 0;
+    for (final content in result.contents) {
+      if (content is! mcp.TextResourceContents ||
+          content.uri != selected.uri ||
+          !_isTextMimeType(content.mimeType ?? selected.mimeType)) {
+        throw const DirectProviderException(
+          'This MCP resource is not supported text content.',
+        );
+      }
+      final bytes = utf8.encode(content.text).length;
+      if (bytes > kDirectMcpMaxContentItemBytes) {
+        throw const DirectProviderException(
+          'An MCP resource item is larger than 128 KiB.',
+        );
+      }
+      totalBytes += bytes;
+      if (totalBytes > kDirectMcpMaxInsertionBytes) {
+        throw const DirectProviderException(
+          'The MCP resource is larger than 256 KiB.',
+        );
+      }
+      parts.add(content.text);
+    }
+    return DirectMcpResourcePreview(text: parts.join('\n'));
+  });
+
+  Future<T> _guarded<T>(Future<T> Function() operation) async {
+    if (_closed) {
+      throw const DirectProviderException('The MCP content session is closed.');
+    }
+    try {
+      return await operation();
+    } catch (error) {
+      if (error is mcp.AbortError || error is DirectProviderException) rethrow;
+      if (_isUnauthorizedError(error) &&
+          server.authMode == DirectMcpAuthMode.oauth &&
+          _authorizationResolver != null) {
+        try {
+          await _client.close();
+          final refreshed = await _connectAuthorizedClient(
+            server,
+            _authorizationResolver,
+            forceRefresh: true,
+          );
+          if (_closed) {
+            try {
+              await refreshed.close();
+            } catch (_) {}
+            throw const DirectProviderException(
+              'The MCP content session is closed.',
+            );
+          }
+          _client = refreshed;
+          return await operation();
+        } catch (retryError) {
+          if (retryError is mcp.AbortError ||
+              retryError is DirectProviderException) {
+            rethrow;
+          }
+        }
+      }
+      throw const DirectProviderException('The MCP content request failed.');
+    }
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    try {
+      await _client.close();
+    } catch (_) {
+      _closed = false;
+      rethrow;
+    }
   }
 }
 

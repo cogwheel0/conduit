@@ -135,6 +135,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onImageAttachment,
     this.onCameraCapture,
     this.onWebAttachment,
+    this.onMcpContent,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -148,6 +149,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   final VoidCallback? onImageAttachment;
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
+  final VoidCallback? onMcpContent;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -196,6 +198,7 @@ class _ComposerAttachmentKeyboardState
             photo: widget.onImageAttachment != null,
             camera: widget.onCameraCapture != null,
             web: !restrictedMode && widget.onWebAttachment != null,
+            mcpContent: directMode && widget.onMcpContent != null,
           ),
         ).where((item) {
           if (widget.localAttachmentsOnly) {
@@ -210,7 +213,8 @@ class _ComposerAttachmentKeyboardState
           return item.enabled &&
               (item.id == ComposerOverflowActionIds.file ||
                   item.id == ComposerOverflowActionIds.photo ||
-                  item.id == ComposerOverflowActionIds.camera);
+                  item.id == ComposerOverflowActionIds.camera ||
+                  item.id == ComposerOverflowActionIds.mcpContent);
         });
 
     final attachments = attachmentItems
@@ -622,6 +626,8 @@ class _ComposerAttachmentKeyboardState
         return widget.onCameraCapture;
       case ComposerOverflowActionIds.web:
         return widget.onWebAttachment;
+      case ComposerOverflowActionIds.mcpContent:
+        return widget.onMcpContent;
       default:
         return null;
     }
