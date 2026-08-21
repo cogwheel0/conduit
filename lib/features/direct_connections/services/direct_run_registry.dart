@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import '../../../core/models/chat_message.dart';
 import '../models/direct_completion.dart';
+import '../models/direct_mcp_server.dart';
 
 /// Collision-free identity for one direct assistant inside its conversation.
 typedef DirectRunKey = ({
@@ -46,6 +47,9 @@ final class DirectRunRegistry {
   final Map<DirectRunKey, DirectRunReservation> _active = {};
   final Map<DirectRunKey, DirectRunReservation> _latest = {};
   final Map<String, _PendingDirectMcpApproval> _mcpApprovals = {};
+  final Map<String, String> _sessionMcpApprovals = {};
+  final Map<String, Set<String>> _rememberedMcpApprovals = {};
+  final Map<String, DirectMcpServer> _mcpServers = {};
   final LinkedHashMap<_DirectPersistenceKey, DirectFinalizedOutput>
   _retainedFinalizedOutputs = LinkedHashMap();
   int _retainedFinalizedOutputBytes = 0;
@@ -96,6 +100,7 @@ final class DirectRunRegistry {
 
   void blockAdmissionForAppDataClear() {
     _admissionBlocked = true;
+    _clearMcpApprovalCache();
   }
 
   void resumeAdmissionAfterAppDataClearAbort() {
@@ -324,11 +329,41 @@ final class DirectRunRegistry {
   Future<void> cancellationSignal(DirectRunReservation reservation) =>
       reservation._cancellation.future;
 
+  void synchronizeMcpServers(Iterable<DirectMcpServer> servers) {
+    final next = {for (final server in servers) server.id: server};
+    for (final entry in _mcpServers.entries) {
+      final current = next[entry.key];
+      if (current == null ||
+          !current.enabled ||
+          !sameDirectMcpApprovalConfiguration(entry.value, current)) {
+        _sessionMcpApprovals.removeWhere(
+          (digest, serverId) => serverId == entry.key,
+        );
+      }
+    }
+    _mcpServers
+      ..clear()
+      ..addAll(next);
+    _rememberedMcpApprovals
+      ..clear()
+      ..addEntries(
+        next.values
+            .where((server) => server.enabled)
+            .map(
+              (server) => MapEntry(server.id, {
+                for (final approval in server.rememberedApprovals)
+                  approval.digest,
+              }),
+            ),
+      );
+  }
+
   DirectToolApprovalHandle requestMcpApproval(
     DirectRunReservation reservation, {
     required String callId,
     required DirectToolDefinition definition,
     required Map<String, dynamic> arguments,
+    required DirectMcpServer expectedServer,
   }) {
     if (isCancelled(reservation)) {
       return DirectToolApprovalHandle(
@@ -342,7 +377,17 @@ final class DirectRunRegistry {
         decision: Future.value(DirectToolApprovalDecision.deny),
       );
     }
-    final argumentsJson = jsonEncode(arguments);
+    final sessionAllowed =
+        _sessionMcpApprovals[definition.approvalFingerprint] ==
+        definition.serverId;
+    final alwaysAllowed =
+        _rememberedMcpApprovals[definition.serverId]?.contains(
+          definition.approvalFingerprint,
+        ) ??
+        false;
+    final argumentsJson = sessionAllowed || alwaysAllowed
+        ? '{}'
+        : jsonEncode(arguments);
     const truncationMarker = '...[truncated]';
     final boundedArguments =
         argumentsJson.length <= kMaxDirectMcpApprovalArgumentCharacters
@@ -355,7 +400,23 @@ final class DirectRunRegistry {
       callId: callId,
       argumentsJson: boundedArguments,
     );
-    final pending = _PendingDirectMcpApproval(reservation, request);
+    if (sessionAllowed || alwaysAllowed) {
+      return DirectToolApprovalHandle(
+        request: request,
+        decision: Future.value(
+          sessionAllowed
+              ? DirectToolApprovalDecision.allowSession
+              : DirectToolApprovalDecision.allowAlways,
+        ),
+        requiresUserDecision: false,
+      );
+    }
+    final pending = _PendingDirectMcpApproval(
+      reservation,
+      request,
+      definition,
+      expectedServer,
+    );
     _mcpApprovals[request.id] = pending;
     return DirectToolApprovalHandle(
       request: request,
@@ -375,6 +436,11 @@ final class DirectRunRegistry {
         pending.reservation._cancelled) {
       return false;
     }
+    if (decision == DirectToolApprovalDecision.allowAlways) return false;
+    if (decision == DirectToolApprovalDecision.allowSession) {
+      _sessionMcpApprovals[pending.definition.approvalFingerprint] =
+          pending.definition.serverId;
+    }
     _settleMcpApproval(pending, decision);
     return true;
   }
@@ -392,11 +458,48 @@ final class DirectRunRegistry {
     );
   }
 
+  Future<bool> resolveMcpApprovalAlwaysById(
+    String approvalId,
+    Future<List<DirectMcpServer>> Function(
+      DirectMcpServer expectedServer,
+      DirectMcpRememberedApproval approval,
+    )
+    persist,
+  ) async {
+    final pending = _mcpApprovals[approvalId];
+    if (pending == null || !_ownsMcpApproval(pending)) return false;
+    final approval = DirectMcpRememberedApproval(
+      digest: pending.definition.approvalFingerprint,
+      remoteToolName: pending.definition.remoteName,
+      displayName: pending.definition.displayName,
+      createdAt: DateTime.now().toUtc(),
+    );
+    final servers = await persist(pending.expectedServer, approval);
+    // The durable user choice may outlive the run that requested it.
+    if (!_ownsMcpApproval(pending)) return false;
+    final persisted = servers.where(
+      (server) =>
+          server.id == pending.definition.serverId &&
+          server.rememberedApprovals.any(
+            (item) => item.digest == pending.definition.approvalFingerprint,
+          ),
+    );
+    if (persisted.isEmpty) {
+      throw StateError('The MCP approval was not persisted.');
+    }
+    synchronizeMcpServers(servers);
+    _settleMcpApproval(pending, DirectToolApprovalDecision.allowAlways);
+    return true;
+  }
+
+  bool _ownsMcpApproval(_PendingDirectMcpApproval pending) =>
+      identical(_mcpApprovals[pending.request.id], pending) &&
+      identical(_latest[pending.reservation._key], pending.reservation) &&
+      !pending.reservation._cancelled;
+
   bool hasLiveMcpApproval(String approvalId) {
     final pending = _mcpApprovals[approvalId];
-    return pending != null &&
-        identical(_latest[pending.reservation._key], pending.reservation) &&
-        !pending.reservation._cancelled;
+    return pending != null && _ownsMcpApproval(pending);
   }
 
   bool hasPendingMcpApproval(DirectRunKey key, String approvalId) {
@@ -594,6 +697,12 @@ final class DirectRunRegistry {
     return futures;
   }
 
+  void _clearMcpApprovalCache() {
+    _sessionMcpApprovals.clear();
+    _rememberedMcpApprovals.clear();
+    _mcpServers.clear();
+  }
+
   void releaseReservation(DirectRunReservation reservation) {
     _denyMcpApprovals(reservation);
     final key = reservation._key;
@@ -646,10 +755,17 @@ final class DirectRunRegistry {
 }
 
 final class _PendingDirectMcpApproval {
-  _PendingDirectMcpApproval(this.reservation, this.request);
+  _PendingDirectMcpApproval(
+    this.reservation,
+    this.request,
+    this.definition,
+    this.expectedServer,
+  );
 
   final DirectRunReservation reservation;
   final DirectToolApprovalRequest request;
+  final DirectToolDefinition definition;
+  final DirectMcpServer expectedServer;
   final Completer<DirectToolApprovalDecision> decision = Completer();
 }
 

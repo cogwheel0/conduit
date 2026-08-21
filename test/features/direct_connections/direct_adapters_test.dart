@@ -4572,9 +4572,12 @@ void main() {
         definitions: [
           DirectToolDefinition(
             name: 'mcp_deadbeef_weather',
+            serverId: 'home',
             serverName: endpointSentinel,
+            remoteName: 'weather',
             displayName: 'Weather',
             description: 'Looks up weather.',
+            approvalFingerprint: 'a' * 64,
             inputSchema: const {
               'type': 'object',
               'properties': {
@@ -4721,6 +4724,8 @@ void main() {
                     DirectChatMessage.text(role: 'user', text: 'weather'),
                   ],
                   tools: _localToolRuntime(
+                    decision: DirectToolApprovalDecision.allowAlways,
+                    requiresUserDecision: false,
                     execute: (arguments) async {
                       executedArguments = arguments;
                       return const DirectToolResult(text: 'sunny');
@@ -4741,6 +4746,11 @@ void main() {
         'Need weather.',
       );
       expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+      expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+      expect(
+        events.whereType<DirectMcpApprovalResolved>().single.decision,
+        DirectToolApprovalDecision.allowAlways,
+      );
       expect(events.whereType<DirectStreamDone>(), hasLength(1));
       expect(events.whereType<DirectUsageUpdate>().single.usage, {
         'input_tokens': 6,
@@ -5524,7 +5534,8 @@ void main() {
     var executions = 0;
     Map<String, dynamic>? executedArguments;
     final runtime = _localToolRuntime(
-      decision: DirectToolApprovalDecision.allowOnce,
+      decision: DirectToolApprovalDecision.allowSession,
+      requiresUserDecision: false,
       execute: (arguments) async {
         executions++;
         executedArguments = arguments;
@@ -5550,7 +5561,11 @@ void main() {
 
     expect(executions, 1);
     expect(executedArguments, {'city': 'Paris'});
-    expect(events.whereType<DirectMcpApprovalRequested>(), hasLength(1));
+    expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+    expect(
+      events.whereType<DirectMcpApprovalResolved>().single.decision,
+      DirectToolApprovalDecision.allowSession,
+    );
     expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
     expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
     expect(
@@ -5819,6 +5834,71 @@ void main() {
     expect(events.whereType<DirectToolCallCompleted>().single.isError, isTrue);
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
+
+  test(
+    'Ollama executes an automatic remembered approval without prompting',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            '${jsonEncode({
+              'model': 'model',
+              'message': {
+                'role': 'assistant',
+                'content': '',
+                'tool_calls': [
+                  {
+                    'function': {
+                      'name': 'mcp_deadbeef_weather',
+                      'arguments': {'city': 'Paris'},
+                    },
+                  },
+                ],
+              },
+              'done': true,
+            })}\n',
+          ),
+        ], contentType: 'application/x-ndjson'),
+        _Reply.stream([
+          utf8.encode(
+            '${jsonEncode({
+              'model': 'model',
+              'message': {'role': 'assistant', 'content': 'It is sunny.'},
+              'done': true,
+            })}\n',
+          ),
+        ], contentType: 'application/x-ndjson'),
+      ]);
+      final events =
+          await OllamaAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _ollamaProfile(),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(
+                    decision: DirectToolApprovalDecision.allowAlways,
+                    requiresUserDecision: false,
+                  ),
+                ),
+              )
+              .events
+              .toList();
+
+      expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+      expect(
+        events.whereType<DirectMcpApprovalResolved>().single.decision,
+        DirectToolApprovalDecision.allowAlways,
+      );
+      expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
 
   test('Ollama denies a pending approval after its timeout', () async {
     final http = _QueuedAdapter([
@@ -6175,14 +6255,18 @@ void main() {
 DirectToolRuntime _localToolRuntime({
   DirectToolApprovalDecision decision = DirectToolApprovalDecision.allowOnce,
   Future<DirectToolApprovalDecision>? approvalDecision,
+  bool requiresUserDecision = true,
   Future<DirectToolResult> Function(Map<String, dynamic> arguments)? execute,
 }) => DirectToolRuntime(
   definitions: [
     DirectToolDefinition(
       name: 'mcp_deadbeef_weather',
+      serverId: 'home',
       serverName: 'Home server',
+      remoteName: 'weather',
       displayName: 'Weather',
       description: 'Looks up weather.',
+      approvalFingerprint: 'a' * 64,
       inputSchema: const {
         'type': 'object',
         'properties': {
@@ -6200,6 +6284,7 @@ DirectToolRuntime _localToolRuntime({
       argumentsJson: jsonEncode(arguments),
     ),
     decision: approvalDecision ?? Future.value(decision),
+    requiresUserDecision: requiresUserDecision,
   ),
   execute: (name, arguments) =>
       execute?.call(arguments) ??

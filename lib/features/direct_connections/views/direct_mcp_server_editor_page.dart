@@ -65,7 +65,8 @@ class _DirectMcpServerEditorPageState
         final persisted = servers
             .where((server) => server.id == widget.serverId)
             .firstOrNull;
-        if (persisted != null && _sameServerExceptOAuth(previous, persisted)) {
+        if (persisted != null &&
+            _sameServerExceptSecureState(previous, persisted)) {
           _previous = persisted;
         }
       }
@@ -90,11 +91,14 @@ class _DirectMcpServerEditorPageState
     _enabled = server.enabled;
   }
 
-  bool _sameServerExceptOAuth(
+  bool _sameServerExceptSecureState(
     DirectMcpServer previous,
     DirectMcpServer persisted,
   ) => sameDirectMcpServerValues(
-    previous.copyWith(oauthTokens: persisted.oauthTokens),
+    previous.copyWith(
+      oauthTokens: persisted.oauthTokens,
+      rememberedApprovals: persisted.rememberedApprovals,
+    ),
     persisted,
   );
 
@@ -130,6 +134,7 @@ class _DirectMcpServerEditorPageState
                 : null)
           : null,
       customHeaders: customHeaders,
+      rememberedApprovals: _previous?.rememberedApprovals ?? const [],
     );
     server.validate();
     return server;
@@ -319,6 +324,31 @@ class _DirectMcpServerEditorPageState
     }
   }
 
+  Future<void> _revokeRememberedApproval(String? digest) async {
+    final l10n = AppLocalizations.of(context)!;
+    final previous = _previous;
+    if (previous == null) return;
+    final servers = ref.read(directMcpServersProvider.notifier);
+    setState(() => _busy = true);
+    try {
+      final updated = digest == null
+          ? await servers.revokeAllRememberedApprovals(previous)
+          : await servers.revokeRememberedApproval(previous, digest);
+      if (mounted) {
+        setState(() {
+          _previous = updated.firstWhere((server) => server.id == previous.id);
+          _message = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message = l10n.directMcpRememberedApprovalRevokeFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -466,6 +496,47 @@ class _DirectMcpServerEditorPageState
                       hintText: l10n.directMcpCustomHeadersHint,
                     ),
                   ),
+                  if (_previous?.rememberedApprovals case final approvals?
+                      when approvals.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.directMcpRememberedApprovalsTitle,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      l10n.directMcpRememberedApprovalsSubtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    for (final approval in approvals)
+                      ListTile(
+                        key: ValueKey(
+                          'direct-mcp-remembered-${approval.digest}',
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(approval.displayName),
+                        subtitle: Text(
+                          '${approval.remoteToolName} · ${MaterialLocalizations.of(context).formatCompactDate(approval.createdAt.toLocal())}',
+                        ),
+                        trailing: TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () =>
+                                    _revokeRememberedApproval(approval.digest),
+                          child: Text(l10n.directMcpRememberedApprovalRevoke),
+                        ),
+                      ),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton(
+                        key: const ValueKey('direct-mcp-remembered-revoke-all'),
+                        onPressed: _busy
+                            ? null
+                            : () => _revokeRememberedApproval(null),
+                        child: Text(l10n.directMcpRememberedApprovalsRevokeAll),
+                      ),
+                    ),
+                  ],
                   SwitchListTile.adaptive(
                     key: const ValueKey('direct-mcp-enabled'),
                     contentPadding: EdgeInsets.zero,

@@ -735,13 +735,15 @@ final class DirectStreamingAccumulator {
         _mcpApproval = event.request.toMetadata('pending');
         return true;
       case DirectMcpApprovalResolved():
-        if (_mcpApproval?['id'] == event.id) {
+        if (_mcpApproval?['id'] == event.request.id) {
           _mcpApproval = <String, dynamic>{
             ..._mcpApproval!,
-            'state': event.decision == DirectToolApprovalDecision.allowOnce
-                ? 'allowed'
-                : 'denied',
+            'state': directToolApprovalState(event.decision),
           };
+        } else {
+          _mcpApproval = event.request.toMetadata(
+            directToolApprovalState(event.decision),
+          );
         }
         return true;
       case DirectStreamError():

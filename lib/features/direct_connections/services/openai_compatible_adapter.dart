@@ -849,14 +849,16 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           definition,
           arguments,
         );
-        emitter.approvalRequested(approval.request);
+        if (approval.requiresUserDecision) {
+          emitter.approvalRequested(approval.request);
+        }
         final decision = await waitForDirectToolApproval(
           approval: approval,
           timeout: toolApprovalTimeout,
           cancellations: [runCancelToken.whenCancel, cancelToken.whenCancel],
         );
         if (decision == null) return;
-        emitter.approvalResolved(approval.request.id, decision);
+        emitter.approvalResolved(approval.request, decision);
         if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
 
         DirectToolResult toolResult;
@@ -1096,14 +1098,16 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           definition,
           arguments,
         );
-        emitter.approvalRequested(approval.request);
+        if (approval.requiresUserDecision) {
+          emitter.approvalRequested(approval.request);
+        }
         final decision = await waitForDirectToolApproval(
           approval: approval,
           timeout: toolApprovalTimeout,
           cancellations: [runCancelToken.whenCancel, cancelToken.whenCancel],
         );
         if (decision == null) return;
-        emitter.approvalResolved(approval.request.id, decision);
+        emitter.approvalResolved(approval.request, decision);
         if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
 
         DirectToolResult toolResult;
@@ -2741,10 +2745,17 @@ final class _DirectEmitter {
     controller.add(DirectMcpApprovalRequested(request));
   }
 
-  void approvalResolved(String id, DirectToolApprovalDecision decision) {
+  void approvalResolved(
+    DirectToolApprovalRequest request,
+    DirectToolApprovalDecision decision,
+  ) {
     if (terminalSent || controller.isClosed) return;
-    budget.add(id);
-    controller.add(DirectMcpApprovalResolved(id: id, decision: decision));
+    budget.add(
+      jsonEncode(request.toMetadata(directToolApprovalState(decision))),
+    );
+    controller.add(
+      DirectMcpApprovalResolved(request: request, decision: decision),
+    );
   }
 
   void toolStarted(String id, String name, Map<String, dynamic> arguments) {

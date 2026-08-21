@@ -764,8 +764,12 @@ final class OllamaAdapter
                   localDefinition,
                   call.arguments,
                 );
-                budget.add(jsonEncode(approval.request.toMetadata('pending')));
-                controller.add(DirectMcpApprovalRequested(approval.request));
+                if (approval.requiresUserDecision) {
+                  budget.add(
+                    jsonEncode(approval.request.toMetadata('pending')),
+                  );
+                  controller.add(DirectMcpApprovalRequested(approval.request));
+                }
                 final decision = await waitForDirectToolApproval(
                   approval: approval,
                   timeout: toolApprovalTimeout,
@@ -775,10 +779,16 @@ final class OllamaAdapter
                   ],
                 );
                 if (decision == null) break;
-                budget.add(approval.request.id);
+                budget.add(
+                  jsonEncode(
+                    approval.request.toMetadata(
+                      directToolApprovalState(decision),
+                    ),
+                  ),
+                );
                 controller.add(
                   DirectMcpApprovalResolved(
-                    id: approval.request.id,
+                    request: approval.request,
                     decision: decision,
                   ),
                 );

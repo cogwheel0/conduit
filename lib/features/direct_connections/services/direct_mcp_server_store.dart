@@ -87,7 +87,85 @@ final class DirectMcpServerStore {
         return _persist(updated);
       });
 
+  Future<List<DirectMcpServer>> rememberApproval(
+    DirectMcpServer expectedServer,
+    DirectMcpRememberedApproval approval,
+  ) => _mutateRememberedApprovals(expectedServer, (current) {
+    approval.validate();
+    if (current.any((item) => item.digest == approval.digest)) return current;
+    return [...current, approval];
+  });
+
+  Future<List<DirectMcpServer>> revokeRememberedApproval(
+    DirectMcpServer expectedServer,
+    String digest,
+  ) => _mutateRememberedApprovals(
+    expectedServer,
+    (current) => [
+      for (final approval in current)
+        if (approval.digest != digest) approval,
+    ],
+  );
+
+  Future<List<DirectMcpServer>> revokeAllRememberedApprovals(
+    DirectMcpServer expectedServer,
+  ) => _mutateRememberedApprovals(expectedServer, (_) => const []);
+
+  /// Prunes against a complete, successfully loaded inventory.
+  /// An included server with an empty digest set loses every remembered grant.
+  Future<List<DirectMcpServer>> pruneRememberedApprovals(
+    Iterable<DirectMcpServer> expectedServers,
+    Map<String, Set<String>> validDigestsByServer,
+  ) => _serializeMutation(() async {
+    final current = await load();
+    final expectedById = {
+      for (final server in expectedServers) server.id: server,
+    };
+    var changed = false;
+    final updated = <DirectMcpServer>[];
+    for (final server in current) {
+      final expected = expectedById[server.id];
+      final valid = validDigestsByServer[server.id];
+      if (expected == null ||
+          valid == null ||
+          !sameDirectMcpApprovalConfiguration(server, expected)) {
+        updated.add(server);
+        continue;
+      }
+      final approvals = [
+        for (final approval in server.rememberedApprovals)
+          if (valid.contains(approval.digest)) approval,
+      ];
+      changed |= approvals.length != server.rememberedApprovals.length;
+      updated.add(server.copyWith(rememberedApprovals: approvals));
+    }
+    return changed ? _persist(updated) : current;
+  });
+
   Future<void> clear() => _serializeMutation(_storage.deleteDirectMcpServers);
+
+  Future<List<DirectMcpServer>> _mutateRememberedApprovals(
+    DirectMcpServer expectedServer,
+    List<DirectMcpRememberedApproval> Function(
+      List<DirectMcpRememberedApproval> current,
+    )
+    mutate,
+  ) => _serializeMutation(() async {
+    final current = await load();
+    final index = current.indexWhere(
+      (server) => server.id == expectedServer.id,
+    );
+    if (index < 0 ||
+        !sameDirectMcpApprovalConfiguration(current[index], expectedServer)) {
+      throw DirectMcpServerConflictException(currentServers: current);
+    }
+    final nextServer = current[index].copyWith(
+      rememberedApprovals: mutate(current[index].rememberedApprovals),
+    );
+    nextServer.validate();
+    final updated = [...current]..[index] = nextServer;
+    return _persist(updated);
+  });
 
   Future<List<DirectMcpServer>> _persist(List<DirectMcpServer> servers) async {
     final document = DirectMcpServersDocument(servers);

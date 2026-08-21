@@ -51,6 +51,62 @@ void main() {
       jsonDecode(DirectMcpServersDocument([server]).encode())['version'],
       DirectMcpServersDocument.currentVersion,
     );
+    expect(server.rememberedApprovals, isEmpty);
+  });
+
+  test('version 2 migrates and version 3 approvals round-trip safely', () {
+    final migrated = DirectMcpServersDocument.decode(
+      jsonEncode({
+        'version': 2,
+        'servers': [
+          {
+            'schemaVersion': 2,
+            'id': 'legacy',
+            'name': 'Legacy',
+            'endpoint': 'https://example.test/mcp',
+            'authMode': 'none',
+          },
+        ],
+      }),
+    ).servers.single;
+    final approval = _approval('a', tool: 'lookup');
+    final decoded = DirectMcpServersDocument.decode(
+      DirectMcpServersDocument([
+        migrated.copyWith(rememberedApprovals: [approval]),
+      ]).encode(),
+    ).servers.single;
+
+    expect(migrated.rememberedApprovals, isEmpty);
+    expect(decoded.rememberedApprovals.single.digest, approval.digest);
+    expect(decoded.toString(), isNot(contains(approval.digest)));
+  });
+
+  test('remembered approvals enforce bounded valid records', () {
+    expect(
+      () => DirectMcpServer(
+        id: 'many',
+        name: 'Many',
+        endpoint: 'https://example.test/mcp',
+        rememberedApprovals: [
+          for (
+            var index = 0;
+            index <= kDirectMcpMaxRememberedApprovals;
+            index++
+          )
+            _approval(index.toRadixString(16).padLeft(64, '0')),
+        ],
+      ).validate(),
+      throwsFormatException,
+    );
+    expect(
+      () => DirectMcpRememberedApproval(
+        digest: 'not-a-digest',
+        remoteToolName: 'lookup',
+        displayName: 'Lookup',
+        createdAt: DateTime.utc(2026),
+      ).validate(),
+      throwsFormatException,
+    );
   });
 
   test('OAuth token record round-trips without entering diagnostics', () {
@@ -218,6 +274,40 @@ void main() {
     expect(confirmed.customHeaders['X-Secret'], 'new-header');
   });
 
+  test('security mutations clear grants while token refresh retains them', () {
+    final approval = _approval('a');
+    final previous = DirectMcpServer(
+      id: 'server',
+      name: 'Server',
+      endpoint: 'https://resource.example/mcp',
+      authMode: DirectMcpAuthMode.oauth,
+      oauthTokens: _oauthTokens(),
+      rememberedApprovals: [approval],
+    );
+
+    final refreshed = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(
+        oauthTokens: _oauthTokens(accessToken: 'new-access'),
+      ),
+    );
+    final moved = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(endpoint: 'https://other.example/mcp'),
+    );
+    final issuerChanged = DirectMcpServer.secureUpdate(
+      previous: previous,
+      next: previous.copyWith(
+        oauthTokens: _oauthTokens(issuer: 'https://other-auth.example'),
+      ),
+      oauthFlowCompletedForExactMutation: true,
+    );
+
+    expect(refreshed.rememberedApprovals, [approval]);
+    expect(moved.rememberedApprovals, isEmpty);
+    expect(issuerChanged.rememberedApprovals, isEmpty);
+  });
+
   test('unsafe OAuth credential mutations are cleared', () {
     final previous = DirectMcpServer(
       id: 'server',
@@ -307,6 +397,56 @@ void main() {
     },
   );
 
+  test(
+    'store remembers, prunes, and conflicts on configuration drift',
+    () async {
+      const platformStorage = FlutterSecureStorage();
+      final store = DirectMcpServerStore(
+        SecureCredentialStorage(instance: platformStorage),
+      );
+      final original = DirectMcpServer(
+        id: 'server',
+        name: 'Server',
+        endpoint: 'https://resource.example/mcp',
+        authMode: DirectMcpAuthMode.oauth,
+        oauthTokens: _oauthTokens(),
+      );
+      await store.upsert(original);
+      final withApprovals = (await store.rememberApproval(
+        original,
+        _approval('a'),
+      )).single;
+      final rotated = withApprovals.copyWith(
+        oauthTokens: _oauthTokens(
+          accessToken: 'rotated-access',
+          refreshToken: 'rotated-refresh',
+        ),
+      );
+      await store.upsert(rotated, expectedPrevious: withApprovals);
+      final remembered = (await store.rememberApproval(
+        withApprovals,
+        _approval('b'),
+      )).single;
+
+      expect(remembered.rememberedApprovals, hasLength(2));
+      final pruned = (await store.pruneRememberedApprovals(
+        [remembered],
+        {
+          'server': {_approval('b').digest},
+        },
+      )).single;
+      expect(pruned.rememberedApprovals.single.digest, _approval('b').digest);
+      await store.upsert(
+        pruned.copyWith(name: 'Changed'),
+        expectedPrevious: pruned,
+      );
+      await expectLater(
+        store.rememberApproval(pruned, _approval('c')),
+        throwsA(isA<DirectMcpServerConflictException>()),
+      );
+    },
+  );
+
   test('malformed document failure never logs its payload', () async {
     const secret = 'mcp-document-secret-91a7';
     final source = jsonEncode({
@@ -355,3 +495,11 @@ DirectMcpOAuthTokens _oauthTokens({
   clientId: 'public-client-id',
   tokenEndpoint: '$issuer/token',
 );
+
+DirectMcpRememberedApproval _approval(String seed, {String tool = 'lookup'}) =>
+    DirectMcpRememberedApproval(
+      digest: seed.length == 64 ? seed : seed * 64,
+      remoteToolName: tool,
+      displayName: 'Lookup',
+      createdAt: DateTime.utc(2026),
+    );

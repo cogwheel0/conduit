@@ -5,6 +5,75 @@ import 'direct_connection_profile.dart';
 
 enum DirectMcpAuthMode { none, bearer, oauth }
 
+const int kDirectMcpMaxRememberedApprovals = 256;
+const int kDirectMcpMaxRememberedRemoteNameCharacters = 128;
+const int kDirectMcpMaxRememberedDisplayNameCharacters = 128;
+
+final class DirectMcpRememberedApproval {
+  const DirectMcpRememberedApproval({
+    required this.digest,
+    required this.remoteToolName,
+    required this.displayName,
+    required this.createdAt,
+  });
+
+  final String digest;
+  final String remoteToolName;
+  final String displayName;
+  final DateTime createdAt;
+
+  void validate() {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
+      throw const FormatException('The remembered MCP approval is invalid.');
+    }
+    if (remoteToolName.isEmpty ||
+        remoteToolName.length > kDirectMcpMaxRememberedRemoteNameCharacters ||
+        _containsForbiddenCredentialCharacter(remoteToolName)) {
+      throw const FormatException(
+        'The remembered MCP remote tool name is invalid.',
+      );
+    }
+    if (displayName.trim().isEmpty ||
+        displayName.length > kDirectMcpMaxRememberedDisplayNameCharacters ||
+        _containsForbiddenCredentialCharacter(displayName)) {
+      throw const FormatException(
+        'The remembered MCP display name is invalid.',
+      );
+    }
+  }
+
+  Map<String, dynamic> toJson() => {
+    'digest': digest,
+    'remoteToolName': remoteToolName,
+    'displayName': displayName,
+    'createdAt': createdAt.toUtc().toIso8601String(),
+  };
+
+  factory DirectMcpRememberedApproval.fromJson(Map<String, dynamic> json) {
+    final rawCreatedAt = json['createdAt'];
+    final createdAt = rawCreatedAt is String
+        ? DateTime.tryParse(rawCreatedAt)?.toUtc()
+        : null;
+    if (createdAt == null) {
+      throw const FormatException(
+        'The remembered MCP approval timestamp is invalid.',
+      );
+    }
+    final approval = DirectMcpRememberedApproval(
+      digest: _readRequiredString(json, 'digest'),
+      remoteToolName: _readRequiredString(json, 'remoteToolName'),
+      displayName: _readRequiredString(json, 'displayName'),
+      createdAt: createdAt,
+    );
+    approval.validate();
+    return approval;
+  }
+
+  @override
+  String toString() =>
+      'DirectMcpRememberedApproval(remoteToolName: $remoteToolName)';
+}
+
 /// OAuth credentials are persisted only inside the secure MCP server document.
 final class DirectMcpOAuthTokens {
   DirectMcpOAuthTokens({
@@ -164,6 +233,7 @@ final class DirectMcpServer {
     this.bearerToken,
     this.oauthTokens,
     Map<String, String> customHeaders = const {},
+    Iterable<DirectMcpRememberedApproval> rememberedApprovals = const [],
   }) : authMode =
            authMode ??
            (oauthTokens != null
@@ -171,9 +241,10 @@ final class DirectMcpServer {
                : (bearerToken?.isNotEmpty == true
                      ? DirectMcpAuthMode.bearer
                      : DirectMcpAuthMode.none)),
-       customHeaders = UnmodifiableMapView(Map.of(customHeaders));
+       customHeaders = UnmodifiableMapView(Map.of(customHeaders)),
+       rememberedApprovals = List.unmodifiable(rememberedApprovals);
 
-  static const int currentSchemaVersion = 2;
+  static const int currentSchemaVersion = 3;
   static const Set<String> _reservedHeaders = {
     ...DirectConnectionProfile.reservedHeaderNames,
     'connection',
@@ -196,6 +267,7 @@ final class DirectMcpServer {
   final String? bearerToken;
   final DirectMcpOAuthTokens? oauthTokens;
   final Map<String, String> customHeaders;
+  final List<DirectMcpRememberedApproval> rememberedApprovals;
 
   Uri get endpointUri => Uri.parse(endpoint.trim());
   String? get origin => _originOf(endpoint);
@@ -263,6 +335,20 @@ final class DirectMcpServer {
         return 'A reserved HTTP header cannot be customized.';
       }
     }
+    if (rememberedApprovals.length > kDirectMcpMaxRememberedApprovals) {
+      return 'An MCP server has too many remembered tool approvals.';
+    }
+    final approvalDigests = <String>{};
+    for (final approval in rememberedApprovals) {
+      try {
+        approval.validate();
+      } on FormatException catch (error) {
+        return error.message;
+      }
+      if (!approvalDigests.add(approval.digest)) {
+        return 'Remembered MCP tool approvals must be unique.';
+      }
+    }
     return null;
   }
 
@@ -292,18 +378,24 @@ final class DirectMcpServer {
         customHeaders: customHeaders,
       );
 
+  DirectMcpServer withoutRememberedApprovals() =>
+      copyWith(rememberedApprovals: const []);
+
   static DirectMcpServer secureUpdate({
     required DirectMcpServer previous,
     required DirectMcpServer next,
     bool secretsConfirmedForNewOrigin = false,
     bool oauthFlowCompletedForExactMutation = false,
   }) {
-    if (previous.origin != next.origin && !secretsConfirmedForNewOrigin) {
-      return next.withoutSecrets();
+    if (previous.origin != next.origin) {
+      return (secretsConfirmedForNewOrigin ? next : next.withoutSecrets())
+          .withoutRememberedApprovals();
     }
-    if (previous.authMode != next.authMode &&
-        !oauthFlowCompletedForExactMutation) {
-      return next.withoutAuthCredentials();
+    if (previous.authMode != next.authMode) {
+      return (oauthFlowCompletedForExactMutation
+              ? next
+              : next.withoutAuthCredentials())
+          .withoutRememberedApprovals();
     }
     if (next.oauthTokens case final oauth?
         when !oauth.appliesToEndpoint(next.endpoint) &&
@@ -314,9 +406,11 @@ final class DirectMcpServer {
     final nextIssuer = next.oauthTokens?.authorizationServerIssuer;
     if (previousIssuer != null &&
         nextIssuer != null &&
-        previousIssuer != nextIssuer &&
-        !oauthFlowCompletedForExactMutation) {
-      return next.withoutAuthCredentials();
+        previousIssuer != nextIssuer) {
+      return (oauthFlowCompletedForExactMutation
+              ? next
+              : next.withoutAuthCredentials())
+          .withoutRememberedApprovals();
     }
     return next;
   }
@@ -329,6 +423,7 @@ final class DirectMcpServer {
     Object? bearerToken = _keep,
     Object? oauthTokens = _keep,
     Map<String, String>? customHeaders,
+    Iterable<DirectMcpRememberedApproval>? rememberedApprovals,
   }) => DirectMcpServer(
     schemaVersion: schemaVersion,
     id: id,
@@ -343,6 +438,7 @@ final class DirectMcpServer {
         ? this.oauthTokens
         : oauthTokens as DirectMcpOAuthTokens?,
     customHeaders: customHeaders ?? this.customHeaders,
+    rememberedApprovals: rememberedApprovals ?? this.rememberedApprovals,
   );
 
   Map<String, dynamic> toJson() => {
@@ -355,11 +451,14 @@ final class DirectMcpServer {
     'bearerToken': bearerToken,
     'oauthTokens': oauthTokens?.toJson(),
     'customHeaders': customHeaders,
+    'rememberedApprovals': [
+      for (final approval in rememberedApprovals) approval.toJson(),
+    ],
   };
 
   factory DirectMcpServer.fromJson(Map<String, dynamic> json) {
     final sourceVersion = _readInt(json['schemaVersion']) ?? 1;
-    if (sourceVersion != 1 && sourceVersion != currentSchemaVersion) {
+    if (sourceVersion != 1 && sourceVersion != 2 && sourceVersion != 3) {
       throw const FormatException('Unsupported MCP server version.');
     }
     final bearerToken = _readOptionalString(json['bearerToken']);
@@ -371,6 +470,10 @@ final class DirectMcpServer {
     final rawOAuthTokens = json['oauthTokens'];
     if (rawOAuthTokens != null && rawOAuthTokens is! Map) {
       throw const FormatException('The OAuth token record is invalid.');
+    }
+    final rawRememberedApprovals = json['rememberedApprovals'];
+    if (rawRememberedApprovals != null && rawRememberedApprovals is! List) {
+      throw const FormatException('Remembered MCP approvals are invalid.');
     }
     final server = DirectMcpServer(
       schemaVersion: currentSchemaVersion,
@@ -386,6 +489,19 @@ final class DirectMcpServer {
               rawOAuthTokens.cast<String, dynamic>(),
             ),
       customHeaders: _readStringMap(json['customHeaders']),
+      rememberedApprovals: sourceVersion < 3
+          ? const []
+          : [
+              for (final raw in rawRememberedApprovals as List? ?? const [])
+                if (raw is Map)
+                  DirectMcpRememberedApproval.fromJson(
+                    raw.cast<String, dynamic>(),
+                  )
+                else
+                  throw const FormatException(
+                    'A remembered MCP approval is invalid.',
+                  ),
+            ],
     );
     server.validate();
     return server;
@@ -416,7 +532,7 @@ final class DirectMcpServersDocument {
     _validateUniqueIds(this.servers);
   }
 
-  static const int currentVersion = 2;
+  static const int currentVersion = 3;
   final List<DirectMcpServer> servers;
 
   String encode() => jsonEncode({
@@ -431,7 +547,7 @@ final class DirectMcpServersDocument {
     }
     final map = decoded.cast<Object?, Object?>();
     final version = _readInt(map['version']);
-    if (version != 1 && version != currentVersion) {
+    if (version != 1 && version != 2 && version != currentVersion) {
       throw const FormatException('Unsupported MCP server document version.');
     }
     final rawServers = map['servers'];
@@ -468,12 +584,60 @@ bool sameDirectMcpServerValues(DirectMcpServer left, DirectMcpServer right) =>
     left.authMode == right.authMode &&
     left.bearerToken == right.bearerToken &&
     _sameOAuthTokens(left.oauthTokens, right.oauthTokens) &&
+    _sameStringMap(left.customHeaders, right.customHeaders) &&
+    _sameRememberedApprovals(
+      left.rememberedApprovals,
+      right.rememberedApprovals,
+    );
+
+bool sameDirectMcpApprovalConfiguration(
+  DirectMcpServer left,
+  DirectMcpServer right,
+) =>
+    left.schemaVersion == right.schemaVersion &&
+    left.id == right.id &&
+    left.name == right.name &&
+    left.endpoint == right.endpoint &&
+    left.enabled == right.enabled &&
+    left.authMode == right.authMode &&
+    left.bearerToken == right.bearerToken &&
+    _sameOAuthApprovalBinding(left.oauthTokens, right.oauthTokens) &&
     _sameStringMap(left.customHeaders, right.customHeaders);
 
 bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
   if (left.length != right.length) return false;
   return left.entries.every((entry) => right[entry.key] == entry.value);
 }
+
+bool _sameRememberedApprovals(
+  List<DirectMcpRememberedApproval> left,
+  List<DirectMcpRememberedApproval> right,
+) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    final a = left[index];
+    final b = right[index];
+    if (a.digest != b.digest ||
+        a.remoteToolName != b.remoteToolName ||
+        a.displayName != b.displayName ||
+        a.createdAt != b.createdAt) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _sameOAuthApprovalBinding(
+  DirectMcpOAuthTokens? left,
+  DirectMcpOAuthTokens? right,
+) =>
+    identical(left, right) ||
+    (left != null &&
+        right != null &&
+        left.authorizationServerIssuer == right.authorizationServerIssuer &&
+        left.resource == right.resource &&
+        left.clientId == right.clientId &&
+        left.tokenEndpoint == right.tokenEndpoint);
 
 bool _containsForbiddenCredentialCharacter(String value) =>
     value.contains('\r') || value.contains('\n') || value.contains('\u0000');

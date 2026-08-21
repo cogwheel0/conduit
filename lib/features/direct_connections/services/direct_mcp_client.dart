@@ -15,24 +15,46 @@ const int kDirectMcpMaxDescriptionCharacters = 4096;
 const int kDirectMcpMaxInputSchemaBytes = 64 * 1024;
 const int kDirectMcpMaxDefinitionsBytes = 512 * 1024;
 const int kDirectMcpMaxArgumentsBytes = 64 * 1024;
+const int kDirectMcpApprovalFingerprintMaxDepth = 32;
+const int kDirectMcpApprovalFingerprintMaxNodes = 8192;
+
+String directMcpApprovalFingerprint({
+  required String serverId,
+  required String serverOrigin,
+  required String remoteToolName,
+  required Map<String, dynamic> inputSchema,
+}) {
+  final canonical = _CanonicalJsonEncoder().encode([
+    'direct-mcp-approval-v1',
+    serverId,
+    serverOrigin,
+    remoteToolName,
+    inputSchema,
+  ]);
+  return sha256.convert(utf8.encode(canonical)).toString();
+}
 
 final class DirectMcpToolDefinition {
   DirectMcpToolDefinition({
     required this.serverId,
+    required this.serverOrigin,
     required this.serverName,
     required this.remoteName,
     required this.modelName,
     required this.displayName,
     required this.description,
+    required this.approvalFingerprint,
     required Map<String, dynamic> inputSchema,
   }) : inputSchema = Map.unmodifiable(inputSchema);
 
   final String serverId;
+  final String serverOrigin;
   final String serverName;
   final String remoteName;
   final String modelName;
   final String displayName;
   final String description;
+  final String approvalFingerprint;
   final Map<String, dynamic> inputSchema;
 
   Map<String, dynamic> toFunctionJson() => {
@@ -262,13 +284,23 @@ final class DirectMcpToolSession {
           );
           final definition = DirectMcpToolDefinition(
             serverId: server.id,
+            serverOrigin: server.origin!,
             serverName: server.name,
             remoteName: tool.name,
             modelName: modelName,
-            displayName: tool.title?.trim().isNotEmpty == true
-                ? tool.title!.trim()
-                : tool.name,
+            displayName: _truncateSingleLine(
+              tool.title?.trim().isNotEmpty == true
+                  ? tool.title!.trim()
+                  : tool.name,
+              kDirectMcpMaxRememberedDisplayNameCharacters,
+            ),
             description: description,
+            approvalFingerprint: directMcpApprovalFingerprint(
+              serverId: server.id,
+              serverOrigin: server.origin!,
+              remoteToolName: tool.name,
+              inputSchema: schema,
+            ),
             inputSchema: schema,
           );
           definitionsBytes += utf8
@@ -483,6 +515,12 @@ String _truncate(String value, int maxCharacters) {
   return '${value.substring(0, maxCharacters - marker.length)}$marker';
 }
 
+String _truncateSingleLine(String value, int maxCharacters) {
+  final safe = value.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').trim();
+  if (safe.length <= maxCharacters) return safe;
+  return '${safe.substring(0, maxCharacters - 1)}…';
+}
+
 String _safeName(String value) {
   final safe = value.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').trim();
   return _truncate(safe, 128);
@@ -491,3 +529,45 @@ String _safeName(String value) {
 bool _isUnauthorizedError(Object error) =>
     error is mcp.UnauthorizedError ||
     (error is mcp.McpError && error.message.contains('HTTP 401'));
+
+final class _CanonicalJsonEncoder {
+  var _nodes = 0;
+
+  String encode(Object? value) => jsonEncode(_normalize(value, 0));
+
+  Object? _normalize(Object? value, int depth) {
+    _nodes++;
+    if (_nodes > kDirectMcpApprovalFingerprintMaxNodes ||
+        depth > kDirectMcpApprovalFingerprintMaxDepth) {
+      throw const FormatException(
+        'The MCP tool schema is too complex to fingerprint.',
+      );
+    }
+    if (value == null || value is bool || value is String || value is int) {
+      return value;
+    }
+    if (value is double) {
+      if (!value.isFinite) {
+        throw const FormatException(
+          'The MCP tool schema contains a non-finite number.',
+        );
+      }
+      return value;
+    }
+    if (value is List) {
+      return [for (final item in value) _normalize(item, depth + 1)];
+    }
+    if (value is Map) {
+      if (value.keys.any((key) => key is! String)) {
+        throw const FormatException(
+          'The MCP tool schema contains a non-string object key.',
+        );
+      }
+      final keys = value.keys.cast<String>().toList()..sort();
+      return {for (final key in keys) key: _normalize(value[key], depth + 1)};
+    }
+    throw const FormatException(
+      'The MCP tool schema contains a non-JSON value.',
+    );
+  }
+}

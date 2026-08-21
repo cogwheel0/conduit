@@ -105,16 +105,22 @@ final class DirectCompletionRequest {
 final class DirectToolDefinition {
   DirectToolDefinition({
     required this.name,
+    required this.serverId,
     required this.serverName,
+    required this.remoteName,
     required this.displayName,
     required this.description,
+    required this.approvalFingerprint,
     required Map<String, dynamic> inputSchema,
   }) : inputSchema = Map.unmodifiable(inputSchema);
 
   final String name;
+  final String serverId;
   final String serverName;
+  final String remoteName;
   final String displayName;
   final String description;
+  final String approvalFingerprint;
   final Map<String, dynamic> inputSchema;
 
   Map<String, dynamic> toFunctionJson() => <String, dynamic>{
@@ -134,7 +140,7 @@ final class DirectToolResult {
   final bool isError;
 }
 
-enum DirectToolApprovalDecision { allowOnce, deny }
+enum DirectToolApprovalDecision { allowOnce, allowSession, allowAlways, deny }
 
 const Duration kDirectToolApprovalTimeout = Duration(minutes: 5);
 
@@ -167,11 +173,21 @@ final class DirectToolApprovalHandle {
   const DirectToolApprovalHandle({
     required this.request,
     required this.decision,
+    this.requiresUserDecision = true,
   });
 
   final DirectToolApprovalRequest request;
   final Future<DirectToolApprovalDecision> decision;
+  final bool requiresUserDecision;
 }
+
+String directToolApprovalState(DirectToolApprovalDecision decision) =>
+    switch (decision) {
+      DirectToolApprovalDecision.allowOnce => 'allowed_once',
+      DirectToolApprovalDecision.allowSession => 'allowed_session',
+      DirectToolApprovalDecision.allowAlways => 'allowed_always',
+      DirectToolApprovalDecision.deny => 'denied',
+    };
 
 Future<DirectToolApprovalDecision?> waitForDirectToolApproval({
   required DirectToolApprovalHandle approval,
@@ -317,9 +333,12 @@ final class DirectMcpApprovalRequested extends DirectStreamEvent {
 }
 
 final class DirectMcpApprovalResolved extends DirectStreamEvent {
-  const DirectMcpApprovalResolved({required this.id, required this.decision});
+  const DirectMcpApprovalResolved({
+    required this.request,
+    required this.decision,
+  });
 
-  final String id;
+  final DirectToolApprovalRequest request;
   final DirectToolApprovalDecision decision;
 }
 

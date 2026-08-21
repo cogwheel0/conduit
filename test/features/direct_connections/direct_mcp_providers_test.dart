@@ -1,5 +1,7 @@
 import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -65,6 +67,63 @@ void main() {
     expect(container.read(directMcpServersProvider).requireValue, isEmpty);
     expect(await container.read(directMcpServerStoreProvider).load(), isEmpty);
   });
+
+  test(
+    'secure reload clears session approval after configuration drift',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(directMcpServersProvider.notifier);
+      final server = _server('one');
+      await notifier.upsert(server);
+      final registry = container.read(directRunRegistryProvider);
+      final definition = DirectToolDefinition(
+        name: 'mcp_one_lookup',
+        serverId: server.id,
+        serverName: server.name,
+        remoteName: 'lookup',
+        displayName: 'Lookup',
+        description: '',
+        approvalFingerprint: 'a' * 64,
+        inputSchema: const {'type': 'object'},
+      );
+      final first = registry.requestMcpApproval(
+        registry.reserve((
+          ownerConversationId: 'direct-local:first',
+          assistantMessageId: 'assistant-1',
+        ), 'profile'),
+        callId: 'call-1',
+        definition: definition,
+        arguments: const {},
+        expectedServer: server,
+      );
+      registry.resolveMcpApprovalById(
+        first.request.id,
+        DirectToolApprovalDecision.allowSession,
+      );
+      expect(await first.decision, DirectToolApprovalDecision.allowSession);
+
+      final changed = server.copyWith(name: 'Changed');
+      await container
+          .read(directMcpServerStoreProvider)
+          .upsert(changed, expectedPrevious: server);
+      await notifier.reload();
+      final afterReload = registry.requestMcpApproval(
+        registry.reserve((
+          ownerConversationId: 'direct-local:second',
+          assistantMessageId: 'assistant-2',
+        ), 'profile'),
+        callId: 'call-2',
+        definition: definition,
+        arguments: const {},
+        expectedServer: changed,
+      );
+      expect(afterReload.requiresUserDecision, isTrue);
+    },
+  );
 }
 
 DirectMcpServer _server(String id, {bool enabled = true}) => DirectMcpServer(

@@ -260,6 +260,42 @@ void main() {
     expect((await store.load()).single.oauthTokens, isNull);
   });
 
+  testWidgets('MCP editor revokes remembered tool approvals', (tester) async {
+    final store = _managementStore();
+    final server = DirectMcpServer(
+      id: 'remembered-ui',
+      name: 'Remembered UI',
+      endpoint: 'https://resource.example/mcp',
+      rememberedApprovals: [
+        _managementApproval('a', 'lookup', 'Lookup'),
+        _managementApproval('b', 'search', 'Search'),
+      ],
+    );
+    await store.upsert(server);
+    final coordinator = DirectMcpOAuthCoordinator(store: store);
+    addTearDown(coordinator.close);
+    await _pumpOAuthEditor(tester, store, coordinator, server.id);
+
+    expect(find.text('Always allowed tools'), findsOneWidget);
+    expect(find.text('Lookup'), findsOneWidget);
+    expect(find.text('Search'), findsOneWidget);
+    expect(find.textContaining('a' * 64), findsNothing);
+    final firstRevoke = find.text('Revoke').first;
+    await tester.ensureVisible(firstRevoke);
+    await tester.tap(firstRevoke);
+    await tester.pumpAndSettle();
+    expect((await store.load()).single.rememberedApprovals, hasLength(1));
+
+    final revokeAll = find.byKey(
+      const ValueKey('direct-mcp-remembered-revoke-all'),
+    );
+    await tester.ensureVisible(revokeAll);
+    await tester.tap(revokeAll);
+    await tester.pumpAndSettle();
+    expect((await store.load()).single.rememberedApprovals, isEmpty);
+    expect(find.text('Always allowed tools'), findsNothing);
+  });
+
   testWidgets('OAuth editor adopts a token-only secure-store reload', (
     tester,
   ) async {
@@ -387,6 +423,17 @@ DirectMcpOAuthTokens _managementOAuthTokens(String resource) =>
       clientId: 'public-ui-client',
       tokenEndpoint: 'https://auth.example/token',
     );
+
+DirectMcpRememberedApproval _managementApproval(
+  String seed,
+  String remoteName,
+  String displayName,
+) => DirectMcpRememberedApproval(
+  digest: seed * 64,
+  remoteToolName: remoteName,
+  displayName: displayName,
+  createdAt: DateTime.utc(2026),
+);
 
 Future<void> _pumpOAuthEditor(
   WidgetTester tester,

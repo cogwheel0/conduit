@@ -15686,9 +15686,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         for (final definition in session.definitions)
           DirectToolDefinition(
             name: definition.modelName,
+            serverId: definition.serverId,
             serverName: definition.serverName,
+            remoteName: definition.remoteName,
             displayName: definition.displayName,
             description: definition.description,
+            approvalFingerprint: definition.approvalFingerprint,
             inputSchema: definition.inputSchema,
           ),
       ],
@@ -15698,6 +15701,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             callId: callId,
             definition: definition,
             arguments: arguments,
+            expectedServer: serversById[definition.serverId]!,
           ),
       execute: (name, arguments) async {
         final result = await session.execute(name, arguments);
@@ -15976,7 +15980,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               ..add(event.request.argumentsJson);
             break;
           case DirectMcpApprovalResolved():
-            normalizedBudget.add(event.id);
+            normalizedBudget
+              ..add(event.request.id)
+              ..add(event.request.serverName)
+              ..add(event.request.toolName)
+              ..add(event.request.callId)
+              ..add(event.request.argumentsJson);
             break;
           case DirectStreamError():
             normalizedBudget.add(event.message);
