@@ -291,13 +291,17 @@ class _ComposerAttachmentKeyboardState
               }).toList();
               return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
             },
-            loading: () => Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-              ),
-            ),
+            loading: () => directMode
+                ? const SizedBox.shrink()
+                : Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: BorderWidth.thin,
+                      ),
+                    ),
+                  ),
             error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
           );
     final integrationsSection = restrictedMode

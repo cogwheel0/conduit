@@ -316,8 +316,9 @@ String _baseModelName(String serverId, String remoteName) {
   if (safeRemote.isEmpty) safeRemote = 'tool';
   const prefixLength = 13; // mcp_ + 8 hex + _
   final remaining = 64 - prefixLength;
-  if (safeRemote.length > remaining)
+  if (safeRemote.length > remaining) {
     safeRemote = safeRemote.substring(0, remaining);
+  }
   return 'mcp_${serverDigest.substring(0, 8)}_$safeRemote';
 }
 

@@ -199,7 +199,7 @@ class _DirectMcpServerEditorPageState
         title: l10n.directMcpEditorTitle,
         children: const [Center(child: CircularProgressIndicator.adaptive())],
       ),
-      error: (_, __) => UtilityPageScaffold.settings(
+      error: (_, _) => UtilityPageScaffold.settings(
         title: l10n.directMcpEditorTitle,
         children: [Text(l10n.directMcpLoadFailed)],
       ),
