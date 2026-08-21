@@ -25,6 +25,9 @@ const int _kMaxOpenRouterImageApiBase64Characters =
     ((20 * 1024 * 1024 + 2) ~/ 3) * 4;
 const int _kMaxOpenRouterImagePromptCharacters = 32 * 1024;
 const String _kDefaultOpenRouterImageModel = 'openai/gpt-5-image';
+const int _kMaxResponsesReplayItems = 256;
+const int _kMaxResponsesReplayBytes = 8 * 1024 * 1024;
+const int _kMaxResponsesClassifierNodes = 1024;
 
 /// OpenAI-family adapter backed by openai_dart's protocol models and SSE
 /// decoder. Dio remains the transport so each direct profile keeps Conduit's
@@ -349,14 +352,14 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
               profile.openAiApiMode == DirectOpenAiApiMode.responses;
-          if (responsesMode && request.tools != null) {
-            throw const DirectProviderException(
-              'Local tools require Chat Completions mode.',
-            );
-          }
           final useOpenRouterImageApi =
               profile.supportsOpenRouterImageGeneration &&
               request.enableImageGeneration;
+          if (useOpenRouterImageApi && request.tools != null) {
+            throw const DirectProviderException(
+              'Local tools cannot be combined with image generation.',
+            );
+          }
           if (useOpenRouterImageApi) {
             await _runOpenRouterImagePipeline(
               dio: dio,
@@ -366,7 +369,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               useResponsesApi: responsesMode,
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
-          } else if (!responsesMode && request.tools != null) {
+          } else if (responsesMode) {
+            await _runResponsesRounds(
+              dio: dio,
+              profile: profile,
+              request: request,
+              cancelToken: transportCancelToken,
+              runCancelToken: cancelToken,
+              emitter: emitter,
+            );
+            transportCompletedCleanly = emitter.completedSuccessfully;
+          } else if (request.tools != null) {
             await _runChatToolRounds(
               dio: dio,
               profile: profile,
@@ -377,9 +390,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
           } else {
-            final requestBody = responsesMode
-                ? _responsesRequestBody(request, profile)
-                : _chatRequestBody(request, profile);
+            final requestBody = _chatRequestBody(request, profile);
             final response = await dio.post<ResponseBody>(
               _completionEndpoint(profile),
               cancelToken: transportCancelToken,
@@ -407,25 +418,13 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 maxTransferBytes: maxStreamBytes,
               );
               emitter.protocolEvent();
-              if (responsesMode) {
-                _emitResponsesPayload(payload, emitter);
-              } else {
-                _emitChatPayload(payload, emitter);
-              }
+              _emitChatPayload(payload, emitter);
               if (!emitter.terminalSent && !emitter.hasCompletion) {
                 throw const FormatException(
                   'OpenAI-compatible response has no usable completion content.',
                 );
               }
               if (!emitter.terminalSent) emitter.done();
-              transportCompletedCleanly = emitter.completedSuccessfully;
-            } else if (responsesMode) {
-              await _consumeResponsesStream(body, emitter);
-              if (!emitter.terminalSent && !cancelToken.isCancelled) {
-                throw const DirectProviderException(
-                  'The provider stream ended before its response.completed marker.',
-                );
-              }
               transportCompletedCleanly = emitter.completedSuccessfully;
             } else {
               await _consumeChatStream(body, emitter);
@@ -994,115 +993,306 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     );
   }
 
-  Future<void> _consumeResponsesStream(
-    ResponseBody body,
-    _DirectEmitter emitter,
-  ) async {
-    await for (final raw in _parseBoundedSse(
-      directStreamingResponseBytes(
-        body,
-        idleTimeout: streamIdleTimeout,
-        maxDuration: streamMaxDuration,
-        maxBytes: maxStreamBytes,
-        successfulProtocolTerminal: () => emitter.completedSuccessfully,
-        successDrainTimeout: successDrainTimeout,
-        maxSuccessDrainBytes: maxSuccessDrainBytes,
-      ),
-      maxLineCharacters: maxSseLineCharacters,
-      maxFrameDataCharacters: maxSseFrameDataCharacters,
-    )) {
-      if (emitter.terminalSent) {
-        if (emitter.completedSuccessfully) continue;
+  Future<void> _runResponsesRounds({
+    required Dio dio,
+    required DirectConnectionProfile profile,
+    required DirectCompletionRequest request,
+    required CancelToken cancelToken,
+    required CancelToken runCancelToken,
+    required _DirectEmitter emitter,
+  }) async {
+    final runtime = request.tools;
+    final requestBody = _responsesRequestBody(request, profile);
+    final rawInput = requestBody['input'];
+    if (rawInput is! List) {
+      throw const FormatException('Responses API input is invalid.');
+    }
+    final input = <Map<String, dynamic>>[
+      for (final item in rawInput)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+    if (input.length != rawInput.length) {
+      throw const FormatException('Responses API input is invalid.');
+    }
+
+    var totalCalls = 0;
+    final replayBudget = _ResponsesReplayBudget();
+    Map<String, dynamic>? combinedUsage;
+    for (var round = 0; round < kDirectMaxToolRounds; round++) {
+      emitter.beginResponsesRound();
+      final roundCancelToken = CancelToken();
+      unawaited(
+        cancelToken.whenCancel.then<void>((error) {
+          if (!roundCancelToken.isCancelled) {
+            roundCancelToken.cancel(error.error ?? 'run cancelled');
+          }
+        }),
+      );
+      final response = await dio.post<ResponseBody>(
+        _completionEndpoint(profile),
+        cancelToken: roundCancelToken,
+        data: <String, dynamic>{...requestBody, 'input': input},
+        options: Options(
+          responseType: ResponseType.stream,
+          receiveTimeout: streamIdleTimeout,
+          headers: {
+            'Accept': 'text/event-stream',
+            if (profile.isOpenRouter) 'X-OpenRouter-Metadata': 'enabled',
+          },
+        ),
+      );
+      final body = response.data;
+      if (body == null) {
+        throw const FormatException('Provider returned an empty body.');
+      }
+      final contentType = response.headers.value('content-type') ?? '';
+      final result = contentType.toLowerCase().contains('json')
+          ? await _consumeResponsesJson(body, emitter, runtime)
+          : await _consumeResponsesStream(body, emitter, runtime);
+      if (result.requiresTransportCancel && !roundCancelToken.isCancelled) {
+        roundCancelToken.cancel('completed response body did not close');
+        await Future<void>.delayed(Duration.zero);
+      }
+      combinedUsage = _mergeOpenRouterPipelineUsage(
+        combinedUsage,
+        result.usage,
+      );
+      if (result.calls.isEmpty) {
+        if (!result.hasCompletion) {
+          throw const FormatException(
+            'Responses API response has no usable completion content.',
+          );
+        }
+        if (combinedUsage != null) emitter.usage(combinedUsage);
+        emitter.done();
         return;
       }
-      emitter.protocolEvent();
-      if (raw.isDone) break;
-      final payload = raw.json;
-      if (payload == null) {
-        throw const FormatException('Invalid Responses API SSE event.');
-      }
-      _emitOpenRouterPayloadExtensions(payload, emitter);
-      if (raw.event == 'error' ||
-          payload['type'] == 'error' ||
-          (payload['type'] == null && payload['error'] != null)) {
-        emitter.protocolError(payload['error'] ?? payload);
-        break;
-      }
-      if (payload['type'] == null && raw.event != null) {
-        payload['type'] = raw.event;
-      }
-      if (_responsesPayloadHasToolCall(payload)) {
+      if (runtime == null) {
         throw const DirectProviderException(
           kDirectToolCallingUnsupportedMessage,
         );
       }
-      final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
-      switch (event) {
-        case openai.OutputTextDeltaEvent(:final delta):
-          if (delta.isNotEmpty) emitter.content(delta);
-        case openai.RefusalDeltaEvent(:final delta):
-          if (delta.isNotEmpty) emitter.content(delta);
-        case openai.ReasoningTextDeltaEvent(:final delta, :final outputIndex):
-          if (delta.isNotEmpty) {
-            emitter.responseReasoningText(delta, outputIndex: outputIndex);
-          }
-        case openai.ReasoningSummaryTextDeltaEvent(
-          :final delta,
-          :final outputIndex,
-        ):
-          if (delta.isNotEmpty) {
-            emitter.responseReasoningSummary(delta, outputIndex: outputIndex);
-          }
-        case openai.ResponseCompletedEvent(:final response):
-          final statusError = _responseStatusError(response);
-          if (statusError != null) {
-            emitter.error(statusError);
-            break;
-          }
-          // A few compatible servers omit some deltas or collapse the stream
-          // to one completed event. Reconcile the authoritative payload as a
-          // suffix so partial deltas are neither duplicated nor truncated.
-          _reconcileCompletedResponseOutput(response, emitter);
-          if (!emitter.hasCompletion) {
-            throw const FormatException(
-              'Responses API response has no usable completion content.',
+      totalCalls += result.calls.length;
+      if (totalCalls > kDirectMaxToolCalls) {
+        throw const DirectProviderException(
+          'The provider exceeded Conduit\'s tool-call limit.',
+        );
+      }
+      if (round + 1 >= kDirectMaxToolRounds) {
+        throw const DirectProviderException(
+          'The provider exceeded Conduit\'s tool round limit.',
+        );
+      }
+      for (final item in result.replayItems) {
+        replayBudget.add(item);
+        input.add(item);
+      }
+      for (final call in result.calls) {
+        final definition = runtime.definition(call.name);
+        final arguments = call.decodeArguments();
+        final approval = runtime.requestApproval(
+          call.callId,
+          definition,
+          arguments,
+        );
+        emitter.approvalRequested(approval.request);
+        final decision = await waitForDirectToolApproval(
+          approval: approval,
+          timeout: toolApprovalTimeout,
+          cancellations: [runCancelToken.whenCancel, cancelToken.whenCancel],
+        );
+        if (decision == null) return;
+        emitter.approvalResolved(approval.request.id, decision);
+        if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
+
+        DirectToolResult toolResult;
+        if (decision == DirectToolApprovalDecision.deny) {
+          toolResult = const DirectToolResult(
+            text: 'The user denied this tool call.',
+            isError: true,
+          );
+        } else {
+          emitter.toolStarted(call.callId, call.name, arguments);
+          try {
+            final executed = await Future.any<DirectToolResult?>([
+              runtime.execute(call.name, arguments),
+              runCancelToken.whenCancel.then((_) => null),
+              cancelToken.whenCancel.then((_) => null),
+            ]);
+            if (executed == null) return;
+            toolResult = executed;
+          } catch (_) {
+            if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
+            toolResult = const DirectToolResult(
+              text: 'The local tool call failed.',
+              isError: true,
             );
           }
-          if (response.usage != null) emitter.usage(response.usage!.toJson());
-          emitter.done();
-        case openai.ResponseFailedEvent(:final response):
-          emitter.error(
-            response.error?.message ?? 'The provider response failed.',
+        }
+        emitter.toolCompleted(call.callId, call.name, arguments, toolResult);
+        final output = <String, dynamic>{
+          'type': 'function_call_output',
+          'call_id': call.callId,
+          'output': toolResult.text,
+        };
+        replayBudget.add(output);
+        input.add(output);
+      }
+    }
+  }
+
+  Future<_ResponsesToolRound> _consumeResponsesJson(
+    ResponseBody body,
+    _DirectEmitter emitter,
+    DirectToolRuntime? runtime,
+  ) async {
+    final payload = await decodeDirectJsonBody(
+      body,
+      idleTimeout: streamIdleTimeout,
+      maxDuration: streamMaxDuration,
+      maxTransferBytes: maxStreamBytes,
+    );
+    emitter.protocolEvent();
+    _emitOpenRouterPayloadExtensions(payload, emitter);
+    if (payload['error'] != null && payload['id'] == null) {
+      throw DirectProviderException(directErrorMessage(payload['error']));
+    }
+    _requireSupportedResponsesTools(payload, runtime);
+    final response = OpenAiResponsesCodec.decodeResponse(payload);
+    return _finishResponsesRound(
+      response,
+      emitter,
+      runtime,
+      _ResponsesToolCallCollector(),
+    );
+  }
+
+  Future<_ResponsesToolRound> _consumeResponsesStream(
+    ResponseBody body,
+    _DirectEmitter emitter,
+    DirectToolRuntime? runtime,
+  ) async {
+    final calls = _ResponsesToolCallCollector();
+    _ResponsesToolRound? result;
+    var sawCompleted = false;
+    var requiresTransportCancel = false;
+    try {
+      await for (final raw in _parseBoundedSse(
+        directStreamingResponseBytes(
+          body,
+          idleTimeout: streamIdleTimeout,
+          maxDuration: streamMaxDuration,
+          maxBytes: maxStreamBytes,
+          successfulProtocolTerminal: () => sawCompleted,
+          successDrainTimeout: successDrainTimeout,
+          maxSuccessDrainBytes: maxSuccessDrainBytes,
+        ),
+        maxLineCharacters: maxSseLineCharacters,
+        maxFrameDataCharacters: maxSseFrameDataCharacters,
+      )) {
+        if (sawCompleted) continue;
+        emitter.protocolEvent();
+        if (raw.isDone) break;
+        final payload = raw.json;
+        if (payload == null) {
+          throw const FormatException('Invalid Responses API SSE event.');
+        }
+        _emitOpenRouterPayloadExtensions(payload, emitter);
+        if (raw.event == 'error' ||
+            payload['type'] == 'error' ||
+            (payload['type'] == null && payload['error'] != null)) {
+          throw DirectProviderException(
+            directErrorMessage(payload['error'] ?? payload),
           );
-        case openai.ResponseIncompleteEvent(:final response):
-          final reason = response.incompleteDetails?.reason;
-          emitter.error(
-            reason == null || reason.isEmpty
-                ? 'The provider response was incomplete.'
-                : 'The provider response was incomplete: $reason.',
-          );
-        case openai.ErrorEvent(:final message):
-          emitter.error(message);
-        case openai.UnknownEvent(:final type, :final rawJson)
-            when type == 'response.reasoning.delta' ||
-                type == 'response.reasoning_summary.delta':
-          final delta = _completionText(rawJson['delta']);
-          if (delta != null) {
-            final rawOutputIndex = rawJson['output_index'];
-            final outputIndex = rawOutputIndex is int ? rawOutputIndex : null;
-            if (type == 'response.reasoning_summary.delta') {
-              emitter.responseReasoningSummary(delta, outputIndex: outputIndex);
-            } else {
+        }
+        if (payload['type'] == null && raw.event != null) {
+          payload['type'] = raw.event;
+        }
+        _requireSupportedResponsesTools(payload, runtime);
+        final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
+        switch (event) {
+          case openai.OutputTextDeltaEvent(:final delta):
+            if (delta.isNotEmpty) emitter.content(delta);
+          case openai.RefusalDeltaEvent(:final delta):
+            if (delta.isNotEmpty) emitter.content(delta);
+          case openai.ReasoningTextDeltaEvent(:final delta, :final outputIndex):
+            if (delta.isNotEmpty) {
               emitter.responseReasoningText(delta, outputIndex: outputIndex);
             }
-          }
-        default:
-          break;
+          case openai.ReasoningSummaryTextDeltaEvent(
+            :final delta,
+            :final outputIndex,
+          ):
+            if (delta.isNotEmpty) {
+              emitter.responseReasoningSummary(delta, outputIndex: outputIndex);
+            }
+          case openai.OutputItemAddedEvent(:final outputIndex, :final item):
+            if (item is openai.FunctionCallOutputItemResponse) {
+              calls.recordItem(outputIndex, item, complete: false);
+            }
+          case openai.OutputItemDoneEvent(:final outputIndex, :final item):
+            if (item is openai.FunctionCallOutputItemResponse) {
+              calls.recordItem(outputIndex, item, complete: true);
+            }
+          case openai.FunctionCallArgumentsDeltaEvent(
+            :final outputIndex,
+            :final itemId,
+            :final delta,
+          ):
+            calls.addArguments(outputIndex, itemId, delta);
+          case openai.FunctionCallArgumentsDoneEvent(
+            :final outputIndex,
+            :final itemId,
+            :final name,
+            :final arguments,
+          ):
+            calls.completeArguments(outputIndex, itemId, name, arguments);
+          case openai.ResponseCompletedEvent(:final response):
+            result = _finishResponsesRound(response, emitter, runtime, calls);
+            sawCompleted = true;
+          case openai.ResponseFailedEvent(:final response):
+            throw DirectProviderException(
+              response.error?.message ?? 'The provider response failed.',
+            );
+          case openai.ResponseIncompleteEvent(:final response):
+            final reason = response.incompleteDetails?.reason;
+            throw DirectProviderException(
+              reason == null || reason.isEmpty
+                  ? 'The provider response was incomplete.'
+                  : 'The provider response was incomplete: $reason.',
+            );
+          case openai.ErrorEvent(:final message):
+            throw DirectProviderException(message);
+          case openai.UnknownEvent(:final type, :final rawJson)
+              when type == 'response.reasoning.delta' ||
+                  type == 'response.reasoning_summary.delta':
+            final delta = _completionText(rawJson['delta']);
+            if (delta != null) {
+              final rawOutputIndex = rawJson['output_index'];
+              final outputIndex = rawOutputIndex is int ? rawOutputIndex : null;
+              if (type == 'response.reasoning_summary.delta') {
+                emitter.responseReasoningSummary(
+                  delta,
+                  outputIndex: outputIndex,
+                );
+              } else {
+                emitter.responseReasoningText(delta, outputIndex: outputIndex);
+              }
+            }
+          default:
+            break;
+        }
       }
-      // Successful lifecycle terminals switch the byte source into its small,
-      // bounded keep-alive drain window. Error terminals remain non-reusable.
-      if (emitter.terminalSent && !emitter.completedSuccessfully) return;
+    } on DirectStreamDrainException {
+      if (!sawCompleted) rethrow;
+      requiresTransportCancel = true;
     }
+    if (result == null) {
+      throw const DirectProviderException(
+        'The provider stream ended before its response.completed marker.',
+      );
+    }
+    return requiresTransportCancel ? result.withTransportCancel() : result;
   }
 }
 
@@ -1496,6 +1686,22 @@ Map<String, dynamic> _responsesRequestBody(
     ...core,
     'stream': true,
   };
+  final runtime = request.tools;
+  if (runtime != null) {
+    body
+      ..['tools'] = <Map<String, dynamic>>[
+        for (final definition in runtime.definitions)
+          openai.FunctionTool(
+            name: definition.name,
+            description: definition.description.isEmpty
+                ? null
+                : definition.description,
+            parameters: definition.inputSchema,
+            strict: false,
+          ).toJson(),
+      ]
+      ..['parallel_tool_calls'] = false;
+  }
   if (profile.isOpenRouter) {
     _normalizeOpenRouterReasoning(body);
   }
@@ -1640,34 +1846,6 @@ void _emitChatPayload(Map<String, dynamic> payload, _DirectEmitter emitter) {
     );
   }
   if (usage is Map) emitter.usage(usage.cast<String, dynamic>());
-}
-
-void _emitResponsesPayload(
-  Map<String, dynamic> payload,
-  _DirectEmitter emitter,
-) {
-  _emitOpenRouterPayloadExtensions(payload, emitter);
-  if (payload['error'] != null && payload['id'] == null) {
-    emitter.protocolError(payload['error']);
-    return;
-  }
-  if (_responsesPayloadHasToolCall(payload)) {
-    throw const DirectProviderException(kDirectToolCallingUnsupportedMessage);
-  }
-  final response = OpenAiResponsesCodec.decodeResponse(payload);
-  final statusError = _responseStatusError(response);
-  if (statusError != null) {
-    emitter.error(statusError);
-    return;
-  }
-
-  _emitResponseOutput(response, emitter);
-  if (!emitter.hasCompletion) {
-    throw const FormatException(
-      'Responses API response has no usable completion content.',
-    );
-  }
-  if (response.usage != null) emitter.usage(response.usage!.toJson());
 }
 
 void _emitOpenRouterPayloadExtensions(
@@ -1916,38 +2094,332 @@ final class _ChatToolRound {
   final bool hasCompletion;
 }
 
-bool _responsesPayloadHasToolCall(Map<String, dynamic> payload) {
-  bool toolType(Object? value) {
-    final type = value?.toString().trim().toLowerCase() ?? '';
-    if (_responsesToolOutputItemTypes.contains(type)) return true;
-    if (!type.startsWith('response.')) return false;
-    final eventType = type.substring('response.'.length);
-    return _responsesToolEventPrefixes.any(
-      (prefix) =>
-          eventType == prefix ||
-          eventType.startsWith('$prefix.') ||
-          eventType.startsWith('${prefix}_'),
-    );
-  }
+final class _ResponsesToolRound {
+  const _ResponsesToolRound({
+    required this.calls,
+    required this.replayItems,
+    required this.hasCompletion,
+    required this.usage,
+    this.requiresTransportCancel = false,
+  });
 
-  bool itemIsTool(Object? value) {
-    if (value is Iterable) return value.any(itemIsTool);
-    if (value is! Map) return false;
-    if (toolType(value['type'])) return true;
-    for (final key in const ['item', 'output_item', 'response', 'output']) {
-      if (itemIsTool(value[key])) return true;
-    }
-    return false;
-  }
+  final List<_ResponsesToolCall> calls;
+  final List<Map<String, dynamic>> replayItems;
+  final bool hasCompletion;
+  final Map<String, dynamic>? usage;
+  final bool requiresTransportCancel;
 
-  return itemIsTool(payload);
+  _ResponsesToolRound withTransportCancel() => _ResponsesToolRound(
+    calls: calls,
+    replayItems: replayItems,
+    hasCompletion: hasCompletion,
+    usage: usage,
+    requiresTransportCancel: true,
+  );
 }
 
-// Every non-content Responses output item currently exposed by openai_dart.
-// Direct connections do not execute tools, so both calls and their result
-// items must fail closed instead of being silently discarded beside text.
-const Set<String> _responsesToolOutputItemTypes = {
+final class _ResponsesToolCall {
+  const _ResponsesToolCall({
+    required this.outputIndex,
+    required this.itemId,
+    required this.callId,
+    required this.name,
+    required this.argumentsJson,
+  });
+
+  final int outputIndex;
+  final String? itemId;
+  final String callId;
+  final String name;
+  final String argumentsJson;
+
+  Map<String, dynamic> decodeArguments() {
+    final decoded = jsonDecode(argumentsJson.isEmpty ? '{}' : argumentsJson);
+    if (decoded is! Map) {
+      throw const FormatException('Provider tool arguments must be an object.');
+    }
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  Map<String, dynamic> toReplayJson() => <String, dynamic>{
+    'type': 'function_call',
+    if (itemId != null) 'id': itemId,
+    'call_id': callId,
+    'name': name,
+    'arguments': argumentsJson,
+  };
+}
+
+final class _ResponsesToolCallCollector {
+  final Map<int, _ResponsesToolCallBuilder> _builders = {};
+
+  void recordItem(
+    int outputIndex,
+    openai.FunctionCallOutputItemResponse item, {
+    required bool complete,
+  }) {
+    final builder = _builder(outputIndex);
+    builder
+      ..setItemId(item.id)
+      ..setCallId(item.callId)
+      ..setName(item.name);
+    if (complete) builder.setAuthoritativeArguments(item.arguments);
+  }
+
+  void addArguments(int outputIndex, String? itemId, String delta) {
+    final builder = _builder(outputIndex);
+    if (itemId != null) builder.setItemId(itemId);
+    builder.addArguments(delta);
+  }
+
+  void completeArguments(
+    int outputIndex,
+    String? itemId,
+    String? name,
+    String arguments,
+  ) {
+    final builder = _builder(outputIndex);
+    if (itemId != null) builder.setItemId(itemId);
+    if (name != null) builder.setName(name);
+    builder.setAuthoritativeArguments(arguments);
+  }
+
+  List<_ResponsesToolCall> finish(DirectToolRuntime? runtime) {
+    if (_builders.isEmpty) return const [];
+    if (runtime == null) {
+      throw const DirectProviderException(kDirectToolCallingUnsupportedMessage);
+    }
+    final indexes = _builders.keys.toList()..sort();
+    final calls = <_ResponsesToolCall>[];
+    final callIds = <String>{};
+    for (final index in indexes) {
+      final call = _builders[index]!.build(index);
+      if (!callIds.add(call.callId)) {
+        throw const FormatException('Provider tool call identity conflicts.');
+      }
+      runtime.definition(call.name);
+      call.decodeArguments();
+      calls.add(call);
+    }
+    return List.unmodifiable(calls);
+  }
+
+  _ResponsesToolCallBuilder _builder(int outputIndex) {
+    if (outputIndex < 0) {
+      throw const FormatException('Provider tool call index is invalid.');
+    }
+    return _builders.putIfAbsent(outputIndex, () {
+      if (_builders.length >= kDirectMaxToolCalls) {
+        throw const DirectProviderException(
+          'The provider exceeded Conduit\'s tool-call limit.',
+        );
+      }
+      return _ResponsesToolCallBuilder();
+    });
+  }
+}
+
+final class _ResponsesToolCallBuilder {
+  String? _itemId;
+  String? _callId;
+  String? _name;
+  String _arguments = '';
+  int _argumentBytes = 0;
+
+  void setItemId(String value) => _itemId = _setIdentity(_itemId, value);
+
+  void setCallId(String value) => _callId = _setIdentity(_callId, value);
+
+  void setName(String value) {
+    if (value.length > 64) {
+      throw const FormatException('Provider tool call identity is invalid.');
+    }
+    _name = _setIdentity(_name, value);
+  }
+
+  String _setIdentity(String? current, String value) {
+    if (value.trim().isEmpty || value.length > 512) {
+      throw const FormatException('Provider tool call identity is invalid.');
+    }
+    if (current != null && current != value) {
+      throw const FormatException('Provider tool call identity conflicts.');
+    }
+    return value;
+  }
+
+  void addArguments(String value) {
+    final bytes = utf8.encode(value).length;
+    _argumentBytes += bytes;
+    if (_argumentBytes > kDirectMaxToolArgumentBytes) {
+      throw const DirectProviderException(
+        'Provider tool arguments are too large.',
+      );
+    }
+    _arguments += value;
+  }
+
+  void setAuthoritativeArguments(String value) {
+    if (_arguments == value) return;
+    if (_arguments.isNotEmpty && !value.startsWith(_arguments)) {
+      throw const FormatException('Provider tool arguments conflict.');
+    }
+    final suffix = value.substring(_arguments.length);
+    addArguments(suffix);
+  }
+
+  _ResponsesToolCall build(int outputIndex) {
+    final callId = _callId;
+    final name = _name;
+    if (callId == null || name == null) {
+      throw const FormatException('Provider tool call identity is missing.');
+    }
+    return _ResponsesToolCall(
+      outputIndex: outputIndex,
+      itemId: _itemId,
+      callId: callId,
+      name: name,
+      argumentsJson: _arguments,
+    );
+  }
+}
+
+final class _ResponsesReplayBudget {
+  int _items = 0;
+  int _bytes = 0;
+
+  void add(Map<String, dynamic> item) {
+    _items += 1;
+    if (_items > _kMaxResponsesReplayItems) {
+      throw const DirectProviderException(
+        'The provider exceeded Conduit\'s response replay limit.',
+      );
+    }
+    _bytes += utf8.encode(jsonEncode(item)).length;
+    if (_bytes > _kMaxResponsesReplayBytes) {
+      throw const DirectProviderException(
+        'The provider exceeded Conduit\'s response replay limit.',
+      );
+    }
+  }
+}
+
+_ResponsesToolRound _finishResponsesRound(
+  openai.Response response,
+  _DirectEmitter emitter,
+  DirectToolRuntime? runtime,
+  _ResponsesToolCallCollector collector,
+) {
+  final statusError = _responseStatusError(response);
+  if (statusError != null) throw DirectProviderException(statusError);
+  _reconcileCompletedResponseOutput(response, emitter);
+  for (var index = 0; index < response.output.length; index++) {
+    final item = response.output[index];
+    if (item is openai.FunctionCallOutputItemResponse) {
+      collector.recordItem(index, item, complete: true);
+    }
+  }
+  final calls = collector.finish(runtime);
+  final replayItems = <Map<String, dynamic>>[];
+  if (calls.isNotEmpty) {
+    final callsByIndex = {for (final call in calls) call.outputIndex: call};
+    for (var index = 0; index < response.output.length; index++) {
+      final item = response.output[index];
+      switch (item) {
+        case openai.MessageOutputItem() || openai.ReasoningItem():
+          replayItems.add(item.toJson());
+        case openai.FunctionCallOutputItemResponse():
+          replayItems.add(callsByIndex.remove(index)!.toReplayJson());
+        default:
+          throw const DirectProviderException(
+            kDirectToolCallingUnsupportedMessage,
+          );
+      }
+    }
+    for (final index in callsByIndex.keys.toList()..sort()) {
+      replayItems.add(callsByIndex[index]!.toReplayJson());
+    }
+  }
+  return _ResponsesToolRound(
+    calls: calls,
+    replayItems: List.unmodifiable(replayItems),
+    hasCompletion: emitter.responseRoundHasCompletion,
+    usage: response.usage?.toJson(),
+  );
+}
+
+void _requireSupportedResponsesTools(
+  Map<String, dynamic> payload,
+  DirectToolRuntime? runtime,
+) {
+  final classification = _classifyResponsesTools(payload);
+  if (classification == _ResponsesToolClassification.unsupported ||
+      (classification == _ResponsesToolClassification.localFunction &&
+          runtime == null)) {
+    throw const DirectProviderException(kDirectToolCallingUnsupportedMessage);
+  }
+}
+
+enum _ResponsesToolClassification { none, localFunction, unsupported }
+
+_ResponsesToolClassification _classifyResponsesTools(Object? root) {
+  var classification = _ResponsesToolClassification.none;
+  var inspected = 0;
+  final pending = <Object?>[root];
+  while (pending.isNotEmpty) {
+    inspected += 1;
+    if (inspected > _kMaxResponsesClassifierNodes) {
+      return _ResponsesToolClassification.unsupported;
+    }
+    final value = pending.removeLast();
+    if (value is Iterable) {
+      for (final item in value) {
+        if (inspected + pending.length >= _kMaxResponsesClassifierNodes) {
+          return _ResponsesToolClassification.unsupported;
+        }
+        pending.add(item);
+      }
+      continue;
+    }
+    if (value is! Map) continue;
+    final type = value['type'];
+    if (type is String) {
+      final normalized = type.trim().toLowerCase();
+      if (_responsesLocalToolTypes.contains(normalized) ||
+          normalized.startsWith('response.function_call_arguments.')) {
+        classification = _ResponsesToolClassification.localFunction;
+      } else if (_responsesUnsupportedToolTypes.contains(normalized) ||
+          _responsesUnsupportedEventPrefixes.any(
+            (prefix) =>
+                normalized == 'response.$prefix' ||
+                normalized.startsWith('response.$prefix.') ||
+                normalized.startsWith('response.${prefix}_'),
+          ) ||
+          _looksLikeUnknownResponsesToolType(normalized)) {
+        return _ResponsesToolClassification.unsupported;
+      }
+    }
+    for (final key in const ['item', 'output_item', 'response', 'output']) {
+      final child = value[key];
+      if (child != null) pending.add(child);
+    }
+  }
+  return classification;
+}
+
+bool _looksLikeUnknownResponsesToolType(String type) =>
+    type.contains('tool') ||
+    type.contains('function_call') ||
+    type.contains('mcp_') ||
+    type.endsWith('_call') ||
+    type.contains('_call.') ||
+    type.contains('_call_');
+
+const Set<String> _responsesLocalToolTypes = {
   'function_call',
+  'function_call_output',
+};
+
+const Set<String> _responsesUnsupportedToolTypes = {
   'web_search_call',
   'file_search_call',
   'code_interpreter_call',
@@ -1965,11 +2437,7 @@ const Set<String> _responsesToolOutputItemTypes = {
   'additional_tools',
 };
 
-// Dedicated streaming event families do not always carry a nested output item
-// (for example `response.web_search_call.completed`). Recognize those protocol
-// types directly as well as the output-item envelopes handled above.
-const Set<String> _responsesToolEventPrefixes = {
-  'function_call',
+const Set<String> _responsesUnsupportedEventPrefixes = {
   'web_search_call',
   'file_search_call',
   'code_interpreter_call',
@@ -1989,16 +2457,6 @@ String? _responseStatusError(openai.Response response) {
     response,
     subject: 'provider response',
   );
-}
-
-void _emitResponseOutput(openai.Response response, _DirectEmitter emitter) {
-  final content = OpenAiResponsesCodec.content(response);
-  if (content.reasoning.isNotEmpty) {
-    emitter.reasoning(content.reasoning);
-  }
-  if (content.text.isNotEmpty) {
-    emitter.content(content.text);
-  }
 }
 
 void _reconcileCompletedResponseOutput(
@@ -2110,6 +2568,7 @@ final class _DirectEmitter {
   bool terminalSent = false;
   bool completedSuccessfully = false;
   bool _hasNonWhitespaceCompletion = false;
+  bool _responseRoundHasCompletion = false;
   final StringBuffer _contentText = StringBuffer();
   final StringBuffer _responseReasoningText = StringBuffer();
   final StringBuffer _responseReasoningSummary = StringBuffer();
@@ -2120,10 +2579,20 @@ final class _DirectEmitter {
   bool _hasEmittedProviderMetadata = false;
 
   bool get hasCompletion => _hasNonWhitespaceCompletion;
+  bool get responseRoundHasCompletion => _responseRoundHasCompletion;
   String get contentText => _contentText.toString();
   String get responseReasoningTextValue => _responseReasoningText.toString();
   String get responseReasoningSummaryValue =>
       _responseReasoningSummary.toString();
+
+  void beginResponsesRound() {
+    _responseRoundHasCompletion = false;
+    _contentText.clear();
+    _responseReasoningText.clear();
+    _responseReasoningSummary.clear();
+    _responseReasoningTextOutputIndexes.clear();
+    _responseReasoningSummaryOutputIndexes.clear();
+  }
 
   void protocolEvent() => budget.addEvent();
 
@@ -2133,7 +2602,10 @@ final class _DirectEmitter {
     if (terminalSent || controller.isClosed) return;
     budget.add(value);
     _contentText.write(value);
-    if (value.trim().isNotEmpty) _hasNonWhitespaceCompletion = true;
+    if (value.trim().isNotEmpty) {
+      _hasNonWhitespaceCompletion = true;
+      _responseRoundHasCompletion = true;
+    }
     controller.add(DirectContentDelta(value));
   }
 
@@ -2176,7 +2648,10 @@ final class _DirectEmitter {
   void _emitReasoning(String value) {
     if (terminalSent || controller.isClosed) return;
     budget.add(value);
-    if (value.trim().isNotEmpty) _hasNonWhitespaceCompletion = true;
+    if (value.trim().isNotEmpty) {
+      _hasNonWhitespaceCompletion = true;
+      _responseRoundHasCompletion = true;
+    }
     controller.add(DirectReasoningDelta(value));
   }
 

@@ -4554,6 +4554,820 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test(
+    'OpenAI Responses advertises only trusted public function fields',
+    () async {
+      const credentialSentinel = 'credential-must-not-enter-json';
+      const endpointSentinel = 'https://private-mcp.example.test/rpc';
+      final http = _QueuedAdapter([
+        _Reply.json(
+          _responsesPayload(
+            id: 'resp-final',
+            output: [_responsesMessage('msg-final', 'Done.')],
+          ),
+        ),
+      ]);
+      final runtime = DirectToolRuntime(
+        definitions: [
+          DirectToolDefinition(
+            name: 'mcp_deadbeef_weather',
+            serverName: endpointSentinel,
+            displayName: 'Weather',
+            description: 'Looks up weather.',
+            inputSchema: const {
+              'type': 'object',
+              'properties': {
+                'city': {'type': 'string'},
+              },
+            },
+          ),
+        ],
+        requestApproval: (_, _, _) => throw StateError('not called'),
+        execute: (_, _) => throw StateError('not called'),
+      );
+
+      final events =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(
+                  openAiApiMode: DirectOpenAiApiMode.responses,
+                  apiKey: credentialSentinel,
+                ),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: runtime,
+                ),
+              )
+              .events
+              .toList();
+
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+      final body = http.requests.single.data as Map<String, dynamic>;
+      expect(body['parallel_tool_calls'], isFalse);
+      expect(body['tools'], [
+        {
+          'type': 'function',
+          'name': 'mcp_deadbeef_weather',
+          'description': 'Looks up weather.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'city': {'type': 'string'},
+            },
+          },
+          'strict': false,
+        },
+      ]);
+      final encoded = jsonEncode(body);
+      expect(encoded, isNot(contains(credentialSentinel)));
+      expect(encoded, isNot(contains(endpointSentinel)));
+    },
+  );
+
+  test(
+    'OpenAI Responses streams fragments, replays reasoning, and merges usage',
+    () async {
+      final reasoning = <String, dynamic>{
+        'type': 'reasoning',
+        'id': 'reason-1',
+        'summary': [
+          {'type': 'summary_text', 'text': 'Need weather.'},
+        ],
+      };
+      final preamble = _responsesMessage('msg-preamble', 'Checking.');
+      final call = _responsesFunctionCall(
+        id: 'fc-1',
+        callId: 'call-1',
+        arguments: '{"city":"Paris"}',
+      );
+      final first = _responsesPayload(
+        id: 'resp-tool',
+        output: [reasoning, preamble, call],
+        usage: const {'input_tokens': 2, 'output_tokens': 3, 'total_tokens': 5},
+      );
+      final second = _responsesPayload(
+        id: 'resp-final',
+        output: [_responsesMessage('msg-final', 'It is sunny.')],
+        usage: const {'input_tokens': 4, 'output_tokens': 5, 'total_tokens': 9},
+      );
+      final http = _QueuedAdapter([
+        _responsesStream([
+          {
+            'type': 'response.reasoning_summary_text.delta',
+            'output_index': 0,
+            'summary_index': 0,
+            'delta': 'Need weather.',
+          },
+          {
+            'type': 'response.output_text.delta',
+            'output_index': 1,
+            'content_index': 0,
+            'delta': 'Checking.',
+          },
+          {
+            'type': 'response.output_item.added',
+            'output_index': 2,
+            'item': {...call, 'arguments': '', 'status': 'in_progress'},
+          },
+          {
+            'type': 'response.function_call_arguments.delta',
+            'output_index': 2,
+            'item_id': 'fc-1',
+            'delta': '{"city":"',
+          },
+          {
+            'type': 'response.function_call_arguments.done',
+            'output_index': 2,
+            'item_id': 'fc-1',
+            'name': 'mcp_deadbeef_weather',
+            'arguments': '{"city":"Paris"}',
+          },
+          {
+            'type': 'response.output_item.done',
+            'output_index': 2,
+            'item': call,
+          },
+          _responsesCompleted(first),
+        ]),
+        _responsesStream([
+          {
+            'type': 'response.output_text.delta',
+            'output_index': 0,
+            'content_index': 0,
+            'delta': 'It is sunny.',
+          },
+          _responsesCompleted(second),
+        ]),
+      ]);
+      Map<String, dynamic>? executedArguments;
+
+      final events =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(
+                    execute: (arguments) async {
+                      executedArguments = arguments;
+                      return const DirectToolResult(text: 'sunny');
+                    },
+                  ),
+                ),
+              )
+              .events
+              .toList();
+
+      expect(executedArguments, {'city': 'Paris'});
+      expect(
+        events.whereType<DirectContentDelta>().map((event) => event.content),
+        ['Checking.', 'It is sunny.'],
+      );
+      expect(
+        events.whereType<DirectReasoningDelta>().single.content,
+        'Need weather.',
+      );
+      expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+      expect(events.whereType<DirectUsageUpdate>().single.usage, {
+        'input_tokens': 6,
+        'output_tokens': 8,
+        'total_tokens': 14,
+      });
+
+      final replay =
+          (http.requests.last.data as Map<String, dynamic>)['input'] as List;
+      expect(
+        replay.map((item) => (item as Map)['type']),
+        containsAllInOrder([
+          'message',
+          'reasoning',
+          'message',
+          'function_call',
+          'function_call_output',
+        ]),
+      );
+      final output = replay.last as Map;
+      expect(output['call_id'], 'call-1');
+      expect(output['output'], 'sunny');
+    },
+  );
+
+  test(
+    'OpenAI Responses accepts completed-only and JSON function calls',
+    () async {
+      for (final jsonMode in const [false, true]) {
+        final first = _responsesPayload(
+          id: 'resp-tool',
+          output: [
+            _responsesFunctionCall(
+              id: 'fc-1',
+              callId: 'call-1',
+              arguments: '{"city":"Paris"}',
+            ),
+          ],
+        );
+        final finalResponse = _responsesPayload(
+          id: 'resp-final',
+          output: [_responsesMessage('msg-final', 'Sunny.')],
+        );
+        final http = _QueuedAdapter([
+          if (jsonMode)
+            _Reply.json(first)
+          else
+            _responsesStream([_responsesCompleted(first)]),
+          if (jsonMode)
+            _Reply.json(finalResponse)
+          else
+            _responsesStream([_responsesCompleted(finalResponse)]),
+        ]);
+
+        final events =
+            await OpenAiCompatibleAdapter(
+                  dioFactory: (_) => _dio(http),
+                  closeClients: false,
+                )
+                .startCompletion(
+                  _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                  DirectCompletionRequest(
+                    remoteModelId: 'model',
+                    messages: [
+                      DirectChatMessage.text(role: 'user', text: 'weather'),
+                    ],
+                    tools: _localToolRuntime(),
+                  ),
+                )
+                .events
+                .toList();
+
+        expect(
+          events.whereType<DirectContentDelta>().single.content,
+          'Sunny.',
+          reason: 'jsonMode=$jsonMode',
+        );
+        expect(
+          events.whereType<DirectToolCallCompleted>(),
+          hasLength(1),
+          reason: 'jsonMode=$jsonMode',
+        );
+        final replay =
+            (http.requests.last.data as Map<String, dynamic>)['input'] as List;
+        expect(
+          replay.map((item) => (item as Map)['type']),
+          containsAllInOrder(['function_call', 'function_call_output']),
+          reason: 'jsonMode=$jsonMode',
+        );
+      }
+    },
+  );
+
+  test(
+    'OpenAI Responses handles allow, deny, and local tool failure',
+    () async {
+      final cases =
+          <
+            ({
+              String name,
+              DirectToolApprovalDecision decision,
+              bool throws,
+              String output,
+              bool starts,
+            })
+          >[
+            (
+              name: 'allow',
+              decision: DirectToolApprovalDecision.allowOnce,
+              throws: false,
+              output: 'sunny',
+              starts: true,
+            ),
+            (
+              name: 'deny',
+              decision: DirectToolApprovalDecision.deny,
+              throws: false,
+              output: 'The user denied this tool call.',
+              starts: false,
+            ),
+            (
+              name: 'failure',
+              decision: DirectToolApprovalDecision.allowOnce,
+              throws: true,
+              output: 'The local tool call failed.',
+              starts: true,
+            ),
+          ];
+      for (final testCase in cases) {
+        final first = _responsesPayload(
+          id: 'resp-tool',
+          output: [_responsesFunctionCall(id: 'fc-1', callId: 'call-1')],
+        );
+        final http = _QueuedAdapter([
+          _Reply.json(first),
+          _Reply.json(
+            _responsesPayload(
+              id: 'resp-final',
+              output: [_responsesMessage('msg-final', 'Finished.')],
+            ),
+          ),
+        ]);
+
+        final events =
+            await OpenAiCompatibleAdapter(
+                  dioFactory: (_) => _dio(http),
+                  closeClients: false,
+                )
+                .startCompletion(
+                  _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                  DirectCompletionRequest(
+                    remoteModelId: 'model',
+                    messages: [
+                      DirectChatMessage.text(role: 'user', text: 'weather'),
+                    ],
+                    tools: _localToolRuntime(
+                      decision: testCase.decision,
+                      execute: (_) async {
+                        if (testCase.throws) {
+                          throw StateError('fixture failure');
+                        }
+                        return const DirectToolResult(text: 'sunny');
+                      },
+                    ),
+                  ),
+                )
+                .events
+                .toList();
+
+        final replay =
+            (http.requests.last.data as Map<String, dynamic>)['input'] as List;
+        expect(
+          (replay.last as Map)['output'],
+          testCase.output,
+          reason: testCase.name,
+        );
+        expect(
+          events.whereType<DirectToolCallStarted>().isNotEmpty,
+          testCase.starts,
+          reason: testCase.name,
+        );
+        expect(
+          events.whereType<DirectToolCallCompleted>().single.isError,
+          testCase.name != 'allow',
+          reason: testCase.name,
+        );
+        expect(events.whereType<DirectStreamDone>(), hasLength(1));
+      }
+    },
+  );
+
+  test(
+    'OpenAI Responses rejects malformed and duplicate function calls',
+    () async {
+      final malformedCases =
+          <({String name, List<Map<String, dynamic>> output})>[
+            (
+              name: 'non-object arguments',
+              output: [
+                _responsesFunctionCall(
+                  id: 'fc-1',
+                  callId: 'call-1',
+                  arguments: '[]',
+                ),
+              ],
+            ),
+            (
+              name: 'unknown function',
+              output: [
+                _responsesFunctionCall(
+                  id: 'fc-1',
+                  callId: 'call-1',
+                  name: 'unknown_function',
+                ),
+              ],
+            ),
+            (
+              name: 'duplicate call id',
+              output: [
+                _responsesFunctionCall(id: 'fc-1', callId: 'duplicate'),
+                _responsesFunctionCall(id: 'fc-2', callId: 'duplicate'),
+              ],
+            ),
+          ];
+      for (final testCase in malformedCases) {
+        final http = _QueuedAdapter([
+          _Reply.json(
+            _responsesPayload(id: 'resp-tool', output: testCase.output),
+          ),
+        ]);
+        final events =
+            await OpenAiCompatibleAdapter(
+                  dioFactory: (_) => _dio(http),
+                  closeClients: false,
+                )
+                .startCompletion(
+                  _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                  DirectCompletionRequest(
+                    remoteModelId: 'model',
+                    messages: [
+                      DirectChatMessage.text(role: 'user', text: 'weather'),
+                    ],
+                    tools: _localToolRuntime(),
+                  ),
+                )
+                .events
+                .toList();
+
+        expect(
+          events.whereType<DirectStreamError>(),
+          hasLength(1),
+          reason: testCase.name,
+        );
+        expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+        expect(http.requests, hasLength(1));
+      }
+
+      final call = _responsesFunctionCall(id: 'fc-1', callId: 'call-1');
+      final conflictingHttp = _QueuedAdapter([
+        _responsesStream([
+          {
+            'type': 'response.output_item.added',
+            'output_index': 0,
+            'item': {...call, 'status': 'in_progress'},
+          },
+          {
+            'type': 'response.function_call_arguments.done',
+            'output_index': 0,
+            'item_id': 'fc-1',
+            'name': 'conflicting_name',
+            'arguments': '{}',
+          },
+        ]),
+      ]);
+      final conflictingEvents =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(conflictingHttp),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(),
+                ),
+              )
+              .events
+              .toList();
+      expect(conflictingEvents.whereType<DirectStreamError>(), hasLength(1));
+      expect(
+        conflictingEvents.whereType<DirectMcpApprovalRequested>(),
+        isEmpty,
+      );
+    },
+  );
+
+  test('OpenAI Responses bounds arguments while streaming', () async {
+    final oversized = 'x' * (kDirectMaxToolArgumentBytes + 1);
+    final http = _QueuedAdapter([
+      _responsesStream([
+        {
+          'type': 'response.function_call_arguments.delta',
+          'output_index': 0,
+          'item_id': 'fc-1',
+          'delta': oversized,
+        },
+      ]),
+    ]);
+
+    final events =
+        await OpenAiCompatibleAdapter(
+              dioFactory: (_) => _dio(http),
+              closeClients: false,
+            )
+            .startCompletion(
+              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('too large'),
+    );
+    expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+  });
+
+  test(
+    'OpenAI Responses rejects native and unknown tools with a runtime',
+    () async {
+      for (final type in const [
+        'mcp_call',
+        'computer_call_output',
+        'future_tool_call',
+      ]) {
+        final http = _QueuedAdapter([
+          _Reply.json(
+            _responsesPayload(
+              id: 'resp-unsupported',
+              output: [
+                {'type': type},
+              ],
+            ),
+          ),
+        ]);
+
+        final events =
+            await OpenAiCompatibleAdapter(
+                  dioFactory: (_) => _dio(http),
+                  closeClients: false,
+                )
+                .startCompletion(
+                  _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                  DirectCompletionRequest(
+                    remoteModelId: 'model',
+                    messages: [
+                      DirectChatMessage.text(role: 'user', text: 'weather'),
+                    ],
+                    tools: _localToolRuntime(),
+                  ),
+                )
+                .events
+                .toList();
+
+        expect(
+          events.whereType<DirectStreamError>().single.message,
+          kDirectToolCallingUnsupportedMessage,
+          reason: type,
+        );
+        expect(events.whereType<DirectMcpApprovalRequested>(), isEmpty);
+      }
+    },
+  );
+
+  test('OpenAI Responses executes multiple calls sequentially', () async {
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-tools',
+          output: [
+            _responsesFunctionCall(
+              id: 'fc-1',
+              callId: 'call-1',
+              arguments: '{"city":"Paris"}',
+            ),
+            _responsesFunctionCall(
+              id: 'fc-2',
+              callId: 'call-2',
+              arguments: '{"city":"Rome"}',
+            ),
+          ],
+        ),
+      ),
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-final',
+          output: [_responsesMessage('msg-final', 'Both done.')],
+        ),
+      ),
+    ]);
+    final order = <String>[];
+
+    final events =
+        await OpenAiCompatibleAdapter(
+              dioFactory: (_) => _dio(http),
+              closeClients: false,
+            )
+            .startCompletion(
+              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(
+                  execute: (arguments) async {
+                    order.add(arguments['city'] as String);
+                    return DirectToolResult(text: '${arguments['city']} sunny');
+                  },
+                ),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(order, ['Paris', 'Rome']);
+    expect(
+      events.whereType<DirectToolCallCompleted>().map((event) => event.id),
+      ['call-1', 'call-2'],
+    );
+    final replay =
+        (http.requests.last.data as Map<String, dynamic>)['input'] as List;
+    expect(
+      replay
+          .where((item) => (item as Map)['type'] == 'function_call_output')
+          .map((item) => (item as Map)['call_id']),
+      ['call-1', 'call-2'],
+    );
+  });
+
+  test('OpenAI Responses enforces the shared tool round limit', () async {
+    final http = _QueuedAdapter([
+      for (var round = 0; round < kDirectMaxToolRounds; round++)
+        _Reply.json(
+          _responsesPayload(
+            id: 'resp-$round',
+            output: [
+              _responsesFunctionCall(id: 'fc-$round', callId: 'call-$round'),
+            ],
+          ),
+        ),
+    ]);
+
+    final events =
+        await OpenAiCompatibleAdapter(
+              dioFactory: (_) => _dio(http),
+              closeClients: false,
+            )
+            .startCompletion(
+              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(http.requests, hasLength(kDirectMaxToolRounds));
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('tool round limit'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI Responses enforces the shared total call limit', () async {
+    final firstCalls = [
+      for (var index = 0; index < kDirectMaxToolCalls; index++)
+        _responsesFunctionCall(id: 'fc-$index', callId: 'call-$index'),
+    ];
+    final http = _QueuedAdapter([
+      _Reply.json(_responsesPayload(id: 'resp-many', output: firstCalls)),
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-one-too-many',
+          output: [
+            _responsesFunctionCall(id: 'fc-extra', callId: 'call-extra'),
+          ],
+        ),
+      ),
+    ]);
+    var executions = 0;
+
+    final events =
+        await OpenAiCompatibleAdapter(
+              dioFactory: (_) => _dio(http),
+              closeClients: false,
+            )
+            .startCompletion(
+              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(
+                  execute: (_) async {
+                    executions += 1;
+                    return const DirectToolResult(text: 'sunny');
+                  },
+                ),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(executions, kDirectMaxToolCalls);
+    expect(http.requests, hasLength(2));
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('tool-call limit'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI Responses cancellation interrupts pending approval', () async {
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-tool',
+          output: [_responsesFunctionCall(id: 'fc-1', callId: 'call-1')],
+        ),
+      ),
+    ]);
+    final pendingDecision = Completer<DirectToolApprovalDecision>();
+    final run =
+        OpenAiCompatibleAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        ).startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(approvalDecision: pendingDecision.future),
+          ),
+        );
+    final approvalRequested = Completer<void>();
+    final streamDone = Completer<void>();
+    final events = <DirectStreamEvent>[];
+    final subscription = run.events.listen((event) {
+      events.add(event);
+      if (event is DirectMcpApprovalRequested &&
+          !approvalRequested.isCompleted) {
+        approvalRequested.complete();
+      }
+    }, onDone: streamDone.complete);
+    addTearDown(subscription.cancel);
+
+    await approvalRequested.future.timeout(const Duration(seconds: 1));
+    await run.cancel().timeout(const Duration(seconds: 1));
+    await streamDone.future.timeout(const Duration(seconds: 1));
+
+    expect(pendingDecision.isCompleted, isFalse);
+    expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+    expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(http.requests, hasLength(1));
+  });
+
+  test('OpenAI Responses cancellation interrupts pending execution', () async {
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-tool',
+          output: [_responsesFunctionCall(id: 'fc-1', callId: 'call-1')],
+        ),
+      ),
+    ]);
+    final pendingExecution = Completer<DirectToolResult>();
+    final run =
+        OpenAiCompatibleAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        ).startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(execute: (_) => pendingExecution.future),
+          ),
+        );
+    final executionStarted = Completer<void>();
+    final streamDone = Completer<void>();
+    final events = <DirectStreamEvent>[];
+    final subscription = run.events.listen((event) {
+      events.add(event);
+      if (event is DirectToolCallStarted && !executionStarted.isCompleted) {
+        executionStarted.complete();
+      }
+    }, onDone: streamDone.complete);
+    addTearDown(subscription.cancel);
+
+    await executionStarted.future.timeout(const Duration(seconds: 1));
+    await run.cancel().timeout(const Duration(seconds: 1));
+    await streamDone.future.timeout(const Duration(seconds: 1));
+
+    expect(pendingExecution.isCompleted, isFalse);
+    expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
+    expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(http.requests, hasLength(1));
+  });
+
   test('OpenAI Chat executes fragmented local tool calls sequentially', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
@@ -5289,6 +6103,52 @@ DirectToolRuntime _localToolRuntime({
   execute: (name, arguments) =>
       execute?.call(arguments) ??
       Future.value(const DirectToolResult(text: 'sunny')),
+);
+
+Map<String, dynamic> _responsesPayload({
+  required String id,
+  required List<Map<String, dynamic>> output,
+  Map<String, dynamic>? usage,
+}) => <String, dynamic>{
+  'id': id,
+  'object': 'response',
+  'created_at': 1,
+  'status': 'completed',
+  'output': output,
+  'usage': ?usage,
+};
+
+Map<String, dynamic> _responsesCompleted(Map<String, dynamic> response) =>
+    <String, dynamic>{'type': 'response.completed', 'response': response};
+
+Map<String, dynamic> _responsesFunctionCall({
+  required String id,
+  required String callId,
+  String name = 'mcp_deadbeef_weather',
+  String arguments = '{}',
+}) => <String, dynamic>{
+  'type': 'function_call',
+  'id': id,
+  'call_id': callId,
+  'name': name,
+  'arguments': arguments,
+  'status': 'completed',
+};
+
+Map<String, dynamic> _responsesMessage(String id, String text) =>
+    <String, dynamic>{
+      'type': 'message',
+      'id': id,
+      'role': 'assistant',
+      'status': 'completed',
+      'content': [
+        {'type': 'output_text', 'text': text},
+      ],
+    };
+
+_Reply _responsesStream(Iterable<Map<String, dynamic>> events) => _Reply.stream(
+  [utf8.encode(events.map((event) => 'data: ${jsonEncode(event)}\n\n').join())],
+  contentType: 'text/event-stream',
 );
 
 DirectConnectionProfile _openAiProfile({
