@@ -169,6 +169,35 @@ void main() {
     }
   });
 
+  test('keeps app-only MCP tools out of model definitions', () async {
+    final fixture = await _McpFixture.start(
+      toolNames: const ['model-tool', 'app-tool'],
+      appOnlyToolNames: const {'app-tool'},
+    );
+    addTearDown(fixture.close);
+
+    final session = await DirectMcpToolSession.open([_serverFor(fixture)]);
+    addTearDown(session.close);
+
+    expect(session.definitions.map((tool) => tool.remoteName), ['model-tool']);
+  });
+
+  test('sanitizes invalid app metadata during MCP preflight', () async {
+    final fixture = await _McpFixture.start(invalidAppMetadata: true);
+    addTearDown(fixture.close);
+
+    await expectLater(
+      DirectMcpToolSession.open([_serverFor(fixture)]),
+      throwsA(
+        isA<DirectProviderException>().having(
+          (error) => error.message,
+          'message',
+          'An MCP tool has invalid app metadata.',
+        ),
+      ),
+    );
+  });
+
   test('rejects malformed schemas with a sanitized preflight error', () async {
     final fixture = await _McpFixture.start(invalidSchema: true);
     addTearDown(fixture.close);
@@ -333,6 +362,8 @@ final class _McpFixture {
     required this.toolDescriptionCharacters,
     required this.requiredAuthorization,
     required this.unauthorizedToolCalls,
+    required this.appOnlyToolNames,
+    required this.invalidAppMetadata,
   });
 
   final HttpServer server;
@@ -348,6 +379,8 @@ final class _McpFixture {
   final int toolDescriptionCharacters;
   final String? requiredAuthorization;
   final bool unauthorizedToolCalls;
+  final Set<String> appOnlyToolNames;
+  final bool invalidAppMetadata;
   final Completer<void> toolCallReceived = Completer<void>();
   final List<String?> authorizationHeaders = [];
   final List<String?> customHeaders = [];
@@ -370,6 +403,8 @@ final class _McpFixture {
     int toolDescriptionCharacters = 0,
     String? requiredAuthorization,
     bool unauthorizedToolCalls = false,
+    Set<String> appOnlyToolNames = const {},
+    bool invalidAppMetadata = false,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     late _McpFixture fixture;
@@ -388,6 +423,8 @@ final class _McpFixture {
       toolDescriptionCharacters: toolDescriptionCharacters,
       requiredAuthorization: requiredAuthorization,
       unauthorizedToolCalls: unauthorizedToolCalls,
+      appOnlyToolNames: appOnlyToolNames,
+      invalidAppMetadata: invalidAppMetadata,
     );
     return fixture;
   }
@@ -460,6 +497,14 @@ final class _McpFixture {
                           'value': {'type': 'string'},
                         },
                       },
+                if (invalidAppMetadata || appOnlyToolNames.contains(name))
+                  '_meta': invalidAppMetadata
+                      ? {'ui': 'invalid'}
+                      : {
+                          'ui': {
+                            'visibility': ['app'],
+                          },
+                        },
               },
           ],
           if (repeatListCursor)

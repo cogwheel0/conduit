@@ -6,6 +6,7 @@ import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import '../models/direct_completion.dart';
 import '../models/direct_mcp_content.dart';
 import '../models/direct_mcp_server.dart';
+import 'direct_mcp_apps_protocol.dart';
 import 'ollama_cloud_tools.dart';
 
 const int kDirectMcpMaxServers = 8;
@@ -717,8 +718,18 @@ final class DirectMcpToolSession {
           );
         }
         final client = connected.client;
-        final tools = connected.tools;
         clients[server.id] = client;
+        final List<mcp.Tool> tools;
+        try {
+          tools = directMcpToolsVisibleToModel(
+            connected.tools,
+            serverId: server.id,
+          );
+        } on DirectMcpAppsProtocolException {
+          throw const DirectProviderException(
+            'An MCP tool has invalid app metadata.',
+          );
+        }
         for (var index = 0; index < tools.length; index++) {
           if (definitions.length >= kDirectMcpMaxTools) {
             throw const DirectProviderException(
