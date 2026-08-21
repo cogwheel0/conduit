@@ -27,6 +27,7 @@ dependencies:
   dio: ^5.9.0
   ollama_dart: ^2.4.0
   openai_dart: ^7.0.1
+  mcp_dart: ^2.4.0
   http_parser: ^4.0.2
   
   

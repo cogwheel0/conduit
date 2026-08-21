@@ -1277,6 +1277,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
+  mcp_dart:
+    dependency: "direct main"
+    description:
+      name: mcp_dart
+      sha256: "777201efc190421e1c86502143379842ed42e16dc8b0ca1c4e8046dc7f7ee5f0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.1"
   mermaid_core:
     dependency: "direct main"
     description:

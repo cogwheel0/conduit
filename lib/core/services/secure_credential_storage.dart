@@ -30,6 +30,7 @@ class SecureCredentialStorage {
       'hermes_desktop_credentials_v1';
   static const String _directConnectionProfilesKey =
       'direct_connection_profiles_v1';
+  static const String _directMcpServersKey = 'direct_mcp_servers_v1';
   static const String _openWebUiDirectIdentityKey =
       'openwebui_direct_identity_key_v1';
   static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
@@ -421,6 +422,49 @@ class SecureCredentialStorage {
       DebugLogger.error(
         'delete-failed',
         scope: 'direct-connections/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// Persists the complete MCP server document without logging its payload.
+  Future<void> saveDirectMcpServers(String serversJson) async {
+    try {
+      await _secureStorage.write(key: _directMcpServersKey, value: serversJson);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'save-failed',
+        scope: 'direct-connections/mcp/storage',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<String?> getDirectMcpServers() async {
+    try {
+      return await _secureStorage.read(key: _directMcpServersKey);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'read-failed',
+        scope: 'direct-connections/mcp/storage',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> deleteDirectMcpServers() async {
+    try {
+      await _secureStorage.delete(key: _directMcpServersKey);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'delete-failed',
+        scope: 'direct-connections/mcp/storage',
         error: error,
         stackTrace: stackTrace,
       );
