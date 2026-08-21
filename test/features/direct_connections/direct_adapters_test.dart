@@ -5282,6 +5282,7 @@ void main() {
 
   test('OpenAI Responses enforces the response replay byte limit', () async {
     final replaySizedText = base64Encode(Uint8List(6 * 1024 * 1024));
+    var executions = 0;
     final http = _QueuedAdapter([
       _Reply.json(
         _responsesPayload(
@@ -5306,7 +5307,12 @@ void main() {
                 messages: [
                   DirectChatMessage.text(role: 'user', text: 'weather'),
                 ],
-                tools: _localToolRuntime(),
+                tools: _localToolRuntime(
+                  execute: (_) async {
+                    executions += 1;
+                    return const DirectToolResult(text: 'sunny');
+                  },
+                ),
               ),
             )
             .events
@@ -5316,7 +5322,10 @@ void main() {
       events.whereType<DirectStreamError>().single.message,
       contains('response replay limit'),
     );
+    expect(executions, 0);
+    expect(events.whereType<DirectToolCallCompleted>(), isEmpty);
     expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(http.requests, hasLength(1));
   });
 
   test('OpenAI Responses cancellation interrupts pending approval', () async {
