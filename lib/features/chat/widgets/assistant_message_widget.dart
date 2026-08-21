@@ -15,6 +15,7 @@ import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../providers/streaming_haptic_memory.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
 import 'enhanced_image_attachment.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1154,6 +1155,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
                 if (_chatMessage case final message?)
                   HermesMessageInteractions(message: message),
+
+                if (_chatMessage case final message?)
+                  DirectMcpMessageInteractions(message: message),
 
                 if (showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),

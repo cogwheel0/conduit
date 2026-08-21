@@ -6,8 +6,6 @@ import 'package:dio/dio.dart';
 import '../../../core/utils/debug_logger.dart';
 import 'direct_adapter_helpers.dart';
 
-const int kOllamaCloudMaxAgentRounds = 8;
-const int kOllamaCloudMaxToolCalls = 16;
 const int kOllamaCloudMaxSearchResults = 10;
 const int kOllamaCloudMaxQueryCharacters = 2048;
 const int kOllamaCloudMaxUrlCharacters = 4096;

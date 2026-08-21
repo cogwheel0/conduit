@@ -568,6 +568,8 @@ final class OllamaAdapter
           }
           final webToolsEnabled =
               request.enableWebSearch && profile.supportsOllamaCloudWebSearch;
+          final localTools = request.tools;
+          final localToolsEnabled = localTools != null;
           if (request.enableWebSearch && !webToolsEnabled) {
             throw const DirectProviderException(
               'Ollama web search requires an Ollama Cloud connection.',
@@ -583,7 +585,7 @@ final class OllamaAdapter
           final webToolSession = OllamaCloudToolSession();
           var totalToolCalls = 0;
 
-          for (var round = 0; round < kOllamaCloudMaxAgentRounds; round++) {
+          for (var round = 0; round < kDirectMaxToolRounds; round++) {
             final roundContent = StringBuffer();
             final roundThinking = StringBuffer();
             final roundToolCalls = <_OllamaToolCall>[];
@@ -606,7 +608,13 @@ final class OllamaAdapter
                 ...sdkRequest.toJson(),
                 'messages': conversation,
                 if (thinking != null) 'think': thinking.apiValue,
-                if (webToolsEnabled) 'tools': kOllamaCloudWebToolDefinitions,
+                if (webToolsEnabled || localToolsEnabled)
+                  'tools': <Map<String, dynamic>>[
+                    if (webToolsEnabled) ...kOllamaCloudWebToolDefinitions,
+                    if (localTools != null)
+                      for (final definition in localTools.definitions)
+                        definition.toFunctionJson(),
+                  ],
               },
               options: Options(
                 responseType: ResponseType.stream,
@@ -643,6 +651,7 @@ final class OllamaAdapter
               if (rawMessage is Map) {
                 final unsolicitedToolCalls = rawMessage['tool_calls'];
                 if (!webToolsEnabled &&
+                    !localToolsEnabled &&
                     ((unsolicitedToolCalls is Iterable &&
                             unsolicitedToolCalls.isNotEmpty) ||
                         (unsolicitedToolCalls is Map &&
@@ -705,18 +714,18 @@ final class OllamaAdapter
               transportCompletedCleanly = true;
               break;
             }
-            if (!webToolsEnabled) {
+            if (!webToolsEnabled && !localToolsEnabled) {
               throw const DirectProviderException(
                 kDirectToolCallingUnsupportedMessage,
               );
             }
             totalToolCalls += roundToolCalls.length;
-            if (totalToolCalls > kOllamaCloudMaxToolCalls) {
+            if (totalToolCalls > kDirectMaxToolCalls) {
               throw const DirectProviderException(
                 'The Ollama agent exceeded Conduit\'s tool-call limit.',
               );
             }
-            if (round + 1 >= kOllamaCloudMaxAgentRounds) {
+            if (round + 1 >= kDirectMaxToolRounds) {
               throw const DirectProviderException(
                 'The Ollama agent exceeded Conduit\'s round limit.',
               );
@@ -730,34 +739,108 @@ final class OllamaAdapter
               'tool_calls': [for (final call in roundToolCalls) call.toJson()],
             });
             for (final call in roundToolCalls) {
-              controller.add(
-                DirectToolCallStarted(
-                  id: call.id,
-                  name: call.name,
-                  arguments: call.arguments,
-                ),
-              );
-            }
-            final results = await Future.wait([
-              for (final call in roundToolCalls)
-                webToolSession.execute(
+              final localDefinition = localTools?.definitions
+                  .where((definition) => definition.name == call.name)
+                  .firstOrNull;
+              final isWebTool =
+                  webToolsEnabled &&
+                  const {'web_search', 'web_fetch'}.contains(call.name);
+              if (localDefinition == null && !isWebTool) {
+                throw const DirectProviderException(
+                  'The model requested an unavailable local tool.',
+                );
+              }
+
+              DirectToolResult result;
+              Object? eventResult;
+              if (localDefinition != null) {
+                final approval = localTools!.requestApproval(
+                  call.id,
+                  localDefinition,
+                  call.arguments,
+                );
+                budget.add(jsonEncode(approval.request.toMetadata('pending')));
+                controller.add(DirectMcpApprovalRequested(approval.request));
+                final decision = await Future.any<DirectToolApprovalDecision?>([
+                  approval.decision,
+                  cancelToken.whenCancel.then((_) => null),
+                  transportCancelToken.whenCancel.then((_) => null),
+                ]);
+                if (decision == null) break;
+                budget.add(approval.request.id);
+                controller.add(
+                  DirectMcpApprovalResolved(
+                    id: approval.request.id,
+                    decision: decision,
+                  ),
+                );
+                if (cancelToken.isCancelled ||
+                    transportCancelToken.isCancelled) {
+                  break;
+                }
+                if (decision == DirectToolApprovalDecision.deny) {
+                  result = const DirectToolResult(
+                    text: 'The user denied this tool call.',
+                    isError: true,
+                  );
+                  eventResult = result.text;
+                } else {
+                  controller.add(
+                    DirectToolCallStarted(
+                      id: call.id,
+                      name: call.name,
+                      arguments: call.arguments,
+                    ),
+                  );
+                  try {
+                    final executed = await Future.any<DirectToolResult?>([
+                      localTools.execute(call.name, call.arguments),
+                      cancelToken.whenCancel.then((_) => null),
+                      transportCancelToken.whenCancel.then((_) => null),
+                    ]);
+                    if (executed == null) break;
+                    result = executed;
+                    eventResult = result.text;
+                  } catch (_) {
+                    if (cancelToken.isCancelled ||
+                        transportCancelToken.isCancelled) {
+                      break;
+                    }
+                    result = const DirectToolResult(
+                      text: 'The local tool call failed.',
+                      isError: true,
+                    );
+                    eventResult = result.text;
+                  }
+                }
+              } else {
+                controller.add(
+                  DirectToolCallStarted(
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                  ),
+                );
+                final webResult = await webToolSession.execute(
                   dio: dio,
                   name: call.name,
                   arguments: call.arguments,
                   cancelToken: transportCancelToken,
-                ),
-            ]);
-            for (var index = 0; index < roundToolCalls.length; index++) {
-              final call = roundToolCalls[index];
-              final result = results[index];
-              final serialized = result.toolMessageContent;
+                );
+                result = DirectToolResult(
+                  text: webResult.toolMessageContent,
+                  isError: webResult.isError,
+                );
+                eventResult = webResult.value;
+              }
+              final serialized = result.text;
               budget.add(serialized);
               controller.add(
                 DirectToolCallCompleted(
                   id: call.id,
                   name: call.name,
                   arguments: call.arguments,
-                  result: result.value,
+                  result: eventResult,
                   isError: result.isError,
                 ),
               );
@@ -1004,6 +1087,14 @@ List<_OllamaToolCall> _decodeOllamaToolCalls(
       throw const FormatException('Invalid Ollama tool name.');
     }
     final rawArguments = function['arguments'];
+    final encodedArguments = rawArguments is String
+        ? rawArguments
+        : jsonEncode(rawArguments);
+    if (utf8.encode(encodedArguments).length > kDirectMaxToolArgumentBytes) {
+      throw const DirectProviderException(
+        'Provider tool arguments are too large.',
+      );
+    }
     Object? decodedArguments = rawArguments;
     if (rawArguments is String) {
       try {

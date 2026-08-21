@@ -16,6 +16,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 
@@ -251,7 +252,7 @@ class _ComposerAttachmentKeyboardState
           );
         }).toList();
 
-    final selectedToolIds = restrictedMode
+    final selectedToolIds = widget.localAttachmentsOnly
         ? const <String>[]
         : ref.watch(selectedToolIdsProvider);
     final selectedTerminalId = restrictedMode
@@ -260,8 +261,12 @@ class _ComposerAttachmentKeyboardState
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
-    final toolsAsync = restrictedMode ? null : ref.watch(toolsListProvider);
-    final toolsSection = restrictedMode
+    final toolsAsync = widget.localAttachmentsOnly
+        ? null
+        : directMode
+        ? ref.watch(directMcpToolsProvider)
+        : ref.watch(toolsListProvider);
+    final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
         : toolsAsync!.when(
             data: (tools) {
@@ -421,12 +426,12 @@ class _ComposerAttachmentKeyboardState
         const SizedBox(height: Spacing.xs),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),
       ],
-      if (!restrictedMode) ...[
+      if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
         toolsSection,
-        integrationsSection,
       ],
+      if (!restrictedMode) ...[integrationsSection],
     ];
 
     final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];

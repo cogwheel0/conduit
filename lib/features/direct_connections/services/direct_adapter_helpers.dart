@@ -46,7 +46,7 @@ List<DirectChatMessage> requireSerializableDirectMessages(
 }
 
 const String kDirectToolCallingUnsupportedMessage =
-    'Direct tool calling is not supported yet.';
+    'Raw provider tool configuration is not supported.';
 
 /// Rejects provider tool configuration before a built-in adapter sends it.
 ///
@@ -93,6 +93,9 @@ const int kMaxDirectSuccessDrainBytes = 256 * 1024;
 const int kMaxDirectStreamCharacters = 8 * 1024 * 1024;
 const int kMaxDirectStreamEvents = 100000;
 const int kMaxDirectStreamWorkUnits = 1024 * 1024;
+const int kDirectMaxToolRounds = 8;
+const int kDirectMaxToolCalls = 16;
+const int kDirectMaxToolArgumentBytes = 64 * 1024;
 
 /// Provider-independent limits for normalized direct stream events.
 ///

@@ -35,6 +35,7 @@ import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../direct_connections/providers/direct_mcp_providers.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -214,7 +215,6 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   required List<ToggleFilter> availableFilters,
   required List<String> selectedFilterIds,
 }) {
-  final restrictedMode = hermesMode || directMode;
   final items = buildComposerOverflowItems(
     l10n: l10n,
     attachmentAvailability: attachmentAvailability,
@@ -224,9 +224,9 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     webSearchEnabled: webSearchEnabled,
     imageGenerationAvailable: !hermesMode && imageGenerationAvailable,
     imageGenerationEnabled: imageGenerationEnabled,
-    availableTools: restrictedMode ? const <Tool>[] : availableTools,
+    availableTools: hermesMode ? const <Tool>[] : availableTools,
     selectedToolIds: selectedToolIds,
-    availableFilters: restrictedMode
+    availableFilters: hermesMode || directMode
         ? const <ToggleFilter>[]
         : availableFilters,
     selectedFilterIds: selectedFilterIds,
@@ -240,12 +240,14 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
                   item.id == ComposerOverflowActionIds.photo ||
                   item.id == ComposerOverflowActionIds.camera);
         }
-        return !directMode ||
-            item.id == ComposerOverflowActionIds.file ||
-            item.id == ComposerOverflowActionIds.photo ||
-            item.id == ComposerOverflowActionIds.camera ||
-            item.id == ComposerOverflowActionIds.webSearch ||
-            item.id == ComposerOverflowActionIds.imageGeneration;
+        if (!directMode) return true;
+        return item.enabled &&
+            (item.section == ComposerOverflowSection.tools ||
+                item.id == ComposerOverflowActionIds.file ||
+                item.id == ComposerOverflowActionIds.photo ||
+                item.id == ComposerOverflowActionIds.camera ||
+                item.id == ComposerOverflowActionIds.webSearch ||
+                item.id == ComposerOverflowActionIds.imageGeneration);
       })
       .map(
         (item) => IosKeyboardAttachmentActionConfig(
@@ -2498,8 +2500,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   List<IosKeyboardAttachmentActionConfig>
   _currentNativeKeyboardAttachmentActions({required AppLocalizations l10n}) {
+    final selectedModel = ref.read(selectedModelProvider);
+    final directMode =
+        selectedModel != null && hasReservedDirectIdentity(selectedModel);
     final availableTools = ref
-        .read(toolsListProvider)
+        .read(directMode ? directMcpToolsProvider : toolsListProvider)
         .maybeWhen<List<Tool>>(
           data: (tools) => tools,
           orElse: () => const <Tool>[],
@@ -2776,6 +2781,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen<AsyncValue<List<Tool>>>(directMcpToolsProvider, (
+      previous,
+      next,
+    ) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
     ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
@@ -2822,10 +2833,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       appSettingsProvider.select((s) => s.sendOnEnter),
     );
     final toolsAsync = ref.watch(toolsListProvider);
-    final List<Tool> availableTools = toolsAsync.maybeWhen<List<Tool>>(
-      data: (t) => t,
-      orElse: () => const <Tool>[],
-    );
+    final directMcpToolsAsync = ref.watch(directMcpToolsProvider);
     final bool showWebPill = selectedQuickPills.contains('web');
     final bool showImagePillPref = selectedQuickPills.contains('image');
     final voiceAvailableAsync = ref.watch(voiceInputAvailableProvider);
@@ -2873,6 +2881,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool isDirectComposer =
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
+    final List<Tool> availableTools =
+        (isDirectComposer ? directMcpToolsAsync : toolsAsync)
+            .maybeWhen<List<Tool>>(
+              data: (tools) => tools,
+              orElse: () => const <Tool>[],
+            );
     final directSupportsImages =
         !isDirectComposer ||
         (visionCapableModelIds.contains(selectedComposerModel.id) &&
@@ -2884,7 +2898,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       directHasOverflowActions:
           attachmentAvailability.file ||
           webSearchAvailable ||
-          imageGenAvailable,
+          imageGenAvailable ||
+          (isDirectComposer && availableTools.isNotEmpty),
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||

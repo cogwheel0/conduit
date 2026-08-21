@@ -4554,6 +4554,269 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test('OpenAI Chat executes fragmented local tool calls sequentially', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': 'call_',
+                      'function': {'name': 'mcp_deadbeef_', 'arguments': '{"city":"'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': '1',
+                      'function': {'name': 'weather', 'arguments': 'Paris"}'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'It is sunny.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    var executions = 0;
+    final runtime = _localToolRuntime(
+      decision: DirectToolApprovalDecision.allowOnce,
+      execute: (arguments) async {
+        executions++;
+        expect(arguments, {'city': 'Paris'});
+        return const DirectToolResult(text: 'sunny');
+      },
+    );
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: runtime,
+          ),
+        )
+        .events
+        .toList();
+
+    expect(executions, 1);
+    expect(events.whereType<DirectMcpApprovalRequested>(), hasLength(1));
+    expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
+    expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'It is sunny.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    expect(
+      (secondRequest['messages'] as List).map(
+        (message) => (message as Map)['role'],
+      ),
+      containsAllInOrder(['user', 'assistant', 'tool']),
+    );
+  });
+
+  test('OpenAI Chat supports a JSON tool round', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {
+                  'id': 'call-1',
+                  'type': 'function',
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Sunny.'},
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectToolCallCompleted>(), hasLength(1));
+    expect(events.whereType<DirectContentDelta>().single.content, 'Sunny.');
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+  });
+
+  test(
+    'OpenAI Chat cancellation interrupts a pending local approval',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': '',
+                'tool_calls': [
+                  {
+                    'id': 'call-1',
+                    'type': 'function',
+                    'function': {
+                      'name': 'mcp_deadbeef_weather',
+                      'arguments': '{}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ]);
+      final pendingDecision = Completer<DirectToolApprovalDecision>();
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final run = adapter.startCompletion(
+        _openAiProfile(),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+          tools: _localToolRuntime(approvalDecision: pendingDecision.future),
+        ),
+      );
+      final approvalRequested = Completer<void>();
+      final subscription = run.events.listen((event) {
+        if (event is DirectMcpApprovalRequested &&
+            !approvalRequested.isCompleted) {
+          approvalRequested.complete();
+        }
+      });
+      addTearDown(subscription.cancel);
+
+      await approvalRequested.future;
+      await run.cancel().timeout(const Duration(seconds: 1));
+      expect(pendingDecision.isCompleted, isFalse);
+    },
+  );
+
+  test('Ollama denial becomes a tool result without execution', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'model',
+            'message': {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': {'city': 'Paris'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'model',
+            'message': {'role': 'assistant', 'content': 'I did not run it.'},
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    var executions = 0;
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _ollamaProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.deny,
+              execute: (_) async {
+                executions++;
+                return const DirectToolResult(text: 'unexpected');
+              },
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(executions, 0);
+    expect(events.whereType<DirectToolCallStarted>(), isEmpty);
+    expect(events.whereType<DirectToolCallCompleted>().single.isError, isTrue);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
   test('Ollama Cloud runs a bounded native web-search agent loop', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
@@ -4828,6 +5091,40 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 }
+
+DirectToolRuntime _localToolRuntime({
+  DirectToolApprovalDecision decision = DirectToolApprovalDecision.allowOnce,
+  Future<DirectToolApprovalDecision>? approvalDecision,
+  Future<DirectToolResult> Function(Map<String, dynamic> arguments)? execute,
+}) => DirectToolRuntime(
+  definitions: [
+    DirectToolDefinition(
+      name: 'mcp_deadbeef_weather',
+      serverName: 'Home server',
+      displayName: 'Weather',
+      description: 'Looks up weather.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'city': {'type': 'string'},
+        },
+      },
+    ),
+  ],
+  requestApproval: (callId, definition, arguments) => DirectToolApprovalHandle(
+    request: DirectToolApprovalRequest(
+      id: 'approval-$callId',
+      serverName: definition.serverName,
+      toolName: definition.displayName,
+      callId: callId,
+      argumentsJson: jsonEncode(arguments),
+    ),
+    decision: approvalDecision ?? Future.value(decision),
+  ),
+  execute: (name, arguments) =>
+      execute?.call(arguments) ??
+      Future.value(const DirectToolResult(text: 'sunny')),
+);
 
 DirectConnectionProfile _openAiProfile({
   String baseUrl = 'https://api.test/v1',

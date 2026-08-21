@@ -5772,5 +5772,17 @@
   "directMcpDeleteMessage": "This removes {name} and its credentials from this device.",
   "@directMcpDeleteMessage": {"description":"Confirmation message before deleting an MCP server.","placeholders":{"name":{"type":"String"}}},
   "directMcpDeleteFailed": "Could not delete this MCP server.",
-  "@directMcpDeleteFailed": {"description":"Error shown when an MCP server cannot be deleted."}
+  "@directMcpDeleteFailed": {"description":"Error shown when an MCP server cannot be deleted."},
+  "directMcpApprovalTitle": "Tool approval",
+  "@directMcpApprovalTitle": {"description":"Title of a Direct MCP allow-once approval card."},
+  "directMcpApprovalAllowOnce": "Allow once",
+  "@directMcpApprovalAllowOnce": {"description":"Action permitting one Direct MCP tool call."},
+  "directMcpApprovalDeny": "Deny",
+  "@directMcpApprovalDeny": {"description":"Action denying one Direct MCP tool call."},
+  "directMcpApprovalAllowed": "Allowed once",
+  "@directMcpApprovalAllowed": {"description":"Resolved status for an allowed Direct MCP tool call."},
+  "directMcpApprovalDenied": "Denied",
+  "@directMcpApprovalDenied": {"description":"Resolved status for a denied Direct MCP tool call."},
+  "directMcpApprovalExpired": "Approval expired",
+  "@directMcpApprovalExpired": {"description":"Status for a restored Direct MCP approval with no live run."}
 }

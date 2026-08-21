@@ -20,8 +20,10 @@ final class DirectMcpServersController
   Future<void> _mutationQueue = Future<void>.value();
 
   @override
-  Future<List<DirectMcpServer>> build() =>
-      ref.watch(directMcpServerStoreProvider).load();
+  Future<List<DirectMcpServer>> build() {
+    if (ref.watch(incompleteLogoutFenceProvider)) return Future.value(const []);
+    return ref.watch(directMcpServerStoreProvider).load();
+  }
 
   Future<void> reload() async {
     state = const AsyncLoading();
@@ -33,6 +35,7 @@ final class DirectMcpServersController
     DirectMcpServer? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
   }) => _serialize(() async {
+    _requireMutationAdmission();
     final servers = await ref
         .read(directMcpServerStoreProvider)
         .upsert(
@@ -46,6 +49,7 @@ final class DirectMcpServersController
   });
 
   Future<List<DirectMcpServer>> remove(String id) => _serialize(() async {
+    _requireMutationAdmission();
     final servers = await ref.read(directMcpServerStoreProvider).remove(id);
     if (ref.mounted) state = AsyncData(servers);
     ref.invalidate(directMcpToolsProvider);
@@ -53,6 +57,7 @@ final class DirectMcpServersController
   });
 
   Future<void> clear() => _serialize(() async {
+    _requireMutationAdmission();
     await ref.read(directMcpServerStoreProvider).clear();
     if (ref.mounted) state = const AsyncData([]);
     ref.invalidate(directMcpToolsProvider);
@@ -68,6 +73,12 @@ final class DirectMcpServersController
       onError: (Object _, StackTrace _) {},
     );
     return result;
+  }
+
+  void _requireMutationAdmission() {
+    if (ref.read(incompleteLogoutFenceProvider)) {
+      throw StateError('MCP server changes are unavailable while signing out.');
+    }
   }
 }
 

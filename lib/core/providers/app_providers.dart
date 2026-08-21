@@ -2690,7 +2690,12 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
 
   Future<void> applyTools(Model? model) async {
     List<String> preserveDirectServerSelections(List<String> ids) {
-      return ids.where((id) => id.startsWith('direct_server:')).toList();
+      return ids
+          .where(
+            (id) =>
+                id.startsWith('direct_server:') || id.startsWith('local_mcp:'),
+          )
+          .toList();
     }
 
     // Skip if not authenticated - prevents API calls after logout
