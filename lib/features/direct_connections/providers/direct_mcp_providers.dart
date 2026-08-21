@@ -34,6 +34,7 @@ final class DirectMcpServersController
     DirectMcpServer server, {
     DirectMcpServer? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
+    bool oauthFlowCompletedForExactMutation = false,
   }) => _serialize(() async {
     _requireMutationAdmission();
     final servers = await ref
@@ -42,6 +43,8 @@ final class DirectMcpServersController
           server,
           expectedPrevious: expectedPrevious,
           secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+          oauthFlowCompletedForExactMutation:
+              oauthFlowCompletedForExactMutation,
         );
     if (ref.mounted) state = AsyncData(servers);
     ref.invalidate(directMcpToolsProvider);

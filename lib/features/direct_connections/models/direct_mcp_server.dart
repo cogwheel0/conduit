@@ -3,6 +3,137 @@ import 'dart:convert';
 
 import 'direct_connection_profile.dart';
 
+enum DirectMcpAuthMode { none, bearer, oauth }
+
+/// OAuth credentials are persisted only inside the secure MCP server document.
+final class DirectMcpOAuthTokens {
+  DirectMcpOAuthTokens({
+    required this.accessToken,
+    this.refreshToken,
+    this.tokenType = 'Bearer',
+    this.grantedScope,
+    this.expiresAt,
+    required this.authorizationServerIssuer,
+    required this.resource,
+    required this.clientId,
+    required this.tokenEndpoint,
+  });
+
+  final String accessToken;
+  final String? refreshToken;
+  final String tokenType;
+  final String? grantedScope;
+  final DateTime? expiresAt;
+  final String authorizationServerIssuer;
+  final String resource;
+  final String clientId;
+  final String tokenEndpoint;
+
+  String? get resourceOrigin => DirectMcpServer._originOf(resource);
+
+  DirectMcpOAuthTokens copyWith({
+    String? accessToken,
+    Object? refreshToken = DirectMcpServer._keep,
+    String? tokenType,
+    Object? grantedScope = DirectMcpServer._keep,
+    Object? expiresAt = DirectMcpServer._keep,
+  }) => DirectMcpOAuthTokens(
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: identical(refreshToken, DirectMcpServer._keep)
+        ? this.refreshToken
+        : refreshToken as String?,
+    tokenType: tokenType ?? this.tokenType,
+    grantedScope: identical(grantedScope, DirectMcpServer._keep)
+        ? this.grantedScope
+        : grantedScope as String?,
+    expiresAt: identical(expiresAt, DirectMcpServer._keep)
+        ? this.expiresAt
+        : expiresAt as DateTime?,
+    authorizationServerIssuer: authorizationServerIssuer,
+    resource: resource,
+    clientId: clientId,
+    tokenEndpoint: tokenEndpoint,
+  );
+
+  String? validateOrNull({required String serverOrigin}) {
+    if (accessToken.isEmpty ||
+        accessToken.length > 16384 ||
+        _containsForbiddenCredentialCharacter(accessToken)) {
+      return 'The OAuth access token is invalid.';
+    }
+    final refresh = refreshToken;
+    if (refresh != null &&
+        (refresh.isEmpty ||
+            refresh.length > 16384 ||
+            _containsForbiddenCredentialCharacter(refresh))) {
+      return 'The OAuth refresh token is invalid.';
+    }
+    if (tokenType.toLowerCase() != 'bearer' ||
+        _containsForbiddenCredentialCharacter(tokenType)) {
+      return 'The OAuth token type is unsupported.';
+    }
+    final scope = grantedScope;
+    if (scope != null &&
+        (scope.length > 4096 || _containsForbiddenCredentialCharacter(scope))) {
+      return 'The OAuth scope is invalid.';
+    }
+    if (_validOAuthUri(authorizationServerIssuer) == null ||
+        _validOAuthUri(tokenEndpoint) == null) {
+      return 'The OAuth authorization server is invalid.';
+    }
+    if (DirectMcpServer._originOf(resource) != serverOrigin) {
+      return 'The OAuth token is bound to a different MCP server.';
+    }
+    if (clientId.isEmpty ||
+        clientId.length > 4096 ||
+        _containsForbiddenCredentialCharacter(clientId)) {
+      return 'The OAuth client registration is invalid.';
+    }
+    return null;
+  }
+
+  Map<String, dynamic> toJson() => {
+    'accessToken': accessToken,
+    'refreshToken': refreshToken,
+    'tokenType': tokenType,
+    'grantedScope': grantedScope,
+    'expiresAt': expiresAt?.toUtc().toIso8601String(),
+    'authorizationServerIssuer': authorizationServerIssuer,
+    'resource': resource,
+    'clientId': clientId,
+    'tokenEndpoint': tokenEndpoint,
+  };
+
+  factory DirectMcpOAuthTokens.fromJson(Map<String, dynamic> json) {
+    final rawExpiry = json['expiresAt'];
+    if (rawExpiry != null && rawExpiry is! String) {
+      throw const FormatException('The OAuth token expiry is invalid.');
+    }
+    final expiresAt = rawExpiry == null ? null : DateTime.tryParse(rawExpiry);
+    if (rawExpiry != null && expiresAt == null) {
+      throw const FormatException('The OAuth token expiry is invalid.');
+    }
+    return DirectMcpOAuthTokens(
+      accessToken: _readRequiredString(json, 'accessToken'),
+      refreshToken: _readOptionalString(json['refreshToken']),
+      tokenType: _readRequiredString(json, 'tokenType'),
+      grantedScope: _readOptionalString(json['grantedScope']),
+      expiresAt: expiresAt?.toUtc(),
+      authorizationServerIssuer: _readRequiredString(
+        json,
+        'authorizationServerIssuer',
+      ),
+      resource: _readRequiredString(json, 'resource'),
+      clientId: _readRequiredString(json, 'clientId'),
+      tokenEndpoint: _readRequiredString(json, 'tokenEndpoint'),
+    );
+  }
+
+  @override
+  String toString() =>
+      'DirectMcpOAuthTokens(issuer: $authorizationServerIssuer)';
+}
+
 /// A Streamable HTTP MCP server and its origin-bound credentials.
 final class DirectMcpServer {
   DirectMcpServer({
@@ -11,11 +142,20 @@ final class DirectMcpServer {
     required this.name,
     required this.endpoint,
     this.enabled = true,
+    DirectMcpAuthMode? authMode,
     this.bearerToken,
+    this.oauthTokens,
     Map<String, String> customHeaders = const {},
-  }) : customHeaders = UnmodifiableMapView(Map.of(customHeaders));
+  }) : authMode =
+           authMode ??
+           (oauthTokens != null
+               ? DirectMcpAuthMode.oauth
+               : (bearerToken?.isNotEmpty == true
+                     ? DirectMcpAuthMode.bearer
+                     : DirectMcpAuthMode.none)),
+       customHeaders = UnmodifiableMapView(Map.of(customHeaders));
 
-  static const int currentSchemaVersion = 1;
+  static const int currentSchemaVersion = 2;
   static const Set<String> _reservedHeaders = {
     ...DirectConnectionProfile.reservedHeaderNames,
     'connection',
@@ -34,7 +174,9 @@ final class DirectMcpServer {
   final String name;
   final String endpoint;
   final bool enabled;
+  final DirectMcpAuthMode authMode;
   final String? bearerToken;
+  final DirectMcpOAuthTokens? oauthTokens;
   final Map<String, String> customHeaders;
 
   Uri get endpointUri => Uri.parse(endpoint.trim());
@@ -42,7 +184,8 @@ final class DirectMcpServer {
   bool get isUsable => enabled && validateOrNull() == null;
 
   Map<String, String> get requestHeaders => Map.unmodifiable({
-    if ((bearerToken ?? '').isNotEmpty) 'Authorization': 'Bearer $bearerToken',
+    if (authMode == DirectMcpAuthMode.bearer && (bearerToken ?? '').isNotEmpty)
+      'Authorization': 'Bearer $bearerToken',
     ...customHeaders,
   });
 
@@ -69,6 +212,25 @@ final class DirectMcpServer {
     if (token != null && _containsForbiddenCredentialCharacter(token)) {
       return 'The bearer token contains an invalid character.';
     }
+    switch (authMode) {
+      case DirectMcpAuthMode.none:
+        if (token != null || oauthTokens != null) {
+          return 'MCP credentials do not match the selected auth mode.';
+        }
+      case DirectMcpAuthMode.bearer:
+        if (token == null || token.isEmpty || oauthTokens != null) {
+          return 'MCP bearer authentication requires exactly one token.';
+        }
+      case DirectMcpAuthMode.oauth:
+        if (token != null) {
+          return 'Manual bearer and OAuth credentials cannot be combined.';
+        }
+        final oauth = oauthTokens;
+        if (oauth != null) {
+          final oauthError = oauth.validateOrNull(serverOrigin: origin!);
+          if (oauthError != null) return oauthError;
+        }
+    }
     final normalizedHeaderNames = <String>{};
     for (final entry in customHeaders.entries) {
       final normalizedName = entry.key.trim().toLowerCase();
@@ -92,24 +254,57 @@ final class DirectMcpServer {
     name: name,
     endpoint: endpoint ?? this.endpoint,
     enabled: enabled,
+    authMode: authMode == DirectMcpAuthMode.oauth
+        ? DirectMcpAuthMode.oauth
+        : DirectMcpAuthMode.none,
+    customHeaders: const {},
   );
+
+  DirectMcpServer withoutAuthCredentials({DirectMcpAuthMode? authMode}) =>
+      DirectMcpServer(
+        schemaVersion: schemaVersion,
+        id: id,
+        name: name,
+        endpoint: endpoint,
+        enabled: enabled,
+        authMode: switch (authMode ?? this.authMode) {
+          DirectMcpAuthMode.oauth => DirectMcpAuthMode.oauth,
+          _ => DirectMcpAuthMode.none,
+        },
+        customHeaders: customHeaders,
+      );
 
   static DirectMcpServer secureUpdate({
     required DirectMcpServer previous,
     required DirectMcpServer next,
     bool secretsConfirmedForNewOrigin = false,
+    bool oauthFlowCompletedForExactMutation = false,
   }) {
-    if (previous.origin == next.origin || secretsConfirmedForNewOrigin) {
-      return next;
+    if (previous.origin != next.origin && !secretsConfirmedForNewOrigin) {
+      return next.withoutSecrets();
     }
-    return next.withoutSecrets();
+    if (previous.authMode != next.authMode &&
+        !oauthFlowCompletedForExactMutation) {
+      return next.withoutAuthCredentials();
+    }
+    final previousIssuer = previous.oauthTokens?.authorizationServerIssuer;
+    final nextIssuer = next.oauthTokens?.authorizationServerIssuer;
+    if (previousIssuer != null &&
+        nextIssuer != null &&
+        previousIssuer != nextIssuer &&
+        !oauthFlowCompletedForExactMutation) {
+      return next.withoutAuthCredentials();
+    }
+    return next;
   }
 
   DirectMcpServer copyWith({
     String? name,
     String? endpoint,
     bool? enabled,
+    DirectMcpAuthMode? authMode,
     Object? bearerToken = _keep,
+    Object? oauthTokens = _keep,
     Map<String, String>? customHeaders,
   }) => DirectMcpServer(
     schemaVersion: schemaVersion,
@@ -117,9 +312,13 @@ final class DirectMcpServer {
     name: name ?? this.name,
     endpoint: endpoint ?? this.endpoint,
     enabled: enabled ?? this.enabled,
+    authMode: authMode ?? this.authMode,
     bearerToken: identical(bearerToken, _keep)
         ? this.bearerToken
         : bearerToken as String?,
+    oauthTokens: identical(oauthTokens, _keep)
+        ? this.oauthTokens
+        : oauthTokens as DirectMcpOAuthTokens?,
     customHeaders: customHeaders ?? this.customHeaders,
   );
 
@@ -129,18 +328,40 @@ final class DirectMcpServer {
     'name': name,
     'endpoint': endpoint,
     'enabled': enabled,
+    'authMode': authMode.name,
     'bearerToken': bearerToken,
+    'oauthTokens': oauthTokens?.toJson(),
     'customHeaders': customHeaders,
   };
 
   factory DirectMcpServer.fromJson(Map<String, dynamic> json) {
+    final sourceVersion = _readInt(json['schemaVersion']) ?? 1;
+    if (sourceVersion != 1 && sourceVersion != currentSchemaVersion) {
+      throw const FormatException('Unsupported MCP server version.');
+    }
+    final bearerToken = _readOptionalString(json['bearerToken']);
+    final authMode = sourceVersion == 1
+        ? (bearerToken?.isNotEmpty == true
+              ? DirectMcpAuthMode.bearer
+              : DirectMcpAuthMode.none)
+        : _readAuthMode(json['authMode']);
+    final rawOAuthTokens = json['oauthTokens'];
+    if (rawOAuthTokens != null && rawOAuthTokens is! Map) {
+      throw const FormatException('The OAuth token record is invalid.');
+    }
     final server = DirectMcpServer(
-      schemaVersion: _readInt(json['schemaVersion']) ?? currentSchemaVersion,
+      schemaVersion: currentSchemaVersion,
       id: _readRequiredString(json, 'id'),
       name: _readRequiredString(json, 'name'),
       endpoint: _readRequiredString(json, 'endpoint'),
       enabled: json['enabled'] is bool ? json['enabled'] as bool : true,
-      bearerToken: _readOptionalString(json['bearerToken']),
+      authMode: authMode,
+      bearerToken: bearerToken,
+      oauthTokens: rawOAuthTokens == null
+          ? null
+          : DirectMcpOAuthTokens.fromJson(
+              rawOAuthTokens.cast<String, dynamic>(),
+            ),
       customHeaders: _readStringMap(json['customHeaders']),
     );
     server.validate();
@@ -172,7 +393,7 @@ final class DirectMcpServersDocument {
     _validateUniqueIds(this.servers);
   }
 
-  static const int currentVersion = 1;
+  static const int currentVersion = 2;
   final List<DirectMcpServer> servers;
 
   String encode() => jsonEncode({
@@ -186,7 +407,8 @@ final class DirectMcpServersDocument {
       throw const FormatException('MCP server document is not an object.');
     }
     final map = decoded.cast<Object?, Object?>();
-    if (_readInt(map['version']) != currentVersion) {
+    final version = _readInt(map['version']);
+    if (version != 1 && version != currentVersion) {
       throw const FormatException('Unsupported MCP server document version.');
     }
     final rawServers = map['servers'];
@@ -220,7 +442,9 @@ bool sameDirectMcpServerValues(DirectMcpServer left, DirectMcpServer right) =>
     left.name == right.name &&
     left.endpoint == right.endpoint &&
     left.enabled == right.enabled &&
+    left.authMode == right.authMode &&
     left.bearerToken == right.bearerToken &&
+    _sameOAuthTokens(left.oauthTokens, right.oauthTokens) &&
     _sameStringMap(left.customHeaders, right.customHeaders);
 
 bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
@@ -253,6 +477,46 @@ int? _readInt(Object? value) => switch (value) {
   String() => int.tryParse(value),
   _ => null,
 };
+
+DirectMcpAuthMode _readAuthMode(Object? value) {
+  if (value is! String) {
+    throw const FormatException('The MCP auth mode is invalid.');
+  }
+  return DirectMcpAuthMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () => throw const FormatException('The MCP auth mode is invalid.'),
+  );
+}
+
+Uri? _validOAuthUri(String value) {
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      !uri.isAbsolute ||
+      !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasFragment) {
+    return null;
+  }
+  return uri;
+}
+
+bool _sameOAuthTokens(
+  DirectMcpOAuthTokens? left,
+  DirectMcpOAuthTokens? right,
+) =>
+    identical(left, right) ||
+    (left != null &&
+        right != null &&
+        left.accessToken == right.accessToken &&
+        left.refreshToken == right.refreshToken &&
+        left.tokenType == right.tokenType &&
+        left.grantedScope == right.grantedScope &&
+        left.expiresAt == right.expiresAt &&
+        left.authorizationServerIssuer == right.authorizationServerIssuer &&
+        left.resource == right.resource &&
+        left.clientId == right.clientId &&
+        left.tokenEndpoint == right.tokenEndpoint);
 
 Map<String, String> _readStringMap(Object? value) {
   if (value == null) return const {};

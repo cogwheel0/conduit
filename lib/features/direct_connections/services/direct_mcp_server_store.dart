@@ -49,6 +49,7 @@ final class DirectMcpServerStore {
     DirectMcpServer server, {
     DirectMcpServer? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
+    bool oauthFlowCompletedForExactMutation = false,
   }) => _serializeMutation(() async {
     server.validate();
     final current = await load();
@@ -65,6 +66,8 @@ final class DirectMcpServerStore {
             previous: previous,
             next: server,
             secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+            oauthFlowCompletedForExactMutation:
+                oauthFlowCompletedForExactMutation,
           );
     final updated = [...current];
     if (index < 0) {
