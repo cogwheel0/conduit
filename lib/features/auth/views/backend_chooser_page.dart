@@ -22,6 +22,44 @@ class BackendChooserPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+    final appleOnDeviceStatus = PlatformInfo.isIOS
+        ? ref.watch(appleOnDeviceStatusProvider)
+        : null;
+    final applePccStatus = PlatformInfo.isIOS
+        ? ref.watch(applePccStatusProvider)
+        : null;
+    final appleRows = <Widget>[
+      if (_isAppleModelAvailable(appleOnDeviceStatus))
+        UtilitySelectionRow(
+          leading: const _AppleModelIcon(),
+          title: l10n.backendChooserAppleOnDeviceTitle,
+          subtitle: l10n.backendChooserAppleOnDeviceSubtitle,
+          selected: false,
+          showSelectionIndicator: false,
+          trailing: _chooserChevron(context),
+          onTap: () => _selectAppleModel(
+            context,
+            ref,
+            l10n,
+            PlatformAppleModel.onDevice,
+          ),
+        ),
+      if (_isAppleModelAvailable(applePccStatus))
+        UtilitySelectionRow(
+          leading: const _AppleModelIcon(cloud: true),
+          title: l10n.backendChooserApplePccTitle,
+          subtitle: l10n.backendChooserApplePccSubtitle,
+          selected: false,
+          showSelectionIndicator: false,
+          trailing: _chooserChevron(context),
+          onTap: () => _selectAppleModel(
+            context,
+            ref,
+            l10n,
+            PlatformAppleModel.privateCloudCompute,
+          ),
+        ),
+    ];
 
     return UtilityPageScaffold.auth(
       title: l10n.backendChooserWelcome,
@@ -37,90 +75,73 @@ class BackendChooserPage extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: Spacing.sm),
-          InsetGroupedSection(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            flat: true,
-            child: Column(
-              children: [
-                UtilitySelectionRow(
-                  leading: const _ProviderLogo(
-                    assetName: 'assets/icons/open_webui.png',
-                    kind: _ProviderLogoKind.openWebUI,
-                  ),
-                  title: l10n.backendChooserOpenWebUITitle,
-                  subtitle: l10n.backendChooserOpenWebUISubtitle,
-                  selected: false,
-                  showDivider: true,
-                  showSelectionIndicator: false,
-                  trailing: _chooserChevron(context),
-                  onTap: () => context.go(Routes.serverConnection),
+          const SizedBox(height: Spacing.lg),
+          InsetGroupedList(
+            title: l10n.backendChooserSelfHostedSectionTitle,
+            dividerIndent: _providerDividerIndent,
+            children: [
+              UtilitySelectionRow(
+                leading: const _ProviderLogo(
+                  assetName: 'assets/icons/open_webui.png',
+                  kind: _ProviderLogoKind.openWebUI,
                 ),
-                UtilitySelectionRow(
-                  leading: const _DirectConnectionIcon(),
-                  title: l10n.backendChooserDirectTitle,
-                  subtitle: l10n.backendChooserDirectSubtitle,
-                  selected: false,
-                  showDivider: true,
-                  showSelectionIndicator: false,
-                  trailing: _chooserChevron(context),
-                  onTap: () => context.goNamed(
-                    RouteNames.directConnections,
-                    queryParameters: const {'onboarding': 'true'},
-                  ),
+                title: l10n.backendChooserOpenWebUITitle,
+                subtitle: l10n.backendChooserOpenWebUISubtitle,
+                selected: false,
+                showSelectionIndicator: false,
+                trailing: _chooserChevron(context),
+                onTap: () => context.go(Routes.serverConnection),
+              ),
+              UtilitySelectionRow(
+                leading: const _ProviderLogo(
+                  assetName: 'assets/icons/hermes_agent.png',
+                  kind: _ProviderLogoKind.hermes,
                 ),
-                if (PlatformInfo.isIOS)
-                  UtilitySelectionRow(
-                    leading: const _AppleModelIcon(),
-                    title: l10n.backendChooserAppleOnDeviceTitle,
-                    subtitle: l10n.backendChooserAppleOnDeviceSubtitle,
-                    selected: false,
-                    showDivider: true,
-                    showSelectionIndicator: false,
-                    trailing: _chooserChevron(context),
-                    onTap: () => _selectAppleModel(
-                      context,
-                      ref,
-                      l10n,
-                      PlatformAppleModel.onDevice,
-                    ),
-                  ),
-                if (PlatformInfo.isIOS)
-                  UtilitySelectionRow(
-                    leading: const _AppleModelIcon(cloud: true),
-                    title: l10n.backendChooserApplePccTitle,
-                    subtitle: l10n.backendChooserApplePccSubtitle,
-                    selected: false,
-                    showDivider: true,
-                    showSelectionIndicator: false,
-                    trailing: _chooserChevron(context),
-                    onTap: () => _selectAppleModel(
-                      context,
-                      ref,
-                      l10n,
-                      PlatformAppleModel.privateCloudCompute,
-                    ),
-                  ),
-                UtilitySelectionRow(
-                  leading: const _ProviderLogo(
-                    assetName: 'assets/icons/hermes_agent.png',
-                    kind: _ProviderLogoKind.hermes,
-                  ),
-                  title: l10n.backendChooserHermesTitle,
-                  subtitle: l10n.backendChooserHermesSubtitle,
-                  selected: false,
-                  showSelectionIndicator: false,
-                  trailing: _chooserChevron(context),
-                  onTap: () => context.go(Routes.hermesSettings, extra: true),
-                ),
-              ],
+                title: l10n.backendChooserHermesTitle,
+                subtitle: l10n.backendChooserHermesSubtitle,
+                selected: false,
+                showSelectionIndicator: false,
+                trailing: _chooserChevron(context),
+                onTap: () => context.go(Routes.hermesSettings, extra: true),
+              ),
+            ],
+          ),
+          if (appleRows.isNotEmpty) ...[
+            const SizedBox(height: Spacing.lg),
+            InsetGroupedList(
+              title: l10n.backendChooserAppleSectionTitle,
+              dividerIndent: _providerDividerIndent,
+              children: appleRows,
             ),
+          ],
+          const SizedBox(height: Spacing.lg),
+          InsetGroupedList(
+            title: l10n.backendChooserModelApisSectionTitle,
+            children: [
+              UtilitySelectionRow(
+                leading: const _DirectConnectionIcon(),
+                title: l10n.backendChooserDirectTitle,
+                subtitle: l10n.backendChooserDirectSubtitle,
+                selected: false,
+                showSelectionIndicator: false,
+                trailing: _chooserChevron(context),
+                onTap: () => context.goNamed(
+                  RouteNames.directConnections,
+                  queryParameters: const {'onboarding': 'true'},
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 }
+
+bool _isAppleModelAvailable(AsyncValue<PlatformPccStatus>? status) =>
+    status?.hasValue == true &&
+    status!.requireValue.availability == PlatformPccAvailability.available &&
+    !status.requireValue.quotaLimitReached;
 
 Future<void> _selectAppleModel(
   BuildContext context,
@@ -188,6 +209,8 @@ enum _ProviderLogoKind { openWebUI, hermes }
 /// Cupertino leading slot in `UtilitySelectionRow`; a larger box gets squeezed
 /// into 40 there, which crops the edges off a full-bleed logo.
 const double _providerLogoSize = 40;
+const double _providerDividerIndent =
+    Spacing.md + _providerLogoSize + Spacing.sm + Spacing.xs;
 
 class _ProviderLogo extends StatelessWidget {
   const _ProviderLogo({required this.assetName, required this.kind});

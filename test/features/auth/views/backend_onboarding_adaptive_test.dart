@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -29,8 +30,20 @@ const _testServer = ServerConfig(
   isActive: true,
 );
 
+PlatformPccStatus _appleStatus(
+  PlatformPccAvailability availability, {
+  bool quotaLimitReached = false,
+}) => PlatformPccStatus(
+  availability: availability,
+  quotaStatus: quotaLimitReached
+      ? PlatformPccQuotaStatus.limitReached
+      : PlatformPccQuotaStatus.belowLimit,
+  quotaLimitReached: quotaLimitReached,
+  canIncreaseQuota: false,
+);
+
 void main() {
-  testWidgets('backend chooser uses local provider marks and clear copy', (
+  testWidgets('backend chooser groups available backends with clear copy', (
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
@@ -38,6 +51,8 @@ void main() {
       final harness = AdaptiveAuthHarness(
         server: _testServer,
         platform: TargetPlatform.iOS,
+        appleOnDeviceStatus: _appleStatus(PlatformPccAvailability.available),
+        applePccStatus: _appleStatus(PlatformPccAvailability.available),
       );
       addTearDown(harness.dispose);
 
@@ -47,6 +62,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Choose how to connect'), findsOneWidget);
+      expect(find.text('Self-hosted services'), findsOneWidget);
+      expect(find.text('Apple Intelligence'), findsOneWidget);
+      expect(find.text('Model APIs'), findsOneWidget);
       expect(find.text('Open WebUI'), findsOneWidget);
       expect(find.text('Connect directly'), findsOneWidget);
       expect(find.text('Apple On-Device'), findsOneWidget);
@@ -79,6 +97,34 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('backend chooser hides unavailable Apple backends', (
+    tester,
+  ) async {
+    final harness = AdaptiveAuthHarness(
+      server: _testServer,
+      platform: TargetPlatform.iOS,
+      appleOnDeviceStatus: _appleStatus(PlatformPccAvailability.unavailable),
+      applePccStatus: _appleStatus(
+        PlatformPccAvailability.available,
+        quotaLimitReached: true,
+      ),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Apple Intelligence'), findsNothing);
+    expect(find.text('Apple On-Device'), findsNothing);
+    expect(find.text('Apple Private Cloud Compute'), findsNothing);
+    expect(find.text('Open WebUI'), findsOneWidget);
+    expect(find.text('Connect directly'), findsOneWidget);
+
+    await harness.unmount(tester);
   });
 
   testWidgets('backend chooser reflows and scrolls with accessibility text', (

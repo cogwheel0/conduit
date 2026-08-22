@@ -5039,11 +5039,23 @@
   "@directHistoryLocalOnlySubtitle": {
     "description": "Description shown when direct chat history sync is disabled."
   },
+  "backendChooserSelfHostedSectionTitle": "Self-hosted services",
+  "@backendChooserSelfHostedSectionTitle": {
+    "description": "Section title for self-hosted backend choices on the first-run backend chooser."
+  },
+  "backendChooserAppleSectionTitle": "Apple Intelligence",
+  "@backendChooserAppleSectionTitle": {
+    "description": "Section title for available Apple model choices on the first-run backend chooser."
+  },
+  "backendChooserModelApisSectionTitle": "Model APIs",
+  "@backendChooserModelApisSectionTitle": {
+    "description": "Section title for direct model API choices on the first-run backend chooser."
+  },
   "backendChooserDirectTitle": "Connect directly",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Connect an API provider and keep its credentials on this device.",
+  "backendChooserDirectSubtitle": "Connect an OpenAI-compatible or Ollama API. Credentials stay on this device.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -5051,7 +5063,7 @@
   "@backendChooserAppleOnDeviceTitle": {
     "description": "Title of the Apple on-device model option on the first-run backend chooser."
   },
-  "backendChooserAppleOnDeviceSubtitle": "Run Apple's private model on this device. Works offline and requires Apple Intelligence and iOS 26.",
+  "backendChooserAppleOnDeviceSubtitle": "Run Apple's private model on this device, even offline.",
   "@backendChooserAppleOnDeviceSubtitle": {
     "description": "Description of the Apple on-device model option on the first-run backend chooser."
   },
@@ -5063,7 +5075,7 @@
   "@backendChooserApplePccTitle": {
     "description": "Title of the Apple PCC option on the first-run backend chooser."
   },
-  "backendChooserApplePccSubtitle": "Send prompts to Apple's private cloud model without an API key. Requires Apple Intelligence and iOS 27.",
+  "backendChooserApplePccSubtitle": "Use Apple's private cloud model without an API key.",
   "@backendChooserApplePccSubtitle": {
     "description": "Description of the Apple PCC option on the first-run backend chooser."
   },
@@ -5161,7 +5173,7 @@
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."
   },
-  "backendChooserPrompt": "You can add other services later.",
+  "backendChooserPrompt": "Choose one to start. You can add more later.",
   "@backendChooserPrompt": {
     "description": "Prompt on the first-run backend chooser."
   },
@@ -5177,7 +5189,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Connect your self-hosted agent.",
+  "backendChooserHermesSubtitle": "Connect a self-hosted Hermes agent.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
