@@ -811,16 +811,7 @@ class TtsManager {
   /// A semantic wrapper that is still open — the common case while a response
   /// streams — takes the rest of the body with it. Its contents would otherwise
   /// be read aloud in the frames before `</details>` arrives to hide them.
-  static final RegExp _completeDetailsPattern = RegExp(
-    r'<details[^>]*>[\s\S]*?<\/details>',
-    caseSensitive: false,
-  );
-
-  String _sanitizeForSpeech(String content) {
-    final withoutCompleteBlocks = stripRenderedSemanticDetails(content)
-        .replaceAll(_completeDetailsPattern, '');
-    return dropUnterminatedSemanticDetails(withoutCompleteBlocks);
-  }
+  String _sanitizeForSpeech(String content) => stripDetailsForSpeech(content);
 
   /// Gets available voices from the device TTS engine.
   Future<List<Map<String, dynamic>>> getDeviceVoices() async {

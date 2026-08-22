@@ -65,4 +65,61 @@ void main() {
       check(result).equals('Answer body. More answer.');
     });
   });
+
+  group('stripDetailsForSpeech', () {
+    test('removes a complete semantic block', () {
+      final result = stripDetailsForSpeech(
+        'Answer body. '
+        '<details type="reasoning" done="true"><summary>Thought</summary>'
+        'notes</details>'
+        'More answer.',
+      );
+
+      check(result).equals('Answer body. More answer.');
+    });
+
+    test('removes a nested block whole', () {
+      // A non-greedy pattern stops at the inner close tag and leaves the outer
+      // block's tail behind, which is content the reader never meant to hear.
+      final result = stripDetailsForSpeech(
+        '<details type="reasoning" done="true">'
+        '<details><summary>inner</summary>inner body</details>'
+        'outer body</details>'
+        'The answer.',
+      );
+
+      check(result).equals('The answer.');
+    });
+
+    test('withholds everything after an open semantic wrapper', () {
+      final result = stripDetailsForSpeech(
+        'Checking that now. '
+        '<details type="reasoning" done="false"><summary>Thinking</summary>'
+        '> internal notes',
+      );
+
+      check(result).equals('Checking that now.');
+    });
+
+    test('leaves an ordinary open details alone', () {
+      // Not a wrapper, so silencing the rest of the answer would be wrong.
+      const content = 'Answer. <details><summary>Extra</summary>notes';
+
+      check(stripDetailsForSpeech(content)).equals(content);
+    });
+
+    test('leaves content without details untouched', () {
+      const content = 'Plain answer with no wrappers at all.';
+
+      check(stripDetailsForSpeech(content)).equals(content);
+    });
+
+    test('handles an uppercase wrapper', () {
+      final result = stripDetailsForSpeech(
+        'Answer. <DETAILS TYPE="reasoning" DONE="true">notes</DETAILS> Rest.',
+      );
+
+      check(result).equals('Answer.  Rest.');
+    });
+  });
 }
