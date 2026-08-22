@@ -234,17 +234,24 @@ List<DirectChatMessage> fitDirectContextMessages(
   final result = messages.toList(growable: true);
   while (estimateDirectContextTokens(result) > maxTokens && result.length > 1) {
     final lastIndex = result.length - 1;
-    var removeIndex = -1;
+    var removeStart = -1;
     for (var index = 0; index < lastIndex; index++) {
       if (result[index].role.trim().toLowerCase() != 'system' &&
           !_isDirectContextSummaryMessage(result[index])) {
-        removeIndex = index;
+        removeStart = index;
         break;
       }
     }
-    if (removeIndex < 0) {
-      removeIndex = result.indexWhere(_isDirectContextSummaryMessage);
+    if (removeStart >= 0) {
+      var removeEnd = removeStart + 1;
+      while (removeEnd < lastIndex &&
+          result[removeEnd].role.trim().toLowerCase() != 'user') {
+        removeEnd++;
+      }
+      result.removeRange(removeStart, removeEnd);
+      continue;
     }
+    final removeIndex = result.indexWhere(_isDirectContextSummaryMessage);
     if (removeIndex < 0 || removeIndex == lastIndex) break;
     result.removeAt(removeIndex);
   }

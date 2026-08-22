@@ -321,9 +321,10 @@ void main() {
       final fitted = fitDirectContextMessages(<DirectChatMessage>[
         DirectChatMessage.text(role: 'system', text: 'Keep this'),
         DirectChatMessage.text(
-          role: 'assistant',
+          role: 'user',
           text: List<String>.filled(400, 'old').join(),
         ),
+        DirectChatMessage.text(role: 'assistant', text: 'Old reply'),
         DirectChatMessage.text(role: 'user', text: 'Latest prompt'),
       ], maxTokens: 20);
 

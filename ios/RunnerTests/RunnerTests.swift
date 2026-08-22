@@ -1,6 +1,7 @@
 import AVFoundation
 import Darwin
 import Flutter
+import ImageIO
 import UIKit
 import XCTest
 @testable import Runner
@@ -49,6 +50,18 @@ class RunnerTests: XCTestCase {
     XCTAssertNil(
       pccDecodedImageBytes(bytesPerRow: 32_769, height: 2_048, currentBytes: 0)
     )
+    XCTAssertTrue(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 16,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelCMYK as String
+    ))
   }
 
 #if canImport(FoundationModels)
@@ -104,6 +117,14 @@ class RunnerTests: XCTestCase {
     XCTAssertThrowsError(try pccGenerationSchema(
       json: #"{"type":"number","maximum":1}"#,
       name: "UnsupportedMaximum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":[],"properties":{}}"#,
+      name: "EmptyTypeArray"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":["string","null"]}"#,
+      name: "NullableType"
     ))
   }
 #endif

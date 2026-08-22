@@ -52,6 +52,12 @@ func pccDecodedImageBytes(
     return currentBytes + bytesPerRow * height
 }
 
+func pccImageMetadataIsSafe(depth: Int, colorModel: String) -> Bool {
+    guard depth > 0, depth <= 8 else { return false }
+    return colorModel == kCGImagePropertyColorModelRGB as String ||
+        colorModel == kCGImagePropertyColorModelGray as String
+}
+
 private enum PccBridgeError: LocalizedError {
     case invalidRequest
     case invalidImage
@@ -135,15 +141,17 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
     var propertyCount = 0
     func build(_ raw: [String: Any], depth: Int) throws -> DynamicGenerationSchema {
         guard depth <= 12 else { throw PccBridgeError.invalidSchema }
-        let rawType = raw["type"]
-        let declaredType: String? = if let value = rawType as? String {
-            value
-        } else if let values = rawType as? [String] {
-            values.first { $0 != "null" }
+        let type: String
+        if let rawType = raw["type"] {
+            guard let declaredType = rawType as? String else {
+                throw PccBridgeError.invalidSchema
+            }
+            type = declaredType
+        } else if raw["properties"] is [String: Any] {
+            type = "object"
         } else {
-            nil
+            throw PccBridgeError.invalidSchema
         }
-        let type = declaredType ?? (raw["properties"] is [String: Any] ? "object" : nil)
         switch type {
         case "object":
             guard let rawProperties = raw["properties"] as? [String: Any],
@@ -886,6 +894,9 @@ private extension PccBridge {
                       ) as NSDictionary?,
                       let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
                       let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+                      let depth = (properties[kCGImagePropertyDepth] as? NSNumber)?.intValue,
+                      let colorModel = properties[kCGImagePropertyColorModel] as? String,
+                      pccImageMetadataIsSafe(depth: depth, colorModel: colorModel),
                       pccDecodedImageBytes(
                           width: width,
                           height: height,
