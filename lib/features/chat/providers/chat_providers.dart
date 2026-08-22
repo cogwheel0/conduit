@@ -15679,7 +15679,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     return resolved;
   }
 
-  final contextLength = directModelContextLength(route.model);
+  final contextLength = directModelContextLength(
+    route.model,
+    fallbackContextLength: ref.read(
+      directContextLengthOverridesProvider,
+    )[route.model.id],
+  );
   final requiresReplayVerificationKey = requestMessages.any(
     (message) =>
         (message.files ?? const <Map<String, dynamic>>[]).any(

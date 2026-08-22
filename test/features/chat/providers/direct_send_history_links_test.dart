@@ -159,6 +159,16 @@ final class _Profiles extends DirectConnectionProfilesController {
   Future<List<DirectConnectionProfile>> build() async => [profile];
 }
 
+final class _ContextLengthOverrides
+    extends DirectContextLengthOverridesController {
+  _ContextLengthOverrides(this.overrides);
+
+  final Map<String, int> overrides;
+
+  @override
+  Map<String, int> build() => overrides;
+}
+
 final class _GatedProfiles extends DirectConnectionProfilesController {
   _GatedProfiles(this.profile);
 
@@ -1257,10 +1267,7 @@ void main() {
       );
       final registry = DirectModelRegistry();
       final model = registry.replaceProfileModels(profile, [
-        DirectRemoteModel(
-          id: 'small-context-model',
-          capabilities: const <String, dynamic>{'context_length': 4096},
-        ),
+        DirectRemoteModel(id: 'small-context-model'),
       ]).single;
       final adapter = _RequestRecordingAdapter();
       final chat = await _seedDirectConversation(
@@ -1286,6 +1293,9 @@ void main() {
           appDatabaseProvider.overrideWithValue(null),
           directLocalDatabaseProvider.overrideWithValue(db),
           directModelRegistryProvider.overrideWithValue(registry),
+          directContextLengthOverridesProvider.overrideWith(
+            () => _ContextLengthOverrides({model.id: 4096}),
+          ),
           directConnectionProfilesProvider.overrideWith(
             () => _Profiles(profile),
           ),

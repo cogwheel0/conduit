@@ -195,9 +195,25 @@ void main() {
 
   group('direct context compaction', () {
     test('uses a conservative context window when discovery omits one', () {
+      const model = Model(id: 'model', name: 'Model');
+      expect(directModelAdvertisedContextLength(model), isNull);
+      expect(directModelContextLength(model), kDefaultDirectContextLength);
       expect(
-        directModelContextLength(const Model(id: 'model', name: 'Model')),
-        kDefaultDirectContextLength,
+        directModelContextLength(model, fallbackContextLength: 8192),
+        8192,
+      );
+    });
+
+    test('reported context window wins over the fallback setting', () {
+      const model = Model(
+        id: 'model',
+        name: 'Model',
+        capabilities: {'context_length': 32768},
+      );
+      expect(directModelAdvertisedContextLength(model), 32768);
+      expect(
+        directModelContextLength(model, fallbackContextLength: 8192),
+        32768,
       );
     });
 

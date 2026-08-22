@@ -188,7 +188,7 @@ DirectContextCompactionPlan? planDirectContextCompaction(
   );
 }
 
-int directModelContextLength(Model model) {
+int? directModelAdvertisedContextLength(Model model) {
   final raw = model.capabilities?['context_length'];
   final parsed = switch (raw) {
     int() => raw,
@@ -196,10 +196,14 @@ int directModelContextLength(Model model) {
     String() => int.tryParse(raw.trim()),
     _ => null,
   };
-  if (parsed != null && parsed > 0) return parsed;
-  // ponytail: conservative fallback; add a per-model override only if a
-  // compatible provider exposes a smaller context window without metadata.
-  return kDefaultDirectContextLength;
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+int directModelContextLength(Model model, {int? fallbackContextLength}) {
+  return directModelAdvertisedContextLength(model) ??
+      (fallbackContextLength != null && fallbackContextLength > 0
+          ? fallbackContextLength
+          : kDefaultDirectContextLength);
 }
 
 int estimateDirectContextTokens(Iterable<DirectChatMessage> messages) {

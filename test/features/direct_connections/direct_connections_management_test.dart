@@ -1,9 +1,12 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
+import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -253,6 +256,70 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('apple-pcc-quota-options-row')));
     expect(fallback, isTrue);
     expect(quotaOptionsOpened, isTrue);
+  });
+
+  testWidgets('context fallback appears only for models without a limit', (
+    tester,
+  ) async {
+    final missingId = DirectModelId.encode('local', 'missing-context');
+    final knownId = DirectModelId.encode('local', 'known-context');
+    final models = <Model>[
+      Model(
+        id: missingId,
+        name: 'Unknown context model',
+        metadata: const {'profileName': 'Local API'},
+      ),
+      Model(
+        id: knownId,
+        name: 'Known context model',
+        capabilities: const {'context_length': 32768},
+        metadata: const {'profileName': 'Local API'},
+      ),
+    ];
+    String? changedModelId;
+    int? changedContextLength;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: const [],
+            modelsWithoutContextLimit: models
+                .where(
+                  (model) => directModelAdvertisedContextLength(model) == null,
+                )
+                .toList(),
+            syncWithOpenWebUi: false,
+            isOnboarding: false,
+            onContextLengthChanged: (modelId, contextLength) {
+              changedModelId = modelId;
+              changedContextLength = contextLength;
+            },
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Context compaction'), findsOneWidget);
+    expect(find.text('Unknown context model'), findsOneWidget);
+    expect(find.text('Known context model'), findsNothing);
+    expect(find.textContaining('4K token context'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(ValueKey<String>('direct-context-limit-$missingId')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('8K token context'));
+    await tester.pumpAndSettle();
+
+    expect(changedModelId, missingId);
+    expect(changedContextLength, 8192);
   });
 
   testWidgets('separate connection groups fit a 320px-wide layout', (

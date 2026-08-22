@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -103,6 +104,66 @@ final directHistoryPolicyProvider =
     NotifierProvider<DirectHistoryPolicyController, DirectHistoryPolicy>(
       DirectHistoryPolicyController.new,
     );
+
+class DirectContextLengthOverridesController
+    extends Notifier<Map<String, int>> {
+  @override
+  Map<String, int> build() {
+    final raw = PreferencesStore.getString(
+      PreferenceKeys.directContextLengthOverrides,
+    );
+    if (raw == null || raw.isEmpty) return const <String, int>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const <String, int>{};
+      return Map<String, int>.unmodifiable({
+        for (final entry in decoded.entries)
+          if (_validDirectContextLengthEntry(entry) case final valid?)
+            valid.$1: valid.$2,
+      });
+    } catch (_) {
+      return const <String, int>{};
+    }
+  }
+
+  Future<void> set(String modelId, int contextLength) async {
+    if (DirectModelId.decode(modelId) == null ||
+        contextLength < 1024 ||
+        contextLength > 2 * 1024 * 1024) {
+      throw ArgumentError('Invalid Direct model context length.');
+    }
+    final updated = Map<String, int>.of(state)..[modelId] = contextLength;
+    state = Map.unmodifiable(updated);
+    await PreferencesStore.put(
+      PreferenceKeys.directContextLengthOverrides,
+      jsonEncode(updated),
+    );
+  }
+}
+
+final directContextLengthOverridesProvider =
+    NotifierProvider<DirectContextLengthOverridesController, Map<String, int>>(
+      DirectContextLengthOverridesController.new,
+    );
+
+(String, int)? _validDirectContextLengthEntry(
+  MapEntry<dynamic, dynamic> entry,
+) {
+  final modelId = entry.key.toString();
+  final contextLength = switch (entry.value) {
+    int() => entry.value as int,
+    num() => (entry.value as num).toInt(),
+    String() => int.tryParse(entry.value as String),
+    _ => null,
+  };
+  if (DirectModelId.decode(modelId) == null ||
+      contextLength == null ||
+      contextLength < 1024 ||
+      contextLength > 2 * 1024 * 1024) {
+    return null;
+  }
+  return (modelId, contextLength);
+}
 
 class ApplePccEnabledController extends Notifier<bool> {
   @override

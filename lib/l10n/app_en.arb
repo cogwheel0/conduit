@@ -5125,6 +5125,18 @@
       "tokens": {"type": "String"}
     }
   },
+  "directContextCompactionTitle": "Context compaction",
+  "@directContextCompactionTitle": {
+    "description": "Section title for fallback context windows used by Direct models."
+  },
+  "directContextCompactionDescription": "These models do not report a context window. Conduit uses the selected limit to compact older messages before requests get too large.",
+  "@directContextCompactionDescription": {
+    "description": "Footer explaining per-model Direct context window fallbacks."
+  },
+  "directContextCompactionPickerDescription": "Choose the context window Conduit should use for automatic compaction.",
+  "@directContextCompactionPickerDescription": {
+    "description": "Description in the Direct context window fallback picker."
+  },
   "testDirectConnection": "Test connection",
   "@testDirectConnection": {
     "description": "Button that probes a direct model API."

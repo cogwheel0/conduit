@@ -84,6 +84,21 @@ void main() {
     );
   });
 
+  test('context length fallback persists by trusted Direct model id', () async {
+    final modelId = DirectModelId.encode('profile', 'model');
+    final container = ProviderContainer();
+
+    await container
+        .read(directContextLengthOverridesProvider.notifier)
+        .set(modelId, 8192);
+    expect(container.read(directContextLengthOverridesProvider)[modelId], 8192);
+    container.dispose();
+
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(directContextLengthOverridesProvider)[modelId], 8192);
+  });
+
   test('enabled PCC is exposed as a built-in Direct profile on iOS', () async {
     await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
     final container = ProviderContainer(

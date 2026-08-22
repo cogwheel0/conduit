@@ -5888,6 +5888,18 @@
       "tokens": {"type": "String"}
     }
   },
+  "directContextCompactionTitle": "Kompaktowanie kontekstu",
+  "@directContextCompactionTitle": {
+    "description": "Section title for fallback context windows used by Direct models."
+  },
+  "directContextCompactionDescription": "Te modele nie podają rozmiaru okna kontekstu. Conduit używa wybranego limitu do kompaktowania starszych wiadomości, zanim żądanie stanie się zbyt duże.",
+  "@directContextCompactionDescription": {
+    "description": "Footer explaining per-model Direct context window fallbacks."
+  },
+  "directContextCompactionPickerDescription": "Wybierz okno kontekstu używane przez Conduit do automatycznego kompaktowania.",
+  "@directContextCompactionPickerDescription": {
+    "description": "Description in the Direct context window fallback picker."
+  },
   "testDirectConnection": "Testuj połączenie",
   "@testDirectConnection": {
     "description": "Button that probes a direct model API."
