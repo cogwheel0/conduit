@@ -7,6 +7,64 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testPccSnapshotDeltaEmitsOnlyNewContent() throws {
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Hello world"),
+      " world"
+    )
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello world", snapshot: "Hello world"),
+      ""
+    )
+  }
+
+  func testPccSnapshotDeltaRejectsRewrites() {
+    XCTAssertThrowsError(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Goodbye")
+    )
+  }
+
+#if canImport(FoundationModels)
+  func testPccGenerationOptionsValidateNativeBoundary() throws {
+    guard #available(iOS 26.0, *) else { return }
+    let request = PlatformPccCompletionRequest(
+      runId: "options",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      temperature: 0.4,
+      maximumResponseTokens: 512,
+      topP: 0.9,
+      seed: 42
+    )
+    let options = try pccGenerationOptions(request)
+    XCTAssertEqual(options.temperature, 0.4)
+    XCTAssertEqual(options.maximumResponseTokens, 512)
+
+    let invalid = PlatformPccCompletionRequest(
+      runId: "invalid",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      topP: 0.9,
+      topK: 40
+    )
+    XCTAssertThrowsError(try pccGenerationOptions(invalid))
+  }
+
+  func testPccStructuredSchemaAcceptsBoundedJsonObject() throws {
+    guard #available(iOS 26.0, *) else { return }
+    XCTAssertNoThrow(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}"#,
+      name: "Answer"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"value":{"type":"file"}}}"#,
+      name: "Unsupported"
+    ))
+  }
+#endif
+
   func testNativeDropdownCompletionIsExactlyOnce() {
     var selections: [String?] = []
     let completion = NativeDropdownCompletion { result in

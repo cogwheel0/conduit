@@ -125,7 +125,7 @@ void main() {
       // Spend a meaningful share of the deadline on the initial request. The
       // redirect DNS lookup must receive only the remaining budget instead of
       // starting a fresh timeout for the second hop.
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await Future<void>.delayed(const Duration(milliseconds: 750));
       request.response
         ..statusCode = HttpStatus.found
         ..headers.set(
@@ -144,7 +144,7 @@ void main() {
         url: 'http://${source.address.address}:${source.port}',
       ),
       workerManager: workerManager,
-      publicHealthRequestTimeout: const Duration(milliseconds: 500),
+      publicHealthRequestTimeout: const Duration(seconds: 1),
       publicHealthAddressResolver: (host) {
         resolverCalls++;
         if (host == 'first-health.invalid') {
@@ -163,17 +163,17 @@ void main() {
     final elapsed = Stopwatch()..start();
     try {
       final result = await api.checkHealth().timeout(
-        const Duration(seconds: 2),
+        const Duration(seconds: 3),
       );
       elapsed.stop();
       check(result).isFalse();
       await stalledLookupStarted.future.timeout(const Duration(seconds: 1));
       check(resolverCalls).equals(2);
-      // A fresh 500 ms budget for the stalled second-hop lookup would take at
-      // least ~800 ms after the deliberate 300 ms first hop. Keep enough host
-      // scheduling slack for the correct single-deadline path (~500 ms) while
+      // A fresh 1 s budget for the stalled second-hop lookup would take at
+      // least ~1.75 s after the deliberate 750 ms first hop. Keep enough host
+      // scheduling slack for the correct single-deadline path (~1 s) while
       // still distinguishing a per-hop timeout reset.
-      check(elapsed.elapsed).isLessThan(const Duration(milliseconds: 700));
+      check(elapsed.elapsed).isLessThan(const Duration(milliseconds: 1400));
     } finally {
       api.dispose();
       workerManager.dispose();

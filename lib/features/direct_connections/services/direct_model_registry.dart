@@ -254,6 +254,14 @@ final class DirectModelRegistry {
       final displayName = prefix == null || prefix.isEmpty
           ? remote.name
           : '$prefix.${remote.name}';
+      final rawSupportedParameters =
+          remote.capabilities['supported_parameters'];
+      final supportedParameters = rawSupportedParameters is Iterable
+          ? rawSupportedParameters
+                .map((value) => value.toString().trim())
+                .where((value) => value.isNotEmpty)
+                .toList(growable: false)
+          : null;
       final candidateBinding = DirectModelBinding(
         profileId: profile.id,
         adapterKey: profile.adapterKey,
@@ -276,6 +284,7 @@ final class DirectModelRegistry {
         description: remote.description,
         isMultimodal: remote.isMultimodal,
         supportsStreaming: true,
+        supportedParameters: supportedParameters,
         capabilities: <String, dynamic>{
           ...remote.capabilities,
           'openrouter': profile.isOpenRouter,

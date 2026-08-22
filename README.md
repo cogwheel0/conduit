@@ -74,7 +74,7 @@
 </p>
 
 <p align="center">
-  <a href="#three-ways-to-connect">Connect</a> ·
+  <a href="#four-ways-to-connect">Connect</a> ·
   <a href="#screenshots">Screenshots</a> ·
   <a href="#what-you-get">Features</a> ·
   <a href="#getting-started">Getting Started</a> ·
@@ -103,7 +103,7 @@ works with or without an Open WebUI server at all.
 Your chats live on your device first. Nothing routes through a backend the
 maintainer operates.
 
-## Three ways to connect
+## Ways to connect
 
 On first launch Conduit asks how you want to connect. Pick one, add the others
 later, and skip any sign-in you don't need.
@@ -112,6 +112,8 @@ later, and skip any sign-in you don't need.
 | --- | --- | --- |
 | **Open WebUI** | Your self-hosted server | Full feature set: chats, folders, notes, channels, workspace, tools, web search, image generation |
 | **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
+| **Apple On-Device** | Apple Intelligence | Run Apple's local model offline on eligible iOS 26 devices without an API key |
+| **Apple PCC** | Apple Private Cloud Compute | Use Apple's private cloud model on eligible iOS 27 devices without an API key |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
@@ -119,6 +121,20 @@ Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
 OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
 one. Direct connections you already configured in Open WebUI come along
 automatically. Keys and custom headers stay in platform secure storage.
+
+**Apple On-Device** is an iOS-only Direct provider backed by Apple's local
+SystemLanguageModel. It requires iOS 26 and Apple Intelligence, works offline,
+and supports streaming, sampling controls, and JSON-schema responses with a 4K
+context window. Image input, reasoning controls, and tool calling are not
+available.
+
+**Apple Private Cloud Compute** is an iOS-only Direct provider. It uses Apple's
+Foundation Models framework, streams responses through the same chat path as
+other Direct models, and requires iOS 27, Apple Intelligence availability, and
+Apple's managed PCC entitlement. It supports image input, reasoning levels,
+sampling and output limits, JSON-schema responses, live quota/context status,
+and an optional on-device fallback for PCC network failures. Tool calling is
+not enabled.
 
 **Hermes Agent** connects to your own Hermes server. You watch its tools work
 live, approve sensitive steps before they run, and let scheduled agents run
@@ -129,7 +145,7 @@ exposes the capabilities your server actually reports.
 
 | Chat | Connect | Chats | Voice |
 | --- | --- | --- | --- |
-| <img src="docs/screenshots/1.png" alt="Multimodal chat with an image attachment and streaming response" width="200" /> | <img src="docs/screenshots/2.png" alt="Choose Open WebUI, direct API, or Hermes Agent" width="200" /> | <img src="docs/screenshots/3.png" alt="Chat with rich replies and Ask Conduit input" width="200" /> | <img src="docs/screenshots/4.png" alt="Voice call mode listening with call controls" width="200" /> |
+| <img src="docs/screenshots/1.png" alt="Multimodal chat with an image attachment and streaming response" width="200" /> | <img src="docs/screenshots/2.png" alt="Choose a Conduit chat backend" width="200" /> | <img src="docs/screenshots/3.png" alt="Chat with rich replies and Ask Conduit input" width="200" /> | <img src="docs/screenshots/4.png" alt="Voice call mode listening with call controls" width="200" /> |
 
 ## What you get
 
@@ -216,6 +232,29 @@ then pick how you want to connect.
 4. Choose whether new direct chats use Open WebUI history when one is signed in,
    or stay only on this device. Existing chats keep their current location.
 5. Start chatting. No Open WebUI account required.
+
+</details>
+
+<details>
+<summary><strong>Apple On-Device</strong></summary>
+
+1. On an eligible iOS 26 device, launch Conduit and choose Apple On-Device.
+2. Conduit checks Apple Intelligence and local-model availability. No API key
+   or network connection is required.
+3. Start chatting. New Apple-only installations keep Direct history on the
+   device unless you later enable Open WebUI history.
+
+</details>
+
+<details>
+<summary><strong>Apple Private Cloud Compute</strong></summary>
+
+1. On an eligible iOS 27 device, launch Conduit and choose Apple Private Cloud
+   Compute.
+2. Conduit checks Apple Intelligence and PCC availability. No API key is
+   required.
+3. Start chatting. New PCC-only installations keep Direct history on the
+   device unless you later enable Open WebUI history.
 
 </details>
 

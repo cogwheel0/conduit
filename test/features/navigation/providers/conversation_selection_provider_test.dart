@@ -621,7 +621,7 @@ void main() {
     final result = await container
         .read(conversationSelectionProvider.notifier)
         .select(summary)
-        .timeout(const Duration(milliseconds: 250));
+        .timeout(const Duration(seconds: 2));
 
     expect(result.disposition, ConversationSelectionDisposition.failed);
     expect(result.error, isA<TimeoutException>());

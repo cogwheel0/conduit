@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/platform/conduit_platform_apis.g.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -111,6 +112,17 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       effectiveDirectConnectionProfilesProvider,
     );
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
+    final appleOnDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+    final appleOnDeviceStatus = appleOnDeviceEnabled
+        ? ref.watch(appleOnDeviceStatusProvider)
+        : null;
+    final applePccEnabled = ref.watch(applePccEnabledProvider);
+    final applePccStatus = applePccEnabled
+        ? ref.watch(applePccStatusProvider)
+        : null;
+    final applePccOnDeviceFallback = ref.watch(
+      applePccOnDeviceFallbackProvider,
+    );
 
     return profiles.when(
       loading: () => _buildDirectConnectionsScaffold(
@@ -139,6 +151,22 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       ),
       data: (items) => DirectConnectionsContent(
         profiles: items,
+        appleOnDeviceStatus: appleOnDeviceStatus,
+        applePccStatus: applePccStatus,
+        applePccOnDeviceFallback: applePccOnDeviceFallback,
+        onApplePccFallbackChanged: (enabled) => ref
+            .read(applePccOnDeviceFallbackProvider.notifier)
+            .setEnabled(enabled),
+        onRefreshApplePcc: () => ref.invalidate(applePccStatusProvider),
+        onShowApplePccQuotaOptions: () async {
+          final shown = await ref
+              .read(applePccAdapterProvider)
+              .showQuotaIncreaseSuggestion();
+          ref.invalidate(applePccStatusProvider);
+          if (!shown && context.mounted) {
+            UiUtils.showMessage(context, l10n.applePccUnavailable);
+          }
+        },
         openWebUiConnections: openWebUiConnections,
         showOpenWebUi: showOpenWebUi,
         showHistorySync: showOpenWebUi,
@@ -206,6 +234,12 @@ class DirectConnectionsContent extends StatelessWidget {
     this.onEditOpenWebUi,
     this.onRetryOpenWebUi,
     this.onFinishOnboarding,
+    this.appleOnDeviceStatus,
+    this.applePccStatus,
+    this.applePccOnDeviceFallback = false,
+    this.onApplePccFallbackChanged,
+    this.onRefreshApplePcc,
+    this.onShowApplePccQuotaOptions,
   });
 
   final List<DirectConnectionProfile> profiles;
@@ -221,11 +255,32 @@ class DirectConnectionsContent extends StatelessWidget {
   final ValueChanged<String>? onEditOpenWebUi;
   final VoidCallback? onRetryOpenWebUi;
   final VoidCallback? onFinishOnboarding;
+  final AsyncValue<PlatformPccStatus>? appleOnDeviceStatus;
+  final AsyncValue<PlatformPccStatus>? applePccStatus;
+  final bool applePccOnDeviceFallback;
+  final ValueChanged<bool>? onApplePccFallbackChanged;
+  final VoidCallback? onRefreshApplePcc;
+  final VoidCallback? onShowApplePccQuotaOptions;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final content = <Widget>[
+      if (appleOnDeviceStatus != null) ...[
+        _AppleModelSection(status: appleOnDeviceStatus!, onDevice: true),
+        const SizedBox(height: Spacing.lg),
+      ],
+      if (applePccStatus != null) ...[
+        _AppleModelSection(
+          status: applePccStatus!,
+          onDevice: false,
+          onDeviceFallback: applePccOnDeviceFallback,
+          onFallbackChanged: onApplePccFallbackChanged,
+          onRefresh: onRefreshApplePcc,
+          onShowQuotaOptions: onShowApplePccQuotaOptions,
+        ),
+        const SizedBox(height: Spacing.lg),
+      ],
       if (showHistorySync) ...[
         InsetGroupedList(
           useNativeSurface: PlatformInfo.isIOS,
@@ -287,6 +342,131 @@ class DirectConnectionsContent extends StatelessWidget {
         onPressed: onFinishOnboarding,
       ),
     );
+  }
+}
+
+class _AppleModelSection extends StatelessWidget {
+  const _AppleModelSection({
+    required this.status,
+    required this.onDevice,
+    this.onDeviceFallback = false,
+    this.onFallbackChanged,
+    this.onRefresh,
+    this.onShowQuotaOptions,
+  });
+
+  final AsyncValue<PlatformPccStatus> status;
+  final bool onDevice;
+  final bool onDeviceFallback;
+  final ValueChanged<bool>? onFallbackChanged;
+  final VoidCallback? onRefresh;
+  final VoidCallback? onShowQuotaOptions;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final value = status.value;
+    final details = <String>[];
+    if (status.isLoading && value == null) {
+      details.add(l10n.loadingShort);
+    } else if (value == null) {
+      details.add(
+        onDevice ? l10n.appleOnDeviceUnavailable : l10n.applePccUnavailable,
+      );
+    } else {
+      details.add(_availabilityLabel(l10n, value));
+      if (value.contextSize case final tokens?) {
+        final formatted = tokens % 1024 == 0
+            ? '${tokens ~/ 1024}K'
+            : tokens.toString();
+        details.add(l10n.applePccContextSize(formatted));
+      }
+      if (value.quotaResetAtMilliseconds case final milliseconds?) {
+        final reset = DateTime.fromMillisecondsSinceEpoch(milliseconds)
+            .toLocal();
+        final material = MaterialLocalizations.of(context);
+        final formatted =
+            '${material.formatShortDate(reset)} '
+            '${material.formatTimeOfDay(TimeOfDay.fromDateTime(reset))}';
+        details.add(l10n.applePccQuotaResetsAt(formatted));
+      }
+      if (value.supportsCurrentLocale == false) {
+        details.add(l10n.applePccCurrentLanguageUnsupported);
+      }
+    }
+
+    return InsetGroupedList(
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [
+        UtilityRow(
+          key: ValueKey<String>(
+            onDevice ? 'apple-on-device-status-row' : 'apple-pcc-status-row',
+          ),
+          leading: Icon(
+            onDevice
+                ? (PlatformInfo.isIOS
+                      ? CupertinoIcons.device_phone_portrait
+                      : Icons.smartphone_rounded)
+                : (PlatformInfo.isIOS
+                      ? CupertinoIcons.cloud_fill
+                      : Icons.cloud_rounded),
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: onDevice
+              ? l10n.backendChooserAppleOnDeviceTitle
+              : l10n.backendChooserApplePccTitle,
+          subtitle: details.join('\n'),
+          trailing: status.isLoading
+              ? const SizedBox.square(
+                  dimension: IconSize.medium,
+                  child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                )
+              : Icon(
+                  PlatformInfo.isIOS
+                      ? CupertinoIcons.refresh
+                      : Icons.refresh_rounded,
+                  color: context.conduitTheme.buttonPrimary,
+                ),
+          onTap: status.isLoading ? null : onRefresh,
+        ),
+        if (!onDevice)
+          UtilityRow(
+            key: const ValueKey<String>('apple-pcc-fallback-row'),
+            title: l10n.applePccOnDeviceFallback,
+            subtitle: l10n.applePccOnDeviceFallbackSubtitle,
+            preserveTrailingSemantics: true,
+            trailing: AdaptiveSwitch(
+              value: onDeviceFallback,
+              onChanged: onFallbackChanged,
+            ),
+            onTap: onFallbackChanged == null
+                ? null
+                : () => onFallbackChanged!(!onDeviceFallback),
+          ),
+        if (!onDevice &&
+            value?.canIncreaseQuota == true &&
+            onShowQuotaOptions != null)
+          UtilityRow(
+            key: const ValueKey<String>('apple-pcc-quota-options-row'),
+            title: l10n.applePccShowQuotaOptions,
+            showChevron: true,
+            onTap: onShowQuotaOptions,
+          ),
+      ],
+    );
+  }
+
+  String _availabilityLabel(AppLocalizations l10n, PlatformPccStatus value) {
+    if (value.availability != PlatformPccAvailability.available) {
+      return value.message ??
+          (onDevice ? l10n.appleOnDeviceUnavailable : l10n.applePccUnavailable);
+    }
+    return switch (value.quotaStatus) {
+      PlatformPccQuotaStatus.approachingLimit => l10n.applePccQuotaApproaching,
+      PlatformPccQuotaStatus.limitReached => l10n.applePccQuotaReached,
+      PlatformPccQuotaStatus.belowLimit ||
+      PlatformPccQuotaStatus.unknown => l10n.applePccStatusAvailable,
+    };
   }
 }
 

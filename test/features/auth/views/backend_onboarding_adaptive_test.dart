@@ -49,8 +49,12 @@ void main() {
       expect(find.text('Choose how to connect'), findsOneWidget);
       expect(find.text('Open WebUI'), findsOneWidget);
       expect(find.text('Connect directly'), findsOneWidget);
+      expect(find.text('Apple On-Device'), findsOneWidget);
+      expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Hermes Agent'), findsOneWidget);
       expect(find.byIcon(CupertinoIcons.link), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.device_phone_portrait), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
       expect(find.byIcon(Icons.hub), findsNothing);
       expect(find.byType(Image), findsNWidgets(2));
       expect(

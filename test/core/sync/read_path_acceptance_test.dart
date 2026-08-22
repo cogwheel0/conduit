@@ -11,7 +11,6 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/chats_dao.dart';
 import 'package:conduit/core/database/local_conversation_loader.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
@@ -232,11 +231,15 @@ void main() {
       );
     }
 
-    final emissions = <List<ChatListEntry>>[];
-    final subscription = db.chatsDao.watchChatList().listen(emissions.add);
+    var emissionCount = 0;
+    var lastEmissionLength = 0;
+    final subscription = db.chatsDao.watchChatList().listen((rows) {
+      emissionCount++;
+      lastEmissionLength = rows.length;
+    });
     addTearDown(subscription.cancel);
-    await waitFor(() => emissions.isNotEmpty);
-    final baseline = emissions.length;
+    await waitFor(() => emissionCount > 0);
+    final baseline = emissionCount;
 
     final pull = PullSync(
       client: FakeSyncApiClient(server),
@@ -247,17 +250,15 @@ void main() {
 
     check(result.success).isTrue();
     check(result.changedChats).equals(chatCount);
-    await waitFor(
-      () => emissions.isNotEmpty && emissions.last.length == chatCount,
-    );
+    await waitFor(() => lastEmissionLength == chatCount);
     // Let any straggling (incorrect) emissions surface before counting.
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
     // One emission per per-chat transaction at most (REQ §10.1 jank proxy).
     check(
       because: 'REQ §10.1: at most one list emission per per-chat merge',
-      emissions.length - baseline,
+      emissionCount - baseline,
     ).isLessOrEqual(chatCount + 1);
-    check(emissions.last.length).equals(chatCount);
+    check(lastEmissionLength).equals(chatCount);
   }, timeout: const Timeout(Duration(seconds: 60)));
 }

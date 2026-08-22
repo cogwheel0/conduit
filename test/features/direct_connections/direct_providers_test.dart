@@ -84,6 +84,41 @@ void main() {
     );
   });
 
+  test('enabled PCC is exposed as a built-in Direct profile on iOS', () async {
+    await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles, hasLength(1));
+    expect(profiles.single.isApplePrivateCloudCompute, isTrue);
+  });
+
+  test(
+    'enabled Apple On-Device is exposed as a built-in Direct profile',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+      final container = ProviderContainer(
+        overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(directConnectionProfilesProvider.future);
+      final profiles = container
+          .read(effectiveDirectConnectionProfilesProvider)
+          .requireValue;
+
+      expect(profiles, hasLength(1));
+      expect(profiles.single.isAppleOnDevice, isTrue);
+    },
+  );
+
   test('manual models bypass discovery network calls', () async {
     final adapter = _QueuedAdapter();
     final profile = _profile(

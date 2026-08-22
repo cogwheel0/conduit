@@ -3,13 +3,18 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/persistence/persistence_keys.dart';
+import '../../../core/persistence/preferences_store.dart';
+import '../../../core/platform/conduit_platform_apis.g.dart';
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/utility_components.dart';
 
-/// First-run screen letting a fresh install choose its backend: a self-hosted
-/// Open WebUI, direct model APIs, or a Hermes Agent.
+/// First-run screen letting a fresh install choose its chat backend.
 class BackendChooserPage extends ConsumerWidget {
   const BackendChooserPage({super.key});
 
@@ -64,6 +69,38 @@ class BackendChooserPage extends ConsumerWidget {
                     queryParameters: const {'onboarding': 'true'},
                   ),
                 ),
+                if (PlatformInfo.isIOS)
+                  UtilitySelectionRow(
+                    leading: const _AppleModelIcon(),
+                    title: l10n.backendChooserAppleOnDeviceTitle,
+                    subtitle: l10n.backendChooserAppleOnDeviceSubtitle,
+                    selected: false,
+                    showDivider: true,
+                    showSelectionIndicator: false,
+                    trailing: _chooserChevron(context),
+                    onTap: () => _selectAppleModel(
+                      context,
+                      ref,
+                      l10n,
+                      PlatformAppleModel.onDevice,
+                    ),
+                  ),
+                if (PlatformInfo.isIOS)
+                  UtilitySelectionRow(
+                    leading: const _AppleModelIcon(cloud: true),
+                    title: l10n.backendChooserApplePccTitle,
+                    subtitle: l10n.backendChooserApplePccSubtitle,
+                    selected: false,
+                    showDivider: true,
+                    showSelectionIndicator: false,
+                    trailing: _chooserChevron(context),
+                    onTap: () => _selectAppleModel(
+                      context,
+                      ref,
+                      l10n,
+                      PlatformAppleModel.privateCloudCompute,
+                    ),
+                  ),
                 UtilitySelectionRow(
                   leading: const _ProviderLogo(
                     assetName: 'assets/icons/hermes_agent.png',
@@ -81,6 +118,58 @@ class BackendChooserPage extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+Future<void> _selectAppleModel(
+  BuildContext context,
+  WidgetRef ref,
+  AppLocalizations l10n,
+  PlatformAppleModel model,
+) async {
+  final onDevice = model == PlatformAppleModel.onDevice;
+  final unavailable = onDevice
+      ? l10n.appleOnDeviceUnavailable
+      : l10n.applePccUnavailable;
+  try {
+    final status = await ref.refresh(
+      onDevice
+          ? appleOnDeviceStatusProvider.future
+          : applePccStatusProvider.future,
+    );
+    if (!context.mounted) return;
+    if (status.availability != PlatformPccAvailability.available ||
+        status.quotaLimitReached) {
+      AdaptiveSnackBar.show(
+        context,
+        message: status.message ?? unavailable,
+        type: AdaptiveSnackBarType.warning,
+      );
+      return;
+    }
+
+    if (PreferencesStore.getString(PreferenceKeys.directHistoryPolicy) ==
+        null) {
+      await ref
+          .read(directHistoryPolicyProvider.notifier)
+          .setPolicy(DirectHistoryPolicy.localOnly);
+    }
+    if (onDevice) {
+      await ref.read(appleOnDeviceEnabledProvider.notifier).setEnabled(true);
+    } else {
+      await ref.read(applePccEnabledProvider.notifier).setEnabled(true);
+    }
+    await ref
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.direct);
+    if (context.mounted) context.go(Routes.chat);
+  } catch (_) {
+    if (!context.mounted) return;
+    AdaptiveSnackBar.show(
+      context,
+      message: unavailable,
+      type: AdaptiveSnackBarType.error,
     );
   }
 }
@@ -160,6 +249,36 @@ class _DirectConnectionIcon extends StatelessWidget {
       ),
       child: Icon(
         context.usesCupertinoChrome ? CupertinoIcons.link : Icons.api_rounded,
+        color: theme.buttonPrimary,
+        size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+class _AppleModelIcon extends StatelessWidget {
+  const _AppleModelIcon({this.cloud = false});
+
+  final bool cloud;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      width: _providerLogoSize,
+      height: _providerLogoSize,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Icon(
+        cloud
+            ? (context.usesCupertinoChrome
+                  ? CupertinoIcons.cloud_fill
+                  : Icons.cloud_rounded)
+            : (context.usesCupertinoChrome
+                  ? CupertinoIcons.device_phone_portrait
+                  : Icons.smartphone_rounded),
         color: theme.buttonPrimary,
         size: IconSize.medium,
       ),

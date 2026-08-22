@@ -280,6 +280,19 @@ List<int> _sseDone() => utf8.encode('data: [DONE]\n\n');
 /// Pumps microtask queue by awaiting a zero-duration future.
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
+Future<void> waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Condition was not met before the test deadline');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared callback collector
 // ---------------------------------------------------------------------------
@@ -2889,7 +2902,7 @@ void main() {
         socketService: _MockSocketService(registrar),
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await waitForCondition(() => log.finishCount == 1);
 
       check(adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'))
           .isGreaterThan(0);
@@ -2958,7 +2971,7 @@ void main() {
           socketService: _MockSocketService(registrar),
         );
 
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await waitForCondition(() => log.finishCount == 1);
 
         check(log.messages.last.content)
             .contains('Full answer with the tail intact.');

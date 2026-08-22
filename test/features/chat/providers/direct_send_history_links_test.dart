@@ -534,6 +534,7 @@ final class _AuthorizationRecordingFileAdapter implements HttpClientAdapter {
 
 final class _RequestRecordingAdapter implements DirectProviderAdapter {
   DirectCompletionRequest? request;
+  final List<DirectCompletionRequest> requests = <DirectCompletionRequest>[];
 
   @override
   String get key => 'recording-adapter';
@@ -553,13 +554,25 @@ final class _RequestRecordingAdapter implements DirectProviderAdapter {
     DirectCompletionRequest request,
   ) {
     this.request = request;
+    requests.add(request);
+    final isCompaction =
+        request.messages.firstOrNull?.parts.whereType<DirectTextPart>().any(
+          (part) => part.text.startsWith(
+            'Summarize the conversation history for a later assistant.',
+          ),
+        ) ??
+        false;
     return DirectCompletionRun(
-      id: 'recorded-run',
+      id: 'recorded-run-${requests.length}',
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: Stream<DirectStreamEvent>.fromIterable(const [
-        DirectContentDelta('answer'),
-        DirectStreamDone(),
+      events: Stream<DirectStreamEvent>.fromIterable([
+        DirectContentDelta(
+          isCompaction
+              ? 'The earlier turn established the requirements.'
+              : 'answer',
+        ),
+        const DirectStreamDone(),
       ]),
       cancelToken: CancelToken(),
       done: Future<void>.value(),
@@ -1228,6 +1241,94 @@ void main() {
       expect(reloadedAssistant.isStreaming, isFalse);
       expect(reloadedAssistant.content, contains('done="true"'));
       expect(reloadedAssistant.content, isNot(contains('done="false"')));
+    },
+  );
+
+  test(
+    'direct send compacts oversized history before provider dispatch',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'compaction-profile',
+        name: 'Compaction provider',
+        adapterKey: 'recording-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(
+          id: 'small-context-model',
+          capabilities: const <String, dynamic>{'context_length': 4096},
+        ),
+      ]).single;
+      final adapter = _RequestRecordingAdapter();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:context-compaction',
+        modelId: model.id,
+        suffix: 'context-compaction',
+      );
+      final longUserContent = List<String>.filled(6000, 'u').join();
+      final longAssistantContent = List<String>.filled(6000, 'a').join();
+      final longHistory = <ChatMessage>[
+        chat.messages[0].copyWith(content: longUserContent),
+        chat.messages[1].copyWith(content: longAssistantContent),
+      ];
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          directDeviceTrustKeyProvider.overrideWith(
+            (ref) async => _directDocumentTestKey,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(longHistory);
+
+      await sendMessageWithContainer(container, 'Continue', null);
+
+      expect(adapter.requests, hasLength(2));
+      expect(
+        adapter.requests.first.messages.first.parts
+            .whereType<DirectTextPart>()
+            .single
+            .text,
+        startsWith('Summarize the conversation history'),
+      );
+      final finalRequestText = adapter.requests.last.messages
+          .expand((message) => message.parts)
+          .whereType<DirectTextPart>()
+          .map((part) => part.text)
+          .join('\n');
+      expect(finalRequestText, contains('[CONVERSATION SUMMARY]'));
+      expect(finalRequestText, contains('earlier turn established'));
+      expect(finalRequestText, isNot(contains(longUserContent)));
+      final checkpoint = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'user');
+      expect(
+        trustedDirectContextSummary(
+          checkpoint,
+          verificationKey: _directDocumentTestKey,
+        ),
+        contains('earlier turn established'),
+      );
     },
   );
 

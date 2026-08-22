@@ -1,4 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -193,6 +194,65 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Open WebUI history'), findsNothing);
+  });
+
+  testWidgets('PCC settings show quota and fallback controls', (tester) async {
+    var fallback = false;
+    var quotaOptionsOpened = false;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: const [],
+            syncWithOpenWebUi: false,
+            isOnboarding: false,
+            appleOnDeviceStatus: AsyncData(
+              PlatformPccStatus(
+                availability: PlatformPccAvailability.available,
+                quotaStatus: PlatformPccQuotaStatus.unknown,
+                quotaLimitReached: false,
+                canIncreaseQuota: false,
+                contextSize: 4096,
+                supportsCurrentLocale: true,
+              ),
+            ),
+            applePccStatus: AsyncData(
+              PlatformPccStatus(
+                availability: PlatformPccAvailability.available,
+                quotaStatus: PlatformPccQuotaStatus.approachingLimit,
+                quotaLimitReached: false,
+                canIncreaseQuota: true,
+                contextSize: 32768,
+                supportsCurrentLocale: true,
+              ),
+            ),
+            applePccOnDeviceFallback: fallback,
+            onApplePccFallbackChanged: (value) => fallback = value,
+            onShowApplePccQuotaOptions: () => quotaOptionsOpened = true,
+            onRefreshApplePcc: () {},
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Apple On-Device'), findsOneWidget);
+    expect(find.textContaining('4K token context'), findsOneWidget);
+    expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
+    expect(
+      find.textContaining('Nearing the daily usage limit'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('32K token context'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('apple-pcc-fallback-row')));
+    await tester.tap(find.byKey(const ValueKey('apple-pcc-quota-options-row')));
+    expect(fallback, isTrue);
+    expect(quotaOptionsOpened, isTrue);
   });
 
   testWidgets('separate connection groups fit a 320px-wide layout', (

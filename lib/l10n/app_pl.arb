@@ -265,6 +265,18 @@
   "@reasoningEffortHigh": {
     "description": "High model reasoning effort option."
   },
+  "reasoningEffortLight": "Lekki",
+  "@reasoningEffortLight": {
+    "description": "Light Apple PCC reasoning effort option."
+  },
+  "reasoningEffortModerate": "Umiarkowany",
+  "@reasoningEffortModerate": {
+    "description": "Moderate Apple PCC reasoning effort option."
+  },
+  "reasoningEffortDeep": "Głęboki",
+  "@reasoningEffortDeep": {
+    "description": "Deep Apple PCC reasoning effort option."
+  },
   "reasoningEffortMinimal": "Minimalny",
   "@reasoningEffortMinimal": {
     "description": "Minimal model reasoning effort option."
@@ -5797,6 +5809,72 @@
   "backendChooserDirectSubtitle": "Użyj interfejsu API zgodnego z OpenAI lub Ollamy bez Open WebUI.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceTitle": "Apple On-Device",
+  "@backendChooserAppleOnDeviceTitle": {
+    "description": "Title of the Apple on-device model option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceSubtitle": "Uruchamiaj prywatny model Apple na tym urządzeniu. Działa offline i wymaga Apple Intelligence oraz iOS 26.",
+  "@backendChooserAppleOnDeviceSubtitle": {
+    "description": "Description of the Apple on-device model option on the first-run backend chooser."
+  },
+  "appleOnDeviceUnavailable": "Model Apple On-Device jest niedostępny na tym urządzeniu.",
+  "@appleOnDeviceUnavailable": {
+    "description": "Fallback shown when the Apple on-device model cannot be selected during onboarding."
+  },
+  "backendChooserApplePccTitle": "Apple Private Cloud Compute",
+  "@backendChooserApplePccTitle": {
+    "description": "Title of the Apple PCC option on the first-run backend chooser."
+  },
+  "backendChooserApplePccSubtitle": "Wysyłaj polecenia do prywatnego modelu chmurowego Apple bez klucza API. Wymaga Apple Intelligence i systemu iOS 27.",
+  "@backendChooserApplePccSubtitle": {
+    "description": "Description of the Apple PCC option on the first-run backend chooser."
+  },
+  "applePccUnavailable": "Usługa Apple Private Cloud Compute jest niedostępna na tym urządzeniu.",
+  "@applePccUnavailable": {
+    "description": "Fallback shown when Apple PCC cannot be selected during onboarding."
+  },
+  "applePccStatusAvailable": "Dostępna",
+  "@applePccStatusAvailable": {
+    "description": "Apple PCC availability label."
+  },
+  "applePccQuotaApproaching": "Zbliżasz się do dziennego limitu użycia",
+  "@applePccQuotaApproaching": {
+    "description": "Apple PCC quota warning."
+  },
+  "applePccQuotaReached": "Osiągnięto dzienny limit użycia",
+  "@applePccQuotaReached": {
+    "description": "Apple PCC exhausted quota label."
+  },
+  "applePccQuotaResetsAt": "Odnowienie: {time}",
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "applePccShowQuotaOptions": "Pokaż opcje użycia",
+  "@applePccShowQuotaOptions": {
+    "description": "Action that presents Apple's PCC quota increase flow."
+  },
+  "applePccOnDeviceFallback": "Model na urządzeniu",
+  "@applePccOnDeviceFallback": {
+    "description": "Apple PCC network fallback preference."
+  },
+  "applePccOnDeviceFallbackSubtitle": "Użyj mniejszego modelu Apple na urządzeniu, gdy PCC jest nieosiągalne. Żądania z rozumowaniem nie używają tego trybu.",
+  "@applePccOnDeviceFallbackSubtitle": {
+    "description": "Description of the Apple PCC network fallback preference."
+  },
+  "applePccCurrentLanguageUnsupported": "Bieżący język urządzenia może nie być obsługiwany.",
+  "@applePccCurrentLanguageUnsupported": {
+    "description": "Warning shown when PCC does not support the current locale."
+  },
+  "applePccContextSize": "Kontekst: {tokens} tokenów",
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
   },
   "testDirectConnection": "Testuj połączenie",
   "@testDirectConnection": {

@@ -390,6 +390,8 @@ final class OllamaAdapter
         },
         if (effectiveCapabilities.contains('tools')) 'tool_calling': true,
         if (effectiveCapabilities.contains('thinking')) 'thinking': true,
+        if (shown?.contextLength != null)
+          'context_length': shown!.contextLength!,
         if (candidate.details != null) 'details': candidate.details!,
         if (effectiveCapabilities.isNotEmpty)
           'capabilities': effectiveCapabilities,
@@ -425,6 +427,7 @@ final class OllamaAdapter
         advertisesVision:
             capabilities.contains('vision') ||
             _hasVisionMetadata(shown, body['projector_info']),
+        contextLength: _ollamaContextLength(shown),
       );
     } on DirectDiscoveryCancelled {
       rethrow;
@@ -837,6 +840,27 @@ bool _hasVisionMetadata(ollama.ShowResponse response, Object? projectorInfo) {
   });
 }
 
+int? _ollamaContextLength(ollama.ShowResponse response) {
+  final modelInfo = response.modelInfo;
+  if (modelInfo == null) return null;
+  int? result;
+  for (final entry in modelInfo.entries) {
+    if (!entry.key.toString().toLowerCase().endsWith('.context_length')) {
+      continue;
+    }
+    final value = switch (entry.value) {
+      int value => value,
+      num value => value.toInt(),
+      String value => int.tryParse(value),
+      _ => null,
+    };
+    if (value != null && value > 0 && (result == null || value > result)) {
+      result = value;
+    }
+  }
+  return result;
+}
+
 /// Normalizes the few catalog fields that older Ollama versions returned with
 /// looser JSON types, then delegates the actual model decoding to ollama_dart.
 ollama.ModelSummary _decodeModelSummary(Map<String, dynamic> json) {
@@ -883,10 +907,12 @@ final class _OllamaShowDetails {
   const _OllamaShowDetails({
     required this.capabilities,
     required this.advertisesVision,
+    required this.contextLength,
   });
 
   final List<String> capabilities;
   final bool advertisesVision;
+  final int? contextLength;
 }
 
 final class _OllamaModelCandidate {

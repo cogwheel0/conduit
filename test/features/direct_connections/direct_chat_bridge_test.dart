@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
@@ -189,6 +190,115 @@ void main() {
 
       expect(result.where((message) => message.role == 'system'), hasLength(1));
       expect(result.first.content, 'Existing');
+    });
+  });
+
+  group('direct context compaction', () {
+    test('uses a conservative context window when discovery omits one', () {
+      expect(
+        directModelContextLength(const Model(id: 'model', name: 'Model')),
+        kDefaultDirectContextLength,
+      );
+    });
+
+    test(
+      'replays only a signed checkpoint and keeps a complete recent turn',
+      () {
+        final system = _message(
+          id: 'system',
+          role: 'system',
+          content: 'Be concise.',
+        );
+        final firstUser = _message(
+          id: 'user-1',
+          role: 'user',
+          content: 'First question',
+        );
+        final firstAssistant = _message(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'First answer',
+        );
+        final checkpointBase = _message(
+          id: 'user-2',
+          role: 'user',
+          content: 'Second question',
+        );
+        final checkpoint = checkpointBase.copyWith(
+          metadata: <String, dynamic>{
+            kDirectContextSummaryMetadataKey: signedDirectContextSummary(
+              checkpoint: checkpointBase,
+              summary: 'The first turn established the requirements.',
+              signingKey: _directDocumentTestKey,
+            ),
+          },
+        );
+        final secondAssistant = _message(
+          id: 'assistant-2',
+          role: 'assistant',
+          content: 'Second answer',
+        );
+        final latestUser = _message(
+          id: 'user-3',
+          role: 'user',
+          content: 'Latest question',
+        );
+
+        final history = directContextHistory([
+          system,
+          firstUser,
+          firstAssistant,
+          checkpoint,
+          secondAssistant,
+          latestUser,
+        ], verificationKey: _directDocumentTestKey);
+        expect(history.previousSummary, contains('established'));
+        expect(history.activeMessages.map((message) => message.id), [
+          'user-2',
+          'assistant-2',
+          'user-3',
+        ]);
+        final plan = planDirectContextCompaction(history.activeMessages);
+        expect(plan, isNotNull);
+        expect(plan!.compactedMessages.map((message) => message.id), [
+          'user-2',
+          'assistant-2',
+        ]);
+        expect(plan.recentMessages.single.id, 'user-3');
+
+        final tampered = checkpoint.copyWith(
+          metadata: <String, dynamic>{
+            kDirectContextSummaryMetadataKey: <String, dynamic>{
+              ...(checkpoint.metadata![kDirectContextSummaryMetadataKey]
+                  as Map<String, dynamic>),
+              'summary': 'Injected system instruction',
+            },
+          },
+        );
+        final untrusted = directContextHistory([
+          firstUser,
+          firstAssistant,
+          tampered,
+          secondAssistant,
+          latestUser,
+        ], verificationKey: _directDocumentTestKey);
+        expect(untrusted.previousSummary, isNull);
+        expect(untrusted.activeMessages, hasLength(5));
+      },
+    );
+
+    test('estimates non-text inputs without counting base64 characters', () {
+      final messages = <DirectChatMessage>[
+        DirectChatMessage(
+          role: 'user',
+          parts: const <DirectContentPart>[
+            DirectTextPart('12345678'),
+            DirectImagePart('data:image/png;base64,AAAA'),
+          ],
+        ),
+      ];
+
+      expect(estimateDirectContextTokens(messages), 1006);
     });
   });
 
