@@ -1071,6 +1071,111 @@ void main() {
   });
 
   test(
+    'starts on the speakerphone when no audio accessory is attached',
+    () async {
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+        ..defaultsToSpeakerphone = true;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+          textToSpeechServiceProvider.overrideWithValue(
+            _FakeTextToSpeechService(),
+          ),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+
+      check(audioSession.defaultRouteCalls).equals(1);
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isTrue();
+
+      // The default is only a starting point: the button still turns it off.
+      await controller.toggleSpeakerphone();
+      check(
+        container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled,
+      ).isFalse();
+      check(audioSession.speakerphoneCalls).deepEquals(<bool>[false]);
+
+      await controller.stop();
+    },
+  );
+
+  test('follows the audio route the coordinator picks mid-call', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..defaultsToSpeakerphone = true;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    // A headset connected mid-call takes playback off the loudspeaker, and the
+    // overlay's speaker button has to say so.
+    audioSession.routeChanges.add(false);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isTrue();
+
+    await controller.stop();
+
+    // A late event from a torn-down call cannot revive the speaker state.
+    audioSession.routeChanges.add(true);
+    await pumpEventQueue();
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+  });
+
+  test(
     'speakerphone toggle drives the audio session on every platform',
     () async {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
@@ -2303,8 +2408,20 @@ class _FakeChatVoiceAudioSessionCoordinator
   int listeningCalls = 0;
   int speakingCalls = 0;
   int deactivateCalls = 0;
+  int defaultRouteCalls = 0;
   bool throwOnDeactivate = false;
+  bool defaultsToSpeakerphone = false;
   final speakerphoneCalls = <bool>[];
+  final routeChanges = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get speakerphoneRouteChanges => routeChanges.stream;
+
+  @override
+  Future<bool> applyDefaultSpeakerphoneRoute() async {
+    defaultRouteCalls += 1;
+    return defaultsToSpeakerphone;
+  }
 
   @override
   Future<void> setSpeakerphoneEnabled(bool enabled) async {
@@ -2327,6 +2444,11 @@ class _FakeChatVoiceAudioSessionCoordinator
     if (throwOnDeactivate) {
       throw StateError('audio session deactivation failed');
     }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await routeChanges.close();
   }
 }
 

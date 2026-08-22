@@ -268,6 +268,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   StreamSubscription<int>? _intensitySub;
   StreamSubscription<TtsEvent>? _ttsSub;
   StreamSubscription<CallEvent>? _callKitSub;
+  StreamSubscription<bool>? _speakerphoneRouteSub;
   Timer? _elapsedTimer;
   Timer? _backgroundKeepAliveTimer;
 
@@ -336,6 +337,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final intensitySub = _intensitySub;
       final ttsSub = _ttsSub;
       final callKitSub = _callKitSub;
+      final speakerphoneRouteSub = _speakerphoneRouteSub;
+      _speakerphoneRouteSub = null;
       final input = _voiceInput;
       final tts = _textToSpeech;
       final backgroundCoordinator = _backgroundCoordinator;
@@ -358,6 +361,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 audioSessionCoordinator,
               );
               await _cancelSubscriptionAfterDispose(callKitSub);
+              await _cancelSubscriptionAfterDispose(speakerphoneRouteSub);
               if (callId != null) {
                 await _endCallAfterDispose(callKit, callId);
               }
@@ -489,6 +493,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           await _requestAndroidVoiceRoutingPermission();
           if (lostOwnership()) return;
           cancelIfRequested();
+          await _applyDefaultSpeakerphoneRoute();
+          if (lostOwnership()) return;
+          cancelIfRequested();
           await _initializeTts(tts, settings);
           if (lostOwnership()) return;
           cancelIfRequested();
@@ -560,6 +567,28 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
     });
     return result;
+  }
+
+  /// Starts accessory-free calls on the loudspeaker so the snapshot and the
+  /// overlay's speaker button match the route the coordinator picked, and
+  /// follows the coordinator when hardware comes and goes mid-call.
+  Future<void> _applyDefaultSpeakerphoneRoute() async {
+    final coordinator = _audioSessionCoordinator;
+    if (coordinator == null) {
+      return;
+    }
+    unawaited(_speakerphoneRouteSub?.cancel());
+    _speakerphoneRouteSub = coordinator.speakerphoneRouteChanges.listen((
+      enabled,
+    ) {
+      if (_disposed || !state.isActive) return;
+      state = state.copyWith(isSpeakerphoneEnabled: enabled);
+    });
+    final enabled = await coordinator.applyDefaultSpeakerphoneRoute();
+    if (_disposed || !enabled) {
+      return;
+    }
+    state = state.copyWith(isSpeakerphoneEnabled: true);
   }
 
   Future<void> _requestAndroidVoiceRoutingPermission() async {
@@ -1578,6 +1607,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final intensitySub = _intensitySub;
     final ttsSub = _ttsSub;
     final callKitSub = _callKitSub;
+    final speakerphoneRouteSub = _speakerphoneRouteSub;
     final elapsedTimer = _elapsedTimer;
     final backgroundKeepAliveTimer = _backgroundKeepAliveTimer;
     final backgroundLeaseId = _backgroundLeaseId;
@@ -1594,6 +1624,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _intensitySub = null;
     _ttsSub = null;
     _callKitSub = null;
+    _speakerphoneRouteSub = null;
     _backgroundKeepAliveTimer = null;
     _backgroundLeaseId = null;
     _voiceInput = null;
@@ -1658,6 +1689,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _runTeardownStep('callkit-subscription-cancel', () async {
           await callKitSub?.cancel();
         });
+        await _runTeardownStep(
+          'speakerphone-route-subscription-cancel',
+          () async {
+            await speakerphoneRouteSub?.cancel();
+          },
+        );
         if (endCallKit && callId != null) {
           await _runTeardownStep('callkit-end', () async {
             await callKit?.endCall(callId);
