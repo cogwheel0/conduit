@@ -245,13 +245,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Apple On-Device'), findsOneWidget);
-    expect(find.textContaining('4K token context'), findsOneWidget);
+    expect(find.textContaining('Context limit: 4K'), findsOneWidget);
     expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
     expect(
       find.textContaining('Nearing the daily usage limit'),
       findsOneWidget,
     );
-    expect(find.textContaining('32K token context'), findsOneWidget);
+    expect(find.textContaining('Context limit: 32K'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('apple-pcc-fallback-row')));
     await tester.tap(find.byKey(const ValueKey('apple-pcc-quota-options-row')));
     expect(fallback, isTrue);
@@ -309,13 +309,13 @@ void main() {
     expect(find.text('Context compaction'), findsOneWidget);
     expect(find.text('Unknown context model'), findsOneWidget);
     expect(find.text('Known context model'), findsNothing);
-    expect(find.textContaining('4K token context'), findsOneWidget);
+    expect(find.textContaining('Context limit: 4K'), findsOneWidget);
 
     await tester.tap(
       find.byKey(ValueKey<String>('direct-context-limit-$missingId')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('8K token context'));
+    await tester.tap(find.text('Context limit: 8K'));
     await tester.pumpAndSettle();
 
     expect(changedModelId, missingId);

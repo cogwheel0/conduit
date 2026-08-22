@@ -284,9 +284,9 @@ Future<void> waitForCondition(
   bool Function() condition, {
   Duration timeout = const Duration(seconds: 1),
 }) async {
-  final deadline = DateTime.now().add(timeout);
+  final stopwatch = Stopwatch()..start();
   while (!condition()) {
-    if (DateTime.now().isAfter(deadline)) {
+    if (stopwatch.elapsed > timeout) {
       throw TimeoutException('Condition was not met before the test deadline');
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));

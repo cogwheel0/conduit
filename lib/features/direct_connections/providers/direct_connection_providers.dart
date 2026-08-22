@@ -133,11 +133,11 @@ class DirectContextLengthOverridesController
       throw ArgumentError('Invalid Direct model context length.');
     }
     final updated = Map<String, int>.of(state)..[modelId] = contextLength;
-    state = Map.unmodifiable(updated);
     await PreferencesStore.put(
       PreferenceKeys.directContextLengthOverrides,
       jsonEncode(updated),
     );
+    if (ref.mounted) state = Map.unmodifiable(updated);
   }
 }
 

@@ -87,12 +87,12 @@ class AdaptiveAuthHarness {
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(_storage),
         activeServerProvider.overrideWith((_) async => server),
-        if (appleOnDeviceStatus != null)
-          appleOnDeviceStatusProvider.overrideWith(
-            (_) async => appleOnDeviceStatus!,
-          ),
-        if (applePccStatus != null)
-          applePccStatusProvider.overrideWith((_) async => applePccStatus!),
+        appleOnDeviceStatusProvider.overrideWith(
+          (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
+        ),
+        applePccStatusProvider.overrideWith(
+          (_) async => applePccStatus ?? _unavailableAppleStatus(),
+        ),
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: platform),
@@ -124,6 +124,13 @@ class AdaptiveAuthHarness {
     FlutterError.onError = _previousFlutterOnError;
   }
 }
+
+PlatformPccStatus _unavailableAppleStatus() => PlatformPccStatus(
+  availability: PlatformPccAvailability.unavailable,
+  quotaStatus: PlatformPccQuotaStatus.unknown,
+  quotaLimitReached: false,
+  canIncreaseQuota: false,
+);
 
 class BackendOnboardingHarness {
   BackendOnboardingHarness() {
@@ -174,6 +181,12 @@ class BackendOnboardingHarness {
     return ProviderScope(
       overrides: [
         secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        appleOnDeviceStatusProvider.overrideWith(
+          (_) async => _unavailableAppleStatus(),
+        ),
+        applePccStatusProvider.overrideWith(
+          (_) async => _unavailableAppleStatus(),
+        ),
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: TargetPlatform.iOS),

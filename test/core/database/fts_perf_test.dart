@@ -150,9 +150,9 @@ void main() {
         enqueueCompletion: false,
       );
 
-      // Use the fastest warmed sample so scheduler preemption cannot fail the
-      // wall-clock budget; a persistent regression still fails every sample.
-      var elapsed = const Duration(days: 1);
+      // Use the median warmed sample so one scheduler spike or unusually fast
+      // run cannot decide the wall-clock budget.
+      final samples = <Duration>[];
       for (var sample = 0; sample < 3; sample++) {
         final msg = appendCandidate(
           fixture.bigChatId,
@@ -165,8 +165,10 @@ void main() {
           enqueueCompletion: false,
         );
         sw.stop();
-        if (sw.elapsed < elapsed) elapsed = sw.elapsed;
+        samples.add(sw.elapsed);
       }
+      samples.sort();
+      final elapsed = samples[1];
 
       DebugLogger.log(
         'append-ms',

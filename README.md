@@ -74,7 +74,7 @@
 </p>
 
 <p align="center">
-  <a href="#four-ways-to-connect">Connect</a> ·
+  <a href="#ways-to-connect">Connect</a> ·
   <a href="#screenshots">Screenshots</a> ·
   <a href="#what-you-get">Features</a> ·
   <a href="#getting-started">Getting Started</a> ·

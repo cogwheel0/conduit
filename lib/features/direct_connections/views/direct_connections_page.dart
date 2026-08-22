@@ -5,6 +5,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/models/model.dart';
 import '../../../core/providers/backend_mode_providers.dart';
@@ -188,8 +189,9 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
           final shown = await ref
               .read(applePccAdapterProvider)
               .showQuotaIncreaseSuggestion();
+          if (!context.mounted) return;
           ref.invalidate(applePccStatusProvider);
-          if (!shown && context.mounted) {
+          if (!shown) {
             UiUtils.showMessage(context, l10n.applePccUnavailable);
           }
         },
@@ -439,7 +441,9 @@ class _AppleModelSection extends StatelessWidget {
     } else {
       details.add(_availabilityLabel(l10n, value));
       if (value.contextSize case final tokens?) {
-        details.add(l10n.applePccContextSize(_formatTokenCount(tokens)));
+        details.add(
+          l10n.directContextLimit(_formatTokenCount(context, tokens)),
+        );
       }
       if (value.quotaResetAtMilliseconds case final milliseconds?) {
         final reset = DateTime.fromMillisecondsSinceEpoch(milliseconds)
@@ -561,8 +565,9 @@ class _DirectContextCompactionSection extends StatelessWidget {
             subtitle: [
               if (model.metadata?['profileName'] case final String profileName)
                 profileName,
-              l10n.applePccContextSize(
+              l10n.directContextLimit(
                 _formatTokenCount(
+                  context,
                   contextLengthOverrides[model.id] ??
                       kDefaultDirectContextLength,
                 ),
@@ -589,7 +594,7 @@ class _DirectContextCompactionSection extends StatelessWidget {
         itemBuilder: (context, index) {
           final value = _directContextLengthOptions[index];
           return AdaptiveSelectionTile(
-            title: l10n.applePccContextSize(_formatTokenCount(value)),
+            title: l10n.directContextLimit(_formatTokenCount(context, value)),
             selected: value == current,
             onTap: () => Navigator.of(sheetContext).pop(value),
           );
@@ -600,10 +605,12 @@ class _DirectContextCompactionSection extends StatelessWidget {
   }
 }
 
-String _formatTokenCount(int tokens) {
+String _formatTokenCount(BuildContext context, int tokens) {
   if (tokens % (1024 * 1024) == 0) return '${tokens ~/ (1024 * 1024)}M';
   if (tokens % 1024 == 0) return '${tokens ~/ 1024}K';
-  return tokens.toString();
+  return NumberFormat.decimalPattern(
+    Localizations.localeOf(context).toLanguageTag(),
+  ).format(tokens);
 }
 
 class DirectConnectionsError extends StatelessWidget {

@@ -24,6 +24,26 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testPccDecodedImageBytesRejectsUnsafeAllocations() {
+    XCTAssertEqual(
+      pccDecodedImageBytes(width: 2_048, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 50_000, height: 50_000, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 4_097, height: 4_097, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(
+        width: 2_048,
+        height: 2_048,
+        currentBytes: 60 * 1_024 * 1_024
+      )
+    )
+  }
+
 #if canImport(FoundationModels)
   func testPccGenerationOptionsValidateNativeBoundary() throws {
     guard #available(iOS 26.0, *) else { return }
@@ -61,6 +81,14 @@ class RunnerTests: XCTestCase {
     XCTAssertThrowsError(try pccGenerationSchema(
       json: #"{"type":"object","properties":{"value":{"type":"file"}}}"#,
       name: "Unsupported"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{},"required":["answer"]}"#,
+      name: "MissingRequiredProperty"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"string","enum":[]}"#,
+      name: "EmptyEnum"
     ))
   }
 #endif

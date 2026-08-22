@@ -159,6 +159,29 @@ void main() {
     );
   });
 
+  test('PCC reports a non-positive top_p accurately', () {
+    final adapter = ApplePccAdapter(hostApi: _FakePccHost());
+    expect(
+      () => adapter.startCompletion(
+        DirectConnectionProfile.applePrivateCloudCompute(),
+        DirectCompletionRequest(
+          remoteModelId: kApplePccRemoteModelId,
+          messages: <DirectChatMessage>[
+            DirectChatMessage.text(role: 'user', text: 'Hello'),
+          ],
+          parameters: const <String, dynamic>{'top_p': 0},
+        ),
+      ),
+      throwsA(
+        isA<DirectProviderException>().having(
+          (error) => error.message,
+          'message',
+          contains('greater than zero'),
+        ),
+      ),
+    );
+  });
+
   test('cancelling a PCC run closes only that run', () async {
     final host = _FakePccHost();
     final adapter = ApplePccAdapter(hostApi: host);

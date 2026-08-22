@@ -87,12 +87,17 @@ void main() {
   test('context length fallback persists by trusted Direct model id', () async {
     final modelId = DirectModelId.encode('profile', 'model');
     final container = ProviderContainer();
+    var containerDisposed = false;
+    addTearDown(() {
+      if (!containerDisposed) container.dispose();
+    });
 
     await container
         .read(directContextLengthOverridesProvider.notifier)
         .set(modelId, 8192);
     expect(container.read(directContextLengthOverridesProvider)[modelId], 8192);
     container.dispose();
+    containerDisposed = true;
 
     final restored = ProviderContainer();
     addTearDown(restored.dispose);
@@ -113,6 +118,22 @@ void main() {
 
     expect(profiles, hasLength(1));
     expect(profiles.single.isApplePrivateCloudCompute, isTrue);
+  });
+
+  test('enabled Apple profiles stay hidden on unsupported platforms', () async {
+    await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+    await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
+    final container = ProviderContainer(
+      overrides: [applePccPlatformSupportedProvider.overrideWithValue(false)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(directConnectionProfilesProvider.future);
+    final profiles = container
+        .read(effectiveDirectConnectionProfilesProvider)
+        .requireValue;
+
+    expect(profiles, isEmpty);
   });
 
   test(

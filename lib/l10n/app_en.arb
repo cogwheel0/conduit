@@ -5125,6 +5125,13 @@
       "tokens": {"type": "String"}
     }
   },
+  "directContextLimit": "Context limit: {tokens}",
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
+  },
   "directContextCompactionTitle": "Context compaction",
   "@directContextCompactionTitle": {
     "description": "Section title for fallback context windows used by Direct models."

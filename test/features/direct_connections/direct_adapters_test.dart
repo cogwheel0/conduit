@@ -3378,7 +3378,7 @@ void main() {
 
     expect(model.isMultimodal, isTrue);
     expect(model.capabilities['capabilities'], ['vision', 'completion']);
-    expect(model.capabilities['context_length'], 8192);
+    expect(model.capabilities['context_length'], isNull);
   });
 
   test(

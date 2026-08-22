@@ -256,12 +256,15 @@ final class DirectModelRegistry {
           : '$prefix.${remote.name}';
       final rawSupportedParameters =
           remote.capabilities['supported_parameters'];
-      final supportedParameters = rawSupportedParameters is Iterable
+      final normalizedSupportedParameters = rawSupportedParameters is Iterable
           ? rawSupportedParameters
                 .map((value) => value.toString().trim())
                 .where((value) => value.isNotEmpty)
                 .toList(growable: false)
-          : null;
+          : const <String>[];
+      final supportedParameters = normalizedSupportedParameters.isEmpty
+          ? null
+          : normalizedSupportedParameters;
       final candidateBinding = DirectModelBinding(
         profileId: profile.id,
         adapterKey: profile.adapterKey,

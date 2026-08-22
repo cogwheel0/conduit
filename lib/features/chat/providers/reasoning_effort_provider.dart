@@ -363,13 +363,17 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       restrictsValues: true,
     );
   }
-  if (binding.adapterKey == kApplePccAdapterKey) {
+  if (binding.adapterKey == kApplePccAdapterKey &&
+      binding.profileId == kApplePccProfileId) {
     return const ReasoningEffortPolicy(
       visible: true,
       options: kApplePccReasoningEfforts,
       allowsCustom: false,
       restrictsValues: true,
     );
+  }
+  if (binding.adapterKey == kApplePccAdapterKey) {
+    return ReasoningEffortPolicy.unsupported;
   }
   if (model.capabilities?['openrouter'] != true) {
     return ReasoningEffortPolicy.generic;

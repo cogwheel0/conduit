@@ -118,6 +118,32 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('production chooser hides unavailable Apple backends', (
+    tester,
+  ) async {
+    final previousDebugOverride = debugShowAllAppleBackends;
+    debugShowAllAppleBackends = false;
+    addTearDown(() => debugShowAllAppleBackends = previousDebugOverride);
+    final harness = AdaptiveAuthHarness(
+      server: _testServer,
+      platform: TargetPlatform.iOS,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Apple Intelligence'), findsNothing);
+    expect(find.text('Apple On-Device'), findsNothing);
+    expect(find.text('Apple Private Cloud Compute'), findsNothing);
+    expect(find.text('Open WebUI'), findsOneWidget);
+    expect(find.text('Connect directly'), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets('backend chooser reflows and scrolls with accessibility text', (
     tester,
   ) async {

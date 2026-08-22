@@ -21,6 +21,7 @@ const List<String> kApplePccReasoningEfforts = <String>[
 const int _kApplePccMaxImages = 4;
 const int _kApplePccMaxImageBytes = 20 * 1024 * 1024;
 const int _kApplePccMaxSchemaCharacters = 64 * 1024;
+const Duration _kAppleStatusTimeout = Duration(seconds: 10);
 
 /// Adapts Apple's native Foundation Models stream to Conduit's Direct events.
 final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
@@ -39,7 +40,7 @@ final class ApplePccAdapter implements DirectProviderAdapter, PccFlutterApi {
 
   Future<PlatformPccStatus> status(PlatformAppleModel model) async {
     try {
-      return await _hostApi.getStatus(model);
+      return await _hostApi.getStatus(model).timeout(_kAppleStatusTimeout);
     } catch (_) {
       throw DirectProviderException('${_displayName(model)} is unavailable.');
     }
@@ -393,8 +394,12 @@ final class _ApplePccRequestOptions {
         'Apple Foundation Models do not support that sampling mode.',
       ),
     };
-    if ((topP != null && topP <= 0) ||
-        (topP != null && topK != null) ||
+    if (topP != null && topP <= 0) {
+      throw const DirectProviderException(
+        'Apple Foundation Models require top_p to be greater than zero.',
+      );
+    }
+    if ((topP != null && topK != null) ||
         (greedySampling == true && (topP != null || topK != null))) {
       throw const DirectProviderException(
         'Apple Foundation Models accept one sampling mode per request.',

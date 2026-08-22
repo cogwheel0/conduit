@@ -1321,12 +1321,18 @@ void main() {
             .text,
         startsWith('Summarize the conversation history'),
       );
+      final summaryRequestText = adapter.requests.first.messages
+          .expand((message) => message.parts)
+          .whereType<DirectTextPart>()
+          .map((part) => part.text)
+          .join('\n');
+      expect(summaryRequestText, isNot(contains('Continue')));
       final finalRequestText = adapter.requests.last.messages
           .expand((message) => message.parts)
           .whereType<DirectTextPart>()
           .map((part) => part.text)
           .join('\n');
-      expect(finalRequestText, contains('[CONVERSATION SUMMARY]'));
+      expect(finalRequestText, contains('[UNTRUSTED CONVERSATION SUMMARY]'));
       expect(finalRequestText, contains('earlier turn established'));
       expect(finalRequestText, isNot(contains(longUserContent)));
       final checkpoint = container

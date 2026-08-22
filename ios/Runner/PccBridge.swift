@@ -17,6 +17,25 @@ func pccSnapshotDelta(previous: String, snapshot: String) throws -> String {
     return String(snapshot.dropFirst(previous.count))
 }
 
+private let pccMaxImageDimension = 8_192
+private let pccMaxDecodedImageBytes = 64 * 1_024 * 1_024
+
+func pccDecodedImageBytes(
+    width: Int,
+    height: Int,
+    currentBytes: Int
+) -> Int? {
+    guard width > 0,
+          height > 0,
+          width <= pccMaxImageDimension,
+          height <= pccMaxImageDimension,
+          height <= (pccMaxDecodedImageBytes - currentBytes) / 4 / width
+    else {
+        return nil
+    }
+    return currentBytes + width * height * 4
+}
+
 private enum PccBridgeError: LocalizedError {
     case invalidRequest
     case invalidImage
@@ -118,7 +137,20 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
             }
             propertyCount += rawProperties.count
             guard propertyCount <= 256 else { throw PccBridgeError.invalidSchema }
-            let required = Set(raw["required"] as? [String] ?? [])
+            let required: Set<String>
+            if let rawRequired = raw["required"] {
+                guard let names = rawRequired as? [String],
+                      Set(names).count == names.count
+                else {
+                    throw PccBridgeError.invalidSchema
+                }
+                required = Set(names)
+            } else {
+                required = []
+            }
+            guard required.isSubset(of: Set(rawProperties.keys)) else {
+                throw PccBridgeError.invalidSchema
+            }
             objectIndex += 1
             let objectName = objectIndex == 1 ? name : "\(name)_\(objectIndex)"
             let properties = try rawProperties.keys.sorted().map { propertyName in
@@ -149,7 +181,10 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
                 maximumElements: raw["maxItems"] as? Int
             )
         case "string":
-            if let values = raw["enum"] as? [String], !values.isEmpty {
+            if let rawEnum = raw["enum"] {
+                guard let values = rawEnum as? [String], !values.isEmpty else {
+                    throw PccBridgeError.invalidSchema
+                }
                 return DynamicGenerationSchema(
                     type: String.self,
                     guides: [.anyOf(values)]
@@ -176,6 +211,10 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
 private final class PccTaskBox {
     var task: Task<Void, Never>?
     var cancelled = false
+}
+
+private final class PccResponseState {
+    var emittedContent = false
 }
 
 final class PccBridge: PccHostApi {
@@ -273,7 +312,7 @@ final class PccBridge: PccHostApi {
 
     func cancel(runId: String) throws {
         lock.lock()
-        let box = tasks.removeValue(forKey: runId)
+        let box = tasks[runId]
         box?.cancelled = true
         let task = box?.task
         lock.unlock()
@@ -399,38 +438,11 @@ private extension PccBridge {
                 tools: [],
                 transcript: input.transcript
             )
-            if let schema = input.responseSchema {
-                let response = try await session.respond(
-                    to: input.prompt,
-                    schema: schema,
-                    includeSchemaInPrompt: true,
-                    options: input.generationOptions
-                )
-                try Task.checkCancellation()
-                await emit(PlatformPccStreamEvent(
-                    runId: request.runId,
-                    kind: .content,
-                    content: response.content.jsonString
-                ))
-            } else {
-                var previous = ""
-                for try await snapshot in session.streamResponse(
-                    to: input.prompt,
-                    options: input.generationOptions
-                ) {
-                    try Task.checkCancellation()
-                    let content = snapshot.content
-                    let delta = try pccSnapshotDelta(previous: previous, snapshot: content)
-                    previous = content
-                    if !delta.isEmpty {
-                        await emit(PlatformPccStreamEvent(
-                            runId: request.runId,
-                            kind: .content,
-                            content: delta
-                        ))
-                    }
-                }
-            }
+            try await performOnDevice(
+                session: session,
+                input: input,
+                runId: request.runId
+            )
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
         } catch is CancellationError {
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
@@ -456,6 +468,46 @@ private extension PccBridge {
                 return
             }
             await emitError(runId: request.runId, message: "Apple On-Device request failed.")
+        }
+    }
+
+    func performOnDevice(
+        session: LanguageModelSession,
+        input: OnDeviceSessionInput,
+        runId: String
+    ) async throws {
+        if let schema = input.responseSchema {
+            let response = try await session.respond(
+                to: input.prompt,
+                schema: schema,
+                includeSchemaInPrompt: true,
+                options: input.generationOptions
+            )
+            try Task.checkCancellation()
+            await emit(PlatformPccStreamEvent(
+                runId: runId,
+                kind: .content,
+                content: response.content.jsonString
+            ))
+            return
+        }
+
+        var previous = ""
+        for try await snapshot in session.streamResponse(
+            to: input.prompt,
+            options: input.generationOptions
+        ) {
+            try Task.checkCancellation()
+            let content = snapshot.content
+            let delta = try pccSnapshotDelta(previous: previous, snapshot: content)
+            previous = content
+            if !delta.isEmpty {
+                await emit(PlatformPccStreamEvent(
+                    runId: runId,
+                    kind: .content,
+                    content: delta
+                ))
+            }
         }
     }
 
@@ -616,6 +668,7 @@ private extension PccBridge {
     }
 
     func performAvailableRequest(_ request: PlatformPccCompletionRequest) async {
+        let responseState = PccResponseState()
         do {
             let model = PrivateCloudComputeLanguageModel()
             guard case .available = model.availability else {
@@ -640,7 +693,12 @@ private extension PccBridge {
                 tools: [],
                 transcript: input.transcript
             )
-            try await perform(session: session, input: input, runId: request.runId)
+            try await perform(
+                session: session,
+                input: input,
+                runId: request.runId,
+                responseState: responseState
+            )
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
         } catch is CancellationError {
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
@@ -651,8 +709,10 @@ private extension PccBridge {
             )
         } catch let error as PrivateCloudComputeLanguageModel.Error {
             if case .networkFailure = error,
+               !responseState.emittedContent,
                request.allowOnDeviceFallback,
-               request.reasoningLevel == nil || request.reasoningLevel == "automatic"
+               request.reasoningLevel == nil || request.reasoningLevel == "automatic",
+               request.messages.allSatisfy({ $0.images.isEmpty })
             {
                 await performOnDeviceFallback(request)
             } else {
@@ -680,7 +740,7 @@ private extension PccBridge {
                 )
                 return
             }
-            let input = try sessionInput(request)
+            let input = try onDeviceSessionInput(request)
             let session = LanguageModelSession(
                 model: model,
                 tools: [],
@@ -691,10 +751,18 @@ private extension PccBridge {
                 kind: .fallback,
                 content: "on_device"
             ))
-            try await perform(session: session, input: input, runId: request.runId)
+            try await performOnDevice(
+                session: session,
+                input: input,
+                runId: request.runId
+            )
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
         } catch is CancellationError {
             await emit(PlatformPccStreamEvent(runId: request.runId, kind: .done))
+        } catch let error as LanguageModelError {
+            await emitError(runId: request.runId, message: onDeviceMessage(for: error))
+        } catch let error as PccBridgeError {
+            await emitError(runId: request.runId, message: error.localizedDescription)
         } catch {
             await emitError(
                 runId: request.runId,
@@ -706,7 +774,8 @@ private extension PccBridge {
     func perform(
         session: LanguageModelSession,
         input: PccSessionInput,
-        runId: String
+        runId: String,
+        responseState: PccResponseState
     ) async throws {
         if let schema = input.responseSchema {
             let response = try await session.respond(
@@ -716,6 +785,7 @@ private extension PccBridge {
                 contextOptions: input.contextOptions
             )
             try Task.checkCancellation()
+            responseState.emittedContent = true
             await emit(PlatformPccStreamEvent(
                 runId: runId,
                 kind: .content,
@@ -736,6 +806,7 @@ private extension PccBridge {
             let delta = try pccSnapshotDelta(previous: previous, snapshot: content)
             previous = content
             if !delta.isEmpty {
+                responseState.emittedContent = true
                 await emit(PlatformPccStreamEvent(
                     runId: runId,
                     kind: .content,
@@ -770,6 +841,7 @@ private extension PccBridge {
 
         var imageCount = 0
         var imageBytes = 0
+        var decodedImageBytes = 0
         func decodedImages(_ message: PlatformPccMessage) throws -> [CGImage] {
             imageCount += message.images.count
             imageBytes += message.images.reduce(0) { $0 + $1.bytes.data.count }
@@ -783,10 +855,25 @@ private extension PccBridge {
                           image.bytes.data as CFData,
                           nil
                       ),
-                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+                      let properties = CGImageSourceCopyPropertiesAtIndex(
+                          source,
+                          0,
+                          nil
+                      ) as NSDictionary?,
+                      let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+                      let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+                      let nextDecodedBytes = pccDecodedImageBytes(
+                          width: width,
+                          height: height,
+                          currentBytes: decodedImageBytes
+                      ),
+                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                      cgImage.width == width,
+                      cgImage.height == height
                 else {
                     throw PccBridgeError.invalidImage
                 }
+                decodedImageBytes = nextDecodedBytes
                 return cgImage
             }
         }

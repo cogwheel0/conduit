@@ -139,8 +139,11 @@ class BackendChooserPage extends ConsumerWidget {
   }
 }
 
+@visibleForTesting
+bool debugShowAllAppleBackends = kDebugMode;
+
 bool _isAppleModelAvailable(AsyncValue<PlatformPccStatus>? status) =>
-    kDebugMode ||
+    debugShowAllAppleBackends ||
     (status?.hasValue == true &&
         status!.requireValue.availability ==
             PlatformPccAvailability.available &&
@@ -173,17 +176,19 @@ Future<void> _selectAppleModel(
       return;
     }
 
+    if (onDevice) {
+      await ref.read(appleOnDeviceEnabledProvider.notifier).setEnabled(true);
+    } else {
+      await ref.read(applePccEnabledProvider.notifier).setEnabled(true);
+    }
+    if (!context.mounted) return;
     if (PreferencesStore.getString(PreferenceKeys.directHistoryPolicy) ==
         null) {
       await ref
           .read(directHistoryPolicyProvider.notifier)
           .setPolicy(DirectHistoryPolicy.localOnly);
     }
-    if (onDevice) {
-      await ref.read(appleOnDeviceEnabledProvider.notifier).setEnabled(true);
-    } else {
-      await ref.read(applePccEnabledProvider.notifier).setEnabled(true);
-    }
+    if (!context.mounted) return;
     await ref
         .read(preferredBackendProvider.notifier)
         .set(PreferredBackend.direct);

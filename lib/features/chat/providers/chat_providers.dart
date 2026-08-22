@@ -13965,14 +13965,29 @@ Map<String, dynamic> _directContextSummaryParameters(
   _ => const <String, dynamic>{},
 };
 
+const Duration _directContextCompactionIdleTimeout = Duration(seconds: 15);
+const Duration _directContextCompactionMaxDuration = Duration(minutes: 1);
+
+Future<List<int>?> _tryReadDirectContextVerificationKey(dynamic ref) async {
+  try {
+    return await ref.read(directDeviceTrustKeyProvider.future);
+  } catch (error) {
+    DebugLogger.warning(
+      'context-key-unavailable',
+      scope: 'direct-connections/compaction',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return null;
+  }
+}
+
 Future<String> _generateDirectContextSummary({
   required DirectProviderAdapter adapter,
   required DirectConnectionProfile profile,
   required String remoteModelId,
-  required List<DirectChatMessage> activeMessages,
+  required List<DirectChatMessage> compactedMessages,
   required String? previousSummary,
   required int contextLength,
-  required DirectNormalizedStreamLimits streamLimits,
   required CancelToken preflightCancelToken,
 }) async {
   final maxTokens = math.min(1000, math.max(64, contextLength * 15 ~/ 100));
@@ -13982,8 +13997,9 @@ Future<String> _generateDirectContextSummary({
     DirectCompletionRequest(
       remoteModelId: remoteModelId,
       messages: directContextSummaryMessages(
-        activeMessages: activeMessages,
+        activeMessages: compactedMessages,
         previousSummary: previousSummary,
+        maxInputCharacters: math.max(1024, contextLength * 2),
       ),
       parameters: _directContextSummaryParameters(profile, maxTokens),
     ),
@@ -14004,7 +14020,9 @@ Future<String> _generateDirectContextSummary({
   Future<String> collect() async {
     final content = StringBuffer();
     var sawDone = false;
-    await for (final event in run.events.timeout(streamLimits.idleTimeout)) {
+    await for (final event in run.events.timeout(
+      _directContextCompactionIdleTimeout,
+    )) {
       switch (event) {
         case DirectContentDelta():
           if (content.length + event.content.length > maxCharacters) {
@@ -14036,7 +14054,7 @@ Future<String> _generateDirectContextSummary({
 
   try {
     return await collect().timeout(
-      streamLimits.maxDuration,
+      _directContextCompactionMaxDuration,
       onTimeout: () =>
           throw const DirectProviderException('Context compaction timed out.'),
     );
@@ -15685,6 +15703,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       directContextLengthOverridesProvider,
     )[route.model.id],
   );
+  final compactionThreshold = contextLength * 70 ~/ 100;
   final requiresReplayVerificationKey = requestMessages.any(
     (message) =>
         (message.files ?? const <Map<String, dynamic>>[]).any(
@@ -15705,15 +15724,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       if (requiresReplayVerificationKey) {
         verificationKey = await ref.read(directDeviceTrustKeyProvider.future);
       } else if (hasContextSummary) {
-        try {
-          verificationKey = await ref.read(directDeviceTrustKeyProvider.future);
-        } catch (error) {
-          DebugLogger.warning(
-            'context-key-unavailable',
-            scope: 'direct-connections/compaction',
-            data: {'errorType': error.runtimeType.toString()},
-          );
-        }
+        verificationKey = await _tryReadDirectContextVerificationKey(ref);
       }
       contextHistory = directContextHistory(
         requestMessages,
@@ -15749,23 +15760,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   final estimatedContextTokens = estimateDirectContextTokens(directMessages);
   if (verificationKey == null &&
       !hasContextSummary &&
-      estimatedContextTokens > contextLength * 70 ~/ 100) {
+      estimatedContextTokens > compactionThreshold) {
     verificationKey = await _awaitDirectPreflightOrCancellation(
       registry: registry,
       reservation: reservation,
       cancelToken: preflightCancelToken,
-      operation: () async {
-        try {
-          return await ref.read(directDeviceTrustKeyProvider.future);
-        } catch (error) {
-          DebugLogger.warning(
-            'context-key-unavailable',
-            scope: 'direct-connections/compaction',
-            data: {'errorType': error.runtimeType.toString()},
-          );
-          return null;
-        }
-      },
+      operation: () => _tryReadDirectContextVerificationKey(ref),
     );
   }
   final DirectProviderAdapter adapter = ref
@@ -15788,7 +15788,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   }
   final compactionPlan = verificationKey == null
       ? null
-      : estimatedContextTokens <= contextLength * 70 ~/ 100
+      : estimatedContextTokens <= compactionThreshold
       ? null
       : planDirectContextCompaction(contextHistory.activeMessages);
   if (compactionPlan != null) {
@@ -15796,12 +15796,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     final compactionVerificationKey = verificationKey!;
     String? summary;
     try {
-      final activeDirectMessages = await _awaitDirectPreflightOrCancellation(
+      final compactedDirectMessages = await _awaitDirectPreflightOrCancellation(
         registry: registry,
         reservation: reservation,
         cancelToken: preflightCancelToken,
         operation: () => buildDirectChatMessages(
-          messages: contextHistory.activeMessages,
+          messages: compactionPlan.compactedMessages,
           resolveImage: resolveImage,
           directDocumentVerificationKey: verificationKey,
           openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
@@ -15816,10 +15816,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           adapter: adapter,
           profile: route.profile,
           remoteModelId: route.binding.remoteModelId,
-          activeMessages: activeDirectMessages,
+          compactedMessages: compactedDirectMessages,
           previousSummary: contextHistory.previousSummary,
           contextLength: compactionContextLength,
-          streamLimits: streamLimits,
           preflightCancelToken: preflightCancelToken,
         ),
       );
@@ -15841,18 +15840,22 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           !_directRouteIsStillSelected(ref, route)) {
         throw const _DirectRunStoppedDuringPreflight();
       }
-      final checkpoint = compactionPlan.checkpoint.copyWith(
+      ChatMessage attachSummary(ChatMessage current) => current.copyWith(
         metadata: <String, dynamic>{
-          ...?compactionPlan.checkpoint.metadata,
+          ...?current.metadata,
           kDirectContextSummaryMetadataKey: signedDirectContextSummary(
-            checkpoint: compactionPlan.checkpoint,
-            summary: summary,
+            checkpoint: current,
+            summary: summary!,
             signingKey: compactionVerificationKey,
           ),
         },
       );
+      var checkpoint = attachSummary(compactionPlan.checkpoint);
       if (_isDirectConversationOwnerActive(ref, owner)) {
-        notifier.updateMessageById(checkpoint.id, (_) => checkpoint);
+        notifier.updateMessageById(checkpoint.id, (current) {
+          checkpoint = attachSummary(current);
+          return checkpoint;
+        });
       }
       try {
         await _persistDirectUserMessageUpdate(
