@@ -33,6 +33,29 @@ String stripRenderedSemanticDetails(String content) {
   return content.replaceAll(_semanticDetailsBlockPattern, '').trim();
 }
 
+/// Drops the tail starting at a semantic `<details>` opener that has no
+/// closing tag yet.
+///
+/// Mid-stream the wrapper stays open for many frames, so
+/// [stripRenderedSemanticDetails] — which only matches complete blocks —
+/// leaves the reasoning or tool-call body exposed. Consumers that surface
+/// partial content (notably text-to-speech) must withhold everything from the
+/// opener onwards until `</details>` lands and the block can be stripped
+/// outright.
+///
+/// Run this *after* stripping complete blocks; on unstripped content the opener
+/// of an already-closed block would truncate the answer that follows it.
+String dropUnterminatedSemanticDetails(String content) {
+  if (!content.contains('<details')) {
+    return content;
+  }
+  final match = _semanticDetailsOpenPattern.firstMatch(content);
+  if (match == null) {
+    return content;
+  }
+  return content.substring(0, match.start).trimRight();
+}
+
 /// True when [serverBody] is a strict prefix of [localBody] — a stale or
 /// mid-write server frame that must not truncate content already streamed.
 /// Callers pass comparable bodies (usually already details-stripped).

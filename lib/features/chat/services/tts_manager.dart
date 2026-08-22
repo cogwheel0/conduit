@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
+import '../../../core/utils/semantic_details.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import 'native_tts_service.dart';
 
@@ -86,6 +87,110 @@ class TtsPlaybackSession {
 
   /// Whether to use server TTS (true) or device TTS (false).
   final bool useServerTts;
+}
+
+/// The chunks a streaming feed made speakable, plus the cursor to resume from.
+class StreamingChunkAdvance {
+  const StreamingChunkAdvance({
+    required this.chunks,
+    required this.fedChunkCount,
+    required this.lastFedChunk,
+  });
+
+  /// Newly speakable chunks, trimmed, in playback order.
+  final List<String> chunks;
+
+  /// How many chunks of the current split have been consumed.
+  final int fedChunkCount;
+
+  /// The untrimmed chunk the cursor sits behind, used to re-anchor after a
+  /// re-split.
+  final String? lastFedChunk;
+}
+
+@visibleForTesting
+StreamingChunkAdvance advanceStreamingChunksForTesting({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String? lastFedChunk,
+  required bool finalized,
+}) {
+  return _advanceStreamingChunks(
+    chunks: chunks,
+    fedChunkCount: fedChunkCount,
+    lastFedChunk: lastFedChunk,
+    finalized: finalized,
+  );
+}
+
+StreamingChunkAdvance _advanceStreamingChunks({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String? lastFedChunk,
+  required bool finalized,
+}) {
+  // Hold the trailing chunk back until finalization: it is still growing.
+  final speakableCount = finalized
+      ? chunks.length
+      : (chunks.length <= 1 ? 0 : chunks.length - 1);
+
+  var cursor = _resolveStreamingCursor(
+    chunks: chunks,
+    fedChunkCount: fedChunkCount,
+    lastFedChunk: lastFedChunk,
+  );
+  final pending = <String>[];
+  var nextLastFedChunk = lastFedChunk;
+  while (cursor < speakableCount) {
+    final chunk = chunks[cursor];
+    cursor++;
+    final trimmed = chunk.trim();
+    if (trimmed.isEmpty) {
+      continue;
+    }
+    pending.add(trimmed);
+    nextLastFedChunk = chunk;
+  }
+
+  return StreamingChunkAdvance(
+    chunks: pending,
+    fedChunkCount: cursor,
+    lastFedChunk: nextLastFedChunk,
+  );
+}
+
+/// Re-anchors the feed cursor on the chunk text last handed to playback.
+///
+/// The split is re-derived from the whole accumulated response on every feed,
+/// so a `</details>` arriving late removes that block from the sanitized body
+/// and shifts every later chunk left. A bare index would then point past
+/// sentences nobody has spoken — typically the answer itself, which is what
+/// makes a response go silent after a tool call.
+int _resolveStreamingCursor({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String? lastFedChunk,
+}) {
+  if (lastFedChunk == null || fedChunkCount <= 0) {
+    return 0;
+  }
+  if (fedChunkCount <= chunks.length &&
+      chunks[fedChunkCount - 1] == lastFedChunk) {
+    return fedChunkCount;
+  }
+  // A re-split only ever collapses text away, so the anchor can only have
+  // moved earlier in the list.
+  final searchFrom = (fedChunkCount < chunks.length
+      ? fedChunkCount
+      : chunks.length);
+  for (var index = searchFrom - 1; index >= 0; index--) {
+    if (chunks[index] == lastFedChunk) {
+      return index + 1;
+    }
+  }
+  // The anchor is gone entirely (content rewritten upstream). Stay put rather
+  // than replay text that may already have been spoken.
+  return fedChunkCount < chunks.length ? fedChunkCount : chunks.length;
 }
 
 @visibleForTesting
@@ -226,6 +331,7 @@ class TtsManager {
   bool _isStreamingSession = false;
   bool _streamingFinalized = false;
   int _streamingFedChunkCount = 0;
+  String? _streamingLastFedChunk;
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
   final Set<int> _serverFetchingIndices = <int>{};
@@ -420,6 +526,7 @@ class TtsManager {
     _isStreamingSession = true;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
+    _streamingLastFedChunk = null;
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
@@ -667,10 +774,7 @@ class TtsManager {
     String content, {
     String splitOn = splitOnPunctuation,
   }) {
-    final sanitizedContent = content.replaceAll(
-      RegExp(r'<details[^>]*>[\s\S]*?<\/details>', caseSensitive: false),
-      '',
-    );
+    final sanitizedContent = _sanitizeForSpeech(content);
 
     switch (splitOn) {
       case splitOnParagraphs:
@@ -682,6 +786,24 @@ class TtsManager {
       default:
         return extractSentencesForAudio(sanitizedContent);
     }
+  }
+
+  /// Removes everything that must never be spoken: rendered semantic
+  /// `<details>` wrappers (reasoning, tool calls, code interpreter output) and
+  /// any other complete `<details>` block.
+  ///
+  /// A semantic wrapper that is still open — the common case while a response
+  /// streams — takes the rest of the body with it. Its contents would otherwise
+  /// be read aloud in the frames before `</details>` arrives to hide them.
+  static final RegExp _completeDetailsPattern = RegExp(
+    r'<details[^>]*>[\s\S]*?<\/details>',
+    caseSensitive: false,
+  );
+
+  String _sanitizeForSpeech(String content) {
+    final withoutCompleteBlocks = stripRenderedSemanticDetails(content)
+        .replaceAll(_completeDetailsPattern, '');
+    return dropUnterminatedSemanticDetails(withoutCompleteBlocks);
   }
 
   /// Gets available voices from the device TTS engine.
@@ -754,18 +876,20 @@ class TtsManager {
   }) async {
     if (_activeSession?.id != session.id) return;
 
-    final chunks = splitTextForSpeech(accumulatedText);
-    final speakableCount = finalized
-        ? chunks.length
-        : (chunks.length <= 1 ? 0 : chunks.length - 1);
+    final advance = _advanceStreamingChunks(
+      chunks: splitTextForSpeech(accumulatedText),
+      fedChunkCount: _streamingFedChunkCount,
+      lastFedChunk: _streamingLastFedChunk,
+      finalized: finalized,
+    );
+    // Move the cursor before awaiting: a concurrent feed must not re-enqueue
+    // the chunks this call is still handing to playback.
+    _streamingFedChunkCount = advance.fedChunkCount;
+    _streamingLastFedChunk = advance.lastFedChunk;
 
-    while (_streamingFedChunkCount < speakableCount) {
-      final chunk = chunks[_streamingFedChunkCount].trim();
-      _streamingFedChunkCount++;
-      if (chunk.isEmpty) {
-        continue;
-      }
+    for (final chunk in advance.chunks) {
       await _appendStreamingChunk(session, chunk);
+      if (_activeSession?.id != session.id) return;
     }
   }
 
@@ -1412,6 +1536,7 @@ class TtsManager {
     _isStreamingSession = false;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
+    _streamingLastFedChunk = null;
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
