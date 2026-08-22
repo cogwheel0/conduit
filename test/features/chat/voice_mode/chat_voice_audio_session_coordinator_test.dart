@@ -122,5 +122,66 @@ void main() {
 
       check(routeChanges).isEmpty();
     });
+
+    test('drops a reroute the speaker button overtakes', () async {
+      // The reroute is in flight, not finished, when the button is pressed.
+      final rerouting = reportDevices(const [AudioDeviceType.builtInEarpiece]);
+      await coordinator.setSpeakerphoneEnabled(false);
+      await rerouting;
+
+      check(
+        because: 'the button press is newer than the accessory scan',
+        routeChanges,
+      ).isEmpty();
+    });
+
+    test('drops a reroute that hanging up overtakes', () async {
+      final rerouting = reportDevices(const [AudioDeviceType.builtInEarpiece]);
+      await coordinator.deactivate();
+      await rerouting;
+
+      check(routeChanges).isEmpty();
+    });
+
+    test('reroutes once to the newest route when events overlap', () async {
+      // Start the call on a headset, so the loudspeaker is genuinely off.
+      await reportDevices(const [
+        AudioDeviceType.builtInSpeaker,
+        AudioDeviceType.wiredHeadphones,
+      ]);
+      check(routeChanges).isEmpty();
+
+      // A loose jack: out, in, out again, all before the first reroute has
+      // finished talking to the platform. Rerouting three times in a row would
+      // leave whichever call finished last owning the route, so the coordinator
+      // collapses the flapping into the one move that matches the hardware now.
+      final flapping = <Future<void>>[
+        coordinator.handleAudioDevicesChangedForTesting({
+          _outputDevice(AudioDeviceType.builtInSpeaker),
+        }),
+        coordinator.handleAudioDevicesChangedForTesting({
+          _outputDevice(AudioDeviceType.builtInSpeaker),
+          _outputDevice(AudioDeviceType.wiredHeadphones),
+        }),
+        coordinator.handleAudioDevicesChangedForTesting({
+          _outputDevice(AudioDeviceType.builtInSpeaker),
+        }),
+      ];
+      await Future.wait(flapping);
+      await pumpEventQueue();
+
+      check(
+        because: 'the headset is out, so the call belongs on the loudspeaker',
+        routeChanges,
+      ).deepEquals(<bool>[true]);
+    });
   });
 }
+
+AudioDevice _outputDevice(AudioDeviceType type) => AudioDevice(
+  id: type.name,
+  name: type.name,
+  isInput: false,
+  isOutput: true,
+  type: type,
+);

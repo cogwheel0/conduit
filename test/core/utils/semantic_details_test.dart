@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/utils/semantic_details.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,7 +11,7 @@ void main() {
         '> internal notes',
       );
 
-      expect(result, 'Checking that now.');
+      check(result).equals('Checking that now.');
     });
 
     test('drops the tail from an unterminated tool call opener', () {
@@ -20,19 +21,19 @@ void main() {
         '{"entities": []}',
       );
 
-      expect(result, 'One moment.');
+      check(result).equals('One moment.');
     });
 
     test('leaves content without semantic details untouched', () {
       const content = 'Plain answer with no wrappers at all.';
 
-      expect(dropUnterminatedSemanticDetails(content), content);
+      check(dropUnterminatedSemanticDetails(content)).equals(content);
     });
 
     test('leaves a non-semantic details opener untouched', () {
       const content = 'Answer. <details><summary>Extra</summary>notes';
 
-      expect(dropUnterminatedSemanticDetails(content), content);
+      check(dropUnterminatedSemanticDetails(content)).equals(content);
     });
 
     test('drops only the unterminated opener after complete blocks are '
@@ -49,7 +50,7 @@ void main() {
         stripRenderedSemanticDetails(content),
       );
 
-      expect(result, 'Answer body. More answer.');
+      check(result).equals('Answer body. More answer.');
     });
   });
 }

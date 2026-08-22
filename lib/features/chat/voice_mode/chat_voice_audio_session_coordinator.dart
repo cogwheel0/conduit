@@ -48,6 +48,8 @@ class ChatVoiceAudioSessionCoordinator {
   bool _speakerphoneEnabled = false;
   bool _speakerphoneChosenByUser = false;
   bool? _accessoryAttached;
+  bool _routeChangesStopped = false;
+  Future<void> _routeSerial = Future<void>.value();
   StreamSubscription<Set<AudioDevice>>? _devicesSub;
   final StreamController<bool> _speakerphoneRouteController =
       StreamController<bool>.broadcast();
@@ -155,8 +157,12 @@ class ChatVoiceAudioSessionCoordinator {
     final session = _session;
     final devicesSub = _devicesSub;
     _devicesSub = null;
+    _routeChangesStopped = true;
     try {
       await devicesSub?.cancel();
+      // Let any reroute already on the wire finish before tearing the route
+      // down, so the teardown is not the thing that gets interleaved.
+      await _routeSerial;
       await _clearIosVoiceRoute();
       if (session != null) {
         await _setActive(session, active: false, phase: 'deactivate');
@@ -166,13 +172,16 @@ class ChatVoiceAudioSessionCoordinator {
       _speakerphoneEnabled = false;
       _speakerphoneChosenByUser = false;
       _accessoryAttached = null;
+      _routeChangesStopped = false;
     }
   }
 
   Future<void> dispose() async {
     final devicesSub = _devicesSub;
     _devicesSub = null;
+    _routeChangesStopped = true;
     await devicesSub?.cancel();
+    await _routeSerial;
     await _speakerphoneRouteController.close();
   }
 
@@ -240,9 +249,9 @@ class ChatVoiceAudioSessionCoordinator {
       _handleAudioDevicesChanged(devices);
 
   Future<void> _handleAudioDevicesChanged(Set<AudioDevice> devices) async {
-    if (_speakerphoneChosenByUser) {
-      // Someone pressed the speaker button. Their choice outranks the default
-      // for the rest of the call, so stop second-guessing it.
+    if (_speakerphoneChosenByUser || _routeChangesStopped) {
+      // Someone pressed the speaker button, or the call is over. Either way the
+      // hardware no longer gets a vote.
       return;
     }
 
@@ -257,19 +266,43 @@ class ChatVoiceAudioSessionCoordinator {
     _accessoryAttached = attached;
 
     final enabled = !attached;
-    if (enabled == _speakerphoneEnabled) {
-      return;
-    }
 
     DebugLogger.info(
       'audio-accessory-changed',
       scope: 'chat/voice_audio',
       data: {'attached': attached, 'speakerphone': enabled},
     );
-    await _applySpeakerphoneRoute(enabled, phase: 'device-change');
-    if (!_speakerphoneRouteController.isClosed) {
-      _speakerphoneRouteController.add(enabled);
-    }
+    await _serializeRouteChange(() async {
+      // Re-read everything this reroute assumed: while it waited its turn the
+      // user may have pressed the speaker button, the call may have ended, or a
+      // later event may have already put the route where it belongs.
+      if (_speakerphoneChosenByUser || _routeChangesStopped) return;
+      if (_accessoryAttached != attached) return;
+      if (enabled == _speakerphoneEnabled) return;
+
+      await _applySpeakerphoneRoute(enabled, phase: 'device-change');
+      if (!_speakerphoneRouteController.isClosed) {
+        _speakerphoneRouteController.add(enabled);
+      }
+    });
+  }
+
+  /// Runs route changes one at a time.
+  ///
+  /// Rerouting is several platform calls deep, so two of them running together
+  /// interleave and the loser gets the last word. Queueing keeps the newest
+  /// decision the one that sticks.
+  Future<void> _serializeRouteChange(Future<void> Function() change) {
+    final queued = _routeSerial.then((_) => change());
+    _routeSerial = queued.catchError((Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'audio-route-change-failed',
+        scope: 'chat/voice_audio',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    });
+    return queued;
   }
 
   /// Whether an audio accessory is attached, or null when the scan failed.
@@ -301,9 +334,13 @@ class ChatVoiceAudioSessionCoordinator {
     }
   }
 
-  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+  Future<void> setSpeakerphoneEnabled(bool enabled) {
+    // Set before queueing so an automatic reroute still waiting its turn sees
+    // the choice and stands down.
     _speakerphoneChosenByUser = true;
-    await _applySpeakerphoneRoute(enabled, phase: 'user-toggle');
+    return _serializeRouteChange(
+      () => _applySpeakerphoneRoute(enabled, phase: 'user-toggle'),
+    );
   }
 
   Future<void> _applySpeakerphoneRoute(
@@ -319,7 +356,7 @@ class ChatVoiceAudioSessionCoordinator {
       await _safeAndroidRouteCall(
         () => manager.clearCommunicationDevice(),
         operation: 'clear-communication-device',
-        phase: 'user-toggle',
+        phase: phase,
       );
       await _safeAndroidRouteCall(
         () async {
@@ -327,11 +364,11 @@ class ChatVoiceAudioSessionCoordinator {
           await manager.stopBluetoothSco();
         },
         operation: 'stop-bluetooth-sco',
-        phase: 'user-toggle',
+        phase: phase,
       );
-      await _configureAndroidVoiceRoute(phase: 'user-toggle');
+      await _configureAndroidVoiceRoute(phase: phase);
     }
-    await _setIosSpeakerphoneEnabled(enabled, phase: 'user-toggle');
+    await _setIosSpeakerphoneEnabled(enabled, phase: phase);
   }
 
   Future<void> _configureAndroidVoiceRoute({required String phase}) async {

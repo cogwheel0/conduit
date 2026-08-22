@@ -332,6 +332,7 @@ class TtsManager {
   bool _streamingFinalized = false;
   int _streamingFedChunkCount = 0;
   String? _streamingLastFedChunk;
+  Future<void> _streamingFeedSerial = Future<void>.value();
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
   final Set<int> _serverFetchingIndices = <int>{};
@@ -527,6 +528,7 @@ class TtsManager {
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
     _streamingLastFedChunk = null;
+    _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
@@ -869,7 +871,26 @@ class TtsManager {
     return (bytes: result.bytes, mimeType: result.mimeType);
   }
 
+  /// Chains feeds so a second one cannot append its chunks in between the ones
+  /// an earlier feed is still handing to playback.
+  ///
+  /// Streamed text arrives faster than a chunk takes to reach the player, so
+  /// two feeds do overlap. Without the chain the later feed's sentences can
+  /// land first and the answer is spoken out of order.
   Future<void> _enqueueStreamingText(
+    TtsPlaybackSession session,
+    String accumulatedText, {
+    required bool finalized,
+  }) {
+    final queued = _streamingFeedSerial.then(
+      (_) =>
+          _feedStreamingChunks(session, accumulatedText, finalized: finalized),
+    );
+    _streamingFeedSerial = queued.catchError((Object _) {});
+    return queued;
+  }
+
+  Future<void> _feedStreamingChunks(
     TtsPlaybackSession session,
     String accumulatedText, {
     required bool finalized,
@@ -1537,6 +1558,7 @@ class TtsManager {
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
     _streamingLastFedChunk = null;
+    _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
