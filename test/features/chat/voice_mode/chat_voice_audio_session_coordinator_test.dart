@@ -13,12 +13,10 @@ void main() {
         AudioDeviceType.wiredHeadphones,
         AudioDeviceType.headsetMic,
         AudioDeviceType.bluetoothSco,
-        AudioDeviceType.bluetoothA2dp,
         AudioDeviceType.bluetoothLe,
         AudioDeviceType.usbAudio,
         AudioDeviceType.hearingAid,
         AudioDeviceType.carAudio,
-        AudioDeviceType.airPlay,
       ]) {
         check(
           because: '$type should keep the call off the loudspeaker',
@@ -27,7 +25,7 @@ void main() {
       }
     });
 
-    test('does not count the phone itself as an accessory', () {
+    test('does not count anything a call cannot play through', () {
       // A bare phone must fall through to the speakerphone default, so none of
       // the always-present built-ins may look like something to route to.
       for (final type in const [
@@ -38,9 +36,12 @@ void main() {
         AudioDeviceType.telephony,
         AudioDeviceType.remoteSubmix,
         AudioDeviceType.unknown,
+        // A call runs in communication mode, which cannot route to either.
+        AudioDeviceType.bluetoothA2dp,
+        AudioDeviceType.airPlay,
       ]) {
         check(
-          because: '$type is part of the phone, not an accessory',
+          because: '$type is not somewhere a call can play',
           ChatVoiceAudioSessionCoordinator.isExternalAudioAccessory(type),
         ).isFalse();
       }
@@ -101,12 +102,12 @@ void main() {
 
       await reportDevices(const [
         AudioDeviceType.builtInSpeaker,
-        AudioDeviceType.bluetoothA2dp,
+        AudioDeviceType.bluetoothSco,
       ]);
       await reportDevices(const [
         AudioDeviceType.builtInSpeaker,
-        AudioDeviceType.bluetoothA2dp,
         AudioDeviceType.bluetoothSco,
+        AudioDeviceType.wiredHeadphones,
       ]);
 
       check(routeChanges).deepEquals(<bool>[true, false]);
@@ -121,6 +122,35 @@ void main() {
       ]);
 
       check(routeChanges).isEmpty();
+    });
+
+    test('ignores a microphone with no output of its own', () async {
+      await coordinator.handleAudioDevicesChangedForTesting({
+        _outputDevice(AudioDeviceType.builtInSpeaker),
+        // A plugged-in mic is not somewhere to play the answer.
+        AudioDevice(
+          id: 'mic',
+          name: 'usb mic',
+          isInput: true,
+          isOutput: false,
+          type: AudioDeviceType.usbAudio,
+        ),
+      });
+      await pumpEventQueue();
+
+      check(routeChanges).deepEquals(<bool>[true]);
+    });
+
+    test('ignores the speaker button once the call is being torn down', () async {
+      final hangingUp = coordinator.deactivate();
+      await coordinator.setSpeakerphoneEnabled(true);
+      await hangingUp;
+
+      // The next call still gets its automatic default: the press was rejected
+      // outright rather than latched as a manual choice.
+      await reportDevices(const [AudioDeviceType.builtInSpeaker]);
+
+      check(routeChanges).deepEquals(<bool>[true]);
     });
 
     test('drops a reroute the speaker button overtakes', () async {

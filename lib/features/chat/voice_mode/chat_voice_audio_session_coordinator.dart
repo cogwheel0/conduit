@@ -23,18 +23,21 @@ class ChatVoiceAudioSessionCoordinator {
 
   /// Device types that give a call somewhere to play other than the phone
   /// itself. Built-in earpiece, speaker and microphone are deliberately absent.
+  ///
+  /// So are A2DP and AirPlay. A voice call runs the session in communication
+  /// mode, which cannot route to either, so a device offering only those is not
+  /// somewhere the call can play. Headsets that also speak HFP still show up
+  /// here as [AudioDeviceType.bluetoothSco].
   static const Set<AudioDeviceType> _externalAudioAccessoryTypes = {
     AudioDeviceType.wiredHeadset,
     AudioDeviceType.wiredHeadphones,
     AudioDeviceType.headsetMic,
     AudioDeviceType.bluetoothSco,
-    AudioDeviceType.bluetoothA2dp,
     AudioDeviceType.bluetoothLe,
     AudioDeviceType.usbAudio,
     AudioDeviceType.hearingAid,
     AudioDeviceType.carAudio,
     AudioDeviceType.dock,
-    AudioDeviceType.airPlay,
     AudioDeviceType.lineAnalog,
     AudioDeviceType.lineDigital,
     AudioDeviceType.hdmi,
@@ -191,6 +194,11 @@ class ChatVoiceAudioSessionCoordinator {
     await _speakerphoneRouteController.close();
   }
 
+  /// Whether the call can play through [device] in preference to the phone's
+  /// own speaker. A plugged-in microphone is not somewhere to play.
+  static bool _isPlayableAccessory(AudioDevice device) =>
+      device.isOutput && _externalAudioAccessoryTypes.contains(device.type);
+
   /// Whether [type] is an accessory a call should play through in preference
   /// to the phone's own speaker.
   @visibleForTesting
@@ -273,9 +281,7 @@ class ChatVoiceAudioSessionCoordinator {
       return;
     }
 
-    final attached = devices.any(
-      (device) => _externalAudioAccessoryTypes.contains(device.type),
-    );
+    final attached = devices.any(_isPlayableAccessory);
     if (attached == _accessoryAttached) {
       return;
     }
@@ -329,7 +335,7 @@ class ChatVoiceAudioSessionCoordinator {
       final session = await _ensureSession();
       final devices = await session.getDevices();
       final accessories = devices
-          .where((device) => _externalAudioAccessoryTypes.contains(device.type))
+          .where(_isPlayableAccessory)
           .map((device) => device.type.name)
           .toSet();
       DebugLogger.info(
@@ -353,6 +359,11 @@ class ChatVoiceAudioSessionCoordinator {
   }
 
   Future<void> setSpeakerphoneEnabled(bool enabled) {
+    if (_routeChangesStopped) {
+      // The call is being torn down. Honouring a last-moment button press would
+      // put communication mode back after the route was handed back.
+      return Future<void>.value();
+    }
     // Set before queueing so an automatic reroute still waiting its turn sees
     // the choice and stands down.
     _speakerphoneChosenByUser = true;
