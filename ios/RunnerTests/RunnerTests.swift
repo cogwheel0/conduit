@@ -126,6 +126,18 @@ class RunnerTests: XCTestCase {
       json: #"{"type":["string","null"]}"#,
       name: "NullableType"
     ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":"2"}"#,
+      name: "StringArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":true}"#,
+      name: "BooleanArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":1}"#,
+      name: "ReversedArrayBounds"
+    ))
   }
 #endif
 

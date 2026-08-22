@@ -199,10 +199,29 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
             guard let items = raw["items"] as? [String: Any] else {
                 throw PccBridgeError.invalidSchema
             }
+            func nonnegativeInteger(_ key: String) throws -> Int? {
+                guard let value = raw[key] else { return nil }
+                guard let number = value as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      let integer = value as? Int,
+                      integer >= 0
+                else {
+                    throw PccBridgeError.invalidSchema
+                }
+                return integer
+            }
+            let minimumElements = try nonnegativeInteger("minItems")
+            let maximumElements = try nonnegativeInteger("maxItems")
+            if let minimumElements,
+               let maximumElements,
+               maximumElements < minimumElements
+            {
+                throw PccBridgeError.invalidSchema
+            }
             return DynamicGenerationSchema(
                 arrayOf: try build(items, depth: depth + 1),
-                minimumElements: raw["minItems"] as? Int,
-                maximumElements: raw["maxItems"] as? Int
+                minimumElements: minimumElements,
+                maximumElements: maximumElements
             )
         case "string":
             if let rawEnum = raw["enum"] {
