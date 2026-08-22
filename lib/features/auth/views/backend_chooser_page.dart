@@ -1,4 +1,5 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -139,9 +140,11 @@ class BackendChooserPage extends ConsumerWidget {
 }
 
 bool _isAppleModelAvailable(AsyncValue<PlatformPccStatus>? status) =>
-    status?.hasValue == true &&
-    status!.requireValue.availability == PlatformPccAvailability.available &&
-    !status.requireValue.quotaLimitReached;
+    kDebugMode ||
+    (status?.hasValue == true &&
+        status!.requireValue.availability ==
+            PlatformPccAvailability.available &&
+        !status.requireValue.quotaLimitReached);
 
 Future<void> _selectAppleModel(
   BuildContext context,

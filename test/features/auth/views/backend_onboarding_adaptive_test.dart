@@ -30,17 +30,13 @@ const _testServer = ServerConfig(
   isActive: true,
 );
 
-PlatformPccStatus _appleStatus(
-  PlatformPccAvailability availability, {
-  bool quotaLimitReached = false,
-}) => PlatformPccStatus(
-  availability: availability,
-  quotaStatus: quotaLimitReached
-      ? PlatformPccQuotaStatus.limitReached
-      : PlatformPccQuotaStatus.belowLimit,
-  quotaLimitReached: quotaLimitReached,
-  canIncreaseQuota: false,
-);
+PlatformPccStatus _appleStatus(PlatformPccAvailability availability) =>
+    PlatformPccStatus(
+      availability: availability,
+      quotaStatus: PlatformPccQuotaStatus.belowLimit,
+      quotaLimitReached: false,
+      canIncreaseQuota: false,
+    );
 
 void main() {
   testWidgets('backend chooser groups available backends with clear copy', (
@@ -99,17 +95,12 @@ void main() {
     }
   });
 
-  testWidgets('backend chooser hides unavailable Apple backends', (
+  testWidgets('debug chooser shows every backend on unsupported platforms', (
     tester,
   ) async {
     final harness = AdaptiveAuthHarness(
       server: _testServer,
-      platform: TargetPlatform.iOS,
-      appleOnDeviceStatus: _appleStatus(PlatformPccAvailability.unavailable),
-      applePccStatus: _appleStatus(
-        PlatformPccAvailability.available,
-        quotaLimitReached: true,
-      ),
+      platform: TargetPlatform.android,
     );
     addTearDown(harness.dispose);
 
@@ -118,9 +109,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Apple Intelligence'), findsNothing);
-    expect(find.text('Apple On-Device'), findsNothing);
-    expect(find.text('Apple Private Cloud Compute'), findsNothing);
+    expect(find.text('Apple Intelligence'), findsOneWidget);
+    expect(find.text('Apple On-Device'), findsOneWidget);
+    expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
     expect(find.text('Connect directly'), findsOneWidget);
 
