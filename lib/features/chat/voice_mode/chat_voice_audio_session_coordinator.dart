@@ -49,6 +49,10 @@ class ChatVoiceAudioSessionCoordinator {
   bool _speakerphoneChosenByUser = false;
   bool? _accessoryAttached;
   bool _routeChangesStopped = false;
+
+  /// Bumped by every teardown so work started for an earlier call can tell that
+  /// it came back too late.
+  int _callGeneration = 0;
   Future<void> _routeSerial = Future<void>.value();
   StreamSubscription<Set<AudioDevice>>? _devicesSub;
   final StreamController<bool> _speakerphoneRouteController =
@@ -154,6 +158,7 @@ class ChatVoiceAudioSessionCoordinator {
   }
 
   Future<void> deactivate() async {
+    _callGeneration++;
     final session = _session;
     final devicesSub = _devicesSub;
     _devicesSub = null;
@@ -177,6 +182,7 @@ class ChatVoiceAudioSessionCoordinator {
   }
 
   Future<void> dispose() async {
+    _callGeneration++;
     final devicesSub = _devicesSub;
     _devicesSub = null;
     _routeChangesStopped = true;
@@ -207,12 +213,21 @@ class ChatVoiceAudioSessionCoordinator {
     if (!Platform.isAndroid && !Platform.isIOS) {
       return false;
     }
-    _accessoryAttached = await _hasExternalAudioAccessory();
+    final generation = _callGeneration;
+    final attached = await _hasExternalAudioAccessory();
+    if (generation != _callGeneration || _speakerphoneChosenByUser) {
+      // The call ended, or the speaker button was pressed, while the scan was
+      // out. Either way this answer is stale and must not resubscribe or move
+      // the route.
+      return false;
+    }
+
+    _accessoryAttached = attached;
     // Subscribing re-reads the device list and delivers it, so anything plugged
     // in or pulled out during the scan above arrives as the first event and
     // corrects this snapshot.
     _watchAudioDevices();
-    if (_accessoryAttached != false) {
+    if (attached != false) {
       // A failed scan says nothing about what is plugged in, and playing an
       // answer out of the loudspeaker over someone's headset is worse than
       // leaving the route alone.
