@@ -1,5 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+#include "PccSdk.xcconfig"
 
 FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) "$(FLUTTER_ROOT)/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64"
 FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) "$(FLUTTER_ROOT)/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64_x86_64-simulator"

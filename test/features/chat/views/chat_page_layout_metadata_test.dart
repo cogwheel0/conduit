@@ -1438,33 +1438,33 @@ void main() {
     ).isFalse();
   });
 
-  test('terminal lifecycle retires pin support without manual navigation', () {
+  test('terminal lifecycle settles pin follow without releasing support', () {
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.running,
       ),
     ).isFalse();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.completed,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: ChatTurnPhase.failed,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: true,
         assistantPhase: null,
       ),
     ).isTrue();
     check(
-      debugShouldRetirePinnedTurnForLifecycleForTesting(
+      debugShouldSettlePinnedTurnForLifecycleForTesting(
         pinActive: false,
         assistantPhase: ChatTurnPhase.completed,
       ),

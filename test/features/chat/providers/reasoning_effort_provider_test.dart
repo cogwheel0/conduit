@@ -595,6 +595,27 @@ void main() {
     check(policy.effectiveConfiguredEffort('automatic')).isNull();
   });
 
+  test('Apple reasoning controls stay exclusive to cloud models', () {
+    final registry = DirectModelRegistry();
+    final cloud = registry.replaceProfileModels(
+      DirectConnectionProfile.applePrivateCloudCompute(),
+      [DirectRemoteModel(id: kApplePccRemoteModelId)],
+    ).single;
+    final onDevice = registry.replaceProfileModels(
+      DirectConnectionProfile.appleOnDevice(),
+      [DirectRemoteModel(id: kAppleOnDeviceRemoteModelId)],
+    ).single;
+    final container = ProviderContainer(
+      overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+    );
+    addTearDown(container.dispose);
+
+    check(reasoningEffortPolicyForModel(container.read, cloud).visible)
+        .isTrue();
+    check(reasoningEffortPolicyForModel(container.read, onDevice).visible)
+        .isFalse();
+  });
+
   test('OpenRouter null supported efforts exposes all gateway levels', () {
     final profile = DirectConnectionProfile(
       id: 'openrouter-profile',

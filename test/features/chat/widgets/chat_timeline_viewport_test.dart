@@ -1085,7 +1085,7 @@ void main() {
   });
 
   _viewportTest(
-    'terminal pin retirement preserves the prompt without seeking latest',
+    'short completion keeps the prompt pinned after automatic follow stops',
     (tester) async {
       final controller = _controller(tester);
       final ids = [
@@ -1093,7 +1093,6 @@ void main() {
         'user',
         'assistant',
       ];
-      String? pinnedUserMessageId = 'user';
       var pinAutomatic = true;
       var maintainVisibleAnchor = false;
       late StateSetter rebuild;
@@ -1106,11 +1105,11 @@ void main() {
               return _viewport(
                 controller: controller,
                 ids: ids,
-                pinnedUserMessageId: pinnedUserMessageId,
+                pinnedUserMessageId: 'user',
                 pinAutomatic: pinAutomatic,
                 maintainVisibleAnchor: maintainVisibleAnchor,
                 followLatest: false,
-                rowHeight: (id) => id == 'assistant' ? 900 : 52,
+                rowHeight: (_) => 52,
               );
             },
           ),
@@ -1122,7 +1121,6 @@ void main() {
       final promptTop = controller.rowRect('user')!.top;
 
       rebuild(() {
-        pinnedUserMessageId = null;
         pinAutomatic = false;
         maintainVisibleAnchor = true;
       });
@@ -1130,7 +1128,10 @@ void main() {
       await tester.pump();
 
       check(controller.rowRect('user')!.top).isCloseTo(promptTop, 1);
-      check(controller.distanceFromLatest).isGreaterThan(48);
+      final spacer = tester.widget<SizedBox>(
+        find.byKey(const ValueKey<String>('chat-composer-spacer')),
+      );
+      check(spacer.height!).isGreaterThan(80);
     },
   );
 

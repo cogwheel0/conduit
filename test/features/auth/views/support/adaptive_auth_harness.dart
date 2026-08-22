@@ -1,6 +1,7 @@
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -29,6 +31,8 @@ class AdaptiveAuthHarness {
     this.backendConfig = const BackendConfig(),
     this.disableAnimations = false,
     this.textScaler,
+    this.appleOnDeviceStatus,
+    this.applePccStatus,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
@@ -44,6 +48,8 @@ class AdaptiveAuthHarness {
   final BackendConfig? backendConfig;
   final bool disableAnimations;
   final TextScaler? textScaler;
+  final PlatformPccStatus? appleOnDeviceStatus;
+  final PlatformPccStatus? applePccStatus;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -81,6 +87,12 @@ class AdaptiveAuthHarness {
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(_storage),
         activeServerProvider.overrideWith((_) async => server),
+        appleOnDeviceStatusProvider.overrideWith(
+          (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
+        ),
+        applePccStatusProvider.overrideWith(
+          (_) async => applePccStatus ?? _unavailableAppleStatus(),
+        ),
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: platform),
@@ -112,6 +124,13 @@ class AdaptiveAuthHarness {
     FlutterError.onError = _previousFlutterOnError;
   }
 }
+
+PlatformPccStatus _unavailableAppleStatus() => PlatformPccStatus(
+  availability: PlatformPccAvailability.unavailable,
+  quotaStatus: PlatformPccQuotaStatus.unknown,
+  quotaLimitReached: false,
+  canIncreaseQuota: false,
+);
 
 class BackendOnboardingHarness {
   BackendOnboardingHarness() {
@@ -162,6 +181,12 @@ class BackendOnboardingHarness {
     return ProviderScope(
       overrides: [
         secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        appleOnDeviceStatusProvider.overrideWith(
+          (_) async => _unavailableAppleStatus(),
+        ),
+        applePccStatusProvider.overrideWith(
+          (_) async => _unavailableAppleStatus(),
+        ),
       ],
       child: MaterialApp.router(
         theme: ThemeData(platform: TargetPlatform.iOS),

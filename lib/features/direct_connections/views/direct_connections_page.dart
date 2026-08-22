@@ -5,18 +5,35 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
+import '../../../core/models/model.dart';
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/platform/conduit_platform_apis.g.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
+import '../services/direct_chat_bridge.dart';
+
+const List<int> _directContextLengthOptions = <int>[
+  4096,
+  8192,
+  16384,
+  32768,
+  65536,
+  131072,
+  262144,
+  524288,
+  1048576,
+];
 
 const String openWebUiDirectConnectionSourceQueryValue = 'openwebui';
 
@@ -111,6 +128,26 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       effectiveDirectConnectionProfilesProvider,
     );
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
+    final appleOnDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+    final appleOnDeviceStatus = appleOnDeviceEnabled
+        ? ref.watch(appleOnDeviceStatusProvider)
+        : null;
+    final applePccEnabled = ref.watch(applePccEnabledProvider);
+    final applePccStatus = applePccEnabled
+        ? ref.watch(applePccStatusProvider)
+        : null;
+    final applePccOnDeviceFallback = ref.watch(
+      applePccOnDeviceFallbackProvider,
+    );
+    final directModels =
+        ref.watch(directModelDiscoveryProvider).value?.models ??
+        const <Model>[];
+    final modelsWithoutContextLimit = directModels
+        .where((model) => directModelAdvertisedContextLength(model) == null)
+        .toList(growable: false);
+    final contextLengthOverrides = ref.watch(
+      directContextLengthOverridesProvider,
+    );
 
     return profiles.when(
       loading: () => _buildDirectConnectionsScaffold(
@@ -139,6 +176,32 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       ),
       data: (items) => DirectConnectionsContent(
         profiles: items,
+        appleOnDeviceStatus: appleOnDeviceStatus,
+        applePccStatus: applePccStatus,
+        applePccOnDeviceFallback: applePccOnDeviceFallback,
+        onApplePccFallbackChanged: (enabled) => ref
+            .read(applePccOnDeviceFallbackProvider.notifier)
+            .setEnabled(enabled),
+        onRefreshAppleOnDevice: () =>
+            ref.invalidate(appleOnDeviceStatusProvider),
+        onRefreshApplePcc: () => ref.invalidate(applePccStatusProvider),
+        onShowApplePccQuotaOptions: () async {
+          final shown = await ref
+              .read(applePccAdapterProvider)
+              .showQuotaIncreaseSuggestion();
+          if (!context.mounted) return;
+          ref.invalidate(applePccStatusProvider);
+          if (!shown) {
+            UiUtils.showMessage(context, l10n.applePccUnavailable);
+          }
+        },
+        modelsWithoutContextLimit: modelsWithoutContextLimit,
+        contextLengthOverrides: contextLengthOverrides,
+        onContextLengthChanged: (modelId, contextLength) => unawaited(
+          ref
+              .read(directContextLengthOverridesProvider.notifier)
+              .set(modelId, contextLength),
+        ),
         openWebUiConnections: openWebUiConnections,
         showOpenWebUi: showOpenWebUi,
         showHistorySync: showOpenWebUi,
@@ -206,6 +269,16 @@ class DirectConnectionsContent extends StatelessWidget {
     this.onEditOpenWebUi,
     this.onRetryOpenWebUi,
     this.onFinishOnboarding,
+    this.appleOnDeviceStatus,
+    this.applePccStatus,
+    this.applePccOnDeviceFallback = false,
+    this.onApplePccFallbackChanged,
+    this.onRefreshAppleOnDevice,
+    this.onRefreshApplePcc,
+    this.onShowApplePccQuotaOptions,
+    this.modelsWithoutContextLimit = const <Model>[],
+    this.contextLengthOverrides = const <String, int>{},
+    this.onContextLengthChanged,
   });
 
   final List<DirectConnectionProfile> profiles;
@@ -221,11 +294,55 @@ class DirectConnectionsContent extends StatelessWidget {
   final ValueChanged<String>? onEditOpenWebUi;
   final VoidCallback? onRetryOpenWebUi;
   final VoidCallback? onFinishOnboarding;
+  final AsyncValue<PlatformPccStatus>? appleOnDeviceStatus;
+  final AsyncValue<PlatformPccStatus>? applePccStatus;
+  final bool applePccOnDeviceFallback;
+  final ValueChanged<bool>? onApplePccFallbackChanged;
+  final VoidCallback? onRefreshAppleOnDevice;
+  final VoidCallback? onRefreshApplePcc;
+  final VoidCallback? onShowApplePccQuotaOptions;
+  final List<Model> modelsWithoutContextLimit;
+  final Map<String, int> contextLengthOverrides;
+  final void Function(String modelId, int contextLength)?
+  onContextLengthChanged;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final hasAppleModels =
+        appleOnDeviceStatus != null || applePccStatus != null;
     final content = <Widget>[
+      if (hasAppleModels) ...[
+        SettingsSectionHeader(title: l10n.backendChooserAppleSectionTitle),
+        const SizedBox(height: Spacing.sm),
+        if (appleOnDeviceStatus != null)
+          _AppleModelSection(
+            status: appleOnDeviceStatus!,
+            onDevice: true,
+            onRefresh: onRefreshAppleOnDevice,
+          ),
+        if (appleOnDeviceStatus != null && applePccStatus != null)
+          const SizedBox(height: Spacing.sm),
+        if (applePccStatus != null)
+          _AppleModelSection(
+            status: applePccStatus!,
+            onDevice: false,
+            onDeviceFallback: applePccOnDeviceFallback,
+            onFallbackChanged: onApplePccFallbackChanged,
+            onRefresh: onRefreshApplePcc,
+            onShowQuotaOptions: onShowApplePccQuotaOptions,
+          ),
+        const SizedBox(height: Spacing.xl),
+      ],
+      if (modelsWithoutContextLimit.isNotEmpty &&
+          onContextLengthChanged != null) ...[
+        _DirectContextCompactionSection(
+          models: modelsWithoutContextLimit,
+          contextLengthOverrides: contextLengthOverrides,
+          onChanged: onContextLengthChanged!,
+        ),
+        const SizedBox(height: Spacing.xl),
+      ],
       if (showHistorySync) ...[
         InsetGroupedList(
           useNativeSurface: PlatformInfo.isIOS,
@@ -265,7 +382,9 @@ class DirectConnectionsContent extends StatelessWidget {
         const SizedBox(height: Spacing.xl),
       ],
       _DirectConnectionSection(
-        title: l10n.deviceDirectConnectionsSectionTitle,
+        title: showOpenWebUi
+            ? l10n.deviceDirectConnectionsSectionTitle
+            : l10n.directConnectionsSectionTitle,
         profiles: profiles,
         sourceLabel: l10n.deviceDirectConnectionSourceLabel,
         emptyTitle: l10n.directProfilesEmptyTitle,
@@ -288,6 +407,210 @@ class DirectConnectionsContent extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AppleModelSection extends StatelessWidget {
+  const _AppleModelSection({
+    required this.status,
+    required this.onDevice,
+    this.onDeviceFallback = false,
+    this.onFallbackChanged,
+    this.onRefresh,
+    this.onShowQuotaOptions,
+  });
+
+  final AsyncValue<PlatformPccStatus> status;
+  final bool onDevice;
+  final bool onDeviceFallback;
+  final ValueChanged<bool>? onFallbackChanged;
+  final VoidCallback? onRefresh;
+  final VoidCallback? onShowQuotaOptions;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final value = status.value;
+    final details = <String>[];
+    final notes = <String>[];
+    if (status.isLoading && value == null) {
+      details.add(l10n.loadingShort);
+    } else if (value == null) {
+      details.add(
+        onDevice ? l10n.appleOnDeviceUnavailable : l10n.applePccUnavailable,
+      );
+    } else {
+      details.add(_availabilityLabel(l10n, value));
+      if (value.contextSize case final tokens?) {
+        details.add(
+          l10n.directContextLimit(_formatTokenCount(context, tokens)),
+        );
+      }
+      if (value.quotaResetAtMilliseconds case final milliseconds?) {
+        final reset = DateTime.fromMillisecondsSinceEpoch(milliseconds)
+            .toLocal();
+        final material = MaterialLocalizations.of(context);
+        final formatted =
+            '${material.formatShortDate(reset)} '
+            '${material.formatTimeOfDay(TimeOfDay.fromDateTime(reset))}';
+        notes.add(l10n.applePccQuotaResetsAt(formatted));
+      }
+      if (value.supportsCurrentLocale == false) {
+        notes.add(l10n.applePccCurrentLanguageUnsupported);
+      }
+    }
+
+    return InsetGroupedList(
+      useNativeSurface: PlatformInfo.isIOS,
+      footer: notes.isEmpty ? null : notes.join('\n'),
+      children: [
+        UtilityRow(
+          key: ValueKey<String>(
+            onDevice ? 'apple-on-device-status-row' : 'apple-pcc-status-row',
+          ),
+          leading: Icon(
+            onDevice
+                ? (PlatformInfo.isIOS
+                      ? CupertinoIcons.device_phone_portrait
+                      : Icons.smartphone_rounded)
+                : (PlatformInfo.isIOS
+                      ? CupertinoIcons.cloud_fill
+                      : Icons.cloud_rounded),
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: onDevice
+              ? l10n.backendChooserAppleOnDeviceTitle
+              : l10n.backendChooserApplePccTitle,
+          subtitle: details.join(' · '),
+          subtitleMaxLines: 2,
+          titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+          trailing: status.isLoading
+              ? const SizedBox.square(
+                  dimension: IconSize.medium,
+                  child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                )
+              : onRefresh == null
+              ? null
+              : Icon(
+                  PlatformInfo.isIOS
+                      ? CupertinoIcons.refresh
+                      : Icons.refresh_rounded,
+                  color: context.conduitTheme.buttonPrimary,
+                ),
+          onTap: status.isLoading ? null : onRefresh,
+        ),
+        if (!onDevice)
+          UtilityRow(
+            key: const ValueKey<String>('apple-pcc-fallback-row'),
+            title: l10n.applePccOnDeviceFallback,
+            subtitle: l10n.applePccOnDeviceFallbackSubtitle,
+            preserveTrailingSemantics: true,
+            trailing: AdaptiveSwitch(
+              value: onDeviceFallback,
+              onChanged: onFallbackChanged,
+            ),
+            onTap: onFallbackChanged == null
+                ? null
+                : () => onFallbackChanged!(!onDeviceFallback),
+          ),
+        if (!onDevice &&
+            value?.canIncreaseQuota == true &&
+            onShowQuotaOptions != null)
+          UtilityRow(
+            key: const ValueKey<String>('apple-pcc-quota-options-row'),
+            title: l10n.applePccShowQuotaOptions,
+            showChevron: true,
+            onTap: onShowQuotaOptions,
+          ),
+      ],
+    );
+  }
+
+  String _availabilityLabel(AppLocalizations l10n, PlatformPccStatus value) {
+    if (value.availability != PlatformPccAvailability.available) {
+      return value.message ??
+          (onDevice ? l10n.appleOnDeviceUnavailable : l10n.applePccUnavailable);
+    }
+    return switch (value.quotaStatus) {
+      PlatformPccQuotaStatus.approachingLimit => l10n.applePccQuotaApproaching,
+      PlatformPccQuotaStatus.limitReached => l10n.applePccQuotaReached,
+      PlatformPccQuotaStatus.belowLimit ||
+      PlatformPccQuotaStatus.unknown => l10n.applePccStatusAvailable,
+    };
+  }
+}
+
+class _DirectContextCompactionSection extends StatelessWidget {
+  const _DirectContextCompactionSection({
+    required this.models,
+    required this.contextLengthOverrides,
+    required this.onChanged,
+  });
+
+  final List<Model> models;
+  final Map<String, int> contextLengthOverrides;
+  final void Function(String modelId, int contextLength) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedList(
+      title: l10n.directContextCompactionTitle,
+      footer: l10n.directContextCompactionDescription,
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [
+        for (final model in models)
+          UtilityRow(
+            key: ValueKey<String>('direct-context-limit-${model.id}'),
+            title: model.name,
+            subtitle: [
+              if (model.metadata?['profileName'] case final String profileName)
+                profileName,
+              l10n.directContextLimit(
+                _formatTokenCount(
+                  context,
+                  contextLengthOverrides[model.id] ??
+                      kDefaultDirectContextLength,
+                ),
+              ),
+            ].join(' · '),
+            titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+            showChevron: true,
+            onTap: () => _showPicker(context, model),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showPicker(BuildContext context, Model model) async {
+    final l10n = AppLocalizations.of(context)!;
+    final current =
+        contextLengthOverrides[model.id] ?? kDefaultDirectContextLength;
+    final selected = await showAdaptiveSelectionSheet<int>(
+      context: context,
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: model.name,
+        description: l10n.directContextCompactionPickerDescription,
+        itemCount: _directContextLengthOptions.length,
+        itemBuilder: (context, index) {
+          final value = _directContextLengthOptions[index];
+          return AdaptiveSelectionTile(
+            title: l10n.directContextLimit(_formatTokenCount(context, value)),
+            selected: value == current,
+            onTap: () => Navigator.of(sheetContext).pop(value),
+          );
+        },
+      ),
+    );
+    if (selected != null) onChanged(model.id, selected);
+  }
+}
+
+String _formatTokenCount(BuildContext context, int tokens) {
+  if (tokens % (1024 * 1024) == 0) return '${tokens ~/ (1024 * 1024)}M';
+  if (tokens % 1024 == 0) return '${tokens ~/ 1024}K';
+  return NumberFormat.decimalPattern(
+    Localizations.localeOf(context).toLanguageTag(),
+  ).format(tokens);
 }
 
 class DirectConnectionsError extends StatelessWidget {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import '../../../core/database/database_provider.dart';
 import '../../../core/models/model.dart' as model;
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
+import '../../../core/platform/conduit_platform_apis.g.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../../../core/services/socket_service.dart';
@@ -21,6 +23,7 @@ import '../models/ollama_keep_alive.dart';
 import '../models/ollama_thinking.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
+import '../services/apple_pcc_adapter.dart';
 import '../services/direct_connection_profile_store.dart';
 import '../services/direct_http_client.dart';
 import '../services/direct_model_cache_store.dart';
@@ -101,6 +104,158 @@ final directHistoryPolicyProvider =
     NotifierProvider<DirectHistoryPolicyController, DirectHistoryPolicy>(
       DirectHistoryPolicyController.new,
     );
+
+class DirectContextLengthOverridesController
+    extends Notifier<Map<String, int>> {
+  Future<void> _mutationQueue = Future<void>.value();
+
+  @override
+  Map<String, int> build() {
+    final raw = PreferencesStore.getString(
+      PreferenceKeys.directContextLengthOverrides,
+    );
+    if (raw == null || raw.isEmpty) return const <String, int>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const <String, int>{};
+      return Map<String, int>.unmodifiable({
+        for (final entry in decoded.entries)
+          if (_validDirectContextLengthEntry(entry) case final valid?)
+            valid.$1: valid.$2,
+      });
+    } catch (_) {
+      return const <String, int>{};
+    }
+  }
+
+  Future<void> set(String modelId, int contextLength) {
+    if (DirectModelId.decode(modelId) == null ||
+        contextLength < 1024 ||
+        contextLength > 2 * 1024 * 1024) {
+      throw ArgumentError('Invalid Direct model context length.');
+    }
+    final result = _mutationQueue.then<void>(
+      (_) => _persist(modelId, contextLength),
+      onError: (Object _, StackTrace _) => _persist(modelId, contextLength),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _persist(String modelId, int contextLength) async {
+    final updated = Map<String, int>.of(state)..[modelId] = contextLength;
+    await PreferencesStore.put(
+      PreferenceKeys.directContextLengthOverrides,
+      jsonEncode(updated),
+    );
+    if (ref.mounted) state = Map.unmodifiable(updated);
+  }
+}
+
+final directContextLengthOverridesProvider =
+    NotifierProvider<DirectContextLengthOverridesController, Map<String, int>>(
+      DirectContextLengthOverridesController.new,
+    );
+
+(String, int)? _validDirectContextLengthEntry(
+  MapEntry<dynamic, dynamic> entry,
+) {
+  final modelId = entry.key.toString();
+  final contextLength = switch (entry.value) {
+    int() => entry.value as int,
+    num() => (entry.value as num).toInt(),
+    String() => int.tryParse(entry.value as String),
+    _ => null,
+  };
+  if (DirectModelId.decode(modelId) == null ||
+      contextLength == null ||
+      contextLength < 1024 ||
+      contextLength > 2 * 1024 * 1024) {
+    return null;
+  }
+  return (modelId, contextLength);
+}
+
+abstract class _QueuedBoolPreferenceController extends Notifier<bool> {
+  Future<void> _mutationQueue = Future<void>.value();
+
+  String get preferenceKey;
+
+  @override
+  bool build() => PreferencesStore.getBool(preferenceKey) ?? false;
+
+  Future<void> setEnabled(bool enabled) {
+    final result = _mutationQueue.then<void>(
+      (_) => _persist(enabled),
+      onError: (Object _, StackTrace _) => _persist(enabled),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _persist(bool enabled) async {
+    await PreferencesStore.put(preferenceKey, enabled);
+    if (ref.mounted) state = enabled;
+  }
+}
+
+class ApplePccEnabledController extends _QueuedBoolPreferenceController {
+  @override
+  String get preferenceKey => PreferenceKeys.applePccEnabled;
+}
+
+final applePccEnabledProvider =
+    NotifierProvider<ApplePccEnabledController, bool>(
+      ApplePccEnabledController.new,
+    );
+
+class AppleOnDeviceEnabledController extends _QueuedBoolPreferenceController {
+  @override
+  String get preferenceKey => PreferenceKeys.appleOnDeviceEnabled;
+}
+
+final appleOnDeviceEnabledProvider =
+    NotifierProvider<AppleOnDeviceEnabledController, bool>(
+      AppleOnDeviceEnabledController.new,
+    );
+
+class ApplePccOnDeviceFallbackController
+    extends _QueuedBoolPreferenceController {
+  @override
+  String get preferenceKey => PreferenceKeys.applePccOnDeviceFallback;
+}
+
+final applePccOnDeviceFallbackProvider =
+    NotifierProvider<ApplePccOnDeviceFallbackController, bool>(
+      ApplePccOnDeviceFallbackController.new,
+    );
+
+final applePccPlatformSupportedProvider = Provider<bool>(
+  (ref) => Platform.isIOS,
+);
+
+final applePccAdapterProvider = Provider<ApplePccAdapter>(
+  (ref) => ApplePccAdapter(
+    allowOnDeviceFallback: () => ref.read(applePccOnDeviceFallbackProvider),
+  ),
+);
+
+final applePccStatusProvider = FutureProvider<PlatformPccStatus>(
+  (ref) => ref
+      .watch(applePccAdapterProvider)
+      .status(PlatformAppleModel.privateCloudCompute),
+);
+
+final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>(
+  (ref) =>
+      ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice),
+);
 
 final directConnectionProfileStoreProvider =
     Provider<DirectConnectionProfileStore>((ref) {
@@ -260,6 +415,7 @@ final directProviderAdapterRegistryProvider =
       return DirectProviderAdapterRegistry([
         OpenAiCompatibleAdapter(clientPool: pool),
         OllamaAdapter(clientPool: pool),
+        ref.watch(applePccAdapterProvider),
       ]);
     });
 
@@ -1520,6 +1676,9 @@ bool _isOpenWebUiDirectTerminalPayload(Object? value) =>
 /// device-only connections unavailable.
 final effectiveDirectConnectionProfilesProvider =
     Provider<AsyncValue<List<DirectConnectionProfile>>>((ref) {
+      final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+      final pccEnabled = ref.watch(applePccEnabledProvider);
+      final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final local = ref.watch(directConnectionProfilesProvider);
       // Device profile storage remains the required source. Preserve its
       // loading/error gates even when Riverpod carries a previous value.
@@ -1535,28 +1694,62 @@ final effectiveDirectConnectionProfilesProvider =
 
       final localProfiles = local.requireValue;
       if (!ref.watch(openWebUiDirectConnectionsAvailableProvider)) {
-        return AsyncData(localProfiles);
+        return AsyncData(
+          _withAppleProfiles(
+            localProfiles,
+            onDeviceEnabled: onDeviceEnabled,
+            pccEnabled: pccEnabled,
+            supported: pccSupported,
+          ),
+        );
       }
 
       final remote = ref.watch(openWebUiDirectConnectionsProvider);
       if (remote.isLoading) {
-        return localProfiles.isEmpty
+        final availableLocal = _withAppleProfiles(
+          localProfiles,
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        );
+        return availableLocal.isEmpty
             ? const AsyncLoading<List<DirectConnectionProfile>>()
-            : AsyncData(localProfiles);
+            : AsyncData(availableLocal);
       }
-      if (remote.hasError) return AsyncData(localProfiles);
+      if (remote.hasError) {
+        return AsyncData(
+          _withAppleProfiles(
+            localProfiles,
+            onDeviceEnabled: onDeviceEnabled,
+            pccEnabled: pccEnabled,
+            supported: pccSupported,
+          ),
+        );
+      }
       final remoteProfiles = remote.value?.compatibleProfiles;
 
       final localIds = localProfiles.map((profile) => profile.id).toSet();
-      return AsyncData(<DirectConnectionProfile>[
-        ...localProfiles,
-        ...?remoteProfiles?.where((profile) => !localIds.contains(profile.id)),
-      ]);
+      return AsyncData(
+        _withAppleProfiles(
+          <DirectConnectionProfile>[
+            ...localProfiles,
+            ...?remoteProfiles?.where(
+              (profile) => !localIds.contains(profile.id),
+            ),
+          ],
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        ),
+      );
     });
 
 /// Awaitable companion that stays reactive to data-to-data profile updates.
 final effectiveDirectConnectionProfilesFutureProvider =
     FutureProvider<List<DirectConnectionProfile>>((ref) async {
+      final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+      final pccEnabled = ref.watch(applePccEnabledProvider);
+      final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final effective = ref.watch(effectiveDirectConnectionProfilesProvider);
       if (effective.hasValue) return effective.requireValue;
       if (effective.hasError) {
@@ -1574,20 +1767,55 @@ final effectiveDirectConnectionProfilesFutureProvider =
           ? ref.watch(openWebUiDirectConnectionsProvider.future)
           : Future<OpenWebUiDirectConnectionsSnapshot?>.value(null);
       final local = await localFuture;
-      if (!remoteAvailable) return local;
+      if (!remoteAvailable) {
+        return _withAppleProfiles(
+          local,
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        );
+      }
       try {
         final remote = await remoteFuture;
         final localIds = local.map((profile) => profile.id).toSet();
-        return <DirectConnectionProfile>[
-          ...local,
-          ...?remote?.compatibleProfiles.where(
-            (profile) => !localIds.contains(profile.id),
-          ),
-        ];
+        return _withAppleProfiles(
+          <DirectConnectionProfile>[
+            ...local,
+            ...?remote?.compatibleProfiles.where(
+              (profile) => !localIds.contains(profile.id),
+            ),
+          ],
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        );
       } catch (_) {
-        return local;
+        return _withAppleProfiles(
+          local,
+          onDeviceEnabled: onDeviceEnabled,
+          pccEnabled: pccEnabled,
+          supported: pccSupported,
+        );
       }
     });
+
+List<DirectConnectionProfile> _withAppleProfiles(
+  List<DirectConnectionProfile> profiles, {
+  required bool onDeviceEnabled,
+  required bool pccEnabled,
+  required bool supported,
+}) {
+  if ((!onDeviceEnabled && !pccEnabled) || !supported) return profiles;
+  return <DirectConnectionProfile>[
+    ...profiles.where(
+      (profile) =>
+          profile.id != kAppleOnDeviceProfileId &&
+          profile.id != kApplePccProfileId,
+    ),
+    if (onDeviceEnabled) DirectConnectionProfile.appleOnDevice(),
+    if (pccEnabled) DirectConnectionProfile.applePrivateCloudCompute(),
+  ];
+}
 
 final class DirectModelDiscoveryState {
   DirectModelDiscoveryState({

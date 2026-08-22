@@ -1,11 +1,145 @@
 import AVFoundation
 import Darwin
 import Flutter
+import ImageIO
 import UIKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+  func testPccSnapshotDeltaEmitsOnlyNewContent() throws {
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Hello world"),
+      " world"
+    )
+    XCTAssertEqual(
+      try pccSnapshotDelta(previous: "Hello world", snapshot: "Hello world"),
+      ""
+    )
+  }
+
+  func testPccSnapshotDeltaRejectsRewrites() {
+    XCTAssertThrowsError(
+      try pccSnapshotDelta(previous: "Hello", snapshot: "Goodbye")
+    )
+  }
+
+  func testPccDecodedImageBytesRejectsUnsafeAllocations() {
+    XCTAssertEqual(
+      pccDecodedImageBytes(width: 2_048, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 50_000, height: 50_000, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(width: 4_097, height: 4_097, currentBytes: 0)
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(
+        width: 2_048,
+        height: 2_048,
+        currentBytes: 60 * 1_024 * 1_024
+      )
+    )
+    XCTAssertEqual(
+      pccDecodedImageBytes(bytesPerRow: 8_192, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(bytesPerRow: 32_769, height: 2_048, currentBytes: 0)
+    )
+    XCTAssertTrue(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 16,
+      colorModel: kCGImagePropertyColorModelRGB as String
+    ))
+    XCTAssertFalse(pccImageMetadataIsSafe(
+      depth: 8,
+      colorModel: kCGImagePropertyColorModelCMYK as String
+    ))
+  }
+
+#if canImport(FoundationModels)
+  func testPccGenerationOptionsValidateNativeBoundary() throws {
+    guard #available(iOS 26.0, *) else { return }
+    let request = PlatformPccCompletionRequest(
+      runId: "options",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      temperature: 0.4,
+      maximumResponseTokens: 512,
+      topP: 0.9,
+      seed: 42
+    )
+    let options = try pccGenerationOptions(request)
+    XCTAssertEqual(options.temperature, 0.4)
+    XCTAssertEqual(options.maximumResponseTokens, 512)
+
+    let invalid = PlatformPccCompletionRequest(
+      runId: "invalid",
+      model: .onDevice,
+      messages: [],
+      allowOnDeviceFallback: false,
+      topP: 0.9,
+      topK: 40
+    )
+    XCTAssertThrowsError(try pccGenerationOptions(invalid))
+  }
+
+  func testPccStructuredSchemaAcceptsBoundedJsonObject() throws {
+    guard #available(iOS 26.0, *) else { return }
+    XCTAssertNoThrow(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}"#,
+      name: "Answer"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{"value":{"type":"file"}}}"#,
+      name: "Unsupported"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"object","properties":{},"required":["answer"]}"#,
+      name: "MissingRequiredProperty"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"string","enum":[]}"#,
+      name: "EmptyEnum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"integer","minimum":0}"#,
+      name: "UnsupportedMinimum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"number","maximum":1}"#,
+      name: "UnsupportedMaximum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":[],"properties":{}}"#,
+      name: "EmptyTypeArray"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":["string","null"]}"#,
+      name: "NullableType"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":"2"}"#,
+      name: "StringArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":true}"#,
+      name: "BooleanArrayBound"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":1}"#,
+      name: "ReversedArrayBounds"
+    ))
+  }
+#endif
 
   func testNativeDropdownCompletionIsExactlyOnce() {
     var selections: [String?] = []

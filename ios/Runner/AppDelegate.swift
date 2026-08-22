@@ -2443,6 +2443,7 @@ private func cookieIsPreferred(
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
     NativeSttBridge.shared.configure(messenger: messenger)
+    PccBridge.shared.configure(messenger: messenger)
     VoiceAudioRouteBridge.shared.configure(messenger: messenger)
     NativeIosTtsBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)

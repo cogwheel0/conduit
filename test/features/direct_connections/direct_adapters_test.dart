@@ -3366,6 +3366,7 @@ void main() {
       }),
       _Reply.json({
         'capabilities': ['completion'],
+        'model_info': {'llama.context_length': 8192},
       }),
     ]);
     final adapter = OllamaAdapter(
@@ -3377,6 +3378,7 @@ void main() {
 
     expect(model.isMultimodal, isTrue);
     expect(model.capabilities['capabilities'], ['vision', 'completion']);
+    expect(model.capabilities['context_length'], isNull);
   });
 
   test(

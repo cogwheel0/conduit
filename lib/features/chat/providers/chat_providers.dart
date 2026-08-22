@@ -13948,6 +13948,123 @@ DirectProviderException _normalizeDirectDispatcherFailure(
   );
 }
 
+Map<String, dynamic> _directContextSummaryParameters(
+  DirectConnectionProfile profile,
+  int maxTokens,
+) => switch (profile.adapterKey) {
+  kApplePccAdapterKey => <String, dynamic>{'max_tokens': maxTokens},
+  kOpenAiCompatibleAdapterKey => <String, dynamic>{
+    profile.openAiApiMode == DirectOpenAiApiMode.responses
+            ? 'max_output_tokens'
+            : 'max_tokens':
+        maxTokens,
+  },
+  kOllamaAdapterKey => <String, dynamic>{
+    'options': <String, dynamic>{'num_predict': maxTokens},
+  },
+  _ => const <String, dynamic>{},
+};
+
+const Duration _directContextCompactionIdleTimeout = Duration(seconds: 15);
+const Duration _directContextCompactionMaxDuration = Duration(minutes: 1);
+
+Future<List<int>?> _tryReadDirectContextVerificationKey(dynamic ref) async {
+  try {
+    return await ref.read(directDeviceTrustKeyProvider.future);
+  } catch (error) {
+    DebugLogger.warning(
+      'context-key-unavailable',
+      scope: 'direct-connections/compaction',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return null;
+  }
+}
+
+Future<String> _generateDirectContextSummary({
+  required DirectProviderAdapter adapter,
+  required DirectConnectionProfile profile,
+  required String remoteModelId,
+  required List<DirectChatMessage> compactedMessages,
+  required String? previousSummary,
+  required int contextLength,
+  required CancelToken preflightCancelToken,
+}) async {
+  final maxTokens = math.min(1000, math.max(64, contextLength * 15 ~/ 100));
+  final maxCharacters = maxTokens * 4;
+  final run = adapter.startCompletion(
+    profile,
+    DirectCompletionRequest(
+      remoteModelId: remoteModelId,
+      messages: directContextSummaryMessages(
+        activeMessages: compactedMessages,
+        previousSummary: previousSummary,
+        maxInputCharacters: math.max(1024, contextLength * 2),
+      ),
+      parameters: _directContextSummaryParameters(profile, maxTokens),
+    ),
+  );
+  try {
+    unawaited(
+      run.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
+  } catch (_) {}
+  unawaited(
+    preflightCancelToken.whenCancel.then((_) {
+      try {
+        unawaited(run.cancel('context compaction stopped').catchError((_) {}));
+      } catch (_) {}
+    }),
+  );
+
+  Future<String> collect() async {
+    final content = StringBuffer();
+    var sawDone = false;
+    await for (final event in run.events.timeout(
+      _directContextCompactionIdleTimeout,
+    )) {
+      switch (event) {
+        case DirectContentDelta():
+          if (content.length + event.content.length > maxCharacters) {
+            throw const DirectProviderException(
+              'The context summary exceeded its response limit.',
+            );
+          }
+          content.write(event.content);
+        case DirectStreamError():
+          throw DirectProviderException(
+            event.message,
+            statusCode: event.statusCode,
+          );
+        case DirectStreamDone():
+          sawDone = true;
+        default:
+          break;
+      }
+      if (sawDone) break;
+    }
+    final summary = content.toString().trim();
+    if (!sawDone || summary.isEmpty) {
+      throw const DirectProviderException(
+        'The provider did not return a context summary.',
+      );
+    }
+    return summary;
+  }
+
+  try {
+    return await collect().timeout(
+      _directContextCompactionMaxDuration,
+      onTimeout: () =>
+          throw const DirectProviderException('Context compaction timed out.'),
+    );
+  } finally {
+    try {
+      unawaited(run.cancel('context compaction finished').catchError((_) {}));
+    } catch (_) {}
+  }
+}
+
 ProviderSubscription<Object> _listenForDirectOwnerAuthSessionChanges(
   dynamic ref,
   void Function(Object? previous, Object next) listener,
@@ -15580,23 +15697,45 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     return resolved;
   }
 
-  final needsDirectVerificationKey = requestMessages.any(
+  final contextLength = directModelContextLength(
+    route.model,
+    fallbackContextLength: ref.read(
+      directContextLengthOverridesProvider,
+    )[route.model.id],
+  );
+  final compactionThreshold = contextLength * 70 ~/ 100;
+  final requiresReplayVerificationKey = requestMessages.any(
     (message) =>
         (message.files ?? const <Map<String, dynamic>>[]).any(
           (file) => file['source'] == 'direct_local',
         ) ||
         message.metadata?[kOpenRouterFileAnnotationsMetadataKey] != null,
   );
-  final directMessages = await _awaitDirectPreflightOrCancellation(
+  final hasContextSummary = requestMessages.any(
+    (message) => message.metadata?[kDirectContextSummaryMetadataKey] != null,
+  );
+  List<int>? verificationKey;
+  late DirectContextHistory contextHistory;
+  var directMessages = await _awaitDirectPreflightOrCancellation(
     registry: registry,
     reservation: reservation,
     cancelToken: preflightCancelToken,
     operation: () async {
-      final verificationKey = needsDirectVerificationKey
-          ? await ref.read(directDeviceTrustKeyProvider.future)
-          : null;
+      if (requiresReplayVerificationKey) {
+        verificationKey = await ref.read(directDeviceTrustKeyProvider.future);
+      } else if (hasContextSummary) {
+        verificationKey = await _tryReadDirectContextVerificationKey(ref);
+      }
+      contextHistory = directContextHistory(
+        requestMessages,
+        verificationKey: verificationKey ?? const <int>[],
+      );
       return buildDirectChatMessages(
-        messages: requestMessages,
+        messages: directContextRequestMessages(
+          systemMessages: contextHistory.systemMessages,
+          activeMessages: contextHistory.activeMessages,
+          summary: contextHistory.previousSummary,
+        ),
         resolveImage: resolveImage,
         directDocumentVerificationKey: verificationKey,
         openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
@@ -15618,6 +15757,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   if (!_directRouteIsStillSelected(ref, route)) {
     throw const _DirectRunStoppedDuringPreflight();
   }
+  final estimatedContextTokens = estimateDirectContextTokens(directMessages);
+  if (verificationKey == null &&
+      !hasContextSummary &&
+      estimatedContextTokens > compactionThreshold) {
+    verificationKey = await _awaitDirectPreflightOrCancellation(
+      registry: registry,
+      reservation: reservation,
+      cancelToken: preflightCancelToken,
+      operation: () => _tryReadDirectContextVerificationKey(ref),
+    );
+  }
   final DirectProviderAdapter adapter = ref
       .read(directProviderAdapterRegistryProvider)
       .require(route.binding.adapterKey);
@@ -15635,6 +15785,129 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       streamLimits.maxDuration,
       'direct normalized stream max duration',
     );
+  }
+  final compactionPlan = verificationKey == null
+      ? null
+      : estimatedContextTokens <= compactionThreshold
+      ? null
+      : planDirectContextCompaction(contextHistory.activeMessages);
+  if (compactionPlan != null) {
+    final compactionContextLength = contextLength;
+    final compactionVerificationKey = verificationKey!;
+    String? summary;
+    try {
+      final compactedDirectMessages = await _awaitDirectPreflightOrCancellation(
+        registry: registry,
+        reservation: reservation,
+        cancelToken: preflightCancelToken,
+        operation: () => buildDirectChatMessages(
+          messages: compactionPlan.compactedMessages,
+          resolveImage: resolveImage,
+          directDocumentVerificationKey: verificationKey,
+          openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
+          ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        ),
+      );
+      summary = await _awaitDirectPreflightOrCancellation(
+        registry: registry,
+        reservation: reservation,
+        cancelToken: preflightCancelToken,
+        operation: () => _generateDirectContextSummary(
+          adapter: adapter,
+          profile: route.profile,
+          remoteModelId: route.binding.remoteModelId,
+          compactedMessages: compactedDirectMessages,
+          previousSummary: contextHistory.previousSummary,
+          contextLength: compactionContextLength,
+          preflightCancelToken: preflightCancelToken,
+        ),
+      );
+    } on _DirectRunStoppedDuringPreflight {
+      rethrow;
+    } on _DirectOpenWebUiAuthSessionChanged {
+      rethrow;
+    } catch (error) {
+      DebugLogger.warning(
+        'context-compaction-failed',
+        scope: 'direct-connections/compaction',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+
+    if (summary != null) {
+      _requireDirectOwnerAuthSession(ref, owner);
+      if (registry.isCancelled(reservation) ||
+          !_directRouteIsStillSelected(ref, route)) {
+        throw const _DirectRunStoppedDuringPreflight();
+      }
+      ChatMessage attachSummary(ChatMessage current) => current.copyWith(
+        metadata: <String, dynamic>{
+          ...?current.metadata,
+          kDirectContextSummaryMetadataKey: signedDirectContextSummary(
+            checkpoint: current,
+            summary: summary!,
+            signingKey: compactionVerificationKey,
+          ),
+        },
+      );
+      var checkpoint = attachSummary(compactionPlan.checkpoint);
+      if (_isDirectConversationOwnerActive(ref, owner)) {
+        notifier.updateMessageById(checkpoint.id, (current) {
+          checkpoint = attachSummary(current);
+          return checkpoint;
+        });
+      }
+      try {
+        await _persistDirectUserMessageUpdate(
+          ref,
+          owner: owner,
+          userMessage: checkpoint,
+          isCurrentGeneration: () =>
+              registry.isLatest(reservation) &&
+              !registry.isCancelled(reservation),
+        );
+      } on _DirectOpenWebUiAuthSessionChanged {
+        rethrow;
+      } catch (error) {
+        DebugLogger.warning(
+          'context-checkpoint-persist-failed',
+          scope: 'direct-connections/compaction',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      directMessages = await _awaitDirectPreflightOrCancellation(
+        registry: registry,
+        reservation: reservation,
+        cancelToken: preflightCancelToken,
+        operation: () => buildDirectChatMessages(
+          messages: directContextRequestMessages(
+            systemMessages: contextHistory.systemMessages,
+            activeMessages: compactionPlan.recentMessages,
+            summary: summary,
+          ),
+          resolveImage: resolveImage,
+          directDocumentVerificationKey: verificationKey,
+          openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
+          ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        ),
+      );
+      directMessages = fitDirectContextMessages(
+        directMessages,
+        maxTokens: contextLength,
+      );
+      ensureDirectMessagesCompatibleWithModel(
+        model: route.model,
+        messages: directMessages,
+      );
+      DebugLogger.log(
+        'context-compacted',
+        scope: 'direct-connections/compaction',
+        data: {
+          'compactedMessages': compactionPlan.compactedMessages.length,
+          'retainedMessages': compactionPlan.recentMessages.length,
+        },
+      );
+    }
   }
   final normalizedBudget = DirectStreamBudget(
     maxCharacters: streamLimits.maxCharacters,

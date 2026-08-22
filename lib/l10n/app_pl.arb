@@ -265,6 +265,18 @@
   "@reasoningEffortHigh": {
     "description": "High model reasoning effort option."
   },
+  "reasoningEffortLight": "Lekki",
+  "@reasoningEffortLight": {
+    "description": "Light Apple PCC reasoning effort option."
+  },
+  "reasoningEffortModerate": "Umiarkowany",
+  "@reasoningEffortModerate": {
+    "description": "Moderate Apple PCC reasoning effort option."
+  },
+  "reasoningEffortDeep": "Głęboki",
+  "@reasoningEffortDeep": {
+    "description": "Deep Apple PCC reasoning effort option."
+  },
   "reasoningEffortMinimal": "Minimalny",
   "@reasoningEffortMinimal": {
     "description": "Minimal model reasoning effort option."
@@ -5790,13 +5802,110 @@
   "@directHistoryLocalOnlySubtitle": {
     "description": "Description shown when direct chat history sync is disabled."
   },
+  "backendChooserSelfHostedSectionTitle": "Usługi hostowane samodzielnie",
+  "@backendChooserSelfHostedSectionTitle": {
+    "description": "Section title for self-hosted backend choices on the first-run backend chooser."
+  },
+  "backendChooserAppleSectionTitle": "Apple Intelligence",
+  "@backendChooserAppleSectionTitle": {
+    "description": "Section title for available Apple model choices on the first-run backend chooser."
+  },
+  "backendChooserModelApisSectionTitle": "Interfejsy API modeli",
+  "@backendChooserModelApisSectionTitle": {
+    "description": "Section title for direct model API choices on the first-run backend chooser."
+  },
   "backendChooserDirectTitle": "Połącz bezpośrednio",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Użyj interfejsu API zgodnego z OpenAI lub Ollamy bez Open WebUI.",
+  "backendChooserDirectSubtitle": "Połącz interfejs API zgodny z OpenAI lub Ollama. Dane logowania pozostaną na tym urządzeniu.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceTitle": "Apple On-Device",
+  "@backendChooserAppleOnDeviceTitle": {
+    "description": "Title of the Apple on-device model option on the first-run backend chooser."
+  },
+  "backendChooserAppleOnDeviceSubtitle": "Uruchamiaj prywatny model Apple na tym urządzeniu, także offline.",
+  "@backendChooserAppleOnDeviceSubtitle": {
+    "description": "Description of the Apple on-device model option on the first-run backend chooser."
+  },
+  "appleOnDeviceUnavailable": "Model Apple On-Device jest niedostępny na tym urządzeniu.",
+  "@appleOnDeviceUnavailable": {
+    "description": "Fallback shown when the Apple on-device model cannot be selected during onboarding."
+  },
+  "backendChooserApplePccTitle": "Apple Private Cloud Compute",
+  "@backendChooserApplePccTitle": {
+    "description": "Title of the Apple PCC option on the first-run backend chooser."
+  },
+  "backendChooserApplePccSubtitle": "Używaj prywatnego modelu chmurowego Apple bez klucza API.",
+  "@backendChooserApplePccSubtitle": {
+    "description": "Description of the Apple PCC option on the first-run backend chooser."
+  },
+  "applePccUnavailable": "Usługa Apple Private Cloud Compute jest niedostępna na tym urządzeniu.",
+  "@applePccUnavailable": {
+    "description": "Fallback shown when Apple PCC cannot be selected during onboarding."
+  },
+  "applePccStatusAvailable": "Dostępna",
+  "@applePccStatusAvailable": {
+    "description": "Apple PCC availability label."
+  },
+  "applePccQuotaApproaching": "Zbliżasz się do dziennego limitu użycia",
+  "@applePccQuotaApproaching": {
+    "description": "Apple PCC quota warning."
+  },
+  "applePccQuotaReached": "Osiągnięto dzienny limit użycia",
+  "@applePccQuotaReached": {
+    "description": "Apple PCC exhausted quota label."
+  },
+  "applePccQuotaResetsAt": "Odnowienie: {time}",
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "applePccShowQuotaOptions": "Pokaż opcje użycia",
+  "@applePccShowQuotaOptions": {
+    "description": "Action that presents Apple's PCC quota increase flow."
+  },
+  "applePccOnDeviceFallback": "Model na urządzeniu",
+  "@applePccOnDeviceFallback": {
+    "description": "Apple PCC network fallback preference."
+  },
+  "applePccOnDeviceFallbackSubtitle": "Użyj mniejszego modelu Apple na urządzeniu, gdy PCC jest nieosiągalne. Żądania z rozumowaniem nie używają tego trybu.",
+  "@applePccOnDeviceFallbackSubtitle": {
+    "description": "Description of the Apple PCC network fallback preference."
+  },
+  "applePccCurrentLanguageUnsupported": "Bieżący język urządzenia może nie być obsługiwany.",
+  "@applePccCurrentLanguageUnsupported": {
+    "description": "Warning shown when PCC does not support the current locale."
+  },
+  "applePccContextSize": "Kontekst: {tokens} tokenów",
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
+  },
+  "directContextLimit": "Limit kontekstu: {tokens}",
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {"type": "String"}
+    }
+  },
+  "directContextCompactionTitle": "Kompaktowanie kontekstu",
+  "@directContextCompactionTitle": {
+    "description": "Section title for fallback context windows used by Direct models."
+  },
+  "directContextCompactionDescription": "Te modele nie podają rozmiaru okna kontekstu. Conduit używa wybranego limitu do kompaktowania starszych wiadomości, zanim żądanie stanie się zbyt duże.",
+  "@directContextCompactionDescription": {
+    "description": "Footer explaining per-model Direct context window fallbacks."
+  },
+  "directContextCompactionPickerDescription": "Wybierz okno kontekstu używane przez Conduit do automatycznego kompaktowania.",
+  "@directContextCompactionPickerDescription": {
+    "description": "Description in the Direct context window fallback picker."
   },
   "testDirectConnection": "Testuj połączenie",
   "@testDirectConnection": {
@@ -5846,7 +5955,7 @@
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."
   },
-  "backendChooserPrompt": "Wybierz usługę, od której chcesz zacząć. Inne możesz dodać później.",
+  "backendChooserPrompt": "Wybierz jedną opcję na początek. Kolejne możesz dodać później.",
   "@backendChooserPrompt": {
     "description": "Prompt on the first-run backend chooser."
   },
@@ -5862,7 +5971,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Użyj samodzielnie hostowanego agenta Hermes bez Open WebUI.",
+  "backendChooserHermesSubtitle": "Połącz samodzielnie hostowanego agenta Hermes.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },

@@ -228,9 +228,9 @@ Future<LargeFixtureResult> seedAndBuildFts(
 
 /// A single deterministic message row to append in the append budget. Distinct
 /// id so it is a true INSERT (not an upsert of an existing row).
-MessageRowData appendCandidate(String chatId) {
+MessageRowData appendCandidate(String chatId, {String suffix = '0001'}) {
   return MessageRowData(
-    id: '$chatId-append-0001',
+    id: '$chatId-append-$suffix',
     chatId: chatId,
     parentId: '$chatId-m0499',
     role: 'user',

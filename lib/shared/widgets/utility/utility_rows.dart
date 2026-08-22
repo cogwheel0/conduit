@@ -309,7 +309,6 @@ class UtilitySelectionRow extends StatelessWidget {
         title,
         if (subtitle?.isNotEmpty ?? false) subtitle,
       ].join('. '),
-      padding: const EdgeInsets.symmetric(vertical: Spacing.md),
       trailing:
           trailing ??
           (showSelectionIndicator
