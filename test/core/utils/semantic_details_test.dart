@@ -24,6 +24,18 @@ void main() {
       check(result).equals('One moment.');
     });
 
+    test('drops an uppercase opener', () {
+      // Tag and attribute names are case-insensitive in HTML, and this is
+      // model output, so the wrapper does not have to arrive lowercase.
+      final result = dropUnterminatedSemanticDetails(
+        'Checking that now. '
+        '<DETAILS TYPE="reasoning" DONE="false"><SUMMARY>Thinking…</SUMMARY>'
+        '> internal notes',
+      );
+
+      check(result).equals('Checking that now.');
+    });
+
     test('leaves content without semantic details untouched', () {
       const content = 'Plain answer with no wrappers at all.';
 

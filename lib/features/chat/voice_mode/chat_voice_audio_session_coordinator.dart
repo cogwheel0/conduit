@@ -208,6 +208,9 @@ class ChatVoiceAudioSessionCoordinator {
       return false;
     }
     _accessoryAttached = await _hasExternalAudioAccessory();
+    // Subscribing re-reads the device list and delivers it, so anything plugged
+    // in or pulled out during the scan above arrives as the first event and
+    // corrects this snapshot.
     _watchAudioDevices();
     if (_accessoryAttached != false) {
       // A failed scan says nothing about what is plugged in, and playing an

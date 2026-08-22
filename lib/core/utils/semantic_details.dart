@@ -11,23 +11,32 @@
 /// of the tag patterns have caused real rendering bugs.
 library;
 
+// HTML tag and attribute names are case-insensitive, and the text these
+// patterns run over is model output, so an uppercase wrapper has to be caught
+// as well: a missed opener means a reasoning body reaches the reader or the
+// speaker.
 final RegExp _semanticDetailsOpenPattern = RegExp(
   r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
+  caseSensitive: false,
 );
 
 final RegExp _semanticDetailsBlockPattern = RegExp(
   r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+  caseSensitive: false,
 );
 
+/// Cheap reject for the common case of content with no `<details>` at all.
+final RegExp _detailsTagHint = RegExp('<details', caseSensitive: false);
+
 bool containsRenderedSemanticDetails(String content) {
-  if (!content.contains('<details')) {
+  if (!_detailsTagHint.hasMatch(content)) {
     return false;
   }
   return _semanticDetailsOpenPattern.hasMatch(content);
 }
 
 String stripRenderedSemanticDetails(String content) {
-  if (!content.contains('<details')) {
+  if (!_detailsTagHint.hasMatch(content)) {
     return content;
   }
   return content.replaceAll(_semanticDetailsBlockPattern, '').trim();
@@ -46,7 +55,7 @@ String stripRenderedSemanticDetails(String content) {
 /// Run this *after* stripping complete blocks; on unstripped content the opener
 /// of an already-closed block would truncate the answer that follows it.
 String dropUnterminatedSemanticDetails(String content) {
-  if (!content.contains('<details')) {
+  if (!_detailsTagHint.hasMatch(content)) {
     return content;
   }
   final match = _semanticDetailsOpenPattern.firstMatch(content);
