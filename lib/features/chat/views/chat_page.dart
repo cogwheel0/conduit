@@ -2418,10 +2418,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _schedulePinnedTurnLifecycleReconciliation(
     ChatTurnPhase? assistantPhase,
   ) {
-    if (!_wantsPinToTop) return;
+    if (!_shouldAutoFollowPinnedTurn) return;
     final assistantMessageId = _pinToTopState.streamingMessageId;
     if (assistantMessageId == null) return;
-    if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
+    if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
       assistantPhase: assistantPhase,
     )) {
@@ -2450,19 +2450,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final currentPhase = currentAssistant == null
           ? null
           : chatTurnPhaseForMessage(currentAssistant);
-      if (!debugShouldRetirePinnedTurnForLifecycleForTesting(
-        pinActive: _wantsPinToTop,
+      if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
+        pinActive: _shouldAutoFollowPinnedTurn,
         assistantPhase: currentPhase,
       )) {
         return;
       }
 
-      // Completion retires synthetic support but never changes the reading
-      // position. Reaching the real footer is a manual latest action only.
+      // Keep the synthetic support that holds short turns at the prompt;
+      // manual navigation or the next turn releases or replaces the pin.
       _bottomAnchorController.detachByUser();
-      setState(() {
-        _clearPinToTopAnchor(nextMode: _ChatTimelineScrollMode.freeScrolling);
-      });
+      _cancelPinnedTurnAutomaticFollow();
       _scheduleScrollToBottomVisibilitySync(prewarm: true);
     });
     WidgetsBinding.instance.scheduleFrame();
@@ -5146,7 +5144,7 @@ bool debugShouldPreservePinnedFirstTurnForConversationBindingForTesting({
 }
 
 @visibleForTesting
-bool debugShouldRetirePinnedTurnForLifecycleForTesting({
+bool debugShouldSettlePinnedTurnForLifecycleForTesting({
   required bool pinActive,
   required ChatTurnPhase? assistantPhase,
 }) {
