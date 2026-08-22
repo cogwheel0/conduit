@@ -226,6 +226,40 @@ int estimateDirectContextTokens(Iterable<DirectChatMessage> messages) {
   return total;
 }
 
+List<DirectChatMessage> fitDirectContextMessages(
+  Iterable<DirectChatMessage> messages, {
+  required int maxTokens,
+}) {
+  if (maxTokens <= 0) throw ArgumentError.value(maxTokens, 'maxTokens');
+  final result = messages.toList(growable: true);
+  while (estimateDirectContextTokens(result) > maxTokens && result.length > 1) {
+    final lastIndex = result.length - 1;
+    var removeIndex = -1;
+    for (var index = 0; index < lastIndex; index++) {
+      if (result[index].role.trim().toLowerCase() != 'system' &&
+          !_isDirectContextSummaryMessage(result[index])) {
+        removeIndex = index;
+        break;
+      }
+    }
+    if (removeIndex < 0) {
+      removeIndex = result.indexWhere(_isDirectContextSummaryMessage);
+    }
+    if (removeIndex < 0 || removeIndex == lastIndex) break;
+    result.removeAt(removeIndex);
+  }
+  if (estimateDirectContextTokens(result) > maxTokens) {
+    throw const DirectChatInputException(
+      'The latest message exceeds this model\'s context limit.',
+    );
+  }
+  return List.unmodifiable(result);
+}
+
+bool _isDirectContextSummaryMessage(DirectChatMessage message) => message.parts
+    .whereType<DirectTextPart>()
+    .any((part) => part.text.startsWith('[UNTRUSTED CONVERSATION SUMMARY]'));
+
 List<DirectChatMessage> directContextSummaryMessages({
   required Iterable<DirectChatMessage> activeMessages,
   required String? previousSummary,

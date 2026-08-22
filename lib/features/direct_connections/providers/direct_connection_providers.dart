@@ -107,6 +107,8 @@ final directHistoryPolicyProvider =
 
 class DirectContextLengthOverridesController
     extends Notifier<Map<String, int>> {
+  Future<void> _mutationQueue = Future<void>.value();
+
   @override
   Map<String, int> build() {
     final raw = PreferencesStore.getString(
@@ -126,12 +128,24 @@ class DirectContextLengthOverridesController
     }
   }
 
-  Future<void> set(String modelId, int contextLength) async {
+  Future<void> set(String modelId, int contextLength) {
     if (DirectModelId.decode(modelId) == null ||
         contextLength < 1024 ||
         contextLength > 2 * 1024 * 1024) {
       throw ArgumentError('Invalid Direct model context length.');
     }
+    final result = _mutationQueue.then<void>(
+      (_) => _persist(modelId, contextLength),
+      onError: (Object _, StackTrace _) => _persist(modelId, contextLength),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _persist(String modelId, int contextLength) async {
     final updated = Map<String, int>.of(state)..[modelId] = contextLength;
     await PreferencesStore.put(
       PreferenceKeys.directContextLengthOverrides,
@@ -165,15 +179,35 @@ final directContextLengthOverridesProvider =
   return (modelId, contextLength);
 }
 
-class ApplePccEnabledController extends Notifier<bool> {
-  @override
-  bool build() =>
-      PreferencesStore.getBool(PreferenceKeys.applePccEnabled) ?? false;
+abstract class _QueuedBoolPreferenceController extends Notifier<bool> {
+  Future<void> _mutationQueue = Future<void>.value();
 
-  Future<void> setEnabled(bool enabled) async {
-    await PreferencesStore.put(PreferenceKeys.applePccEnabled, enabled);
+  String get preferenceKey;
+
+  @override
+  bool build() => PreferencesStore.getBool(preferenceKey) ?? false;
+
+  Future<void> setEnabled(bool enabled) {
+    final result = _mutationQueue.then<void>(
+      (_) => _persist(enabled),
+      onError: (Object _, StackTrace _) => _persist(enabled),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _persist(bool enabled) async {
+    await PreferencesStore.put(preferenceKey, enabled);
     if (ref.mounted) state = enabled;
   }
+}
+
+class ApplePccEnabledController extends _QueuedBoolPreferenceController {
+  @override
+  String get preferenceKey => PreferenceKeys.applePccEnabled;
 }
 
 final applePccEnabledProvider =
@@ -181,15 +215,9 @@ final applePccEnabledProvider =
       ApplePccEnabledController.new,
     );
 
-class AppleOnDeviceEnabledController extends Notifier<bool> {
+class AppleOnDeviceEnabledController extends _QueuedBoolPreferenceController {
   @override
-  bool build() =>
-      PreferencesStore.getBool(PreferenceKeys.appleOnDeviceEnabled) ?? false;
-
-  Future<void> setEnabled(bool enabled) async {
-    await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, enabled);
-    if (ref.mounted) state = enabled;
-  }
+  String get preferenceKey => PreferenceKeys.appleOnDeviceEnabled;
 }
 
 final appleOnDeviceEnabledProvider =
@@ -197,19 +225,10 @@ final appleOnDeviceEnabledProvider =
       AppleOnDeviceEnabledController.new,
     );
 
-class ApplePccOnDeviceFallbackController extends Notifier<bool> {
+class ApplePccOnDeviceFallbackController
+    extends _QueuedBoolPreferenceController {
   @override
-  bool build() =>
-      PreferencesStore.getBool(PreferenceKeys.applePccOnDeviceFallback) ??
-      false;
-
-  Future<void> setEnabled(bool enabled) async {
-    await PreferencesStore.put(
-      PreferenceKeys.applePccOnDeviceFallback,
-      enabled,
-    );
-    if (ref.mounted) state = enabled;
-  }
+  String get preferenceKey => PreferenceKeys.applePccOnDeviceFallback;
 }
 
 final applePccOnDeviceFallbackProvider =

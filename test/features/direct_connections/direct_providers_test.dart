@@ -104,6 +104,43 @@ void main() {
     expect(restored.read(directContextLengthOverridesProvider)[modelId], 8192);
   });
 
+  test('concurrent context overrides preserve invocation order', () async {
+    final firstModelId = DirectModelId.encode('profile', 'first');
+    final secondModelId = DirectModelId.encode('profile', 'second');
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(
+      directContextLengthOverridesProvider.notifier,
+    );
+
+    await Future.wait([
+      controller.set(firstModelId, 4096),
+      controller.set(secondModelId, 8192),
+    ]);
+
+    expect(container.read(directContextLengthOverridesProvider), {
+      firstModelId: 4096,
+      secondModelId: 8192,
+    });
+  });
+
+  test('concurrent Apple preferences apply the latest invocation', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appleOnDeviceEnabledProvider.notifier);
+
+    await Future.wait([
+      controller.setEnabled(true),
+      controller.setEnabled(false),
+    ]);
+
+    expect(container.read(appleOnDeviceEnabledProvider), isFalse);
+    expect(
+      PreferencesStore.getBool(PreferenceKeys.appleOnDeviceEnabled),
+      isFalse,
+    );
+  });
+
   test('enabled PCC is exposed as a built-in Direct profile on iOS', () async {
     await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
     final container = ProviderContainer(

@@ -36,6 +36,22 @@ func pccDecodedImageBytes(
     return currentBytes + width * height * 4
 }
 
+func pccDecodedImageBytes(
+    bytesPerRow: Int,
+    height: Int,
+    currentBytes: Int
+) -> Int? {
+    guard bytesPerRow > 0,
+          height > 0,
+          currentBytes >= 0,
+          currentBytes <= pccMaxDecodedImageBytes,
+          height <= (pccMaxDecodedImageBytes - currentBytes) / bytesPerRow
+    else {
+        return nil
+    }
+    return currentBytes + bytesPerRow * height
+}
+
 private enum PccBridgeError: LocalizedError {
     case invalidRequest
     case invalidImage
@@ -192,8 +208,14 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
             }
             return DynamicGenerationSchema(type: String.self)
         case "integer":
+            guard raw["minimum"] == nil, raw["maximum"] == nil else {
+                throw PccBridgeError.invalidSchema
+            }
             return DynamicGenerationSchema(type: Int.self)
         case "number":
+            guard raw["minimum"] == nil, raw["maximum"] == nil else {
+                throw PccBridgeError.invalidSchema
+            }
             return DynamicGenerationSchema(type: Double.self)
         case "boolean":
             return DynamicGenerationSchema(type: Bool.self)
@@ -714,7 +736,9 @@ private extension PccBridge {
                request.reasoningLevel == nil || request.reasoningLevel == "automatic",
                request.messages.allSatisfy({ $0.images.isEmpty })
             {
-                await performOnDeviceFallback(request)
+                var fallbackRequest = request
+                fallbackRequest.reasoningLevel = nil
+                await performOnDeviceFallback(fallbackRequest)
             } else {
                 await emitError(runId: request.runId, message: message(for: error))
             }
@@ -862,14 +886,19 @@ private extension PccBridge {
                       ) as NSDictionary?,
                       let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
                       let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
-                      let nextDecodedBytes = pccDecodedImageBytes(
+                      pccDecodedImageBytes(
                           width: width,
                           height: height,
                           currentBytes: decodedImageBytes
-                      ),
+                      ) != nil,
                       let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil),
                       cgImage.width == width,
-                      cgImage.height == height
+                      cgImage.height == height,
+                      let nextDecodedBytes = pccDecodedImageBytes(
+                          bytesPerRow: cgImage.bytesPerRow,
+                          height: cgImage.height,
+                          currentBytes: decodedImageBytes
+                      )
                 else {
                     throw PccBridgeError.invalidImage
                 }

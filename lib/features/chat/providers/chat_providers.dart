@@ -15891,6 +15891,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
         ),
       );
+      directMessages = fitDirectContextMessages(
+        directMessages,
+        maxTokens: contextLength,
+      );
       ensureDirectMessagesCompatibleWithModel(
         model: route.model,
         messages: directMessages,

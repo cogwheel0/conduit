@@ -42,6 +42,13 @@ class RunnerTests: XCTestCase {
         currentBytes: 60 * 1_024 * 1_024
       )
     )
+    XCTAssertEqual(
+      pccDecodedImageBytes(bytesPerRow: 8_192, height: 2_048, currentBytes: 0),
+      16 * 1_024 * 1_024
+    )
+    XCTAssertNil(
+      pccDecodedImageBytes(bytesPerRow: 32_769, height: 2_048, currentBytes: 0)
+    )
   }
 
 #if canImport(FoundationModels)
@@ -89,6 +96,14 @@ class RunnerTests: XCTestCase {
     XCTAssertThrowsError(try pccGenerationSchema(
       json: #"{"type":"string","enum":[]}"#,
       name: "EmptyEnum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"integer","minimum":0}"#,
+      name: "UnsupportedMinimum"
+    ))
+    XCTAssertThrowsError(try pccGenerationSchema(
+      json: #"{"type":"number","maximum":1}"#,
+      name: "UnsupportedMaximum"
     ))
   }
 #endif

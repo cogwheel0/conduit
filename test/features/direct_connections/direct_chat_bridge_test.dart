@@ -317,6 +317,36 @@ void main() {
       expect(estimateDirectContextTokens(messages), 1006);
     });
 
+    test('fits compacted history without dropping the latest prompt', () {
+      final fitted = fitDirectContextMessages(<DirectChatMessage>[
+        DirectChatMessage.text(role: 'system', text: 'Keep this'),
+        DirectChatMessage.text(
+          role: 'assistant',
+          text: List<String>.filled(400, 'old').join(),
+        ),
+        DirectChatMessage.text(role: 'user', text: 'Latest prompt'),
+      ], maxTokens: 20);
+
+      expect(fitted.map((message) => message.role), ['system', 'user']);
+      expect(
+        fitted.last.parts.whereType<DirectTextPart>().single.text,
+        'Latest prompt',
+      );
+      expect(estimateDirectContextTokens(fitted), lessThanOrEqualTo(20));
+    });
+
+    test('rejects a latest prompt that cannot fit the model context', () {
+      expect(
+        () => fitDirectContextMessages(<DirectChatMessage>[
+          DirectChatMessage.text(
+            role: 'user',
+            text: List<String>.filled(100, 'large').join(),
+          ),
+        ], maxTokens: 10),
+        throwsA(isA<DirectChatInputException>()),
+      );
+    });
+
     test('summary input is bounded and never replays attachments', () {
       final messages = directContextSummaryMessages(
         activeMessages: <DirectChatMessage>[
