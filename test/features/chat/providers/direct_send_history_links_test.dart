@@ -1335,6 +1335,7 @@ void main() {
       expect(finalRequestText, contains('[UNTRUSTED CONVERSATION SUMMARY]'));
       expect(finalRequestText, contains('earlier turn established'));
       expect(finalRequestText, isNot(contains(longUserContent)));
+      expect(finalRequestText, isNot(contains(longAssistantContent)));
       final checkpoint = container
           .read(chatMessagesProvider)
           .lastWhere((message) => message.role == 'user');
