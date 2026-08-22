@@ -94,7 +94,7 @@ class StreamingChunkAdvance {
   const StreamingChunkAdvance({
     required this.chunks,
     required this.fedChunkCount,
-    required this.lastFedChunk,
+    required this.spokenText,
   });
 
   /// Newly speakable chunks, trimmed, in playback order.
@@ -103,22 +103,22 @@ class StreamingChunkAdvance {
   /// How many chunks of the current split have been consumed.
   final int fedChunkCount;
 
-  /// The untrimmed chunk the cursor sits behind, used to re-anchor after a
-  /// re-split.
-  final String? lastFedChunk;
+  /// Everything handed to playback so far, concatenated. The cursor is
+  /// re-derived from this after a re-split.
+  final String spokenText;
 }
 
 @visibleForTesting
 StreamingChunkAdvance advanceStreamingChunksForTesting({
   required List<String> chunks,
   required int fedChunkCount,
-  required String? lastFedChunk,
+  required String spokenText,
   required bool finalized,
 }) {
   return _advanceStreamingChunks(
     chunks: chunks,
     fedChunkCount: fedChunkCount,
-    lastFedChunk: lastFedChunk,
+    spokenText: spokenText,
     finalized: finalized,
   );
 }
@@ -126,7 +126,7 @@ StreamingChunkAdvance advanceStreamingChunksForTesting({
 StreamingChunkAdvance _advanceStreamingChunks({
   required List<String> chunks,
   required int fedChunkCount,
-  required String? lastFedChunk,
+  required String spokenText,
   required bool finalized,
 }) {
   // Hold the trailing chunk back until finalization: it is still growing.
@@ -134,13 +134,14 @@ StreamingChunkAdvance _advanceStreamingChunks({
       ? chunks.length
       : (chunks.length <= 1 ? 0 : chunks.length - 1);
 
-  var cursor = _resolveStreamingCursor(
+  final resolved = _resolveStreamingCursor(
     chunks: chunks,
     fedChunkCount: fedChunkCount,
-    lastFedChunk: lastFedChunk,
+    spokenText: spokenText,
   );
+  var cursor = resolved.cursor;
+  final spoken = StringBuffer(resolved.spokenText);
   final pending = <String>[];
-  var nextLastFedChunk = lastFedChunk;
   while (cursor < speakableCount) {
     final chunk = chunks[cursor];
     cursor++;
@@ -149,48 +150,61 @@ StreamingChunkAdvance _advanceStreamingChunks({
       continue;
     }
     pending.add(trimmed);
-    nextLastFedChunk = chunk;
+    spoken.write(trimmed);
   }
 
   return StreamingChunkAdvance(
     chunks: pending,
     fedChunkCount: cursor,
-    lastFedChunk: nextLastFedChunk,
+    spokenText: spoken.toString(),
   );
 }
 
-/// Re-anchors the feed cursor on the chunk text last handed to playback.
+/// Where the feed cursor sits in a freshly derived split, and the text behind
+/// it.
+class _StreamingCursor {
+  const _StreamingCursor(this.cursor, this.spokenText);
+
+  final int cursor;
+  final String spokenText;
+}
+
+/// Re-derives the feed cursor by matching the split against the text already
+/// handed to playback.
 ///
 /// The split is re-derived from the whole accumulated response on every feed,
 /// so a `</details>` arriving late removes that block from the sanitized body
 /// and shifts every later chunk left. A bare index would then point past
-/// sentences nobody has spoken — typically the answer itself, which is what
-/// makes a response go silent after a tool call.
-int _resolveStreamingCursor({
+/// sentences nobody has spoken, typically the answer itself, which is what
+/// makes a response go silent after a tool call. Matching on running text
+/// instead of on a single chunk keeps the cursor exact even when the same
+/// sentence appears more than once, and a server rewrite mid-answer resumes at
+/// the point the two versions stop agreeing.
+_StreamingCursor _resolveStreamingCursor({
   required List<String> chunks,
   required int fedChunkCount,
-  required String? lastFedChunk,
+  required String spokenText,
 }) {
-  if (lastFedChunk == null || fedChunkCount <= 0) {
-    return 0;
+  if (spokenText.isEmpty || fedChunkCount <= 0) {
+    return const _StreamingCursor(0, '');
   }
-  if (fedChunkCount <= chunks.length &&
-      chunks[fedChunkCount - 1] == lastFedChunk) {
-    return fedChunkCount;
-  }
-  // A re-split only ever collapses text away, so the anchor can only have
-  // moved earlier in the list.
-  final searchFrom = (fedChunkCount < chunks.length
-      ? fedChunkCount
-      : chunks.length);
-  for (var index = searchFrom - 1; index >= 0; index--) {
-    if (chunks[index] == lastFedChunk) {
-      return index + 1;
+
+  final replayed = StringBuffer();
+  var cursor = 0;
+  var matched = '';
+  for (final chunk in chunks) {
+    replayed.write(chunk.trim());
+    final candidate = replayed.toString();
+    if (!spokenText.startsWith(candidate)) {
+      break;
+    }
+    cursor++;
+    matched = candidate;
+    if (candidate.length == spokenText.length) {
+      break;
     }
   }
-  // The anchor is gone entirely (content rewritten upstream). Stay put rather
-  // than replay text that may already have been spoken.
-  return fedChunkCount < chunks.length ? fedChunkCount : chunks.length;
+  return _StreamingCursor(cursor, matched);
 }
 
 @visibleForTesting
@@ -331,7 +345,7 @@ class TtsManager {
   bool _isStreamingSession = false;
   bool _streamingFinalized = false;
   int _streamingFedChunkCount = 0;
-  String? _streamingLastFedChunk;
+  String _streamingSpokenText = '';
   Future<void> _streamingFeedSerial = Future<void>.value();
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
@@ -527,7 +541,7 @@ class TtsManager {
     _isStreamingSession = true;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
-    _streamingLastFedChunk = null;
+    _streamingSpokenText = '';
     _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
@@ -900,13 +914,13 @@ class TtsManager {
     final advance = _advanceStreamingChunks(
       chunks: splitTextForSpeech(accumulatedText),
       fedChunkCount: _streamingFedChunkCount,
-      lastFedChunk: _streamingLastFedChunk,
+      spokenText: _streamingSpokenText,
       finalized: finalized,
     );
     // Move the cursor before awaiting: a concurrent feed must not re-enqueue
     // the chunks this call is still handing to playback.
     _streamingFedChunkCount = advance.fedChunkCount;
-    _streamingLastFedChunk = advance.lastFedChunk;
+    _streamingSpokenText = advance.spokenText;
 
     for (final chunk in advance.chunks) {
       await _appendStreamingChunk(session, chunk);
@@ -1557,7 +1571,7 @@ class TtsManager {
     _isStreamingSession = false;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
-    _streamingLastFedChunk = null;
+    _streamingSpokenText = '';
     _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;

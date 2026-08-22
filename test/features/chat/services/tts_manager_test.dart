@@ -168,18 +168,18 @@ void main() {
     List<String> speakStream(List<String> frames) {
       final spoken = <String>[];
       var fedChunkCount = 0;
-      String? lastFedChunk;
+      var spokenText = '';
 
       for (var index = 0; index < frames.length; index++) {
         final advance = advanceStreamingChunksForTesting(
           chunks: TtsManager.instance.getMessageContentParts(frames[index]),
           fedChunkCount: fedChunkCount,
-          lastFedChunk: lastFedChunk,
+          spokenText: spokenText,
           finalized: index == frames.length - 1,
         );
         spoken.addAll(advance.chunks);
         fedChunkCount = advance.fedChunkCount;
-        lastFedChunk = advance.lastFedChunk;
+        spokenText = advance.spokenText;
       }
 
       return spoken;
@@ -252,38 +252,61 @@ void main() {
       final advance = advanceStreamingChunksForTesting(
         chunks: const ['Opening line.', 'Answer one.', 'Answer two.'],
         fedChunkCount: 3,
-        lastFedChunk: 'Opening line.',
+        spokenText: 'Opening line.',
         finalized: true,
       );
 
       expect(advance.chunks, ['Answer one.', 'Answer two.']);
       expect(advance.fedChunkCount, 3);
-      expect(advance.lastFedChunk, 'Answer two.');
     });
 
     test('holds the trailing chunk back until finalization', () {
       final advance = advanceStreamingChunksForTesting(
         chunks: const ['Answer one.', 'Answer two.'],
         fedChunkCount: 0,
-        lastFedChunk: null,
+        spokenText: '',
         finalized: false,
       );
 
       expect(advance.chunks, ['Answer one.']);
       expect(advance.fedChunkCount, 1);
-      expect(advance.lastFedChunk, 'Answer one.');
+      expect(advance.spokenText, 'Answer one.');
     });
 
-    test('stays put when the anchor is gone entirely', () {
+    test('resumes where a rewritten response stops agreeing', () {
+      // The server replaced the tail of the answer. Everything up to the point
+      // the two versions diverge has been spoken already.
       final advance = advanceStreamingChunksForTesting(
-        chunks: const ['Rewritten one.', 'Rewritten two.', 'Rewritten three.'],
+        chunks: const ['Original one.', 'Rewritten two.', 'Rewritten three.'],
         fedChunkCount: 2,
-        lastFedChunk: 'Original two.',
+        spokenText: 'Original one.Original two.',
         finalized: true,
       );
 
-      expect(advance.chunks, ['Rewritten three.']);
+      expect(advance.chunks, ['Rewritten two.', 'Rewritten three.']);
       expect(advance.fedChunkCount, 3);
+    });
+
+    test('keeps its place when the answer repeats a sentence', () {
+      // 'Right away.' appears twice and a `</details>` landing between them
+      // shifted the split left, so the spoken copy is now at index 1. Anchoring
+      // on the chunk's text alone would match the second copy and skip the two
+      // sentences in between.
+      final advance = advanceStreamingChunksForTesting(
+        chunks: const [
+          'Intro.',
+          'Right away.',
+          'Middle line.',
+          'Right away.',
+          'Tail.',
+        ],
+        fedChunkCount: 4,
+        spokenText: 'Intro.Right away.',
+        finalized: true,
+      );
+
+      expect(advance.chunks, ['Middle line.', 'Right away.', 'Tail.']);
+      expect(advance.fedChunkCount, 5);
     });
   });
 
