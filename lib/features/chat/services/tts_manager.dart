@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
+import '../../../core/utils/semantic_details.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import 'native_tts_service.dart';
 
@@ -86,6 +87,124 @@ class TtsPlaybackSession {
 
   /// Whether to use server TTS (true) or device TTS (false).
   final bool useServerTts;
+}
+
+/// The chunks a streaming feed made speakable, plus the cursor to resume from.
+class StreamingChunkAdvance {
+  const StreamingChunkAdvance({
+    required this.chunks,
+    required this.fedChunkCount,
+    required this.spokenText,
+  });
+
+  /// Newly speakable chunks, trimmed, in playback order.
+  final List<String> chunks;
+
+  /// How many chunks of the current split have been consumed.
+  final int fedChunkCount;
+
+  /// Everything handed to playback so far, concatenated. The cursor is
+  /// re-derived from this after a re-split.
+  final String spokenText;
+}
+
+@visibleForTesting
+StreamingChunkAdvance advanceStreamingChunksForTesting({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String spokenText,
+  required bool finalized,
+}) {
+  return _advanceStreamingChunks(
+    chunks: chunks,
+    fedChunkCount: fedChunkCount,
+    spokenText: spokenText,
+    finalized: finalized,
+  );
+}
+
+StreamingChunkAdvance _advanceStreamingChunks({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String spokenText,
+  required bool finalized,
+}) {
+  // Hold the trailing chunk back until finalization: it is still growing.
+  final speakableCount = finalized
+      ? chunks.length
+      : (chunks.length <= 1 ? 0 : chunks.length - 1);
+
+  final resolved = _resolveStreamingCursor(
+    chunks: chunks,
+    fedChunkCount: fedChunkCount,
+    spokenText: spokenText,
+  );
+  var cursor = resolved.cursor;
+  final spoken = StringBuffer(resolved.spokenText);
+  final pending = <String>[];
+  while (cursor < speakableCount) {
+    final chunk = chunks[cursor];
+    cursor++;
+    final trimmed = chunk.trim();
+    if (trimmed.isEmpty) {
+      continue;
+    }
+    pending.add(trimmed);
+    spoken.write(trimmed);
+  }
+
+  return StreamingChunkAdvance(
+    chunks: pending,
+    fedChunkCount: cursor,
+    spokenText: spoken.toString(),
+  );
+}
+
+/// Where the feed cursor sits in a freshly derived split, and the text behind
+/// it.
+class _StreamingCursor {
+  const _StreamingCursor(this.cursor, this.spokenText);
+
+  final int cursor;
+  final String spokenText;
+}
+
+/// Re-derives the feed cursor by matching the split against the text already
+/// handed to playback.
+///
+/// The split is re-derived from the whole accumulated response on every feed,
+/// so a `</details>` arriving late removes that block from the sanitized body
+/// and shifts every later chunk left. A bare index would then point past
+/// sentences nobody has spoken, typically the answer itself, which is what
+/// makes a response go silent after a tool call. Matching on running text
+/// instead of on a single chunk keeps the cursor exact even when the same
+/// sentence appears more than once, and a server rewrite mid-answer resumes at
+/// the point the two versions stop agreeing.
+_StreamingCursor _resolveStreamingCursor({
+  required List<String> chunks,
+  required int fedChunkCount,
+  required String spokenText,
+}) {
+  if (spokenText.isEmpty || fedChunkCount <= 0) {
+    return const _StreamingCursor(0, '');
+  }
+
+  final replayed = StringBuffer();
+  var cursor = 0;
+  var matched = '';
+  for (final chunk in chunks) {
+    replayed.write(chunk.trim());
+    final candidate = replayed.toString();
+    if (!spokenText.startsWith(candidate)) {
+      break;
+    }
+    cursor++;
+    matched = candidate;
+    if (candidate.length == spokenText.length) {
+      break;
+    }
+  }
+  return _StreamingCursor(cursor, matched);
 }
 
 @visibleForTesting
@@ -226,6 +345,8 @@ class TtsManager {
   bool _isStreamingSession = false;
   bool _streamingFinalized = false;
   int _streamingFedChunkCount = 0;
+  String _streamingSpokenText = '';
+  Future<void> _streamingFeedSerial = Future<void>.value();
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
   final Set<int> _serverFetchingIndices = <int>{};
@@ -420,6 +541,8 @@ class TtsManager {
     _isStreamingSession = true;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
+    _streamingSpokenText = '';
+    _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
@@ -667,10 +790,7 @@ class TtsManager {
     String content, {
     String splitOn = splitOnPunctuation,
   }) {
-    final sanitizedContent = content.replaceAll(
-      RegExp(r'<details[^>]*>[\s\S]*?<\/details>', caseSensitive: false),
-      '',
-    );
+    final sanitizedContent = _sanitizeForSpeech(content);
 
     switch (splitOn) {
       case splitOnParagraphs:
@@ -683,6 +803,15 @@ class TtsManager {
         return extractSentencesForAudio(sanitizedContent);
     }
   }
+
+  /// Removes everything that must never be spoken: rendered semantic
+  /// `<details>` wrappers (reasoning, tool calls, code interpreter output) and
+  /// any other complete `<details>` block.
+  ///
+  /// A semantic wrapper that is still open — the common case while a response
+  /// streams — takes the rest of the body with it. Its contents would otherwise
+  /// be read aloud in the frames before `</details>` arrives to hide them.
+  String _sanitizeForSpeech(String content) => stripDetailsForSpeech(content);
 
   /// Gets available voices from the device TTS engine.
   Future<List<Map<String, dynamic>>> getDeviceVoices() async {
@@ -747,25 +876,46 @@ class TtsManager {
     return (bytes: result.bytes, mimeType: result.mimeType);
   }
 
+  /// Chains feeds so a second one cannot append its chunks in between the ones
+  /// an earlier feed is still handing to playback.
+  ///
+  /// Streamed text arrives faster than a chunk takes to reach the player, so
+  /// two feeds do overlap. Without the chain the later feed's sentences can
+  /// land first and the answer is spoken out of order.
   Future<void> _enqueueStreamingText(
+    TtsPlaybackSession session,
+    String accumulatedText, {
+    required bool finalized,
+  }) {
+    final queued = _streamingFeedSerial.then(
+      (_) =>
+          _feedStreamingChunks(session, accumulatedText, finalized: finalized),
+    );
+    _streamingFeedSerial = queued.catchError((Object _) {});
+    return queued;
+  }
+
+  Future<void> _feedStreamingChunks(
     TtsPlaybackSession session,
     String accumulatedText, {
     required bool finalized,
   }) async {
     if (_activeSession?.id != session.id) return;
 
-    final chunks = splitTextForSpeech(accumulatedText);
-    final speakableCount = finalized
-        ? chunks.length
-        : (chunks.length <= 1 ? 0 : chunks.length - 1);
+    final advance = _advanceStreamingChunks(
+      chunks: splitTextForSpeech(accumulatedText),
+      fedChunkCount: _streamingFedChunkCount,
+      spokenText: _streamingSpokenText,
+      finalized: finalized,
+    );
+    // Move the cursor before awaiting: a concurrent feed must not re-enqueue
+    // the chunks this call is still handing to playback.
+    _streamingFedChunkCount = advance.fedChunkCount;
+    _streamingSpokenText = advance.spokenText;
 
-    while (_streamingFedChunkCount < speakableCount) {
-      final chunk = chunks[_streamingFedChunkCount].trim();
-      _streamingFedChunkCount++;
-      if (chunk.isEmpty) {
-        continue;
-      }
+    for (final chunk in advance.chunks) {
       await _appendStreamingChunk(session, chunk);
+      if (_activeSession?.id != session.id) return;
     }
   }
 
@@ -1412,6 +1562,8 @@ class TtsManager {
     _isStreamingSession = false;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
+    _streamingSpokenText = '';
+    _streamingFeedSerial = Future<void>.value();
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
