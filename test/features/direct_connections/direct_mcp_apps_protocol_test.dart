@@ -217,6 +217,28 @@ void main() {
     );
   });
 
+  test('closing a view session rejects stale bridge traffic', () {
+    final protocol = _protocol();
+    protocol.decodeInbound(_ping(1));
+
+    protocol.close();
+
+    expect(
+      () => protocol.decodeInbound(_ping(2)),
+      throwsA(
+        isA<DirectMcpAppsProtocolException>().having(
+          (error) => error.message,
+          'message',
+          contains('closed'),
+        ),
+      ),
+    );
+    expect(
+      () => protocol.toolInputNotification(const {}),
+      throwsA(isA<DirectMcpAppsProtocolException>()),
+    );
+  });
+
   test('limits each app instance to twenty messages per second plus burst', () {
     var nowMicros = 0;
     final protocol = _protocol(nowMicros: () => nowMicros);

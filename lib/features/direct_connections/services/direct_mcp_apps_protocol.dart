@@ -48,8 +48,10 @@ final class DirectMcpAppsProtocol {
   final Set<Object> _pendingRequestIds = <Object>{};
   int _lastRefillMicros;
   double _tokens;
+  bool _closed = false;
 
   DirectMcpAppInboundMessage decodeInbound(String payload) {
+    _assertOpen();
     _takeRateToken();
     if (utf8.encode(payload).length > kDirectMcpAppsMaxMessageBytes) {
       throw const DirectMcpAppsProtocolException(
@@ -103,45 +105,65 @@ final class DirectMcpAppsProtocol {
 
   void completeRequest(Object id) => _pendingRequestIds.remove(id);
 
-  Map<String, dynamic> initializeResult(Object id) => _boundedHostMessage({
-    'jsonrpc': '2.0',
-    'id': id,
-    'result': {
-      'protocolVersion': kDirectMcpAppsProtocolVersion,
-      'hostCapabilities': {
-        'serverTools': {'listChanged': false},
-        'sandbox': {
-          'permissions': <String, dynamic>{},
-          'csp': {
-            'connectDomains': <String>[],
-            'resourceDomains': <String>[],
-            'frameDomains': <String>[],
-            'baseUriDomains': <String>[],
+  void close() {
+    _closed = true;
+    _pendingRequestIds.clear();
+  }
+
+  Map<String, dynamic> initializeResult(Object id) {
+    _assertOpen();
+    return _boundedHostMessage({
+      'jsonrpc': '2.0',
+      'id': id,
+      'result': {
+        'protocolVersion': kDirectMcpAppsProtocolVersion,
+        'hostCapabilities': {
+          'serverTools': {'listChanged': false},
+          'sandbox': {
+            'permissions': <String, dynamic>{},
+            'csp': {
+              'connectDomains': <String>[],
+              'resourceDomains': <String>[],
+              'frameDomains': <String>[],
+              'baseUriDomains': <String>[],
+            },
           },
         },
+        'hostInfo': {'name': 'conduit', 'version': '1.0.0'},
+        'hostContext': {
+          'displayMode': 'inline',
+          'availableDisplayModes': ['inline'],
+          'platform': 'mobile',
+        },
       },
-      'hostInfo': {'name': 'conduit', 'version': '1.0.0'},
-      'hostContext': {
-        'displayMode': 'inline',
-        'availableDisplayModes': ['inline'],
-        'platform': 'mobile',
-      },
-    },
-  });
+    });
+  }
 
-  Map<String, dynamic> toolInputNotification(Map<String, dynamic> arguments) =>
-      _boundedHostMessage({
-        'jsonrpc': '2.0',
-        'method': 'ui/notifications/tool-input',
-        'params': {'arguments': arguments},
-      });
+  Map<String, dynamic> toolInputNotification(Map<String, dynamic> arguments) {
+    _assertOpen();
+    return _boundedHostMessage({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/tool-input',
+      'params': {'arguments': arguments},
+    });
+  }
 
-  Map<String, dynamic> toolResultNotification(Map<String, dynamic> result) =>
-      _boundedHostMessage({
-        'jsonrpc': '2.0',
-        'method': 'ui/notifications/tool-result',
-        'params': result,
-      });
+  Map<String, dynamic> toolResultNotification(Map<String, dynamic> result) {
+    _assertOpen();
+    return _boundedHostMessage({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/tool-result',
+      'params': result,
+    });
+  }
+
+  void _assertOpen() {
+    if (_closed) {
+      throw const DirectMcpAppsProtocolException(
+        'The MCP App session is closed.',
+      );
+    }
+  }
 
   DirectMcpAppInitializeRequest _decodeInitialize(
     Object? id,
