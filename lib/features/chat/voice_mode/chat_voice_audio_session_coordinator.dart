@@ -305,6 +305,10 @@ class ChatVoiceAudioSessionCoordinator {
       if (enabled == _speakerphoneEnabled) return;
 
       await _applySpeakerphoneRoute(enabled, phase: 'device-change');
+      // The button can be pressed, or the call can end, while the platform
+      // calls above are still going. Publishing then would leave the speaker
+      // control showing a route nobody chose.
+      if (_speakerphoneChosenByUser || _routeChangesStopped) return;
       if (!_speakerphoneRouteController.isClosed) {
         _speakerphoneRouteController.add(enabled);
       }
