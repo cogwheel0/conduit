@@ -108,6 +108,28 @@ void main() {
       check(stripDetailsForSpeech(content)).equals(content);
     });
 
+    test('withholds an open wrapper nested in an ordinary details', () {
+      // The ordinary opener stays, but the reasoning body inside it is still
+      // a reasoning body.
+      final result = stripDetailsForSpeech(
+        'Answer. <details><summary>Extra</summary>'
+        '<details type="reasoning" done="false">internal notes',
+      );
+
+      check(result).equals('Answer. <details><summary>Extra</summary>');
+    });
+
+    test('strips a closed wrapper nested in an ordinary details', () {
+      final result = stripDetailsForSpeech(
+        'Answer. <details><summary>Extra</summary>'
+        '<details type="reasoning" done="true">notes</details>'
+        'visible tail',
+      );
+
+      check(result)
+          .equals('Answer. <details><summary>Extra</summary>visible tail');
+    });
+
     test('leaves content without details untouched', () {
       const content = 'Plain answer with no wrappers at all.';
 

@@ -103,8 +103,9 @@ String stripDetailsForSpeech(String content) {
     }
 
     final openStart = cursor + open.start;
+    final openEnd = cursor + open.end;
     kept.write(content.substring(cursor, openStart));
-    final blockEnd = _findDetailsBlockEnd(content, cursor + open.end);
+    final blockEnd = _findDetailsBlockEnd(content, openEnd);
     if (blockEnd == null) {
       final isSemantic = _semanticDetailsOpenPattern.matchAsPrefix(
         content,
@@ -115,8 +116,12 @@ String stripDetailsForSpeech(String content) {
         // wrapper. Withhold it until the close tag arrives.
         break;
       }
-      kept.write(content.substring(openStart));
-      break;
+      // An ordinary wrapper waiting for its close tag is no reason to silence
+      // the answer, but a wrapper nested inside it still has to be handled, so
+      // keep the tag and carry on from just past it.
+      kept.write(content.substring(openStart, openEnd));
+      cursor = openEnd;
+      continue;
     }
     cursor = blockEnd;
   }
