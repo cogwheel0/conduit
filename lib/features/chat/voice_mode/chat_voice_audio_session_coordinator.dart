@@ -53,6 +53,11 @@ class ChatVoiceAudioSessionCoordinator {
   bool? _accessoryAttached;
   bool _routeChangesStopped = false;
 
+  /// Set once this coordinator has been disposed. There is no next call for it
+  /// to route after that, so a `deactivate` arriving late must not lift the
+  /// shutter [dispose] put down.
+  bool _disposed = false;
+
   /// Set once [applyDefaultSpeakerphoneRoute] has picked the loudspeaker but no
   /// configure pass has tried to move the route there yet. Until one does,
   /// nobody knows whether the platform will take it.
@@ -222,19 +227,16 @@ class ChatVoiceAudioSessionCoordinator {
     // controller that drives it, so disposal cannot assume `deactivate` has
     // already run. Running it again is cheap and leaves nothing behind; not
     // running it can leave the phone in communication mode after the call.
-    await _tearDownRoute(phase: 'dispose', finalizing: true);
+    _disposed = true;
+    await _tearDownRoute(phase: 'dispose');
     await _speakerphoneRouteController.close();
   }
 
   /// Hands the route back to whatever had it before the call.
   ///
-  /// Safe to run twice: every step either restores state it captured or clears
-  /// state that is already clear. Pass [finalizing] when there is no next call
-  /// to route, which keeps the shutter down for good.
-  Future<void> _tearDownRoute({
-    required String phase,
-    bool finalizing = false,
-  }) async {
+  /// Safe to run twice, and in either order: every step either restores state
+  /// it captured or clears state that is already clear.
+  Future<void> _tearDownRoute({required String phase}) async {
     assert(() {
       debugRouteTeardowns.add(phase);
       return true;
@@ -260,7 +262,7 @@ class ChatVoiceAudioSessionCoordinator {
       _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
       _defaultRouteAwaitingConfirmation = false;
-      _routeChangesStopped = finalizing;
+      _routeChangesStopped = _disposed;
     }
   }
 

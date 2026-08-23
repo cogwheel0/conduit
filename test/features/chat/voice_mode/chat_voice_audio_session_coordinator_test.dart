@@ -203,6 +203,16 @@ void main() {
           .deepEquals(<String>['deactivate', 'dispose']);
     });
 
+    test('stays shut once disposed, however late hanging up is', () async {
+      await coordinator.dispose();
+      // Teardown normally lifts the shutter for the next call. A disposed
+      // coordinator has no next call, so this must not leave the button able to
+      // put the phone back into communication mode.
+      await coordinator.deactivate();
+
+      check(await coordinator.setSpeakerphoneEnabled(true)).isFalse();
+    });
+
     test('drops a reroute that hanging up overtakes', () async {
       final rerouting = reportDevices(const [AudioDeviceType.builtInEarpiece]);
       await coordinator.deactivate();
