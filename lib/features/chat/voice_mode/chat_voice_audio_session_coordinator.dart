@@ -105,9 +105,9 @@ class ChatVoiceAudioSessionCoordinator {
       'listening',
     );
     await _setActive(session, active: true, phase: 'listening');
-    final androidRouted = await _configureAndroidVoiceRoute(phase: 'listening');
-    final iosRouted = await _configureIosVoiceRoute(phase: 'listening');
-    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
+    _confirmDefaultSpeakerphoneRoute(
+      await _configureVoiceRoute(phase: 'listening'),
+    );
   }
 
   Future<void> configureForSpeaking() async {
@@ -133,9 +133,9 @@ class ChatVoiceAudioSessionCoordinator {
       'speaking',
     );
     await _setActive(session, active: true, phase: 'speaking');
-    final androidRouted = await _configureAndroidVoiceRoute(phase: 'speaking');
-    final iosRouted = await _configureIosVoiceRoute(phase: 'speaking');
-    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
+    _confirmDefaultSpeakerphoneRoute(
+      await _configureVoiceRoute(phase: 'speaking'),
+    );
     await _settleIosSpeakingRoute();
   }
 
@@ -162,12 +162,25 @@ class ChatVoiceAudioSessionCoordinator {
       'barge-in-speaking',
     );
     await _setActive(session, active: true, phase: 'barge-in-speaking');
-    final androidRouted = await _configureAndroidVoiceRoute(
-      phase: 'barge-in-speaking',
+    _confirmDefaultSpeakerphoneRoute(
+      await _configureVoiceRoute(phase: 'barge-in-speaking'),
     );
-    final iosRouted = await _configureIosVoiceRoute(phase: 'barge-in-speaking');
-    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
     await _settleIosSpeakingRoute();
+  }
+
+  /// Puts the call on the current route for a configure pass, and reports
+  /// whether both platforms took it.
+  ///
+  /// This queues behind the button and device-change reroutes because it makes
+  /// the same platform calls off the same [_speakerphoneEnabled] flag. Run
+  /// loose, a pass that started before a headset was pulled out can finish
+  /// after the reroute and put the call back on the route it just left.
+  Future<bool> _configureVoiceRoute({required String phase}) {
+    return _serializeRouteChange(() async {
+      final androidRouted = await _configureAndroidVoiceRoute(phase: phase);
+      final iosRouted = await _configureIosVoiceRoute(phase: phase);
+      return androidRouted && iosRouted;
+    });
   }
 
   Future<void> deactivate() async {
@@ -273,6 +286,10 @@ class ChatVoiceAudioSessionCoordinator {
       _speakerphoneEnabled = false;
       return;
     }
+    // A headset connected while the pass was on the wire has already moved the
+    // call off the loudspeaker and said so. Announcing the default now would
+    // talk over it.
+    if (!_speakerphoneEnabled) return;
     if (!_speakerphoneRouteController.isClosed) {
       _speakerphoneRouteController.add(true);
     }
