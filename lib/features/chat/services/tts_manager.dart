@@ -365,6 +365,14 @@ class TtsManager {
   int _streamingFedChunkCount = 0;
   String _streamingSpokenText = '';
   Future<void> _streamingFeedSerial = Future<void>.value();
+
+  /// Feeds queued or running on [_streamingFeedSerial].
+  ///
+  /// `finishStreaming` marks the response finalized before its own feed reaches
+  /// the chain, so finalized alone does not mean every sentence has been
+  /// appended. Playback finishing a chunk in that window would otherwise end
+  /// the session and the queued feed would drop the rest of the answer.
+  int _streamingFeedsPending = 0;
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
   final Set<int> _serverFetchingIndices = <int>{};
@@ -937,10 +945,18 @@ class TtsManager {
     String accumulatedText, {
     required bool finalized,
   }) {
-    final queued = _streamingFeedSerial.then(
-      (_) =>
-          _feedStreamingChunks(session, accumulatedText, finalized: finalized),
-    );
+    _streamingFeedsPending++;
+    final queued = _streamingFeedSerial
+        .then(
+          (_) => _feedStreamingChunks(
+            session,
+            accumulatedText,
+            finalized: finalized,
+          ),
+        )
+        .whenComplete(() {
+          _streamingFeedsPending--;
+        });
     _streamingFeedSerial = queued.catchError((Object _) {});
     return queued;
   }
@@ -1134,7 +1150,8 @@ class TtsManager {
 
     // Check if there are more chunks
     if (nextIndex >= session.chunks.length) {
-      if (_isStreamingSession && !_streamingFinalized) {
+      if (_isStreamingSession &&
+          (!_streamingFinalized || _streamingFeedsPending > 0)) {
         _deviceWaitingForStreamingChunk = true;
         return;
       }

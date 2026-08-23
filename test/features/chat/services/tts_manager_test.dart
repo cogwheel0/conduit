@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -178,6 +179,55 @@ void main() {
       final second = await TtsManager.instance.speak('After the call.');
 
       check(second!.id).isGreaterThan(first!.id);
+    });
+  });
+
+  group('TtsManager streaming finalization', () {
+    const first = 'The first sentence carries enough words to stand alone.';
+    const second =
+        'The second sentence also carries enough words to stand alone.';
+    const third = 'The third sentence closes out the response body.';
+
+    late _FakeNativeTtsService native;
+
+    setUp(() async {
+      native = _FakeNativeTtsService();
+      await TtsManager.instance.debugSetNativeTtsService(native);
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(preferServer: false),
+      );
+    });
+
+    tearDown(() async {
+      await TtsManager.instance.reset();
+      await TtsManager.instance.debugSetNativeTtsService(null);
+      await native.dispose();
+    });
+
+    test('speaks the tail when a chunk completes mid-finalize', () async {
+      final speaking = Completer<void>();
+      native.gateFirstSpeak = speaking;
+
+      await TtsManager.instance.startStreaming();
+      final feeding = TtsManager.instance.feedStreamingText('$first $second ');
+      await pumpEventQueue();
+
+      // The response is finalized while the first feed is still handing chunk
+      // one to the engine, so the final feed is queued behind it with the rest
+      // of the answer still to append.
+      final finishing = TtsManager.instance.finishStreaming(
+        finalText: '$first $second $third',
+      );
+      native.emit('complete');
+      await pumpEventQueue();
+
+      speaking.complete();
+      await feeding;
+      await finishing;
+      native.emit('complete');
+      await pumpEventQueue();
+
+      check(native.spokenTexts).deepEquals([first, second, third]);
     });
   });
 
@@ -425,6 +475,17 @@ void main() {
 
 class _FakeNativeTtsService extends NativeTtsService {
   final List<bool> voiceCallFlags = <bool>[];
+  final List<String> spokenTexts = <String>[];
+  final StreamController<NativeTtsEvent> _events =
+      StreamController<NativeTtsEvent>.broadcast();
+
+  /// Holds the next utterance open, so a test can decide when the engine has
+  /// taken it.
+  Completer<void>? gateFirstSpeak;
+
+  void emit(String type) => _events.add(NativeTtsEvent(type: type));
+
+  Future<void> dispose() => _events.close();
 
   @override
   bool get isSupportedPlatform => true;
@@ -433,7 +494,7 @@ class _FakeNativeTtsService extends NativeTtsService {
   Future<bool> isAvailable() async => true;
 
   @override
-  Stream<NativeTtsEvent> get events => const Stream<NativeTtsEvent>.empty();
+  Stream<NativeTtsEvent> get events => _events.stream;
 
   @override
   Future<List<Map<String, dynamic>>> getVoices() async =>
@@ -449,6 +510,12 @@ class _FakeNativeTtsService extends NativeTtsService {
     bool voiceCall = false,
   }) async {
     voiceCallFlags.add(voiceCall);
+    spokenTexts.add(text);
+    final gate = gateFirstSpeak;
+    if (gate != null) {
+      gateFirstSpeak = null;
+      await gate.future;
+    }
     return true;
   }
 
