@@ -16,6 +16,7 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1181,11 +1182,20 @@ void main() {
     );
   });
 
-  test('markdown prewarm keeps its active timer while scrolling', () {
-    check(debugShouldStartMarkdownPrewarmTimerForTesting(timerActive: false))
-        .isTrue();
-    check(debugShouldStartMarkdownPrewarmTimerForTesting(timerActive: true))
-        .isFalse();
+  test('markdown prewarm uses the latest batch queued during its throttle', () {
+    fakeAsync((async) {
+      final batches = <List<String>>[];
+      final throttle = MarkdownPrewarmThrottle();
+
+      throttle.schedule(const ['first'], batches.add);
+      throttle.schedule(const ['latest'], batches.add);
+      async.elapse(const Duration(milliseconds: 220));
+
+      check(batches).deepEquals([
+        ['latest'],
+      ]);
+      throttle.cancel();
+    });
   });
 
   test('markdown prewarm skips still-streaming assistant messages', () {

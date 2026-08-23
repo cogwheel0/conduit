@@ -1054,12 +1054,23 @@ class BlockRenderer {
     }
 
     if (columns.isEmpty) return const SizedBox.shrink();
+    final previewRows = rows
+        .take(_ExpandableMarkdownTable.previewRowCount)
+        .map((row) => _buildTableRow(row, columns.length))
+        .toList(growable: false);
+    final remainingRows = rows
+        .skip(_ExpandableMarkdownTable.previewRowCount)
+        .toList(growable: false);
+    for (final row in remainingRows) {
+      inlineRenderer.advanceVisibleTextOffset(row.textContent.length);
+    }
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
       child: _ExpandableMarkdownTable(
         columns: columns,
-        rows: rows,
+        previewRows: previewRows,
+        remainingRows: remainingRows,
         rowBuilder: (row) => _buildTableRow(row, columns.length),
         style: style,
       ),
@@ -1523,7 +1534,8 @@ class BlockRenderer {
 class _ExpandableMarkdownTable extends StatefulWidget {
   const _ExpandableMarkdownTable({
     required this.columns,
-    required this.rows,
+    required this.previewRows,
+    required this.remainingRows,
     required this.rowBuilder,
     required this.style,
   });
@@ -1531,7 +1543,8 @@ class _ExpandableMarkdownTable extends StatefulWidget {
   static const previewRowCount = 20;
 
   final List<DataColumn> columns;
-  final List<CompiledMarkdownElement> rows;
+  final List<DataRow> previewRows;
+  final List<CompiledMarkdownElement> remainingRows;
   final DataRow Function(CompiledMarkdownElement row) rowBuilder;
   final ConduitMarkdownStyle style;
 
@@ -1545,11 +1558,13 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
 
   @override
   Widget build(BuildContext context) {
-    final collapsible =
-        widget.rows.length > _ExpandableMarkdownTable.previewRowCount;
+    final collapsible = widget.remainingRows.isNotEmpty;
     final visibleRows = _expanded
-        ? widget.rows
-        : widget.rows.take(_ExpandableMarkdownTable.previewRowCount);
+        ? <DataRow>[
+            ...widget.previewRows,
+            ...widget.remainingRows.map(widget.rowBuilder),
+          ]
+        : widget.previewRows;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1566,7 +1581,7 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
                 borderRadius: BorderRadius.circular(widget.style.tableRadius),
               ),
               columns: widget.columns,
-              rows: visibleRows.map(widget.rowBuilder).toList(growable: false),
+              rows: visibleRows,
             ),
           ),
         ),
@@ -1579,10 +1594,8 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
             label: Text(
               _expanded
                   ? AppLocalizations.of(context)!.markdownShowLess
-                  : AppLocalizations.of(context)!.markdownShowMoreLines(
-                      widget.rows.length -
-                          _ExpandableMarkdownTable.previewRowCount,
-                    ),
+                  : AppLocalizations.of(context)!
+                        .markdownShowMoreLines(widget.remainingRows.length),
             ),
           ),
       ],

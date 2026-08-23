@@ -439,11 +439,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       oldWidget.messageIds,
       widget.messageIds,
     );
+    final rowBuilderChanged = !identical(
+      oldWidget.rowBuilder,
+      widget.rowBuilder,
+    );
     final entryConfigurationChanged =
         messageIdsChanged ||
         !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
-        (widget.rowRebuildKeys.isEmpty &&
-            !identical(oldWidget.rowBuilder, widget.rowBuilder));
+        rowBuilderChanged;
+    if (rowBuilderChanged) _rowWidgetCache.clear();
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
       // Capture before the new child configuration is laid out. This is the
@@ -1806,7 +1810,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       onUnmounted: _unregisterMountedRow,
       child: IndexedSemantics(
         index: chronologicalIndex,
-        child: widget.rowBuilder(context, entry.sourceIndex),
+        child: Builder(
+          builder: (context) => widget.rowBuilder(context, entry.sourceIndex),
+        ),
       ),
     );
     final builtRow = KeyedSubtree(key: _TimelineRowKey(id), child: row);

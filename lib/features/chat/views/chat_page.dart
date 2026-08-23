@@ -478,10 +478,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int? _timelineTailMetadataDesyncLogGeneration;
   final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
       LinkedHashMap<String, ChatScrollAnchor>();
-  Timer? _markdownPrewarmTimer;
-  int _markdownPrewarmGeneration = 0;
+  final MarkdownPrewarmThrottle _markdownPrewarmThrottle =
+      MarkdownPrewarmThrottle();
   String? _lastMarkdownPrewarmSignature;
-  List<String> _pendingMarkdownPrewarmContents = const <String>[];
   bool _hasPrewarmedAttachedViewport = false;
   Set<String> _lastVisibleMessageIds = const <String>{};
   double? _lastBottomInset;
@@ -1004,7 +1003,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub?.close();
     _hermesStreamingSub?.close();
     _hermesTranscriptRefreshGeneration++;
-    _markdownPrewarmTimer?.cancel();
+    _markdownPrewarmThrottle.cancel();
     _screenContextRetryTimer?.cancel();
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
@@ -2323,11 +2322,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _lastConversationId = conversationId;
     _cancelPendingViewportNavigation();
-    _markdownPrewarmTimer?.cancel();
-    _markdownPrewarmTimer = null;
-    _markdownPrewarmGeneration++;
+    _markdownPrewarmThrottle.cancel();
     _lastMarkdownPrewarmSignature = null;
-    _pendingMarkdownPrewarmContents = const <String>[];
     _hasPrewarmedAttachedViewport = false;
     _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
@@ -3392,10 +3388,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     if (filteredCandidateIndices.isEmpty) {
-      _markdownPrewarmTimer?.cancel();
-      _markdownPrewarmTimer = null;
+      _markdownPrewarmThrottle.cancel();
       _lastMarkdownPrewarmSignature = null;
-      _pendingMarkdownPrewarmContents = const <String>[];
       return;
     }
 
@@ -3408,22 +3402,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .map((index) => messages[index].content.trim())
         .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
-    _pendingMarkdownPrewarmContents = rawContents;
-    if (!debugShouldStartMarkdownPrewarmTimerForTesting(
-      timerActive: _markdownPrewarmTimer?.isActive ?? false,
-    )) {
-      return;
-    }
-    _markdownPrewarmGeneration += 1;
-    final generation = _markdownPrewarmGeneration;
-    _markdownPrewarmTimer = Timer(const Duration(milliseconds: 220), () {
-      _markdownPrewarmTimer = null;
-      if (!mounted || generation != _markdownPrewarmGeneration) {
-        return;
-      }
-      final pendingContents = _pendingMarkdownPrewarmContents;
-      _pendingMarkdownPrewarmContents = const <String>[];
-      if (pendingContents.isEmpty) return;
+    _markdownPrewarmThrottle.schedule(rawContents, (pendingContents) {
+      if (!mounted) return;
       unawaited(
         ref
             .read(markdownCompileServiceProvider)
@@ -5421,9 +5401,30 @@ bool _visibleMessageIdsGained({
 }
 
 @visibleForTesting
-bool debugShouldStartMarkdownPrewarmTimerForTesting({
-  required bool timerActive,
-}) => !timerActive;
+class MarkdownPrewarmThrottle {
+  MarkdownPrewarmThrottle({this.delay = const Duration(milliseconds: 220)});
+
+  final Duration delay;
+  Timer? _timer;
+  List<String> _pendingContents = const <String>[];
+
+  void schedule(List<String> contents, ValueChanged<List<String>> onReady) {
+    _pendingContents = contents;
+    if (_timer?.isActive ?? false) return;
+    _timer = Timer(delay, () {
+      _timer = null;
+      final pendingContents = _pendingContents;
+      _pendingContents = const <String>[];
+      if (pendingContents.isNotEmpty) onReady(pendingContents);
+    });
+  }
+
+  void cancel() {
+    _timer?.cancel();
+    _timer = null;
+    _pendingContents = const <String>[];
+  }
+}
 
 @visibleForTesting
 List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
