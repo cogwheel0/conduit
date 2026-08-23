@@ -1055,11 +1055,14 @@ class TtsManager {
       } catch (error) {
         _emitEvent(TtsError(error.toString()));
       } finally {
-        _serverFetchingIndices.remove(index);
-        if (_streamingFinalized &&
-            _serverFetchingIndices.isEmpty &&
-            _activeSession?.id == session.id) {
-          _onServerAudioComplete();
+        // The set was emptied when this session ended, so a fetch that outlived
+        // it would take the next session's marker for the same index instead of
+        // its own.
+        if (_activeSession?.id == session.id) {
+          _serverFetchingIndices.remove(index);
+          if (_streamingFinalized && _serverFetchingIndices.isEmpty) {
+            _onServerAudioComplete();
+          }
         }
       }
     }());
