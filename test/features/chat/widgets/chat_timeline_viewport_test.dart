@@ -623,6 +623,131 @@ void main() {
     },
   );
 
+  _viewportTest('timeline mutations rebuild only changed mounted rows', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    var ids = List<String>.generate(18, (index) => 'message-$index');
+    var rowRebuildKeys = List<Object?>.of(ids);
+    final buildCounts = <String, int>{};
+    late StateSetter rebuild;
+    late final ChatTimelineRowBuilder rowBuilder;
+    rowBuilder = (context, index) {
+      final id = ids[index];
+      buildCounts.update(id, (count) => count + 1, ifAbsent: () => 1);
+      return SizedBox(height: 52, child: Text(id));
+    };
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              rowRebuildKeys: rowRebuildKeys,
+              rowBuilder: rowBuilder,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final initialCounts = Map<String, int>.of(buildCounts);
+
+    rebuild(() {
+      ids = [...ids, 'message-18'];
+      rowRebuildKeys = [...rowRebuildKeys, 'message-18'];
+    });
+    await tester.pumpAndSettle();
+
+    for (final entry in initialCounts.entries) {
+      check(buildCounts[entry.key]).equals(entry.value);
+    }
+    check(buildCounts['message-18']).equals(1);
+
+    final beforeVersionChange = Map<String, int>.of(buildCounts);
+    rebuild(() {
+      rowRebuildKeys = [...rowRebuildKeys]..[17] = 'message-17-v2';
+    });
+    await tester.pump();
+
+    check(buildCounts['message-17'])
+        .equals(beforeVersionChange['message-17']! + 1);
+    for (final id in ids.where((id) => id != 'message-17')) {
+      check(buildCounts[id]).equals(beforeVersionChange[id]);
+    }
+  });
+
+  _viewportTest('row builder changes invalidate cached rows', (tester) async {
+    final controller = _controller(tester);
+    const ids = ['message-0'];
+    late StateSetter rebuild;
+    ChatTimelineRowBuilder rowBuilder = (context, index) =>
+        const SizedBox(height: 52, child: Text('version-1'));
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              rowRebuildKeys: ids,
+              rowBuilder: rowBuilder,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(find.text('version-1').evaluate()).length.equals(1);
+    rebuild(() {
+      rowBuilder = (context, index) =>
+          const SizedBox(height: 52, child: Text('version-2'));
+    });
+    await tester.pump();
+
+    check(find.text('version-1').evaluate()).isEmpty();
+    check(find.text('version-2').evaluate()).length.equals(1);
+  });
+
+  _viewportTest('cached rows update inherited theme values', (tester) async {
+    final controller = _controller(tester);
+    const ids = ['message-0'];
+    Widget rowBuilder(BuildContext context, int index) => SizedBox(
+      height: 52,
+      child: Text(
+        'themed-row',
+        style: TextStyle(color: Theme.of(context).colorScheme.primary),
+      ),
+    );
+
+    Widget host(Color primary) => _viewportHost(
+      _viewport(
+        controller: controller,
+        ids: ids,
+        rowRebuildKeys: ids,
+        rowBuilder: rowBuilder,
+      ),
+      theme: ThemeData(colorScheme: ColorScheme.light(primary: primary)),
+    );
+
+    await tester.pumpWidget(host(Colors.red));
+    await tester.pumpAndSettle();
+    check(tester.widget<Text>(find.text('themed-row')).style?.color)
+        .equals(Colors.red);
+
+    await tester.pumpWidget(host(Colors.blue));
+    await tester.pumpAndSettle();
+
+    check(tester.widget<Text>(find.text('themed-row')).style?.color)
+        .equals(Colors.blue);
+  });
+
   _viewportTest('viewport movement does not alter a free-scroll anchor', (
     tester,
   ) async {
@@ -2411,6 +2536,7 @@ Widget _viewport({
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
   ChatTimelineRowBuilder? rowBuilder,
+  List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
   ValueChanged<double>? onPinEndSpaceChanged,
   VoidCallback? onOldestThresholdReached,
@@ -2424,6 +2550,7 @@ Widget _viewport({
     controller: controller,
     ownerGeneration: ownerGeneration,
     messageIds: ids,
+    rowRebuildKeys: rowRebuildKeys,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,
