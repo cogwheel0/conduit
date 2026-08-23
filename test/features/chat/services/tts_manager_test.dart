@@ -424,6 +424,34 @@ void main() {
           .equals('Opening line.Rewritten middle.Closing line.');
     });
 
+    test('remembers what was heard past the chunk it holds back', () {
+      // The rewrite arrives mid-stream, so the closing line sits behind the
+      // trailing chunk this pass holds back. Playback already heard it under the
+      // old wording of the middle.
+      const chunks = ['Opening line.', 'Rewritten middle.', 'Closing line.'];
+      final held = advanceStreamingChunksForTesting(
+        chunks: chunks,
+        fedChunkCount: 3,
+        spokenText: 'Opening line.Original middle.Closing line.',
+        finalized: false,
+      );
+
+      check(held.chunks).deepEquals(['Rewritten middle.']);
+      check(held.fedChunkCount).equals(2);
+
+      // Finalization releases the closing line. Forgetting that it was heard
+      // would speak it a second time.
+      final finalized = advanceStreamingChunksForTesting(
+        chunks: chunks,
+        fedChunkCount: held.fedChunkCount,
+        spokenText: held.spokenText,
+        finalized: true,
+      );
+
+      check(finalized.chunks).isEmpty();
+      check(finalized.fedChunkCount).equals(3);
+    });
+
     test('keeps its place when the answer repeats a sentence', () {
       // 'Right away.' appears twice and a `</details>` landing between them
       // shifted the split left, so the spoken copy is now at index 1. Anchoring

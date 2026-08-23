@@ -170,6 +170,12 @@ StreamingChunkAdvance _advanceStreamingChunks({
     pending.add(trimmed);
   }
 
+  // Whatever is left of the old response playback heard stays on the end. Mid
+  // stream the trailing chunk is held back, so a sentence beyond it is heard
+  // history the next feed still has to match against; dropping it here would
+  // let finalization queue that sentence a second time.
+  spoken.write(alreadyHeard.substring(heardCursor));
+
   return StreamingChunkAdvance(
     chunks: pending,
     fedChunkCount: cursor,
