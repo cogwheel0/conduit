@@ -241,6 +241,16 @@ void main() {
       check(await coordinator.setSpeakerphoneEnabled(true)).isFalse();
     });
 
+    test('drops a speaker press that hanging up overtakes', () async {
+      // The press is queued, not finished, when the call ends. Moving the route
+      // behind the teardown would be work for a call nobody is on, and the
+      // answer would light the speaker button up on the way out.
+      final pressed = coordinator.setSpeakerphoneEnabled(true);
+      await coordinator.deactivate();
+
+      check(await pressed).isFalse();
+    });
+
     test('drops a reroute that hanging up overtakes', () async {
       final rerouting = reportDevices(const [AudioDeviceType.builtInEarpiece]);
       await coordinator.deactivate();

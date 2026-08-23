@@ -535,11 +535,23 @@ class ChatVoiceAudioSessionCoordinator {
     // sees the press and stands down.
     _pendingSpeakerphoneRequests++;
     return _serializeRouteChange(() async {
-      bool applied;
+      var applied = false;
       try {
+        if (_routeChangesStopped) {
+          // Teardown started while this press waited its turn. The route is on
+          // its way back to whatever had it before the call, so moving it now
+          // is platform work for a call that is over.
+          return false;
+        }
         applied = await _applySpeakerphoneRoute(enabled, phase: 'user-toggle');
       } finally {
         _pendingSpeakerphoneRequests--;
+      }
+      if (_routeChangesStopped) {
+        // Same again, for a teardown that started while the platform calls were
+        // out. Answering `true` here would light the speaker button up as the
+        // call ends.
+        return false;
       }
       if (applied) {
         _speakerphoneChosenByUser = true;
