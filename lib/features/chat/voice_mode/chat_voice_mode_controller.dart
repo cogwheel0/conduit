@@ -573,9 +573,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return result;
   }
 
-  /// Starts accessory-free calls on the loudspeaker so the snapshot and the
-  /// overlay's speaker button match the route the coordinator picked, and
-  /// follows the coordinator when hardware comes and goes mid-call.
+  /// Starts accessory-free calls on the loudspeaker, and follows the
+  /// coordinator when hardware comes and goes mid-call.
+  ///
+  /// The snapshot only ever moves on a route the coordinator confirms, so the
+  /// overlay's speaker button never lights up for a move the platform refused.
   Future<void> _applyDefaultSpeakerphoneRoute() async {
     final coordinator = _audioSessionCoordinator;
     if (coordinator == null) {
@@ -588,11 +590,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       if (_disposed || !state.isActive) return;
       state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });
-    final enabled = await coordinator.applyDefaultSpeakerphoneRoute();
-    if (_disposed || !enabled) {
-      return;
-    }
-    state = state.copyWith(isSpeakerphoneEnabled: true);
+    await coordinator.applyDefaultSpeakerphoneRoute();
   }
 
   Future<void> _requestAndroidVoiceRoutingPermission() async {

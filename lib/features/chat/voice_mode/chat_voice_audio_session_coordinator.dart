@@ -53,6 +53,11 @@ class ChatVoiceAudioSessionCoordinator {
   bool? _accessoryAttached;
   bool _routeChangesStopped = false;
 
+  /// Set once [applyDefaultSpeakerphoneRoute] has picked the loudspeaker but no
+  /// configure pass has tried to move the route there yet. Until one does,
+  /// nobody knows whether the platform will take it.
+  bool _defaultRouteAwaitingConfirmation = false;
+
   /// Bumped by every teardown so work started for an earlier call can tell that
   /// it came back too late.
   int _callGeneration = 0;
@@ -100,8 +105,9 @@ class ChatVoiceAudioSessionCoordinator {
       'listening',
     );
     await _setActive(session, active: true, phase: 'listening');
-    await _configureAndroidVoiceRoute(phase: 'listening');
-    await _configureIosVoiceRoute(phase: 'listening');
+    final androidRouted = await _configureAndroidVoiceRoute(phase: 'listening');
+    final iosRouted = await _configureIosVoiceRoute(phase: 'listening');
+    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
   }
 
   Future<void> configureForSpeaking() async {
@@ -127,8 +133,9 @@ class ChatVoiceAudioSessionCoordinator {
       'speaking',
     );
     await _setActive(session, active: true, phase: 'speaking');
-    await _configureAndroidVoiceRoute(phase: 'speaking');
-    await _configureIosVoiceRoute(phase: 'speaking');
+    final androidRouted = await _configureAndroidVoiceRoute(phase: 'speaking');
+    final iosRouted = await _configureIosVoiceRoute(phase: 'speaking');
+    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
     await _settleIosSpeakingRoute();
   }
 
@@ -155,8 +162,11 @@ class ChatVoiceAudioSessionCoordinator {
       'barge-in-speaking',
     );
     await _setActive(session, active: true, phase: 'barge-in-speaking');
-    await _configureAndroidVoiceRoute(phase: 'barge-in-speaking');
-    await _configureIosVoiceRoute(phase: 'barge-in-speaking');
+    final androidRouted = await _configureAndroidVoiceRoute(
+      phase: 'barge-in-speaking',
+    );
+    final iosRouted = await _configureIosVoiceRoute(phase: 'barge-in-speaking');
+    _confirmDefaultSpeakerphoneRoute(androidRouted && iosRouted);
     await _settleIosSpeakingRoute();
   }
 
@@ -180,6 +190,7 @@ class ChatVoiceAudioSessionCoordinator {
       _speakerphoneEnabled = false;
       _speakerphoneChosenByUser = false;
       _accessoryAttached = null;
+      _defaultRouteAwaitingConfirmation = false;
       _routeChangesStopped = false;
     }
   }
@@ -205,8 +216,7 @@ class ChatVoiceAudioSessionCoordinator {
   static bool isExternalAudioAccessory(AudioDeviceType type) =>
       _externalAudioAccessoryTypes.contains(type);
 
-  /// Picks the speakerphone for a call that has no accessory to play through,
-  /// and reports whether it did.
+  /// Picks the speakerphone for a call that has no accessory to play through.
   ///
   /// Voice calls run the session in communication mode, so a phone with
   /// nothing attached routes playback to the earpiece — audible only with the
@@ -215,11 +225,12 @@ class ChatVoiceAudioSessionCoordinator {
   /// hearing aid connected routed to it.
   ///
   /// Only the routing preference is set here; the `configureFor*` pass that
-  /// follows applies it. Call this before the first pass of a call, not after a
-  /// manual toggle, or it would overwrite the user's choice.
-  Future<bool> applyDefaultSpeakerphoneRoute() async {
+  /// follows applies it, and [speakerphoneRouteChanges] carries the answer once
+  /// it has. Call this before the first pass of a call, not after a manual
+  /// toggle, or it would overwrite the user's choice.
+  Future<void> applyDefaultSpeakerphoneRoute() async {
     if (!Platform.isAndroid && !Platform.isIOS) {
-      return false;
+      return;
     }
     final generation = _callGeneration;
     final attached = await _hasExternalAudioAccessory();
@@ -227,7 +238,7 @@ class ChatVoiceAudioSessionCoordinator {
       // The call ended, or the speaker button was pressed, while the scan was
       // out. Either way this answer is stale and must not resubscribe or move
       // the route.
-      return false;
+      return;
     }
 
     _accessoryAttached = attached;
@@ -239,10 +250,32 @@ class ChatVoiceAudioSessionCoordinator {
       // A failed scan says nothing about what is plugged in, and playing an
       // answer out of the loudspeaker over someone's headset is worse than
       // leaving the route alone.
-      return false;
+      return;
     }
     _speakerphoneEnabled = true;
-    return true;
+    _defaultRouteAwaitingConfirmation = true;
+  }
+
+  /// Reports the default route once a configure pass has tried to apply it.
+  ///
+  /// The session does not exist yet when the default is picked, so the route
+  /// only moves on the next `configureFor*` pass. Announcing the loudspeaker
+  /// before then would light the speaker button up for a route the platform
+  /// still had the chance to refuse.
+  void _confirmDefaultSpeakerphoneRoute(bool applied) {
+    if (!_defaultRouteAwaitingConfirmation) return;
+    _defaultRouteAwaitingConfirmation = false;
+    if (_speakerphoneChosenByUser || _routeChangesStopped) return;
+    if (!applied) {
+      // The call is still on the earpiece, so the preference set above never
+      // became a route. Putting the flag back lets the next device event try
+      // the move again.
+      _speakerphoneEnabled = false;
+      return;
+    }
+    if (!_speakerphoneRouteController.isClosed) {
+      _speakerphoneRouteController.add(true);
+    }
   }
 
   /// Keeps the default following the hardware for the rest of the call:
@@ -628,9 +661,10 @@ class ChatVoiceAudioSessionCoordinator {
     }
   }
 
-  Future<void> _configureIosVoiceRoute({required String phase}) async {
+  /// Puts the iOS session on the current route, and reports whether it took.
+  Future<bool> _configureIosVoiceRoute({required String phase}) async {
     if (!Platform.isIOS) {
-      return;
+      return true;
     }
 
     final payload = _speakerphoneEnabled
@@ -643,8 +677,7 @@ class ChatVoiceAudioSessionCoordinator {
             phase: phase,
           );
     if (payload == null) {
-      await _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
-      return;
+      return _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
     }
 
     final selected = payload['selected'] == true;
@@ -653,7 +686,7 @@ class ChatVoiceAudioSessionCoordinator {
       scope: 'chat/voice_audio',
       data: _iosRouteLogData(payload, phase: phase),
     );
-    await _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
+    return _setIosSpeakerphoneEnabled(_speakerphoneEnabled, phase: phase);
   }
 
   /// Overrides the iOS output port, and reports whether the session took it.

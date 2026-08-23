@@ -1105,6 +1105,7 @@ void main() {
         chatVoiceModeControllerProvider.notifier,
       );
       await controller.start(startNewConversation: false);
+      await pumpEventQueue();
 
       check(audioSession.defaultRouteCalls).equals(1);
       check(
@@ -1151,6 +1152,7 @@ void main() {
 
     final controller = container.read(chatVoiceModeControllerProvider.notifier);
     await controller.start(startNewConversation: false);
+    await pumpEventQueue();
     check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
         .isTrue();
 
@@ -2500,9 +2502,8 @@ class _FakeChatVoiceAudioSessionCoordinator
   Stream<bool> get speakerphoneRouteChanges => routeChanges.stream;
 
   @override
-  Future<bool> applyDefaultSpeakerphoneRoute() async {
+  Future<void> applyDefaultSpeakerphoneRoute() async {
     defaultRouteCalls += 1;
-    return defaultsToSpeakerphone;
   }
 
   @override
@@ -2514,6 +2515,12 @@ class _FakeChatVoiceAudioSessionCoordinator
   @override
   Future<void> configureForListening() async {
     listeningCalls += 1;
+    // The real coordinator only announces the default once a configure pass has
+    // moved the route, so the fake announces it from the same place.
+    if (defaultsToSpeakerphone && !routeChanges.isClosed) {
+      defaultsToSpeakerphone = false;
+      routeChanges.add(true);
+    }
   }
 
   @override
