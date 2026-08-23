@@ -1053,7 +1053,11 @@ class TtsManager {
         _setBufferedServerChunk(index, chunk);
         await _enqueueBufferedServerChunks(session);
       } catch (error) {
-        _emitEvent(TtsError(error.toString()));
+        // A fetch for a session that is over has nobody to report to, and the
+        // listeners are all watching whatever is playing now.
+        if (_activeSession?.id == session.id) {
+          _emitEvent(TtsError(error.toString()));
+        }
       } finally {
         // The set was emptied when this session ended, so a fetch that outlived
         // it would take the next session's marker for the same index instead of
