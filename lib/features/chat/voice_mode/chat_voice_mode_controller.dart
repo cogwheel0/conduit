@@ -1677,8 +1677,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _runTeardownStep('tts-stop', () async {
           if (!replacementOwnsTts()) {
             await tts?.stop();
-            // Hand the shared engine back to read-aloud, which belongs on the
-            // media stream. A replacement session left it on the call route.
+          }
+        });
+        // Its own step: a stop that throws must not leave the shared engine on
+        // the call route, where read-aloud does not belong.
+        await _runTeardownStep('tts-call-route-release', () async {
+          if (!replacementOwnsTts()) {
             tts?.setVoiceCallActive(false);
           }
         });

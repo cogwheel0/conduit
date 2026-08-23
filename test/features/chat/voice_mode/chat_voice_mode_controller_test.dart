@@ -1591,7 +1591,9 @@ void main() {
     'stop completes every teardown step and ends CallKit after cleanup errors',
     () async {
       final input = _FakeVoiceInputService();
-      final tts = _FakeTextToSpeechService()..throwOnStopStreaming = true;
+      final tts = _FakeTextToSpeechService()
+        ..throwOnStopStreaming = true
+        ..throwOnStop = true;
       final callKit = _AvailableCallKitService()..throwOnEnd = true;
       final background = _FakeChatVoiceBackgroundCoordinator()
         ..throwOnStop = true;
@@ -1628,6 +1630,9 @@ void main() {
 
       check(tts.stopStreamingCalls).equals(1);
       check(tts.stopCalls).equals(1);
+      // A stop that throws must still hand the shared engine back to read
+      // aloud, which does not belong on the call route.
+      check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
       check(background.stopped).length.equals(1);
       check(background.externalAudioSessionOwners.last).isFalse();
       check(audioSession.deactivateCalls).equals(1);
@@ -2295,6 +2300,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   int stopStreamingCalls = 0;
   int stopCalls = 0;
   bool throwOnStopStreaming = false;
+  bool throwOnStop = false;
   Completer<void>? firstStopStreamingGate;
   bool _didStart = false;
 
@@ -2379,6 +2385,9 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   Future<void> stop() async {
     stopCalls += 1;
     startedStreaming = false;
+    if (throwOnStop) {
+      throw StateError('stop TTS failed');
+    }
   }
 
   void emitError(String message) {
