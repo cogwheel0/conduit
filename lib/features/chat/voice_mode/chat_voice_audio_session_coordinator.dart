@@ -76,6 +76,12 @@ class ChatVoiceAudioSessionCoordinator {
   @visibleForTesting
   bool debugRefuseRouteChanges = false;
 
+  /// The phases teardown has run for, in order. A test host has no audio route
+  /// to watch come back, so this is the only trace teardown leaves behind.
+  /// Only filled in when asserts are on.
+  @visibleForTesting
+  final List<String> debugRouteTeardowns = <String>[];
+
   /// Bumped by every teardown so work started for an earlier call can tell that
   /// it came back too late.
   int _callGeneration = 0;
@@ -122,9 +128,8 @@ class ChatVoiceAudioSessionCoordinator {
       ),
       'listening',
     );
-    await _setActive(session, active: true, phase: 'listening');
     _confirmDefaultSpeakerphoneRoute(
-      await _configureVoiceRoute(phase: 'listening'),
+      await _activateVoiceRoute(session, phase: 'listening'),
     );
   }
 
@@ -150,9 +155,8 @@ class ChatVoiceAudioSessionCoordinator {
       ),
       'speaking',
     );
-    await _setActive(session, active: true, phase: 'speaking');
     _confirmDefaultSpeakerphoneRoute(
-      await _configureVoiceRoute(phase: 'speaking'),
+      await _activateVoiceRoute(session, phase: 'speaking'),
     );
     await _settleIosSpeakingRoute();
   }
@@ -179,29 +183,62 @@ class ChatVoiceAudioSessionCoordinator {
       ),
       'barge-in-speaking',
     );
-    await _setActive(session, active: true, phase: 'barge-in-speaking');
     _confirmDefaultSpeakerphoneRoute(
-      await _configureVoiceRoute(phase: 'barge-in-speaking'),
+      await _activateVoiceRoute(session, phase: 'barge-in-speaking'),
     );
     await _settleIosSpeakingRoute();
   }
 
-  /// Puts the call on the current route for a configure pass, and reports
+  /// Activates the session and puts the call on the current route, and reports
   /// whether both platforms took it.
   ///
-  /// This queues behind the button and device-change reroutes because it makes
-  /// the same platform calls off the same [_speakerphoneEnabled] flag. Run
-  /// loose, a pass that started before a headset was pulled out can finish
+  /// The whole step queues behind the button and device-change reroutes because
+  /// it makes the same platform calls off the same [_speakerphoneEnabled] flag.
+  /// Run loose, a pass that started before a headset was pulled out can finish
   /// after the reroute and put the call back on the route it just left.
-  Future<bool> _configureVoiceRoute({required String phase}) {
+  ///
+  /// Teardown drains the same queue, so queueing is also what stops a pass that
+  /// started before the call ended from reactivating the session or putting the
+  /// phone back into communication mode after the route was handed back.
+  Future<bool> _activateVoiceRoute(
+    AudioSession session, {
+    required String phase,
+  }) {
     return _serializeRouteChange(() async {
+      if (_routeChangesStopped) {
+        return false;
+      }
+      await _setActive(session, active: true, phase: phase);
       final androidRouted = await _configureAndroidVoiceRoute(phase: phase);
       final iosRouted = await _configureIosVoiceRoute(phase: phase);
       return androidRouted && iosRouted;
     });
   }
 
-  Future<void> deactivate() async {
+  Future<void> deactivate() => _tearDownRoute(phase: 'deactivate');
+
+  Future<void> dispose() async {
+    // Riverpod does not promise to dispose this coordinator after the
+    // controller that drives it, so disposal cannot assume `deactivate` has
+    // already run. Running it again is cheap and leaves nothing behind; not
+    // running it can leave the phone in communication mode after the call.
+    await _tearDownRoute(phase: 'dispose', finalizing: true);
+    await _speakerphoneRouteController.close();
+  }
+
+  /// Hands the route back to whatever had it before the call.
+  ///
+  /// Safe to run twice: every step either restores state it captured or clears
+  /// state that is already clear. Pass [finalizing] when there is no next call
+  /// to route, which keeps the shutter down for good.
+  Future<void> _tearDownRoute({
+    required String phase,
+    bool finalizing = false,
+  }) async {
+    assert(() {
+      debugRouteTeardowns.add(phase);
+      return true;
+    }());
     _callGeneration++;
     final session = _session;
     final devicesSub = _devicesSub;
@@ -214,7 +251,7 @@ class ChatVoiceAudioSessionCoordinator {
       await _routeSerial;
       await _clearIosVoiceRoute();
       if (session != null) {
-        await _setActive(session, active: false, phase: 'deactivate');
+        await _setActive(session, active: false, phase: phase);
       }
     } finally {
       await _restoreAndroidVoiceRoute();
@@ -223,18 +260,8 @@ class ChatVoiceAudioSessionCoordinator {
       _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
       _defaultRouteAwaitingConfirmation = false;
-      _routeChangesStopped = false;
+      _routeChangesStopped = finalizing;
     }
-  }
-
-  Future<void> dispose() async {
-    _callGeneration++;
-    final devicesSub = _devicesSub;
-    _devicesSub = null;
-    _routeChangesStopped = true;
-    await devicesSub?.cancel();
-    await _routeSerial;
-    await _speakerphoneRouteController.close();
   }
 
   /// Whether the call can play through [device] in preference to the phone's
@@ -264,9 +291,16 @@ class ChatVoiceAudioSessionCoordinator {
     if (!Platform.isAndroid && !Platform.isIOS) {
       return;
     }
+    if (_routeChangesStopped) {
+      // A teardown is part-way through. Its generation bump has already
+      // happened, so the check below would wave this scan through.
+      return;
+    }
     final generation = _callGeneration;
     final attached = await _hasExternalAudioAccessory();
-    if (generation != _callGeneration || _manualRouteHeld) {
+    if (generation != _callGeneration ||
+        _routeChangesStopped ||
+        _manualRouteHeld) {
       // The call ended, or the speaker button was pressed, while the scan was
       // out. Either way this answer is stale and must not resubscribe or move
       // the route.

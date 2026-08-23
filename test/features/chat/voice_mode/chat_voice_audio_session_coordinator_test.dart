@@ -177,6 +177,32 @@ void main() {
       ).isEmpty();
     });
 
+    test('tears the call down when disposal beats hanging up', () async {
+      await reportDevices(const [AudioDeviceType.builtInSpeaker]);
+      check(routeChanges).deepEquals(<bool>[true]);
+
+      // Riverpod gives no order to provider disposal, so the coordinator can go
+      // first and never see the controller's `deactivate`. Disposing has to
+      // hand the route back on its own.
+      await coordinator.dispose();
+
+      check(coordinator.debugRouteTeardowns).deepEquals(<String>['dispose']);
+      check(
+        because: 'a disposed coordinator has no call left to route',
+        await coordinator.setSpeakerphoneEnabled(true),
+      ).isFalse();
+      await reportDevices(const [AudioDeviceType.wiredHeadphones]);
+      check(routeChanges).deepEquals(<bool>[true]);
+    });
+
+    test('survives hanging up and disposal both arriving', () async {
+      await coordinator.deactivate();
+      await coordinator.dispose();
+
+      check(coordinator.debugRouteTeardowns)
+          .deepEquals(<String>['deactivate', 'dispose']);
+    });
+
     test('drops a reroute that hanging up overtakes', () async {
       final rerouting = reportDevices(const [AudioDeviceType.builtInEarpiece]);
       await coordinator.deactivate();
