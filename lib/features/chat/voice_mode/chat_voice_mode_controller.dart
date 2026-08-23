@@ -354,6 +354,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
               await _stopVoiceInputAfterDispose(input);
               await _cancelSubscriptionAfterDispose(ttsSub);
               await _stopTtsAfterDispose(tts);
+              // The engine is shared with read-aloud, which belongs on the
+              // media stream. Nothing survives provider disposal to hand it
+              // back, so it happens here.
+              tts?.setVoiceCallActive(false);
               await _stopBackgroundVoiceLeaseAfterDispose(
                 backgroundCoordinator,
               );

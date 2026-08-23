@@ -1934,6 +1934,41 @@ void main() {
       check(uncaught).isEmpty();
     },
   );
+
+  test('provider disposal hands the tts engine back to read aloud', () async {
+    final tts = _FakeTextToSpeechService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+    check(tts.voiceCallFlags).deepEquals(<bool>[true]);
+
+    container.dispose();
+    await pumpEventQueue();
+
+    // The engine is shared with read-aloud. Left on the call route it speaks
+    // out of the earpiece at call volume.
+    check(tts.voiceCallFlags).deepEquals(<bool>[true, false]);
+  });
 }
 
 const _usableHermesConfig = HermesConfig(
@@ -2250,6 +2285,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   final _events = StreamController<TtsEvent>.broadcast();
   final fedTexts = <String>[];
   final finishedTexts = <String?>[];
+  final voiceCallFlags = <bool>[];
   bool startedStreaming = false;
   bool holdCompletion = false;
   int pauseCalls = 0;
@@ -2262,6 +2298,11 @@ class _FakeTextToSpeechService extends TextToSpeechService {
 
   @override
   Stream<TtsEvent> get events => _events.stream;
+
+  @override
+  void setVoiceCallActive(bool active) {
+    voiceCallFlags.add(active);
+  }
 
   @override
   List<String> splitTextForSpeech(String text) {

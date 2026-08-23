@@ -700,7 +700,15 @@ class TtsManager {
     // Reset playback state
     _resetPlaybackState();
     _activeSession = null;
-    _sessionCounter = 0;
+    // _sessionCounter is deliberately left where it is. A feed queued on the
+    // previous chain can still be waiting its turn here, and it only checks the
+    // active session's id, so handing that id back out would let it append its
+    // old text to the next session. The id also names the server chunk temp dir
+    // and the background lease, which the same stale work tears down.
+
+    // Whatever needed the call route is over; read-aloud belongs on the media
+    // stream.
+    _voiceCallActive = false;
 
     // Reset server audio buffer
     _serverAudioBuffer.clear();

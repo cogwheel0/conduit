@@ -155,6 +155,29 @@ void main() {
 
       expect(native.voiceCallFlags, [true, false]);
     });
+
+    test('returns to the media route after a reset', () async {
+      // Nothing hands the route back when the service is disposed out from
+      // under a live call, so read aloud would keep speaking at call volume.
+      TtsManager.instance.setVoiceCallActive(true);
+      await TtsManager.instance.speak('During the call.');
+
+      await TtsManager.instance.reset();
+      await TtsManager.instance.speak('After the call.');
+
+      expect(native.voiceCallFlags, [true, false]);
+    });
+
+    test('does not hand a session id back out after a reset', () async {
+      // A feed queued on the old chain only checks the active session's id, so
+      // a reused id lets it append its stale text to the next session.
+      final first = await TtsManager.instance.speak('During the call.');
+
+      await TtsManager.instance.reset();
+      final second = await TtsManager.instance.speak('After the call.');
+
+      expect(second!.id, greaterThan(first!.id));
+    });
   });
 
   group('TtsManager server voice resolution', () {
