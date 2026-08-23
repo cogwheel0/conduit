@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -25,7 +26,7 @@ void main() {
 
       final chunks = TtsManager.instance.splitTextForSpeech(sampleText);
 
-      expect(chunks.length, 2);
+      check(chunks).length.equals(2);
     });
 
     test('keeps OpenWebUI-sized chunks for server mode', () async {
@@ -35,7 +36,7 @@ void main() {
 
       final chunks = TtsManager.instance.splitTextForSpeech(sampleText);
 
-      expect(chunks.length, 2);
+      check(chunks).length.equals(2);
     });
   });
 
@@ -46,7 +47,7 @@ void main() {
         splitOn: TtsManager.splitOnParagraphs,
       );
 
-      expect(chunks, ['First paragraph', 'Second paragraph']);
+      check(chunks).deepEquals(['First paragraph', 'Second paragraph']);
     });
 
     test('supports none mode like OpenWebUI', () {
@@ -55,7 +56,7 @@ void main() {
         splitOn: TtsManager.splitOnNone,
       );
 
-      expect(chunks, ['One.\nTwo.']);
+      check(chunks).deepEquals(['One.\nTwo.']);
     });
 
     test('strips details blocks before splitting', () {
@@ -63,7 +64,7 @@ void main() {
         'Hello <details><summary>Hidden</summary>ignored</details> world.',
       );
 
-      expect(chunks, ['Hello  world.']);
+      check(chunks).deepEquals(['Hello  world.']);
     });
 
     test('strips a completed reasoning block', () {
@@ -76,8 +77,8 @@ void main() {
         'The living room light is on.',
       );
 
-      expect(chunks.join(' '), isNot(contains('entity list')));
-      expect(chunks.join(' '), contains('The living room light is on.'));
+      check(chunks.join(' ')).not((it) => it.contains('entity list'));
+      check(chunks.join(' ')).contains('The living room light is on.');
     });
 
     test('withholds the body of a reasoning block that is still open', () {
@@ -88,7 +89,7 @@ void main() {
         '> The user wants the entity list, so call the tool.',
       );
 
-      expect(chunks, ['Checking that now.']);
+      check(chunks).deepEquals(['Checking that now.']);
     });
 
     test('withholds the body of a tool call block that is still open', () {
@@ -99,7 +100,7 @@ void main() {
         '{"entities": ["light.living_room", "light.kitchen"]}',
       );
 
-      expect(chunks, ['One moment.']);
+      check(chunks).deepEquals(['One moment.']);
     });
 
     test('cleans markdown internally without caller preprocessing', () {
@@ -108,7 +109,7 @@ void main() {
         splitOn: TtsManager.splitOnNone,
       );
 
-      expect(chunks, ['Hello\nworld']);
+      check(chunks).deepEquals(['Hello\nworld']);
     });
   });
 
@@ -137,13 +138,13 @@ void main() {
 
       await TtsManager.instance.speak('Hello there.');
 
-      expect(native.voiceCallFlags, [true]);
+      check(native.voiceCallFlags).deepEquals([true]);
     });
 
     test('speaks on the media route for read aloud', () async {
       await TtsManager.instance.speak('Hello there.');
 
-      expect(native.voiceCallFlags, [false]);
+      check(native.voiceCallFlags).deepEquals([false]);
     });
 
     test('returns to the media route after the call ends', () async {
@@ -153,7 +154,7 @@ void main() {
 
       await TtsManager.instance.speak('After the call.');
 
-      expect(native.voiceCallFlags, [true, false]);
+      check(native.voiceCallFlags).deepEquals([true, false]);
     });
 
     test('returns to the media route after a reset', () async {
@@ -165,7 +166,7 @@ void main() {
       await TtsManager.instance.reset();
       await TtsManager.instance.speak('After the call.');
 
-      expect(native.voiceCallFlags, [true, false]);
+      check(native.voiceCallFlags).deepEquals([true, false]);
     });
 
     test('does not hand a session id back out after a reset', () async {
@@ -176,7 +177,7 @@ void main() {
       await TtsManager.instance.reset();
       final second = await TtsManager.instance.speak('After the call.');
 
-      expect(second!.id, greaterThan(first!.id));
+      check(second!.id).isGreaterThan(first!.id);
     });
   });
 
@@ -205,7 +206,7 @@ void main() {
 
       await TtsManager.instance.synthesizeChunk('Hello from the server');
 
-      expect(api.lastVoice, isNull);
+      check(api.lastVoice).isNull();
     });
 
     test('uses backend default voice when available', () async {
@@ -215,7 +216,7 @@ void main() {
 
       await TtsManager.instance.synthesizeChunk('Hello from the server');
 
-      expect(api.lastVoice, 'nova');
+      check(api.lastVoice).equals('nova');
     });
 
     test('uses the explicitly selected server voice when present', () async {
@@ -229,7 +230,7 @@ void main() {
 
       await TtsManager.instance.synthesizeChunk('Hello from the server');
 
-      expect(api.lastVoice, 'shimmer');
+      check(api.lastVoice).equals('shimmer');
     });
   });
 
@@ -282,17 +283,14 @@ void main() {
       ]);
 
       final transcript = spoken.join(' ');
-      expect(transcript, isNot(contains('entity listing tool')));
-      expect(transcript, isNot(contains('Thinking')));
-      expect(transcript, isNot(contains('Thought for 4 seconds')));
-      expect(
+      check(transcript).not((it) => it.contains('entity listing tool'));
+      check(transcript).not((it) => it.contains('Thinking'));
+      check(transcript).not((it) => it.contains('Thought for 4 seconds'));
+      check(
         transcript,
-        contains('The living room light is on and every other light is off.'),
-      );
-      expect(
-        transcript,
-        contains('Nothing else in the house is currently switched on.'),
-      );
+      ).contains('The living room light is on and every other light is off.');
+      check(transcript)
+          .contains('Nothing else in the house is currently switched on.');
     });
 
     test('speaks every answer sentence exactly once', () {
@@ -311,7 +309,10 @@ void main() {
         'The second sentence also carries enough words to stand alone.',
         'The third sentence closes out the response body.',
       ]) {
-        expect(sentence.allMatches(transcript).length, 1, reason: sentence);
+        check(
+          because: sentence,
+          sentence.allMatches(transcript),
+        ).length.equals(1);
       }
     });
 
@@ -325,8 +326,8 @@ void main() {
         finalized: true,
       );
 
-      expect(advance.chunks, ['Answer one.', 'Answer two.']);
-      expect(advance.fedChunkCount, 3);
+      check(advance.chunks).deepEquals(['Answer one.', 'Answer two.']);
+      check(advance.fedChunkCount).equals(3);
     });
 
     test('holds the trailing chunk back until finalization', () {
@@ -337,9 +338,9 @@ void main() {
         finalized: false,
       );
 
-      expect(advance.chunks, ['Answer one.']);
-      expect(advance.fedChunkCount, 1);
-      expect(advance.spokenText, 'Answer one.');
+      check(advance.chunks).deepEquals(['Answer one.']);
+      check(advance.fedChunkCount).equals(1);
+      check(advance.spokenText).equals('Answer one.');
     });
 
     test('resumes where a rewritten response stops agreeing', () {
@@ -352,8 +353,8 @@ void main() {
         finalized: true,
       );
 
-      expect(advance.chunks, ['Rewritten two.', 'Rewritten three.']);
-      expect(advance.fedChunkCount, 3);
+      check(advance.chunks).deepEquals(['Rewritten two.', 'Rewritten three.']);
+      check(advance.fedChunkCount).equals(3);
     });
 
     test('keeps its place when the answer repeats a sentence', () {
@@ -374,8 +375,9 @@ void main() {
         finalized: true,
       );
 
-      expect(advance.chunks, ['Middle line.', 'Right away.', 'Tail.']);
-      expect(advance.fedChunkCount, 5);
+      check(advance.chunks)
+          .deepEquals(['Middle line.', 'Right away.', 'Tail.']);
+      check(advance.fedChunkCount).equals(5);
     });
   });
 
@@ -388,7 +390,7 @@ void main() {
         lastEnqueuedIndex: 2,
       );
 
-      expect(completed, isFalse);
+      check(completed).isFalse();
     });
 
     test('completes only after final chunk playback completes', () {
@@ -399,7 +401,7 @@ void main() {
         lastEnqueuedIndex: 2,
       );
 
-      expect(completed, isTrue);
+      check(completed).isTrue();
     });
   });
 }
