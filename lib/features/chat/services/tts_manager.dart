@@ -378,6 +378,9 @@ class TtsManager {
   /// the chain, so finalized alone does not mean every sentence has been
   /// appended. Playback finishing a chunk in that window would otherwise end
   /// the session and the queued feed would drop the rest of the answer.
+  ///
+  /// Counts feeds of the session playing now. A feed that outlives its session
+  /// is left out of both ends, or the next session would wait on it.
   int _streamingFeedsPending = 0;
   bool _deviceWaitingForStreamingChunk = false;
   int _serverLastFetchScheduledIndex = -1;
@@ -599,6 +602,7 @@ class TtsManager {
     _streamingFedChunkCount = 0;
     _streamingSpokenText = '';
     _streamingFeedSerial = Future<void>.value();
+    _streamingFeedsPending = 0;
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
@@ -961,6 +965,13 @@ class TtsManager {
           ),
         )
         .whenComplete(() {
+          // A feed already inside the platform speak call when the next session
+          // starts outlives its own session. The counter was zeroed with that
+          // session, so decrementing here would take the new session's own feed
+          // off the count and end it early.
+          if (_activeSession?.id != session.id) {
+            return;
+          }
           _streamingFeedsPending--;
         });
     _streamingFeedSerial = queued.catchError((Object _) {});
@@ -1638,6 +1649,7 @@ class TtsManager {
     _streamingFedChunkCount = 0;
     _streamingSpokenText = '';
     _streamingFeedSerial = Future<void>.value();
+    _streamingFeedsPending = 0;
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();

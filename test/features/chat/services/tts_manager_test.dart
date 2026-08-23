@@ -229,6 +229,32 @@ void main() {
 
       check(native.spokenTexts).deepEquals([first, second, third]);
     });
+
+    test('ends a session a stale feed was still running behind', () async {
+      final stuck = Completer<void>();
+      addTearDown(() {
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      native.gateFirstSpeak = stuck;
+
+      await TtsManager.instance.startStreaming();
+      final stale = TtsManager.instance.feedStreamingText('$first $second ');
+      await pumpEventQueue();
+
+      // The next answer starts while that feed is still inside the engine's
+      // speak call, so it outlives the session it belongs to.
+      await TtsManager.instance.startStreaming();
+      await TtsManager.instance.finishStreaming(finalText: third);
+      native.emit('complete');
+      await pumpEventQueue();
+
+      // Counting the stale feed against this session leaves playback waiting
+      // for a chunk that is never coming.
+      check(TtsManager.instance.isPlaying).isFalse();
+
+      stuck.complete();
+      await stale;
+    });
   });
 
   group('TtsManager server voice resolution', () {
