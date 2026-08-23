@@ -201,8 +201,12 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
     final nextPosition = Scrollable.maybeOf(context)?.position;
     if (!identical(nextPosition, _position)) {
       _position?.removeListener(_scheduleViewportCheck);
+      _position?.isScrollingNotifier.removeListener(_scheduleViewportCheck);
       _position = nextPosition;
       _position?.addListener(_scheduleViewportCheck);
+      // Hydration waits for the scroll to rest, so the transition back to
+      // idle must re-run eligibility even though it changes no offset.
+      _position?.isScrollingNotifier.addListener(_scheduleViewportCheck);
     }
     _scheduleViewportCheck();
   }
@@ -222,6 +226,7 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
   @override
   void dispose() {
     _position?.removeListener(_scheduleViewportCheck);
+    _position?.isScrollingNotifier.removeListener(_scheduleViewportCheck);
     _embeddedPreviewRegistry.remove(this);
     _embeddedPreviewBudget.removeListener(_handleBudgetChanged);
     final budgetToken = _budgetToken;
@@ -288,7 +293,14 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
       renderObject,
       margin: margin,
     );
-    final nextEligible = nextNearViewport && _routeVisible;
+    // Platform-view creation is a guaranteed hitch mid-fling. A preview that
+    // is not yet hydrated keeps its fixed placeholder while the enclosing
+    // scrollable is moving; the notifier's return to idle re-runs this check
+    // and hydrates at rest. Already-active previews keep their eligibility so
+    // motion never unmounts a live platform view.
+    final scrollAtRest = !(_position?.isScrollingNotifier.value ?? false);
+    final nextEligible =
+        nextNearViewport && _routeVisible && (scrollAtRest || _active);
     if (_nearViewport == nextNearViewport && _eligible == nextEligible) {
       return;
     }
@@ -1088,31 +1100,124 @@ class _HighlightCacheKey {
 }
 
 class _HighlightSpanCache {
-  static const int maxEntries = 48;
+  // Sized past one transcript's worth of code blocks: an entry is a small
+  // span list, and a fling that cycles the cache re-runs highlight.parse.
+  static const int maxEntries = 128;
 
   final LinkedHashMap<_HighlightCacheKey, List<TextSpan>> _cache =
       LinkedHashMap<_HighlightCacheKey, List<TextSpan>>();
+
+  List<TextSpan>? peek(_HighlightCacheKey key) {
+    final cached = _cache.remove(key);
+    if (cached == null) return null;
+    _cache[key] = cached;
+    return cached;
+  }
+
+  void store(_HighlightCacheKey key, List<TextSpan> spans) {
+    _cache.remove(key);
+    if (_cache.length >= maxEntries) {
+      _cache.remove(_cache.keys.first);
+    }
+    _cache[key] = spans;
+  }
 
   List<TextSpan> resolve(
     _HighlightCacheKey key,
     List<TextSpan> Function() build,
   ) {
-    final cached = _cache.remove(key);
-    if (cached != null) {
-      _cache[key] = cached;
-      return cached;
-    }
-
+    final cached = peek(key);
+    if (cached != null) return cached;
     final spans = build();
-    if (_cache.length >= maxEntries) {
-      _cache.remove(_cache.keys.first);
-    }
-    _cache[key] = spans;
+    store(key, spans);
     return spans;
   }
 }
 
-class _HighlightedCodeText extends StatelessWidget {
+/// Runs `highlight.parse` off the UI isolate, one request at a time.
+///
+/// `highlight.parse` is regex-heavy and previously ran synchronously inside
+/// the first build of every code block — a guaranteed frame spike when a
+/// code-bearing row entered the cache extent mid-fling. Node trees are not
+/// isolate-sendable with their styles attached, so the worker returns a plain
+/// nested list and the caller applies the theme on the UI side (cheap object
+/// construction).
+class _HighlightParseQueue {
+  final Map<String, Future<List<Object?>?>> _pending =
+      <String, Future<List<Object?>?>>{};
+  Future<void> _tail = Future<void>.value();
+
+  Future<List<Object?>?> parse(String language, String code) {
+    final key = '${language.length}:$language$code';
+    final existing = _pending[key];
+    if (existing != null) return existing;
+    final request = _tail.then(
+      (_) => compute(_highlightParseWorker, <String, String>{
+        'language': language,
+        'code': code,
+      }),
+    );
+    _tail = request.then<void>((_) {}, onError: (_) {});
+    _pending[key] = request;
+    request.whenComplete(() {
+      _pending.remove(key);
+    });
+    return request;
+  }
+}
+
+final _highlightParseQueue = _HighlightParseQueue();
+
+/// Top-level worker for [compute]: parse and encode as sendable nested lists
+/// of `[value, className, children]`.
+List<Object?>? _highlightParseWorker(Map<String, String> payload) {
+  try {
+    final nodes = highlight
+        .parse(payload['code']!, language: payload['language']!)
+        .nodes;
+    if (nodes == null || nodes.isEmpty) return null;
+    return nodes.map(_encodeHighlightNode).toList(growable: false);
+  } catch (_) {
+    return null;
+  }
+}
+
+List<Object?> _encodeHighlightNode(Node node) => <Object?>[
+  node.value,
+  node.className,
+  node.children?.map(_encodeHighlightNode).toList(growable: false),
+];
+
+List<TextSpan> _convertEncodedHighlightNodes(
+  List<Object?> encodedNodes,
+  Map<String, TextStyle> theme,
+) {
+  final spans = <TextSpan>[];
+  for (final encoded in encodedNodes) {
+    final node = encoded as List<Object?>;
+    final value = node[0] as String?;
+    final className = node[1] as String?;
+    final children = node[2] as List<Object?>?;
+    if (value != null) {
+      spans.add(
+        className == null
+            ? TextSpan(text: value)
+            : TextSpan(text: value, style: theme[className]),
+      );
+      continue;
+    }
+    if (children == null || children.isEmpty) continue;
+    spans.add(
+      TextSpan(
+        children: _convertEncodedHighlightNodes(children, theme),
+        style: className == null ? null : theme[className],
+      ),
+    );
+  }
+  return spans;
+}
+
+class _HighlightedCodeText extends StatefulWidget {
   const _HighlightedCodeText({
     required this.source,
     required this.language,
@@ -1126,6 +1231,10 @@ class _HighlightedCodeText extends StatelessWidget {
   static const _defaultFontColor = Color(0xff000000);
   static const _defaultFontFamily = 'monospace';
 
+  /// At or below this size `highlight.parse` stays synchronous: the parse is
+  /// cheaper than a queue round-trip and small snippets never flash unstyled.
+  static const int _synchronousHighlightCharThreshold = 512;
+
   final String source;
   final String language;
   final Map<String, TextStyle> theme;
@@ -1134,26 +1243,87 @@ class _HighlightedCodeText extends StatelessWidget {
   final bool plainText;
 
   @override
+  State<_HighlightedCodeText> createState() => _HighlightedCodeTextState();
+}
+
+class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
+  List<TextSpan>? _spans;
+  _HighlightCacheKey? _spansKey;
+  _HighlightCacheKey? _requestedKey;
+
+  _HighlightCacheKey get _cacheKey => _HighlightCacheKey(
+    language: widget.language,
+    code: widget.source,
+    isDark: widget.isDark,
+  );
+
+  /// Highlighted spans if available now, otherwise null after arranging for
+  /// them to arrive.
+  ///
+  /// Large sources parse on a worker isolate; plain monospace paints in the
+  /// interim. Code lays out in a horizontal scroll view, so the plain and
+  /// highlighted trees (identical text) occupy the same extent and the swap
+  /// is paint-only — no timeline shift mid-scroll.
+  List<TextSpan>? _resolveSpans() {
+    final key = _cacheKey;
+    if (_spans != null && key == _spansKey) {
+      return _spans;
+    }
+    final cached = _highlightSpanCache.peek(key);
+    if (cached != null) {
+      _spans = cached;
+      _spansKey = key;
+      return cached;
+    }
+    // On web `compute` runs on the main thread anyway, so the queue would
+    // only add latency. Widget tests stay synchronous for deterministic pumps.
+    if (widget.source.length <=
+            _HighlightedCodeText._synchronousHighlightCharThreshold ||
+        kIsWeb ||
+        _isRunningInWidgetTest()) {
+      final spans = _buildHighlightedSpans(
+        source: widget.source,
+        language: widget.language,
+        theme: widget.theme,
+      );
+      _highlightSpanCache.store(key, spans);
+      _spans = spans;
+      _spansKey = key;
+      return spans;
+    }
+    if (key != _requestedKey) {
+      _requestedKey = key;
+      unawaited(
+        _highlightParseQueue.parse(widget.language, widget.source).then((
+          encoded,
+        ) {
+          if (!mounted || _cacheKey != key) return;
+          final spans = encoded == null
+              ? <TextSpan>[TextSpan(text: widget.source)]
+              : _convertEncodedHighlightNodes(encoded, widget.theme);
+          _highlightSpanCache.store(key, spans);
+          setState(() {
+            _spans = spans;
+            _spansKey = key;
+          });
+        }),
+      );
+    }
+    return null;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final rootStyle = TextStyle(
-      fontFamily: _defaultFontFamily,
-      color: theme[_rootKey]?.color ?? _defaultFontColor,
-    ).merge(textStyle);
+      fontFamily: _HighlightedCodeText._defaultFontFamily,
+      color:
+          widget.theme[_HighlightedCodeText._rootKey]?.color ??
+          _HighlightedCodeText._defaultFontColor,
+    ).merge(widget.textStyle);
 
-    final children = plainText
-        ? <TextSpan>[TextSpan(text: source)]
-        : _highlightSpanCache.resolve(
-            _HighlightCacheKey(
-              language: language,
-              code: source,
-              isDark: isDark,
-            ),
-            () => _buildHighlightedSpans(
-              source: source,
-              language: language,
-              theme: theme,
-            ),
-          );
+    final children = widget.plainText
+        ? <TextSpan>[TextSpan(text: widget.source)]
+        : _resolveSpans() ?? <TextSpan>[TextSpan(text: widget.source)];
 
     return RichText(
       text: TextSpan(style: rootStyle, children: children),

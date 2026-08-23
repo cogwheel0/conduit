@@ -18,6 +18,7 @@ import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart'
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_extent_cache.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
@@ -3913,6 +3914,82 @@ Tail keeps growing
       check(compiler.preparedInputs).deepEquals([supersededSettled, streaming]);
       check(tester.any(find.textContaining('Superseded settled body')))
           .isFalse();
+    },
+  );
+
+  testWidgets(
+    'settled mount with a recorded extent defers compile behind an '
+    'exact-height placeholder',
+    (tester) async {
+      addTearDown(debugResetMarkdownExtentCache);
+      debugResetMarkdownExtentCache();
+      final longSettled = StringBuffer();
+      for (var index = 0; index < 80; index += 1) {
+        longSettled.writeln('Deferred extent line $index with padding words.');
+      }
+      final content = longSettled.toString();
+      const recordedHeight = 431.0;
+      const slotWidth = 400.0;
+      final compiler = _GatedSettledPrepareMarkdownCompileService();
+      addTearDown(() {
+        compiler.releaseFirst();
+        compiler.dispose();
+      });
+
+      Widget buildHarness() {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: slotWidth,
+                  child: SingleChildScrollView(
+                    child: StreamingMarkdownWidget(
+                      key: const ValueKey('extent-deferred-markdown'),
+                      content: content,
+                      isStreaming: false,
+                      // Opt into the production mount ladder; the default
+                      // widget-test detection forces the synchronous path.
+                      debugTreatAsWidgetTest: false,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Simulate a prior settled layout of this content at the slot geometry.
+      MarkdownExtentCache.instance.record(
+        content,
+        maxWidth: slotWidth,
+        textScaledHundred: 100,
+        height: recordedHeight,
+      );
+
+      await tester.pumpWidget(buildHarness());
+
+      // The mount frame did no synchronous prepare; the row holds its exact
+      // recorded extent (no approximate skeleton) while work runs off-frame.
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isFalse();
+      check(tester.any(find.textContaining('Deferred extent line 0')))
+          .isFalse();
+      final markdownFinder = find.byKey(
+        const ValueKey('extent-deferred-markdown'),
+      );
+      check(tester.getSize(markdownFinder).height).equals(recordedHeight);
+
+      compiler.releaseFirst();
+      await tester.pumpAndSettle();
+
+      check(compiler.preparedInputs).deepEquals([content]);
+      check(tester.any(find.textContaining('Deferred extent line 0')))
+          .isTrue();
     },
   );
 

@@ -30,6 +30,7 @@ enum MarkdownPrepareExecutionPath {
   webSynchronous,
   asyncBackend,
   fallbackSync,
+  memoized,
 }
 
 final _compiledMarkdownCache = _CompiledMarkdownCache();
@@ -43,6 +44,8 @@ void _evictCompiledMarkdownCache() {
 void debugResetCompiledMarkdownCache() => _evictCompiledMarkdownCache();
 
 int debugCompiledMarkdownCacheSize() => _compiledMarkdownCache.length;
+
+int debugCompiledMarkdownCacheCapacity() => _CompiledMarkdownCache._maxEntries;
 
 List<String> debugCompiledMarkdownCacheKeys() => _compiledMarkdownCache.keys;
 
@@ -88,6 +91,10 @@ class MarkdownCompileService {
   final _MarkdownPrepareBackend _prepareBackend;
   final StreamingMarkdownPreparationEngine _fallbackPrepareEngine =
       StreamingMarkdownPreparationEngine();
+  static const int _settledPreparedMemoMaxEntries = 128;
+  static const int _settledPreparedMemoMaxEntryLength = 65536;
+  final LinkedHashMap<String, String> _settledPreparedMemo =
+      LinkedHashMap<String, String>();
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
       <String, Future<CompiledMarkdownDocument>>{};
   final Map<String, int> _inFlightCacheEpochs = <String, int>{};
@@ -139,11 +146,36 @@ class MarkdownCompileService {
   }
 
   void handleMemoryPressure() {
+    _settledPreparedMemo.clear();
     retireIdleWorkers(clearCompiledCache: true);
   }
 
   CompiledMarkdownDocument? peekPrepared(String preparedContent) =>
       _compiledMarkdownCache.read(preparedContent);
+
+  /// Cached prepared output for settled raw [content], or null.
+  ///
+  /// Settled preparation is deterministic per raw input, so remounting a row
+  /// can skip the full-string normalization passes entirely and go straight
+  /// to the compiled-document cache.
+  String? peekSettledPrepared(String content) {
+    final prepared = _settledPreparedMemo.remove(content);
+    if (prepared == null) return null;
+    _settledPreparedMemo[content] = prepared;
+    return prepared;
+  }
+
+  void memoizeSettledPrepared(String content, String preparedContent) {
+    if (content.isEmpty ||
+        content.length > _settledPreparedMemoMaxEntryLength) {
+      return;
+    }
+    _settledPreparedMemo.remove(content);
+    _settledPreparedMemo[content] = preparedContent;
+    while (_settledPreparedMemo.length > _settledPreparedMemoMaxEntries) {
+      _settledPreparedMemo.remove(_settledPreparedMemo.keys.first);
+    }
+  }
 
   bool shouldCompileSynchronously(
     String preparedContent, {
@@ -169,17 +201,29 @@ class MarkdownCompileService {
       return '';
     }
 
+    if (!streaming) {
+      final memoized = peekSettledPrepared(content);
+      if (memoized != null) {
+        debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.memoized);
+        return memoized;
+      }
+    }
+
     if (allowSynchronous &&
         shouldPrepareSynchronously(content, widgetTest: widgetTest)) {
       debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.synchronous);
-      return prepareMarkdownContent(content, streaming: streaming);
+      final prepared = prepareMarkdownContent(content, streaming: streaming);
+      if (!streaming) memoizeSettledPrepared(content, prepared);
+      return prepared;
     }
 
     if (kIsWeb) {
       debugOnPrepareExecution?.call(
         MarkdownPrepareExecutionPath.webSynchronous,
       );
-      return prepareMarkdownContent(content, streaming: streaming);
+      final prepared = prepareMarkdownContent(content, streaming: streaming);
+      if (!streaming) memoizeSettledPrepared(content, prepared);
+      return prepared;
     }
 
     final profileEnabled = PerformanceProfiler.isEnabled;
@@ -200,6 +244,7 @@ class MarkdownCompileService {
           await debugPrepareContentOverride?.call(content, streaming) ??
           await _prepareBackend.prepareContent(content, streaming: streaming);
       debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.asyncBackend);
+      if (!streaming) memoizeSettledPrepared(content, prepared);
       PerformanceProfiler.instance.finishTask(
         taskKey,
         data: {
@@ -213,6 +258,7 @@ class MarkdownCompileService {
       return prepared;
     } catch (error) {
       final fallback = prepareMarkdownContent(content, streaming: streaming);
+      if (!streaming) memoizeSettledPrepared(content, fallback);
       debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.fallbackSync);
       PerformanceProfiler.instance.finishTask(
         taskKey,
@@ -2144,7 +2190,12 @@ void _markdownPrepareIsolateMain(SendPort mainSendPort) {
 }
 
 class _CompiledMarkdownCache {
-  static const int _maxWeight = 512000;
+  // Sized to cover a loaded transcript window rather than one screenful: a
+  // fling back through history that outruns the cache re-runs a synchronous
+  // compile per evicted row. Weight approximates characters + node counts, so
+  // 4 MB of budget is a few MB of real heap — released on memory pressure.
+  static const int _maxEntries = 256;
+  static const int _maxWeight = 4194304;
 
   final LinkedHashMap<String, CompiledMarkdownDocument> _entries =
       LinkedHashMap<String, CompiledMarkdownDocument>();
@@ -2190,7 +2241,7 @@ class _CompiledMarkdownCache {
       document.estimatedWeight;
 
   void _evictIfNeeded() {
-    while (_entries.length > 32 || _currentWeight > _maxWeight) {
+    while (_entries.length > _maxEntries || _currentWeight > _maxWeight) {
       final firstKey = _entries.keys.first;
       final removed = _entries.remove(firstKey);
       if (removed == null) {

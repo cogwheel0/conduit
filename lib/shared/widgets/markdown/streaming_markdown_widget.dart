@@ -12,6 +12,7 @@ import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
 import 'markdown_display_part.dart';
 import 'markdown_document_controller.dart';
+import 'markdown_extent_cache.dart';
 import 'markdown_loading_skeleton.dart';
 import 'streaming_markdown_preparation.dart';
 import 'renderer/block_renderer.dart';
@@ -229,51 +230,87 @@ class _StreamingMarkdownWidgetState
       onStateChanged: _applyCompiledDocumentState,
     );
     final compiler = _compileService;
-    if (!widget.isStreaming ||
-        compiler.shouldPrepareSynchronously(
-          widget.content,
-          widgetTest: _isWidgetTest,
-        )) {
-      // Settled rows must mount at their final extent. Deferring long settled
-      // preparation would mount a loading skeleton whose height differs from
-      // the real content, so rows built while scrolling up through history
-      // would change extent a few frames later and visibly jump the viewport.
-      // Only live streaming updates may take the async coalescing path below.
-      _snapshot = _buildMarkdownSnapshot(
-        widget.content,
-        streaming: widget.isStreaming,
-      );
-      if (widget.isStreaming) {
-        _resolveCompiledDocument(_snapshot);
-      } else {
-        // The first settled render must have its final structure and extent.
-        // An async compile would still replace this row with a loading skeleton
-        // before the real document arrives, recreating the scroll-up jump even
-        // though normalization above is synchronous. Later edits remain on the
-        // controller's coalesced async path.
-        final prepared = _snapshot.normalizedContent;
-        final document =
-            compiler.peekPrepared(prepared) ??
-            compiler.compilePreparedSynchronously(prepared);
-        _documentController.applyDirectDocument(document);
-      }
+    if (!widget.isStreaming) {
+      _mountSettledContent(compiler);
+    } else if (compiler.shouldPrepareSynchronously(
+      widget.content,
+      widgetTest: _isWidgetTest,
+    )) {
+      _snapshot = _buildMarkdownSnapshot(widget.content, streaming: true);
+      _resolveCompiledDocument(_snapshot);
     } else if (widget.content.trim().isNotEmpty) {
-      // Long normalization performs several full-string passes. For a row that
-      // mounts mid-stream, keep it off the first UI frame and let the existing
-      // generation checks reject stale results as the stream advances.
-      if (widget.content.length > markdownSynchronousPrepareThreshold) {
-        // Route a long initial snapshot through the same coalescing window as
-        // subsequent token updates. Starting it immediately would make the
-        // seed snapshot consume a worker slot even when a newer stream value
-        // arrives during the first frame.
-        _markPendingStreamingContent(widget.content);
-        _scheduleStreamingRefresh();
-      } else {
-        // Test doubles and platform-specific backends may still request the
-        // async path for small inputs. Those are cheap and should remain
-        // available on the initial frame.
-        unawaited(_refreshStreamingSnapshot(widget.content));
+      _initStreamingDeferredMount();
+    }
+  }
+
+  /// Resolves a settled body at mount time.
+  ///
+  /// Settled rows must mount at their final extent or the timeline jumps
+  /// while scrolling through history. Historically that forced a synchronous
+  /// prepare + compile on the UI thread for every settled mount. The ladder
+  /// here keeps that guarantee while making remounts O(1):
+  ///
+  /// 1. Memoized prepare + cached compile → apply directly, no string work.
+  /// 2. Short content → synchronous prepare + compile (cheap).
+  /// 3. Long content whose laid-out height is recorded in
+  ///    [MarkdownExtentCache] → mount a fixed-extent placeholder at exactly
+  ///    that height and run prepare + compile off-frame.
+  /// 4. Long content never laid out at the current geometry → synchronous
+  ///    fallback (rare: first layout normally happened while streaming).
+  void _mountSettledContent(MarkdownCompileService compiler) {
+    final content = widget.content;
+    final memoizedPrepared = compiler.peekSettledPrepared(content);
+    if (memoizedPrepared != null) {
+      final cachedDocument = compiler.peekPrepared(memoizedPrepared);
+      if (cachedDocument != null) {
+        _snapshot = _MarkdownRenderSnapshot.full(memoizedPrepared);
+        _documentController.applyDirectDocument(cachedDocument);
+        return;
       }
+    }
+    // Widget tests stay on the synchronous deterministic path: the extent
+    // cache is a process-global singleton, so deferral decisions would leak
+    // between tests through shared content strings.
+    final canDeferOffFrame =
+        !_isWidgetTest &&
+        !compiler.shouldPrepareSynchronously(
+          content,
+          widgetTest: _isWidgetTest,
+        ) &&
+        MarkdownExtentCache.instance.hasLikelyCurrentExtent(content);
+    if (!canDeferOffFrame) {
+      final prepared =
+          memoizedPrepared ??
+          prepareMarkdownContent(content, streaming: false);
+      compiler.memoizeSettledPrepared(content, prepared);
+      _snapshot = _MarkdownRenderSnapshot.full(prepared);
+      final document =
+          compiler.peekPrepared(prepared) ??
+          compiler.compilePreparedSynchronously(prepared);
+      _documentController.applyDirectDocument(document);
+      return;
+    }
+    // The fixed-extent placeholder holds this row's exact slot, so blocking
+    // string passes and markdown parsing can leave the mount frame entirely.
+    _queueSettledSnapshot(content, generation: _snapshotGeneration);
+  }
+
+  void _initStreamingDeferredMount() {
+    // Long normalization performs several full-string passes. For a row that
+    // mounts mid-stream, keep it off the first UI frame and let the existing
+    // generation checks reject stale results as the stream advances.
+    if (widget.content.length > markdownSynchronousPrepareThreshold) {
+      // Route a long initial snapshot through the same coalescing window as
+      // subsequent token updates. Starting it immediately would make the
+      // seed snapshot consume a worker slot even when a newer stream value
+      // arrives during the first frame.
+      _markPendingStreamingContent(widget.content);
+      _scheduleStreamingRefresh();
+    } else {
+      // Test doubles and platform-specific backends may still request the
+      // async path for small inputs. Those are cheap and should remain
+      // available on the initial frame.
+      unawaited(_refreshStreamingSnapshot(widget.content));
     }
   }
 
@@ -433,6 +470,7 @@ class _StreamingMarkdownWidgetState
     _displayPartDocumentCache.clear();
     _displayPartsSourceDocument = null;
     _displayPartsMemo = null;
+    MarkdownExtentCache.instance.clear();
     _compileService.handleMemoryPressure();
   }
 
@@ -723,6 +761,10 @@ class _StreamingMarkdownWidgetState
     final snapshot = _snapshot;
     if (snapshot.isBlank) {
       if (_settledPreparationPending && widget.content.trim().isNotEmpty) {
+        if (!widget.isStreaming) {
+          final placeholder = _buildSettledExtentPlaceholder(context);
+          if (placeholder != null) return placeholder;
+        }
         return MarkdownLoadingSkeleton(contentLength: widget.content.length);
       }
       return const SizedBox.shrink();
@@ -736,6 +778,11 @@ class _StreamingMarkdownWidgetState
       compiledDocument: compiledDocument,
       hasFreshCompiledDocument: hasFreshCompiledDocument,
     )) {
+      // A deferred settled mount stays at its recorded extent through the
+      // async compile gap too; the variable-height skeleton would shift the
+      // timeline's restored anchors.
+      final placeholder = _buildSettledExtentPlaceholder(context);
+      if (placeholder != null) return placeholder;
       return MarkdownLoadingSkeleton(contentLength: snapshot.length);
     }
     if (compiledDocument == null) {
@@ -748,9 +795,21 @@ class _StreamingMarkdownWidgetState
     // document is valid markdown and is superseded by `_applyCompiledDocumentState`
     // within a frame once the fresh compile lands.
 
+    // Record settled layout heights so the next mount of this content can
+    // hold its extent with a placeholder instead of compiling synchronously.
+    // Recording stays off while streaming or while a fresh compile is pending
+    // — those heights are transient.
     final result = KeyedSubtree(
       key: _markdownContentKey,
-      child: _buildMarkdownDisplayParts(compiledDocument),
+      child: MarkdownExtentReporter(
+        content: widget.content,
+        textScaledHundred: MediaQuery.textScalerOf(context).scale(100),
+        enabled:
+            !widget.isStreaming &&
+            !_settledPreparationPending &&
+            hasFreshCompiledDocument,
+        child: _buildMarkdownDisplayParts(compiledDocument),
+      ),
     );
 
     // Only wrap in SelectionArea when not streaming, no settled normalization
@@ -780,6 +839,34 @@ class _StreamingMarkdownWidgetState
         },
         child: PrioritizedHorizontalGesture(child: result),
       ),
+    );
+  }
+
+  /// A fixed-height stand-in for a settled body whose compile was deferred
+  /// off the mount frame, or null when no recorded extent matches the current
+  /// slot geometry (the caller then falls back to the skeleton).
+  ///
+  /// The height must be exact: the timeline restores scroll anchors against
+  /// row rects, so an off-by-a-few-pixels placeholder would drift the
+  /// viewport when the real document swaps in.
+  Widget? _buildSettledExtentPlaceholder(BuildContext context) {
+    final content = widget.content;
+    final textScaledHundred = MediaQuery.textScalerOf(context).scale(100);
+    if (!MarkdownExtentCache.instance.hasLikelyCurrentExtent(content)) {
+      return null;
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = MarkdownExtentCache.instance.heightFor(
+          content,
+          maxWidth: constraints.maxWidth,
+          textScaledHundred: textScaledHundred,
+        );
+        if (height == null) {
+          return MarkdownLoadingSkeleton(contentLength: content.length);
+        }
+        return SizedBox(height: height, width: double.infinity);
+      },
     );
   }
 

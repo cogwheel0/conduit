@@ -164,8 +164,11 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 
 // A 120 px streaming cache extent evicted rows almost immediately when
 // scrolling up mid-stream; remounting a settled row runs a synchronous
-// markdown compile, so the small extent bought hitches, not savings.
-const double _chatMessageScrollCachePixels = 600.0;
+// markdown compile, so the small extent bought hitches, not savings. Now that
+// remounts resolve from the prepared/compiled/extent caches (O(1) for
+// anything seen this session), a larger extent inflates rows further
+// off-screen instead of inside the visible fling.
+const double _chatMessageScrollCachePixels = 1200.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -3364,11 +3367,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
+    // Twelve rows is roughly the visible window plus one fling of history in
+    // each direction. Prewarm work runs on worker isolates in bounded
+    // batches, so the wider net costs background time, not frames.
     final candidateIndices = _selectMarkdownPrewarmCandidatesFromVisibleIds(
       messages: messages,
       layoutMetadata: layoutMetadata,
       visibleMessageIds: _timelineViewportController.visibleMessageIds,
-      maxCount: 6,
+      maxCount: 12,
     );
     final filteredCandidateIndices = <int>[];
     final signatureParts = <String>[];
