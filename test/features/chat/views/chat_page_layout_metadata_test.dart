@@ -1164,6 +1164,30 @@ void main() {
     expect(indices, isEmpty);
   });
 
+  test('markdown prewarm retriggers when a new row enters the viewport', () {
+    expect(
+      debugVisibleMessageIdsGainedForTesting(
+        previous: const ['assistant-2', 'assistant-3'],
+        current: const ['assistant-3', 'assistant-4'],
+      ),
+      isTrue,
+    );
+    expect(
+      debugVisibleMessageIdsGainedForTesting(
+        previous: const ['assistant-2', 'assistant-3'],
+        current: const ['assistant-3'],
+      ),
+      isFalse,
+    );
+  });
+
+  test('markdown prewarm keeps its active timer while scrolling', () {
+    check(debugShouldStartMarkdownPrewarmTimerForTesting(timerActive: false))
+        .isTrue();
+    check(debugShouldStartMarkdownPrewarmTimerForTesting(timerActive: true))
+        .isFalse();
+  });
+
   test('markdown prewarm skips still-streaming assistant messages', () {
     final messages = <ChatMessage>[
       ChatMessage(

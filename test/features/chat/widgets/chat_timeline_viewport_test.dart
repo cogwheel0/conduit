@@ -623,6 +623,61 @@ void main() {
     },
   );
 
+  _viewportTest('timeline mutations rebuild only changed mounted rows', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    var ids = List<String>.generate(18, (index) => 'message-$index');
+    var rowRebuildKeys = List<Object?>.of(ids);
+    final buildCounts = <String, int>{};
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              rowRebuildKeys: rowRebuildKeys,
+              rowBuilder: (context, index) {
+                final id = ids[index];
+                buildCounts.update(id, (count) => count + 1, ifAbsent: () => 1);
+                return SizedBox(height: 52, child: Text(id));
+              },
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final initialCounts = Map<String, int>.of(buildCounts);
+
+    rebuild(() {
+      ids = [...ids, 'message-18'];
+      rowRebuildKeys = [...rowRebuildKeys, 'message-18'];
+    });
+    await tester.pumpAndSettle();
+
+    for (final entry in initialCounts.entries) {
+      check(buildCounts[entry.key]).equals(entry.value);
+    }
+    check(buildCounts['message-18']).equals(1);
+
+    final beforeVersionChange = Map<String, int>.of(buildCounts);
+    rebuild(() {
+      rowRebuildKeys = [...rowRebuildKeys]..[17] = 'message-17-v2';
+    });
+    await tester.pump();
+
+    check(buildCounts['message-17'])
+        .equals(beforeVersionChange['message-17']! + 1);
+    for (final id in ids.where((id) => id != 'message-17')) {
+      check(buildCounts[id]).equals(beforeVersionChange[id]);
+    }
+  });
+
   _viewportTest('viewport movement does not alter a free-scroll anchor', (
     tester,
   ) async {
@@ -2411,6 +2466,7 @@ Widget _viewport({
   bool hideUntilSettled = false,
   double Function(String id)? rowHeight,
   ChatTimelineRowBuilder? rowBuilder,
+  List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
   ValueChanged<double>? onPinEndSpaceChanged,
   VoidCallback? onOldestThresholdReached,
@@ -2424,6 +2480,7 @@ Widget _viewport({
     controller: controller,
     ownerGeneration: ownerGeneration,
     messageIds: ids,
+    rowRebuildKeys: rowRebuildKeys,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
     liveFooter: liveFooter,

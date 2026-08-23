@@ -7,6 +7,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -480,7 +481,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Timer? _markdownPrewarmTimer;
   int _markdownPrewarmGeneration = 0;
   String? _lastMarkdownPrewarmSignature;
+  List<String> _pendingMarkdownPrewarmContents = const <String>[];
   bool _hasPrewarmedAttachedViewport = false;
+  Set<String> _lastVisibleMessageIds = const <String>{};
   double? _lastBottomInset;
   String? _activeScrollProfileTaskKey;
   // Pin-to-top: scroll user message to top of viewport when sending
@@ -510,6 +513,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _ChatListStableLayoutMetadata? _rowBuilderLayout;
   bool _rowBuilderSuppressHaptics = false;
   ChatTimelineRowBuilder? _rowBuilderMemo;
+  List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
@@ -604,8 +608,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
       _bottomAnchorController.detachByUser();
     }
+    final visibleMessageIds = metrics.visibleMessageIds.toSet();
     final shouldPrewarm =
-        !_hasPrewarmedAttachedViewport && metrics.visibleMessageIds.isNotEmpty;
+        visibleMessageIds.isNotEmpty &&
+        (!_hasPrewarmedAttachedViewport ||
+            _visibleMessageIdsGained(
+              previous: _lastVisibleMessageIds,
+              current: visibleMessageIds,
+            ));
+    _lastVisibleMessageIds = visibleMessageIds;
     if (shouldPrewarm) _hasPrewarmedAttachedViewport = true;
     _scheduleScrollToBottomVisibilitySync(prewarm: shouldPrewarm);
   }
@@ -2316,7 +2327,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _markdownPrewarmTimer = null;
     _markdownPrewarmGeneration++;
     _lastMarkdownPrewarmSignature = null;
+    _pendingMarkdownPrewarmContents = const <String>[];
     _hasPrewarmedAttachedViewport = false;
+    _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
     _invalidateChatListStableLayoutMetadata();
     _hasUserScrolled = false;
@@ -2351,6 +2364,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _savedScrollAnchors.clear();
     _initialScrollAnchor = null;
     _hasPrewarmedAttachedViewport = false;
+    _lastVisibleMessageIds = const <String>{};
     _conversationOwnerGeneration += 1;
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
@@ -2874,6 +2888,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final messageIds = timeline.messageIds;
+    final rowBuilder = _resolveTimelineRowBuilder(
+      timeline: timeline,
+      layoutMetadata: layoutMetadata,
+      suppressStreamingHaptics: suppressAssistantStreamingHaptics,
+    );
     final hideForInitialPin = debugShouldHideTranscriptForInitialPinForTesting(
       settleImmediately: _pinShouldSettleImmediately,
       positionSettled: _pinToTopPositionSettled,
@@ -2883,6 +2902,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
+      rowRebuildKeys: _rowRebuildKeysMemo,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null
@@ -2962,11 +2982,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
-      rowBuilder: _resolveTimelineRowBuilder(
-        timeline: timeline,
-        layoutMetadata: layoutMetadata,
-        suppressStreamingHaptics: suppressAssistantStreamingHaptics,
-      ),
+      rowBuilder: rowBuilder,
     );
   }
 
@@ -3049,6 +3065,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _rowBuilderTimeline = timeline;
     _rowBuilderLayout = layoutMetadata;
     _rowBuilderSuppressHaptics = suppressStreamingHaptics;
+    _rowRebuildKeysMemo = List<Object?>.unmodifiable([
+      for (var renderIndex = 0; renderIndex < messageIds.length; renderIndex++)
+        if (timeline.sourceIndexAtRenderIndex(renderIndex) case final index?)
+          (
+            layout: index < layoutMetadata.rows.length
+                ? layoutMetadata.rows[index]
+                : null,
+            isTail: timeline.tailAssistantRenderIndex == renderIndex,
+            suppressStreamingHaptics: suppressStreamingHaptics,
+          )
+        else
+          null,
+    ]);
     return _rowBuilderMemo = rowBuilder;
   }
 
@@ -3366,6 +3395,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _markdownPrewarmTimer?.cancel();
       _markdownPrewarmTimer = null;
       _lastMarkdownPrewarmSignature = null;
+      _pendingMarkdownPrewarmContents = const <String>[];
       return;
     }
 
@@ -3378,17 +3408,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .map((index) => messages[index].content.trim())
         .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
+    _pendingMarkdownPrewarmContents = rawContents;
+    if (!debugShouldStartMarkdownPrewarmTimerForTesting(
+      timerActive: _markdownPrewarmTimer?.isActive ?? false,
+    )) {
+      return;
+    }
     _markdownPrewarmGeneration += 1;
     final generation = _markdownPrewarmGeneration;
-    _markdownPrewarmTimer?.cancel();
     _markdownPrewarmTimer = Timer(const Duration(milliseconds: 220), () {
+      _markdownPrewarmTimer = null;
       if (!mounted || generation != _markdownPrewarmGeneration) {
         return;
       }
+      final pendingContents = _pendingMarkdownPrewarmContents;
+      _pendingMarkdownPrewarmContents = const <String>[];
+      if (pendingContents.isEmpty) return;
       unawaited(
         ref
             .read(markdownCompileServiceProvider)
-            .prewarmContents(rawContents, streaming: false),
+            .prewarmContents(pendingContents, streaming: false),
       );
     });
   }
@@ -4656,6 +4695,37 @@ class _ChatRowLayoutMetadata {
   /// A single-element list for an ungrouped row, and empty for a row that owns
   /// no response of its own (user turns, archived variants, decision cards).
   final List<String> groupMessageIds;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChatRowLayoutMetadata &&
+          messageId == other.messageId &&
+          displayModelName == other.displayModelName &&
+          modelIconUrl == other.modelIconUrl &&
+          listEquals(versionModelNames, other.versionModelNames) &&
+          listEquals(versionModelIconUrls, other.versionModelIconUrls) &&
+          isArchivedVariant == other.isArchivedVariant &&
+          replacesArchivedAssistant == other.replacesArchivedAssistant &&
+          showFollowUps == other.showFollowUps &&
+          showModelHeader == other.showModelHeader &&
+          showActionBar == other.showActionBar &&
+          listEquals(groupMessageIds, other.groupMessageIds);
+
+  @override
+  int get hashCode => Object.hash(
+    messageId,
+    displayModelName,
+    modelIconUrl,
+    Object.hashAll(versionModelNames),
+    Object.hashAll(versionModelIconUrls),
+    isArchivedVariant,
+    replacesArchivedAssistant,
+    showFollowUps,
+    showModelHeader,
+    showActionBar,
+    Object.hashAll(groupMessageIds),
+  );
 }
 
 @immutable
@@ -5335,6 +5405,25 @@ bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
     wantsPinToTop: wantsPinToTop,
   );
 }
+
+@visibleForTesting
+bool debugVisibleMessageIdsGainedForTesting({
+  required Iterable<String> previous,
+  required Iterable<String> current,
+}) => _visibleMessageIdsGained(previous: previous, current: current);
+
+bool _visibleMessageIdsGained({
+  required Iterable<String> previous,
+  required Iterable<String> current,
+}) {
+  final previousSet = previous is Set<String> ? previous : previous.toSet();
+  return current.any((id) => !previousSet.contains(id));
+}
+
+@visibleForTesting
+bool debugShouldStartMarkdownPrewarmTimerForTesting({
+  required bool timerActive,
+}) => !timerActive;
 
 @visibleForTesting
 List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(

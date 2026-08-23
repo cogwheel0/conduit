@@ -1038,14 +1038,18 @@ class BlockRenderer {
 
   Widget _renderTable(CompiledMarkdownElement element) {
     final columns = <DataColumn>[];
-    final rows = <DataRow>[];
+    final rows = <CompiledMarkdownElement>[];
 
     for (final section in element.children) {
       if (section is! CompiledMarkdownElement) continue;
       if (section.tag == 'thead') {
         _parseTableHead(section, columns);
       } else if (section.tag == 'tbody') {
-        _parseTableBody(section, rows, columns.length);
+        rows.addAll(
+          section.children.whereType<CompiledMarkdownElement>().where(
+            (row) => row.tag == 'tr',
+          ),
+        );
       }
     }
 
@@ -1053,21 +1057,11 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
-      child: HorizontalScrollGestureBoundary(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStatePropertyAll(
-              style.tableHeaderBackground,
-            ),
-            border: TableBorder.all(
-              color: style.tableBorderColor,
-              borderRadius: BorderRadius.circular(style.tableRadius),
-            ),
-            columns: columns,
-            rows: rows,
-          ),
-        ),
+      child: _ExpandableMarkdownTable(
+        columns: columns,
+        rows: rows,
+        rowBuilder: (row) => _buildTableRow(row, columns.length),
+        style: style,
       ),
     );
   }
@@ -1098,43 +1092,30 @@ class BlockRenderer {
     }
   }
 
-  void _parseTableBody(
-    CompiledMarkdownElement tbody,
-    List<DataRow> rows,
-    int columnCount,
-  ) {
-    for (final row in tbody.children) {
-      if (row is! CompiledMarkdownElement || row.tag != 'tr') continue;
-      final cells = <DataCell>[];
-      for (final cell in row.children) {
-        if (cell is! CompiledMarkdownElement) continue;
-        if (cell.tag != 'td' && cell.tag != 'th') continue;
-        final children = cell.children;
-        cells.add(
-          DataCell(
-            children.isNotEmpty
-                ? Text.rich(
-                    inlineRenderer.render(
-                      children,
-                      parentStyle: style.tableCell,
-                    ),
-                  )
-                : Text(cell.textContent, style: style.tableCell),
-          ),
-        );
-      }
-      // Truncate extra cells if row is longer than
-      // header to avoid DataTable assertion errors.
-      if (cells.length > columnCount) {
-        cells.removeRange(columnCount, cells.length);
-      }
-      // Pad with empty cells if row is shorter than
-      // header.
-      while (cells.length < columnCount) {
-        cells.add(const DataCell(SizedBox.shrink()));
-      }
-      rows.add(DataRow(cells: cells));
+  DataRow _buildTableRow(CompiledMarkdownElement row, int columnCount) {
+    final cells = <DataCell>[];
+    for (final cell in row.children) {
+      if (cell is! CompiledMarkdownElement) continue;
+      if (cell.tag != 'td' && cell.tag != 'th') continue;
+      final children = cell.children;
+      cells.add(
+        DataCell(
+          children.isNotEmpty
+              ? Text.rich(
+                  inlineRenderer.render(children, parentStyle: style.tableCell),
+                )
+              : Text(cell.textContent, style: style.tableCell),
+        ),
+      );
     }
+    // Keep malformed rows compatible with DataTable's fixed column count.
+    if (cells.length > columnCount) {
+      cells.removeRange(columnCount, cells.length);
+    }
+    while (cells.length < columnCount) {
+      cells.add(const DataCell(SizedBox.shrink()));
+    }
+    return DataRow(cells: cells);
   }
 
   // -- Horizontal rule --
@@ -1536,6 +1517,76 @@ class BlockRenderer {
     final text = element.textContent.trim();
     if (text.isEmpty) return null;
     return Text.rich(inlineRenderer.render([element]));
+  }
+}
+
+class _ExpandableMarkdownTable extends StatefulWidget {
+  const _ExpandableMarkdownTable({
+    required this.columns,
+    required this.rows,
+    required this.rowBuilder,
+    required this.style,
+  });
+
+  static const previewRowCount = 20;
+
+  final List<DataColumn> columns;
+  final List<CompiledMarkdownElement> rows;
+  final DataRow Function(CompiledMarkdownElement row) rowBuilder;
+  final ConduitMarkdownStyle style;
+
+  @override
+  State<_ExpandableMarkdownTable> createState() =>
+      _ExpandableMarkdownTableState();
+}
+
+class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final collapsible =
+        widget.rows.length > _ExpandableMarkdownTable.previewRowCount;
+    final visibleRows = _expanded
+        ? widget.rows
+        : widget.rows.take(_ExpandableMarkdownTable.previewRowCount);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        HorizontalScrollGestureBoundary(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStatePropertyAll(
+                widget.style.tableHeaderBackground,
+              ),
+              border: TableBorder.all(
+                color: widget.style.tableBorderColor,
+                borderRadius: BorderRadius.circular(widget.style.tableRadius),
+              ),
+              columns: widget.columns,
+              rows: visibleRows.map(widget.rowBuilder).toList(growable: false),
+            ),
+          ),
+        ),
+        if (collapsible)
+          TextButton.icon(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            icon: Icon(
+              _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+            ),
+            label: Text(
+              _expanded
+                  ? AppLocalizations.of(context)!.markdownShowLess
+                  : AppLocalizations.of(context)!.markdownShowMoreLines(
+                      widget.rows.length -
+                          _ExpandableMarkdownTable.previewRowCount,
+                    ),
+            ),
+          ),
+      ],
+    );
   }
 }
 

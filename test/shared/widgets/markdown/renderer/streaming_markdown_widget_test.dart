@@ -1064,6 +1064,32 @@ void main() {
     );
   }
 
+  testWidgets('large markdown tables render a bounded preview', (tester) async {
+    final content = <String>[
+      '| A | B |',
+      '| --- | --- |',
+      ...List<String>.generate(35, (index) => '| $index | value $index |'),
+    ].join('\n');
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpAndSettle();
+
+    DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
+    expect(table().rows, hasLength(20));
+
+    final showMore = find.text('Show 15 more lines');
+    await tester.ensureVisible(showMore);
+    await tester.tap(showMore);
+    await tester.pump();
+    expect(table().rows, hasLength(35));
+
+    final showLess = find.text('Show less');
+    await tester.ensureVisible(showLess);
+    await tester.tap(showLess);
+    await tester.pump();
+    expect(table().rows, hasLength(20));
+  });
+
   testWidgets('renders correctly when a streaming display part is dropped', (
     tester,
   ) async {
