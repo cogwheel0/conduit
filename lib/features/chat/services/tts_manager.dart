@@ -1401,7 +1401,9 @@ class TtsManager {
       lastEnqueuedIndex: _serverLastEnqueuedIndex,
     )) {
       if (_isStreamingSession &&
-          (!_streamingFinalized || _serverFetchingIndices.isNotEmpty)) {
+          (!_streamingFinalized ||
+              _serverFetchingIndices.isNotEmpty ||
+              _streamingFeedsPending > 0)) {
         _serverWaitingForNext = true;
         return;
       }
