@@ -4,6 +4,7 @@ import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/features/chat/services/native_tts_service.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -108,6 +109,51 @@ void main() {
       );
 
       expect(chunks, ['Hello\nworld']);
+    });
+  });
+
+  group('TtsManager device audio route', () {
+    late _FakeNativeTtsService native;
+
+    setUp(() async {
+      native = _FakeNativeTtsService();
+      await TtsManager.instance.debugSetNativeTtsService(native);
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(preferServer: false),
+      );
+    });
+
+    tearDown(() async {
+      TtsManager.instance.setVoiceCallActive(false);
+      await TtsManager.instance.reset();
+      await TtsManager.instance.debugSetNativeTtsService(null);
+    });
+
+    test('speaks on the call route during a voice call', () async {
+      // Android routes voice-communication and media output separately, so a
+      // media-stream utterance ignores the call's speakerphone choice and goes
+      // silent once the app is backgrounded mid-call.
+      TtsManager.instance.setVoiceCallActive(true);
+
+      await TtsManager.instance.speak('Hello there.');
+
+      expect(native.voiceCallFlags, [true]);
+    });
+
+    test('speaks on the media route for read aloud', () async {
+      await TtsManager.instance.speak('Hello there.');
+
+      expect(native.voiceCallFlags, [false]);
+    });
+
+    test('returns to the media route after the call ends', () async {
+      TtsManager.instance.setVoiceCallActive(true);
+      await TtsManager.instance.speak('During the call.');
+      TtsManager.instance.setVoiceCallActive(false);
+
+      await TtsManager.instance.speak('After the call.');
+
+      expect(native.voiceCallFlags, [true, false]);
     });
   });
 
@@ -333,6 +379,39 @@ void main() {
       expect(completed, isTrue);
     });
   });
+}
+
+class _FakeNativeTtsService extends NativeTtsService {
+  final List<bool> voiceCallFlags = <bool>[];
+
+  @override
+  bool get isSupportedPlatform => true;
+
+  @override
+  Future<bool> isAvailable() async => true;
+
+  @override
+  Stream<NativeTtsEvent> get events => const Stream<NativeTtsEvent>.empty();
+
+  @override
+  Future<List<Map<String, dynamic>>> getVoices() async =>
+      const <Map<String, dynamic>>[];
+
+  @override
+  Future<bool> speak({
+    required String text,
+    String? voiceIdentifier,
+    required double rate,
+    required double pitch,
+    required double volume,
+    bool voiceCall = false,
+  }) async {
+    voiceCallFlags.add(voiceCall);
+    return true;
+  }
+
+  @override
+  Future<bool> stop() async => true;
 }
 
 class _RecordingApiService extends ApiService {

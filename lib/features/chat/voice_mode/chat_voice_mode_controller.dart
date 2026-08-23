@@ -747,6 +747,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _initializeTts(TextToSpeechService tts, AppSettings settings) {
+    tts.setVoiceCallActive(true);
     return tts.initialize(
       deviceVoice: settings.ttsVoice,
       serverVoice: settings.ttsServerVoiceId,
@@ -1669,6 +1670,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _runTeardownStep('tts-stop', () async {
           if (!replacementOwnsTts()) {
             await tts?.stop();
+            // Hand the shared engine back to read-aloud, which belongs on the
+            // media stream. A replacement session left it on the call route.
+            tts?.setVoiceCallActive(false);
           }
         });
         await _runTeardownStep('background-lease-stop', () async {

@@ -102,12 +102,19 @@ class NativeTtsService {
     }
   }
 
+  /// Speaks [text] on the device engine.
+  ///
+  /// [voiceCall] moves Android playback onto the voice-communication stream so
+  /// it follows the call's route (earpiece, speakerphone, headset) and survives
+  /// the app being backgrounded mid-call. iOS ignores it: AVSpeechSynthesizer
+  /// already shares the call's AVAudioSession.
   Future<bool> speak({
     required String text,
     String? voiceIdentifier,
     required double rate,
     required double pitch,
     required double volume,
+    bool voiceCall = false,
   }) async {
     final channel = _methodChannel;
     if (!isSupportedPlatform || channel == null) {
@@ -120,6 +127,7 @@ class NativeTtsService {
             'rate': rate,
             'pitch': pitch,
             'volume': volume,
+            'voiceCall': voiceCall,
           }) ??
           false;
     } on MissingPluginException {

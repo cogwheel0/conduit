@@ -304,7 +304,7 @@ class TtsManager {
 
   bool _ttsInitialized = false;
   Completer<void>? _initCompleter;
-  final NativeTtsService _nativeTts = NativeTtsService();
+  NativeTtsService _nativeTts = NativeTtsService();
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
 
@@ -326,6 +326,7 @@ class TtsManager {
   TtsConfig _config = const TtsConfig();
   bool _deviceEngineAvailable = false;
   bool _voiceConfigured = false;
+  bool _voiceCallActive = false;
 
   // Session management
   int _sessionCounter = 0;
@@ -380,6 +381,30 @@ class TtsManager {
   /// Sets the API service for server TTS.
   void setApiService(ApiService? api) {
     _apiService = api;
+  }
+
+  /// Swaps the device engine binding so tests can drive device playback
+  /// without a platform channel. Pass null to restore the real engine.
+  @visibleForTesting
+  Future<void> debugSetNativeTtsService(NativeTtsService? service) async {
+    await _nativeTtsSub?.cancel();
+    _nativeTtsSub = null;
+    _nativeTts = service ?? NativeTtsService();
+    _ttsInitialized = false;
+    _initCompleter = null;
+    _nativeTtsAvailable = false;
+    _deviceEngineAvailable = false;
+    _voiceConfigured = false;
+  }
+
+  /// Marks playback as belonging to a voice call.
+  ///
+  /// Device TTS then speaks on the voice-communication stream instead of the
+  /// media stream, which is what makes it follow the call route and keep
+  /// playing while the app is in the background. Read-aloud outside a call must
+  /// stay on the media stream or it lands on the earpiece at call volume.
+  void setVoiceCallActive(bool active) {
+    _voiceCallActive = active;
   }
 
   /// Updates the TTS configuration.
@@ -1110,6 +1135,7 @@ class TtsManager {
       rate: _config.speechRate,
       pitch: _config.pitch,
       volume: _config.volume,
+      voiceCall: _voiceCallActive,
     );
     if (!started) {
       throw StateError('Native TTS failed to start');
