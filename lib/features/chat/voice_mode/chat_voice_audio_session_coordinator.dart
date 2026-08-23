@@ -367,9 +367,17 @@ class ChatVoiceAudioSessionCoordinator {
     if (_manualRouteHeld || _routeChangesStopped) return;
     if (!applied) {
       // The call is still on the earpiece, so the preference set above never
-      // became a route. Putting the flag back lets the next device event try
-      // the move again.
+      // became a route. Put the flag back, and drop the "nothing attached"
+      // snapshot with it: a phone that stays bare repeats the same device list
+      // rather than sending a fresh transition, and the snapshot would make
+      // that repeat look like old news and skip the retry.
       _speakerphoneEnabled = false;
+      if (_accessoryAttached == false) {
+        // Still the snapshot this default was picked from. A headset that
+        // connected while the pass was on the wire owns it now, and its own
+        // reroute is what the next event has to compare against.
+        _accessoryAttached = null;
+      }
       return;
     }
     // A headset connected while the pass was on the wire has already moved the
