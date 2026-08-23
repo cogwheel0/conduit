@@ -136,6 +136,20 @@ void main() {
       check(routeChanges).deepEquals(<bool>[true]);
     });
 
+    test('tries the same accessory again after a refused reroute', () async {
+      coordinator.debugRefuseRouteChanges = true;
+      await reportDevices(const [AudioDeviceType.builtInSpeaker]);
+      check(routeChanges).isEmpty();
+
+      // The hardware never moved, so the phone repeats itself rather than
+      // sending a fresh transition. The refused attempt must not have made this
+      // look like old news.
+      coordinator.debugRefuseRouteChanges = false;
+      await reportDevices(const [AudioDeviceType.builtInSpeaker]);
+
+      check(routeChanges).deepEquals(<bool>[true]);
+    });
+
     test('ignores a microphone with no output of its own', () async {
       await coordinator.handleAudioDevicesChangedForTesting({
         _outputDevice(AudioDeviceType.builtInSpeaker),

@@ -420,9 +420,12 @@ class ChatVoiceAudioSessionCoordinator {
       if (_manualRouteHeld || _routeChangesStopped) return;
       if (_accessoryAttached != attached) return;
       if (!applied) {
-        // Audio is still coming out of wherever it was. Saying otherwise would
-        // point the speaker button at a route nobody is hearing, and the flag
-        // is back where it was so the next device event gets another go.
+        // Audio is still coming out of wherever it was, so saying otherwise
+        // would point the speaker button at a route nobody is hearing. Drop the
+        // accessory snapshot claimed above as well: the hardware never moved,
+        // and leaving the claim standing would make the next notification about
+        // the same hardware look like old news and skip the retry.
+        _accessoryAttached = null;
         return;
       }
       if (!_speakerphoneRouteController.isClosed) {
