@@ -58,6 +58,24 @@ class ChatVoiceAudioSessionCoordinator {
   /// nobody knows whether the platform will take it.
   bool _defaultRouteAwaitingConfirmation = false;
 
+  /// How many speaker-button presses are queued or on the wire.
+  int _pendingSpeakerphoneRequests = 0;
+
+  /// Whether the hardware has lost its vote over the route.
+  ///
+  /// A press counts from the moment it is queued, so an automatic reroute
+  /// waiting behind it stands down rather than undoing it. It only becomes
+  /// permanent once the platform takes the move: a press that was refused
+  /// changed nothing, and should not leave the call deaf to headsets for the
+  /// rest of its life.
+  bool get _manualRouteHeld =>
+      _speakerphoneChosenByUser || _pendingSpeakerphoneRequests > 0;
+
+  /// Makes every route change report refusal. A test host has no platform to
+  /// turn a move down, and refusal is the interesting half of the behaviour.
+  @visibleForTesting
+  bool debugRefuseRouteChanges = false;
+
   /// Bumped by every teardown so work started for an earlier call can tell that
   /// it came back too late.
   int _callGeneration = 0;
@@ -202,6 +220,7 @@ class ChatVoiceAudioSessionCoordinator {
       await _restoreAndroidVoiceRoute();
       _speakerphoneEnabled = false;
       _speakerphoneChosenByUser = false;
+      _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
       _defaultRouteAwaitingConfirmation = false;
       _routeChangesStopped = false;
@@ -247,7 +266,7 @@ class ChatVoiceAudioSessionCoordinator {
     }
     final generation = _callGeneration;
     final attached = await _hasExternalAudioAccessory();
-    if (generation != _callGeneration || _speakerphoneChosenByUser) {
+    if (generation != _callGeneration || _manualRouteHeld) {
       // The call ended, or the speaker button was pressed, while the scan was
       // out. Either way this answer is stale and must not resubscribe or move
       // the route.
@@ -278,7 +297,7 @@ class ChatVoiceAudioSessionCoordinator {
   void _confirmDefaultSpeakerphoneRoute(bool applied) {
     if (!_defaultRouteAwaitingConfirmation) return;
     _defaultRouteAwaitingConfirmation = false;
-    if (_speakerphoneChosenByUser || _routeChangesStopped) return;
+    if (_manualRouteHeld || _routeChangesStopped) return;
     if (!applied) {
       // The call is still on the earpiece, so the preference set above never
       // became a route. Putting the flag back lets the next device event try
@@ -325,7 +344,7 @@ class ChatVoiceAudioSessionCoordinator {
       _handleAudioDevicesChanged(devices);
 
   Future<void> _handleAudioDevicesChanged(Set<AudioDevice> devices) async {
-    if (_speakerphoneChosenByUser || _routeChangesStopped) {
+    if (_manualRouteHeld || _routeChangesStopped) {
       // Someone pressed the speaker button, or the call is over. Either way the
       // hardware no longer gets a vote.
       return;
@@ -350,7 +369,7 @@ class ChatVoiceAudioSessionCoordinator {
       // Re-read everything this reroute assumed: while it waited its turn the
       // user may have pressed the speaker button, the call may have ended, or a
       // later event may have already put the route where it belongs.
-      if (_speakerphoneChosenByUser || _routeChangesStopped) return;
+      if (_manualRouteHeld || _routeChangesStopped) return;
       if (_accessoryAttached != attached) return;
       if (enabled == _speakerphoneEnabled) return;
 
@@ -362,7 +381,7 @@ class ChatVoiceAudioSessionCoordinator {
       // again while the platform calls above are still going. Publishing then
       // would leave the speaker control showing a route nobody chose; whoever
       // superseded this reroute gets to publish instead.
-      if (_speakerphoneChosenByUser || _routeChangesStopped) return;
+      if (_manualRouteHeld || _routeChangesStopped) return;
       if (_accessoryAttached != attached) return;
       if (!applied) {
         // Audio is still coming out of wherever it was. Saying otherwise would
@@ -434,12 +453,27 @@ class ChatVoiceAudioSessionCoordinator {
       // put communication mode back after the route was handed back.
       return Future<bool>.value(false);
     }
-    // Set before queueing so an automatic reroute still waiting its turn sees
-    // the choice and stands down.
-    _speakerphoneChosenByUser = true;
-    return _serializeRouteChange(
-      () => _applySpeakerphoneRoute(enabled, phase: 'user-toggle'),
-    );
+    // Counted before queueing so an automatic reroute still waiting its turn
+    // sees the press and stands down.
+    _pendingSpeakerphoneRequests++;
+    return _serializeRouteChange(() async {
+      bool applied;
+      try {
+        applied = await _applySpeakerphoneRoute(enabled, phase: 'user-toggle');
+      } finally {
+        _pendingSpeakerphoneRequests--;
+      }
+      if (applied) {
+        _speakerphoneChosenByUser = true;
+      } else {
+        // The press never became a route, so the hardware keeps its vote. The
+        // platform calls above may still have torn the old route down on the
+        // way, so drop the accessory snapshot and let the next device event
+        // work the route out from scratch.
+        _accessoryAttached = null;
+      }
+      return applied;
+    });
   }
 
   /// Moves the call to [enabled] and reports whether the platform took it.
@@ -479,6 +513,9 @@ class ChatVoiceAudioSessionCoordinator {
       applied = await _configureAndroidVoiceRoute(phase: phase);
     }
     if (!await _setIosSpeakerphoneEnabled(enabled, phase: phase)) {
+      applied = false;
+    }
+    if (debugRefuseRouteChanges) {
       applied = false;
     }
     if (!applied) {

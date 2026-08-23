@@ -124,6 +124,18 @@ void main() {
       check(routeChanges).isEmpty();
     });
 
+    test('lets the hardware back in after a refused button press', () async {
+      coordinator.debugRefuseRouteChanges = true;
+      check(await coordinator.setSpeakerphoneEnabled(false)).isFalse();
+      coordinator.debugRefuseRouteChanges = false;
+
+      // The press moved nothing, so it must not cost the rest of the call its
+      // automatic routing.
+      await reportDevices(const [AudioDeviceType.builtInSpeaker]);
+
+      check(routeChanges).deepEquals(<bool>[true]);
+    });
+
     test('ignores a microphone with no output of its own', () async {
       await coordinator.handleAudioDevicesChangedForTesting({
         _outputDevice(AudioDeviceType.builtInSpeaker),
