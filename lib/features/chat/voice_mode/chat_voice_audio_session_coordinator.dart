@@ -66,6 +66,11 @@ class ChatVoiceAudioSessionCoordinator {
   /// How many speaker-button presses are queued or on the wire.
   int _pendingSpeakerphoneRequests = 0;
 
+  /// How many teardowns are part-way through. Hanging up and disposal can
+  /// overlap, and the first to finish must not lift the shutter while the other
+  /// is still putting the platform route back.
+  int _teardownsRunning = 0;
+
   /// Whether the hardware has lost its vote over the route.
   ///
   /// A press counts from the moment it is queued, so an automatic reroute
@@ -112,6 +117,7 @@ class ChatVoiceAudioSessionCoordinator {
   }
 
   Future<void> configureForListening() async {
+    final generation = _callGeneration;
     final session = await _ensureSession();
     await _configureSession(
       session,
@@ -134,11 +140,16 @@ class ChatVoiceAudioSessionCoordinator {
       'listening',
     );
     _confirmDefaultSpeakerphoneRoute(
-      await _activateVoiceRoute(session, phase: 'listening'),
+      await _activateVoiceRoute(
+        session,
+        phase: 'listening',
+        generation: generation,
+      ),
     );
   }
 
   Future<void> configureForSpeaking() async {
+    final generation = _callGeneration;
     final session = await _ensureSession();
     await _configureSession(
       session,
@@ -161,12 +172,17 @@ class ChatVoiceAudioSessionCoordinator {
       'speaking',
     );
     _confirmDefaultSpeakerphoneRoute(
-      await _activateVoiceRoute(session, phase: 'speaking'),
+      await _activateVoiceRoute(
+        session,
+        phase: 'speaking',
+        generation: generation,
+      ),
     );
     await _settleIosSpeakingRoute();
   }
 
   Future<void> configureForBargeInSpeaking() async {
+    final generation = _callGeneration;
     final session = await _ensureSession();
     await _configureSession(
       session,
@@ -189,7 +205,11 @@ class ChatVoiceAudioSessionCoordinator {
       'barge-in-speaking',
     );
     _confirmDefaultSpeakerphoneRoute(
-      await _activateVoiceRoute(session, phase: 'barge-in-speaking'),
+      await _activateVoiceRoute(
+        session,
+        phase: 'barge-in-speaking',
+        generation: generation,
+      ),
     );
     await _settleIosSpeakingRoute();
   }
@@ -205,12 +225,18 @@ class ChatVoiceAudioSessionCoordinator {
   /// Teardown drains the same queue, so queueing is also what stops a pass that
   /// started before the call ended from reactivating the session or putting the
   /// phone back into communication mode after the route was handed back.
+  ///
+  /// [generation] is the call this pass was started for, read before the
+  /// session configuration it follows. A teardown that both began and finished
+  /// during that configuration leaves the shutter up again, so the generation
+  /// is what tells this pass the call it belongs to is over.
   Future<bool> _activateVoiceRoute(
     AudioSession session, {
     required String phase,
+    required int generation,
   }) {
     return _serializeRouteChange(() async {
-      if (_routeChangesStopped) {
+      if (_routeChangesStopped || generation != _callGeneration) {
         return false;
       }
       await _setActive(session, active: true, phase: phase);
@@ -234,13 +260,15 @@ class ChatVoiceAudioSessionCoordinator {
 
   /// Hands the route back to whatever had it before the call.
   ///
-  /// Safe to run twice, and in either order: every step either restores state
-  /// it captured or clears state that is already clear.
+  /// Safe to run twice, in either order, and overlapping: every step either
+  /// restores state it captured or clears state that is already clear, and the
+  /// shutter stays down until the last teardown is done.
   Future<void> _tearDownRoute({required String phase}) async {
     assert(() {
       debugRouteTeardowns.add(phase);
       return true;
     }());
+    _teardownsRunning++;
     _callGeneration++;
     final session = _session;
     final devicesSub = _devicesSub;
@@ -262,7 +290,10 @@ class ChatVoiceAudioSessionCoordinator {
       _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
       _defaultRouteAwaitingConfirmation = false;
-      _routeChangesStopped = _disposed;
+      _teardownsRunning--;
+      if (_teardownsRunning == 0) {
+        _routeChangesStopped = _disposed;
+      }
     }
   }
 

@@ -217,6 +217,20 @@ void main() {
           .deepEquals(<String>['deactivate', 'dispose']);
     });
 
+    test('keeps the shutter down until the last teardown is done', () async {
+      final first = coordinator.deactivate();
+      final second = coordinator.deactivate();
+      await first;
+
+      // The second teardown is still putting the platform route back. A button
+      // press slipping in behind it would put communication mode back on a call
+      // that is already over.
+      final pressed = coordinator.setSpeakerphoneEnabled(true);
+      await second;
+
+      check(await pressed).isFalse();
+    });
+
     test('stays shut once disposed, however late hanging up is', () async {
       await coordinator.dispose();
       // Teardown normally lifts the shutter for the next call. A disposed
