@@ -357,6 +357,23 @@ void main() {
       check(advance.fedChunkCount).equals(3);
     });
 
+    test('does not repeat a sentence the rewrite left alone', () {
+      // The server replaced one sentence in the middle. The tail after it is
+      // unchanged and playback already heard it, so only the new sentence is
+      // speakable.
+      final advance = advanceStreamingChunksForTesting(
+        chunks: const ['Opening line.', 'Rewritten middle.', 'Closing line.'],
+        fedChunkCount: 3,
+        spokenText: 'Opening line.Original middle.Closing line.',
+        finalized: true,
+      );
+
+      check(advance.chunks).deepEquals(['Rewritten middle.']);
+      check(advance.fedChunkCount).equals(3);
+      check(advance.spokenText)
+          .equals('Opening line.Rewritten middle.Closing line.');
+    });
+
     test('keeps its place when the answer repeats a sentence', () {
       // 'Right away.' appears twice and a `</details>` landing between them
       // shifted the split left, so the spoken copy is now at index 1. Anchoring

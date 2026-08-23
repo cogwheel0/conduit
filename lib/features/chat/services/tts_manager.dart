@@ -142,6 +142,14 @@ StreamingChunkAdvance _advanceStreamingChunks({
   var cursor = resolved.cursor;
   final spoken = StringBuffer(resolved.spokenText);
   final pending = <String>[];
+
+  // The part of the old response that playback heard past the point the two
+  // versions stop agreeing. A rewrite usually touches one sentence and leaves
+  // the rest alone, so the sentences after it are still in here and must not be
+  // spoken twice.
+  final alreadyHeard = spokenText.substring(resolved.spokenText.length);
+  var heardCursor = 0;
+
   while (cursor < speakableCount) {
     final chunk = chunks[cursor];
     cursor++;
@@ -149,8 +157,17 @@ StreamingChunkAdvance _advanceStreamingChunks({
     if (trimmed.isEmpty) {
       continue;
     }
-    pending.add(trimmed);
     spoken.write(trimmed);
+    if (heardCursor < alreadyHeard.length) {
+      // Scan forward only, so a sentence that repeats later in the answer is
+      // still spoken once for each time the old version was heard.
+      final at = alreadyHeard.indexOf(trimmed, heardCursor);
+      if (at >= 0) {
+        heardCursor = at + trimmed.length;
+        continue;
+      }
+    }
+    pending.add(trimmed);
   }
 
   return StreamingChunkAdvance(
