@@ -1227,6 +1227,46 @@ void main() {
     },
   );
 
+  test('speakerphone toggle stays put when the platform refuses', () async {
+    final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+      ..speakerphoneRouteApplies = false;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(_FakeVoiceInputService()),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          audioSession,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+    await controller.start(startNewConversation: false);
+
+    await controller.toggleSpeakerphone();
+
+    // Audio is still coming out of the earpiece, so a button that flipped to
+    // speaker would be pointing at a route nobody is hearing.
+    check(container.read(chatVoiceModeControllerProvider).isSpeakerphoneEnabled)
+        .isFalse();
+    check(audioSession.speakerphoneCalls).deepEquals(<bool>[true]);
+    await controller.stop();
+  });
+
   test(
     'queues final transcripts that arrive while the previous final is sending',
     () async {
@@ -2412,6 +2452,7 @@ class _FakeChatVoiceAudioSessionCoordinator
   bool throwOnDeactivate = false;
   bool defaultsToSpeakerphone = false;
   final speakerphoneCalls = <bool>[];
+  bool speakerphoneRouteApplies = true;
   final routeChanges = StreamController<bool>.broadcast();
 
   @override
@@ -2424,8 +2465,9 @@ class _FakeChatVoiceAudioSessionCoordinator
   }
 
   @override
-  Future<void> setSpeakerphoneEnabled(bool enabled) async {
+  Future<bool> setSpeakerphoneEnabled(bool enabled) async {
     speakerphoneCalls.add(enabled);
+    return speakerphoneRouteApplies;
   }
 
   @override

@@ -706,9 +706,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> toggleSpeakerphone() {
     return _enqueue(() async {
       if (!state.isActive) return;
+      final coordinator = _audioSessionCoordinator;
+      if (coordinator == null) return;
       final enabled = !state.isSpeakerphoneEnabled;
-      await _audioSessionCoordinator?.setSpeakerphoneEnabled(enabled);
+      final applied = await coordinator.setSpeakerphoneEnabled(enabled);
       if (_disposed) return;
+      // A route the platform refused leaves audio where it was, so the button
+      // stays where it was too rather than promising a route nobody is hearing.
+      if (!applied) return;
       state = state.copyWith(isSpeakerphoneEnabled: enabled);
     });
   }
