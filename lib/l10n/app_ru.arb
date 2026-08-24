@@ -121,7 +121,7 @@
   "voiceStatusRecording": "Идет запись…",
   "voiceHoldToTalk": "Удерживайте для разговора",
   "voiceAutoSend": "Автоотправка",
-  "voiceTranscript": "Расшифровка голоса",
+  "voiceTranscript": "Транскрипция",
   "voicePromptSpeakNow": "Говорите сейчас...",
   "voicePromptTapStart": "Нажмите «Начать» для запуска",
   "voiceActionStop": "Стоп",
@@ -2302,7 +2302,7 @@
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Меню базы знаний",
+  "workspaceKnowledgeAddMenu": "Добавить файлы",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
@@ -2573,7 +2573,7 @@
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "Удалить промпт «{title}»? Это действие нельзя отменить.",
+  "workspacePromptDeleteConfirmMessage": "Удалить промпт «{name}»? Это действие нельзя отменить.",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -3332,6 +3332,5 @@
   "workspaceToolsTitle": "Инструменты",
   "workspaceToolsSubtitle": "Пользовательские расширения и интеграции инструментов",
   "workspaceKnowledgeTitle": "База знаний",
-  "workspaceKnowledgeSubtitle": "Коллекции документов для семантического поиска",
-  "workspaceKnowledgeAddDocument": "Добавить документ"
+  "workspaceKnowledgeSubtitle": "Коллекции документов для семантического поиска"
 }
