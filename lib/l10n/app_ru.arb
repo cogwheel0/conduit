@@ -2957,7 +2957,7 @@
   "hermesSchedulesUnavailable": "Расписания недоступны",
   "hermesNoSchedulesYet": "Пока нет расписаний",
   "hermesSchedulesSummary": "Активно {active} из {total}",
-  "hermesReviewSchedules": "Просмотр расписаний",
+  "hermesReviewSchedules": "Просмотреть расписания",
   "hermesScheduledAgentsTitle": "Запланированные агенты",
   "workspaceToolImportUrlHost": "Можно импортировать инструменты только с GitHub.",
   "signInServerDescription": "Введите адрес сервера Open WebUI для авторизации",
