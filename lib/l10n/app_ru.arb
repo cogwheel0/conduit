@@ -218,7 +218,7 @@
   "deleteFolderTitle": "Удалить папку",
   "deleteFolderMessage": "Эта папка и ее ссылки будут удалены.",
   "failedToDeleteFolder": "Не удалось удалить папку",
-  "aboutApp": "О",
+  "aboutApp": "О проекте",
   "aboutAppSubtitle": "Информация и ссылки Conduit",
   "web": "Веб",
   "imageGen": "Генерация изображений",
