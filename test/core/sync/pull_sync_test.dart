@@ -1036,4 +1036,111 @@ void main() {
           .deepEquals([serverId]);
     });
   });
+
+  group('overlap-window fetch memo', () {
+    late PullFetchMemo memo;
+    late PullSync memoPull;
+
+    setUp(() {
+      memo = PullFetchMemo();
+      memoPull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        fetchMemo: memo,
+      );
+    });
+
+    test(
+      'a chat pinned at the watermark stops being re-fetched after a '
+      'confirming cycle',
+      () async {
+        // The newest chat's updatedAt IS the watermark after cycle 1, so it
+        // sits inside the overlap window of every later cycle. Observed on
+        // device: re-downloaded + re-merged on every pull, indefinitely.
+        server.seedChat(
+          id: 'at-watermark',
+          blob: blobFor('at-watermark'),
+          createdAt: 100,
+          updatedAt: 200,
+        );
+
+        await memoPull.run(); // fetch 1: first sight
+        await memoPull.run(); // fetch 2: confirming re-fetch
+        check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
+            .equals(2);
+
+        await memoPull.run(); // skipped
+        await memoPull.run(); // skipped
+        check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
+            .equals(2);
+
+        // Local row is untouched by the skips.
+        final row = await db.chatsDao.getChat('at-watermark');
+        check(row!.bodySynced).isTrue();
+        check(row.serverUpdatedAt).equals(200);
+      },
+    );
+
+    test('a server edit at a new stamp is always re-fetched', () async {
+      server.seedChat(
+        id: 'edited',
+        blob: blobFor('edited'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'edited').length)
+          .equals(2);
+
+      // Same-id edit with a bumped stamp: memo entry no longer matches.
+      server.seedChat(
+        id: 'edited',
+        blob: blobFor('edited', messageCount: 4),
+        createdAt: 100,
+        updatedAt: 300,
+      );
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'edited').length)
+          .equals(3);
+      final row = await db.chatsDao.getChat('edited');
+      check(row!.serverUpdatedAt).equals(300);
+    });
+
+    test('two fetches in the SAME cycle never confirm a skip', () {
+      final sameCycleMemo = PullFetchMemo();
+      sameCycleMemo.beginCycle();
+      sameCycleMemo.recordFetched('a', 100);
+      sameCycleMemo.recordFetched('a', 100);
+      check(sameCycleMemo.isConfirmed('a', 100)).isFalse();
+
+      sameCycleMemo.beginCycle();
+      sameCycleMemo.recordFetched('a', 100);
+      check(sameCycleMemo.isConfirmed('a', 100)).isTrue();
+      // A different stamp is never confirmed by the old one.
+      check(sameCycleMemo.isConfirmed('a', 200)).isFalse();
+    });
+
+    test('a locally dirty row is fetched despite a confirmed memo', () async {
+      server.seedChat(
+        id: 'dirtied',
+        blob: blobFor('dirtied'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      await memoPull.run();
+      final fetchesBefore =
+          client.chatFetchStarts.where((id) => id == 'dirtied').length;
+
+      // Local divergence invalidates the skip even though the memo matches.
+      await (db.update(db.chats)..where((t) => t.id.equals('dirtied'))).write(
+        const ChatsCompanion(dirty: Value(true)),
+      );
+      await memoPull.run();
+      check(client.chatFetchStarts.where((id) => id == 'dirtied').length)
+          .equals(fetchesBefore + 1);
+    });
+  });
 }

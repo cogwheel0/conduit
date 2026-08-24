@@ -12,10 +12,11 @@ import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
 import 'markdown_display_part.dart';
 import 'markdown_document_controller.dart';
-import 'markdown_extent_cache.dart';
+import 'markdown_render_gate.dart';
 import 'markdown_loading_skeleton.dart';
 import 'streaming_markdown_preparation.dart';
 import 'renderer/block_renderer.dart';
+import 'renderer/chunked_block_column.dart';
 import 'renderer/conduit_markdown_widget.dart';
 
 const int _streamingDiagnosticsSampleInterval = 16;
@@ -199,6 +200,9 @@ class _StreamingMarkdownWidgetState
   bool _isAppForeground = true;
   bool _isRouteVisible = true;
   ImageBuilder? _adaptedImageBuilder;
+  // Chunked block inflation registers here while revealing; completion
+  // re-arms SelectionArea wrapping via the listener.
+  final MarkdownRenderGate _renderGate = MarkdownRenderGate();
 
   CompiledMarkdownDocument? get _compiledDocument =>
       _documentController.compiledDocument;
@@ -215,10 +219,21 @@ class _StreamingMarkdownWidgetState
         _documentController.compiledStreamingRevision == patch.revision;
   }
 
+  void _handleRenderGateChanged() {
+    if (!mounted) return;
+    // The gate flips to incomplete while a chunked descendant inflates —
+    // that is mid-build, where an ancestor setState is illegal. Both edges
+    // of the gate only need to take visual effect by the next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _renderGate.addListener(_handleRenderGateChanged);
     _isAppForeground = _isLifecycleForeground(
       WidgetsBinding.instance.lifecycleState,
     );
@@ -243,20 +258,23 @@ class _StreamingMarkdownWidgetState
     }
   }
 
+  /// Above this size a settled mount never prepares/compiles synchronously:
+  /// the multi-pass normalization + parse of a very large body froze the UI
+  /// for over a second when opening a conversation cold. Over-cap bodies
+  /// mount an approximate skeleton and compile off-frame; the one-time
+  /// extent correction when the real document lands is absorbed by the
+  /// timeline's anchor maintenance / latest-follow, and is invisible next to
+  /// a freeze. Typical assistant messages stay well below this cap, so
+  /// scroll-up-through-history keeps its exact-extent mount guarantee.
+  static const int _settledSynchronousMountCharCap = 20000;
+
   /// Resolves a settled body at mount time.
   ///
   /// Settled rows must mount at their final extent or the timeline jumps
-  /// while scrolling through history. Historically that forced a synchronous
-  /// prepare + compile on the UI thread for every settled mount. The ladder
-  /// here keeps that guarantee while making remounts O(1):
-  ///
-  /// 1. Memoized prepare + cached compile → apply directly, no string work.
-  /// 2. Short content → synchronous prepare + compile (cheap).
-  /// 3. Long content whose laid-out height is recorded in
-  ///    [MarkdownExtentCache] → mount a fixed-extent placeholder at exactly
-  ///    that height and run prepare + compile off-frame.
-  /// 4. Long content never laid out at the current geometry → synchronous
-  ///    fallback (rare: first layout normally happened while streaming).
+  /// while scrolling through history, so mounts are synchronous when cheap:
+  /// memoized prepare + cached compile apply directly with no string work,
+  /// and uncached bodies under [_settledSynchronousMountCharCap] prepare and
+  /// compile in-frame. Only over-cap giants go async behind a skeleton.
   void _mountSettledContent(MarkdownCompileService compiler) {
     final content = widget.content;
     final memoizedPrepared = compiler.peekSettledPrepared(content);
@@ -268,17 +286,9 @@ class _StreamingMarkdownWidgetState
         return;
       }
     }
-    // Widget tests stay on the synchronous deterministic path: the extent
-    // cache is a process-global singleton, so deferral decisions would leak
-    // between tests through shared content strings.
-    final canDeferOffFrame =
-        !_isWidgetTest &&
-        !compiler.shouldPrepareSynchronously(
-          content,
-          widgetTest: _isWidgetTest,
-        ) &&
-        MarkdownExtentCache.instance.hasLikelyCurrentExtent(content);
-    if (!canDeferOffFrame) {
+    // Widget tests stay on the synchronous deterministic path so settled
+    // fixtures render fully on the first pump regardless of size.
+    if (_isWidgetTest || content.length <= _settledSynchronousMountCharCap) {
       final prepared =
           memoizedPrepared ??
           prepareMarkdownContent(content, streaming: false);
@@ -290,8 +300,6 @@ class _StreamingMarkdownWidgetState
       _documentController.applyDirectDocument(document);
       return;
     }
-    // The fixed-extent placeholder holds this row's exact slot, so blocking
-    // string passes and markdown parsing can leave the mount frame entirely.
     _queueSettledSnapshot(content, generation: _snapshotGeneration);
   }
 
@@ -446,6 +454,9 @@ class _StreamingMarkdownWidgetState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _renderGate
+      ..removeListener(_handleRenderGateChanged)
+      ..dispose();
     _debugStreamingDelayTimer?.cancel();
     _retirePreparationSession();
     _documentController.dispose();
@@ -470,7 +481,6 @@ class _StreamingMarkdownWidgetState
     _displayPartDocumentCache.clear();
     _displayPartsSourceDocument = null;
     _displayPartsMemo = null;
-    MarkdownExtentCache.instance.clear();
     _compileService.handleMemoryPressure();
   }
 
@@ -761,10 +771,6 @@ class _StreamingMarkdownWidgetState
     final snapshot = _snapshot;
     if (snapshot.isBlank) {
       if (_settledPreparationPending && widget.content.trim().isNotEmpty) {
-        if (!widget.isStreaming) {
-          final placeholder = _buildSettledExtentPlaceholder(context);
-          if (placeholder != null) return placeholder;
-        }
         return MarkdownLoadingSkeleton(contentLength: widget.content.length);
       }
       return const SizedBox.shrink();
@@ -778,11 +784,6 @@ class _StreamingMarkdownWidgetState
       compiledDocument: compiledDocument,
       hasFreshCompiledDocument: hasFreshCompiledDocument,
     )) {
-      // A deferred settled mount stays at its recorded extent through the
-      // async compile gap too; the variable-height skeleton would shift the
-      // timeline's restored anchors.
-      final placeholder = _buildSettledExtentPlaceholder(context);
-      if (placeholder != null) return placeholder;
       return MarkdownLoadingSkeleton(contentLength: snapshot.length);
     }
     if (compiledDocument == null) {
@@ -795,19 +796,10 @@ class _StreamingMarkdownWidgetState
     // document is valid markdown and is superseded by `_applyCompiledDocumentState`
     // within a frame once the fresh compile lands.
 
-    // Record settled layout heights so the next mount of this content can
-    // hold its extent with a placeholder instead of compiling synchronously.
-    // Recording stays off while streaming or while a fresh compile is pending
-    // — those heights are transient.
     final result = KeyedSubtree(
       key: _markdownContentKey,
-      child: MarkdownExtentReporter(
-        content: widget.content,
-        textScaledHundred: MediaQuery.textScalerOf(context).scale(100),
-        enabled:
-            !widget.isStreaming &&
-            !_settledPreparationPending &&
-            hasFreshCompiledDocument,
+      child: MarkdownRenderGateScope(
+        gate: _renderGate,
         child: _buildMarkdownDisplayParts(compiledDocument),
       ),
     );
@@ -818,9 +810,11 @@ class _StreamingMarkdownWidgetState
     // responseDone-gap growing-content path that #540's fix now keeps on screen)
     // must not be made selectable: SelectionArea over rapidly-changing content
     // triggers concurrent-modification errors in Flutter's selection system.
+    // Chunked inflation mutates children per frame, so it also holds this off.
     if (widget.isStreaming ||
         _settledPreparationPending ||
-        !hasFreshCompiledDocument) {
+        !hasFreshCompiledDocument ||
+        !_renderGate.isComplete) {
       return result;
     }
 
@@ -839,34 +833,6 @@ class _StreamingMarkdownWidgetState
         },
         child: PrioritizedHorizontalGesture(child: result),
       ),
-    );
-  }
-
-  /// A fixed-height stand-in for a settled body whose compile was deferred
-  /// off the mount frame, or null when no recorded extent matches the current
-  /// slot geometry (the caller then falls back to the skeleton).
-  ///
-  /// The height must be exact: the timeline restores scroll anchors against
-  /// row rects, so an off-by-a-few-pixels placeholder would drift the
-  /// viewport when the real document swaps in.
-  Widget? _buildSettledExtentPlaceholder(BuildContext context) {
-    final content = widget.content;
-    final textScaledHundred = MediaQuery.textScalerOf(context).scale(100);
-    if (!MarkdownExtentCache.instance.hasLikelyCurrentExtent(content)) {
-      return null;
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final height = MarkdownExtentCache.instance.heightFor(
-          content,
-          maxWidth: constraints.maxWidth,
-          textScaledHundred: textScaledHundred,
-        );
-        if (height == null) {
-          return MarkdownLoadingSkeleton(contentLength: content.length);
-        }
-        return SizedBox(height: height, width: double.infinity);
-      },
     );
   }
 
@@ -897,26 +863,42 @@ class _StreamingMarkdownWidgetState
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        for (var index = 0; index < stableParts.length; index += 1)
-          KeyedSubtree(
-            key: ValueKey<String>(
-              'markdown-display-part:${stableParts[index].partId}',
-            ),
-            child: _buildMarkdownWithCitations(
-              document: stableParts[index].document,
-              stateScopeId: _stateScopeIdForPart(stableParts[index]),
-              enableStreamingTextFade:
-                  widget.isStreaming &&
-                  widget.enableStreamingTextFade &&
-                  stableParts[index].isMutableTail,
-              trimLastBlockBottomPadding: index == stableParts.length - 1,
-            ),
+    final partWidgets = <Widget>[
+      for (var index = 0; index < stableParts.length; index += 1)
+        KeyedSubtree(
+          key: ValueKey<String>(
+            'markdown-display-part:${stableParts[index].partId}',
           ),
-      ],
+          child: _buildMarkdownWithCitations(
+            document: stableParts[index].document,
+            stateScopeId: _stateScopeIdForPart(stableParts[index]),
+            enableStreamingTextFade:
+                widget.isStreaming &&
+                widget.enableStreamingTextFade &&
+                stableParts[index].isMutableTail,
+            trimLastBlockBottomPadding: index == stableParts.length - 1,
+          ),
+        ),
+    ];
+
+    // This column — not the per-part block columns — is where a giant
+    // settled message inflates: the display-part split produces one
+    // single-block sub-document per root block, so the sub-documents are
+    // always under ConduitMarkdownWidget's own chunk threshold and the
+    // freeze lives in inflating thousands of parts here in one frame.
+    //
+    // The chunked column is used unconditionally (it renders a plain Column
+    // when everything is revealed) so the body's widget type never changes.
+    // An earlier version latched a type choice on the first build, which
+    // left a body that mounted small and later grew past the threshold —
+    // e.g. a local stub replaced by full server content — on the plain
+    // column, re-creating the multi-second inflation freeze. Streaming
+    // reveals immediately (blocks arrive one at a time; the live tail must
+    // never trail the pin/extent math), and that progress is monotonic, so
+    // the streaming→settled flip re-inflates nothing.
+    return ChunkedBlockColumn(
+      revealImmediately: widget.isStreaming,
+      children: partWidgets,
     );
   }
 

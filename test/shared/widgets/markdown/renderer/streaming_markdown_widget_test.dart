@@ -18,7 +18,6 @@ import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart'
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
-import 'package:conduit/shared/widgets/markdown/markdown_extent_cache.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
@@ -3918,78 +3917,56 @@ Tail keeps growing
   );
 
   testWidgets(
-    'settled mount with a recorded extent defers compile behind an '
-    'exact-height placeholder',
+    'over-cap settled mount compiles off-frame behind a skeleton',
     (tester) async {
-      addTearDown(debugResetMarkdownExtentCache);
-      debugResetMarkdownExtentCache();
+      // A settled body past the synchronous-mount cap must not prepare or
+      // parse on the mount frame (the conversation-open freeze); it shows the
+      // approximate skeleton while the compile runs and fills in after.
       final longSettled = StringBuffer();
-      for (var index = 0; index < 80; index += 1) {
-        longSettled.writeln('Deferred extent line $index with padding words.');
+      var index = 0;
+      while (longSettled.length < 30000) {
+        longSettled.writeln('Deferred giant line $index with padding words.');
+        index += 1;
       }
       final content = longSettled.toString();
-      const recordedHeight = 431.0;
-      const slotWidth = 400.0;
       final compiler = _GatedSettledPrepareMarkdownCompileService();
       addTearDown(() {
         compiler.releaseFirst();
         compiler.dispose();
       });
 
-      Widget buildHarness() {
-        return ProviderScope(
+      await tester.pumpWidget(
+        ProviderScope(
           overrides: [
             markdownCompileServiceProvider.overrideWithValue(compiler),
           ],
           child: MaterialApp(
             theme: AppTheme.light(TweakcnThemes.t3Chat),
             home: Scaffold(
-              body: Center(
-                child: SizedBox(
-                  width: slotWidth,
-                  child: SingleChildScrollView(
-                    child: StreamingMarkdownWidget(
-                      key: const ValueKey('extent-deferred-markdown'),
-                      content: content,
-                      isStreaming: false,
-                      // Opt into the production mount ladder; the default
-                      // widget-test detection forces the synchronous path.
-                      debugTreatAsWidgetTest: false,
-                    ),
-                  ),
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  // Opt into the production mount path; the default
+                  // widget-test detection forces the synchronous path.
+                  debugTreatAsWidgetTest: false,
                 ),
               ),
             ),
           ),
-        );
-      }
-
-      // Simulate a prior settled layout of this content at the slot geometry.
-      MarkdownExtentCache.instance.record(
-        content,
-        maxWidth: slotWidth,
-        textScaledHundred: 100,
-        height: recordedHeight,
+        ),
       );
 
-      await tester.pumpWidget(buildHarness());
-
-      // The mount frame did no synchronous prepare; the row holds its exact
-      // recorded extent (no approximate skeleton) while work runs off-frame.
-      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isFalse();
-      check(tester.any(find.textContaining('Deferred extent line 0')))
-          .isFalse();
-      final markdownFinder = find.byKey(
-        const ValueKey('extent-deferred-markdown'),
-      );
-      check(tester.getSize(markdownFinder).height).equals(recordedHeight);
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+      check(
+        tester.any(find.textContaining('Deferred giant line 0')),
+      ).isFalse();
 
       compiler.releaseFirst();
       await tester.pumpAndSettle();
 
       check(compiler.preparedInputs).deepEquals([content]);
-      check(tester.any(find.textContaining('Deferred extent line 0')))
-          .isTrue();
+      check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
     },
   );
 

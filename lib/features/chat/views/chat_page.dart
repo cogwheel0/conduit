@@ -22,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/interaction_activity.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
@@ -1011,6 +1012,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     _endScrollProfile(reason: 'disposed');
+    // A drag interrupted by page disposal never delivers onUserDragEnd;
+    // release the interaction hold so background work isn't deferred until
+    // the maxDeferral timeout.
+    if (_isUserInteractingWithScroll) {
+      InteractionActivity.instance.endInteraction();
+    }
     _timelineViewportController.dispose();
     super.dispose();
   }
@@ -2265,6 +2272,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_activeScrollProfileTaskKey != null) {
       return;
     }
+    PerformanceProfiler.instance.startFrameCadence();
     _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_scroll',
       scope: 'chat',
@@ -2282,6 +2290,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     _activeScrollProfileTaskKey = null;
+    PerformanceProfiler.instance.stopFrameCadence(reason: reason);
     PerformanceProfiler.instance.finishTask(
       taskKey,
       data: {
@@ -2934,6 +2943,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
       onPointerDown: () {
+        // Ramp the ProMotion panel before the drag even clears touch slop;
+        // waiting for drag-start leaves the fling's first stretch at 40 Hz.
+        InteractionActivity.instance.notifyTouchDown();
         if (_explicitLatestNavigationInFlight ||
             _timelineScrollMode == _ChatTimelineScrollMode.anchoringNewTurn ||
             _shouldAutoFollowPinnedTurn) {
@@ -2941,6 +2953,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        InteractionActivity.instance.beginInteraction();
         final pinnedTurnWasActive = _wantsPinToTop;
         _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
@@ -2962,6 +2975,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         } catch (_) {}
       },
       onUserDragEnd: () {
+        InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;
         _updateBottomAnchorTracking();
