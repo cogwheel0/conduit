@@ -1,9 +1,10 @@
 {
   "worktree": {
     "setup": [
+      "if [ -x \"$HOME/.agents/projects/conduit/setup-worktree\" ]; then \"$HOME/.agents/projects/conduit/setup-worktree\"; fi",
       "git submodule update --init --recursive",
       "flutter pub get",
-      "dart run build_runner build --delete-conflicting-outputs"
+      "dart run build_runner build"
     ]
   }
 }
