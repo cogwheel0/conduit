@@ -184,9 +184,20 @@ const int _carriageReturn = 0x0D;
 
 /// A fixed, provider-independent stream failure that is safe to show in UI.
 final class HermesStreamGuardException implements Exception {
-  const HermesStreamGuardException(this.message);
+  const HermesStreamGuardException(
+    this.message, {
+    this.allowsCheckpointRecovery = false,
+  });
 
   final String message;
+
+  /// Whether a caller with a separately pollable run identifier may replace
+  /// this failed SSE transport with a bounded checkpoint lookup.
+  ///
+  /// Resource, shape, and absolute-duration failures remain fail-closed. Only
+  /// an otherwise well-formed stream that stopped producing typed progress is
+  /// eligible, and the recovery request must enforce its own limits.
+  final bool allowsCheckpointRecovery;
 
   @override
   String toString() => 'HermesStreamGuardException: $message';
@@ -232,6 +243,7 @@ Stream<HermesRunEvent> guardHermesEventStream(
         }
         throw const HermesStreamGuardException(
           'The Hermes stream was idle for too long.',
+          allowsCheckpointRecovery: true,
         );
       }
       if (!hasNext) {
