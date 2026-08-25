@@ -56,7 +56,7 @@ abstract final class DisplayBoost {
     } catch (error) {
       DebugLogger.warning(
         'display-boost-failed',
-        scope: 'perf',
+        scope: 'perf/display-boost',
         data: {'method': method, 'error': error.toString()},
       );
     }

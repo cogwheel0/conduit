@@ -1038,11 +1038,19 @@ void main() {
   });
 
   group('overlap-window fetch memo', () {
+    late int fakeElapsedMs;
     late PullFetchMemo memo;
     late PullSync memoPull;
 
+    // Advances the memo's monotonic clock past the confirm spacing, as real
+    // wall time between periodic pull cycles would.
+    void advancePastConfirmSpacing() {
+      fakeElapsedMs += kPullOverlapSeconds * 1000;
+    }
+
     setUp(() {
-      memo = PullFetchMemo();
+      fakeElapsedMs = 0;
+      memo = PullFetchMemo(elapsedMs: () => fakeElapsedMs);
       memoPull = PullSync(
         client: client,
         db: db,
@@ -1066,10 +1074,12 @@ void main() {
         );
 
         await memoPull.run(); // fetch 1: first sight
+        advancePastConfirmSpacing();
         await memoPull.run(); // fetch 2: confirming re-fetch
         check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
             .equals(2);
 
+        advancePastConfirmSpacing();
         await memoPull.run(); // skipped
         await memoPull.run(); // skipped
         check(client.chatFetchStarts.where((id) => id == 'at-watermark').length)
@@ -1090,6 +1100,7 @@ void main() {
         updatedAt: 200,
       );
       await memoPull.run();
+      advancePastConfirmSpacing();
       await memoPull.run();
       check(client.chatFetchStarts.where((id) => id == 'edited').length)
           .equals(2);
@@ -1101,6 +1112,7 @@ void main() {
         createdAt: 100,
         updatedAt: 300,
       );
+      advancePastConfirmSpacing();
       await memoPull.run();
       check(client.chatFetchStarts.where((id) => id == 'edited').length)
           .equals(3);
@@ -1108,19 +1120,33 @@ void main() {
       check(row!.serverUpdatedAt).equals(300);
     });
 
-    test('two fetches in the SAME cycle never confirm a skip', () {
-      final sameCycleMemo = PullFetchMemo();
-      sameCycleMemo.beginCycle();
-      sameCycleMemo.recordFetched('a', 100);
-      sameCycleMemo.recordFetched('a', 100);
-      check(sameCycleMemo.isConfirmed('a', 100)).isFalse();
+    test(
+      're-fetches inside the confirm spacing window never confirm a skip',
+      () {
+        // Two full cycles can run within the same server second (debounced
+        // back-to-back triggers); updatedAt has one-second resolution, so
+        // both fetches could predate a third same-second write. Only a
+        // re-fetch spaced past the overlap window proves the stamped second
+        // is over.
+        var clock = 0;
+        final spacedMemo = PullFetchMemo(elapsedMs: () => clock);
+        spacedMemo.recordFetched('a', 100);
+        clock += 10; // same-second back-to-back cycle
+        spacedMemo.recordFetched('a', 100);
+        check(spacedMemo.isConfirmed('a', 100)).isFalse();
 
-      sameCycleMemo.beginCycle();
-      sameCycleMemo.recordFetched('a', 100);
-      check(sameCycleMemo.isConfirmed('a', 100)).isTrue();
-      // A different stamp is never confirmed by the old one.
-      check(sameCycleMemo.isConfirmed('a', 200)).isFalse();
-    });
+        clock += kPullOverlapSeconds * 1000;
+        spacedMemo.recordFetched('a', 100);
+        check(spacedMemo.isConfirmed('a', 100)).isTrue();
+        // A different stamp is never confirmed by the old one.
+        check(spacedMemo.isConfirmed('a', 200)).isFalse();
+        // And a new stamp restarts the spacing requirement.
+        spacedMemo.recordFetched('a', 200);
+        clock += 10;
+        spacedMemo.recordFetched('a', 200);
+        check(spacedMemo.isConfirmed('a', 200)).isFalse();
+      },
+    );
 
     test('a locally dirty row is fetched despite a confirmed memo', () async {
       server.seedChat(
@@ -1130,6 +1156,7 @@ void main() {
         updatedAt: 200,
       );
       await memoPull.run();
+      advancePastConfirmSpacing();
       await memoPull.run();
       final fetchesBefore =
           client.chatFetchStarts.where((id) => id == 'dirtied').length;
@@ -1138,6 +1165,7 @@ void main() {
       await (db.update(db.chats)..where((t) => t.id.equals('dirtied'))).write(
         const ChatsCompanion(dirty: Value(true)),
       );
+      advancePastConfirmSpacing();
       await memoPull.run();
       check(client.chatFetchStarts.where((id) => id == 'dirtied').length)
           .equals(fetchesBefore + 1);

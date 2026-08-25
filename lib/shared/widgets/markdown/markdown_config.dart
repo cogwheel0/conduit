@@ -30,6 +30,7 @@ import 'renderer/markdown_style.dart';
 
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
+import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/core/services/raster_media_policy.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
@@ -1148,6 +1149,8 @@ class _HighlightParseQueue {
   Future<void> _tail = Future<void>.value();
 
   Future<List<Object?>?> parse(String language, String code) {
+    // Length-prefixing the language makes the concatenated key unambiguous:
+    // without it, ("dart", "xcode") and ("dartx", "code") would collide.
     final key = '${language.length}:$language$code';
     final existing = _pending[key];
     if (existing != null) return existing;
@@ -1170,6 +1173,13 @@ final _highlightParseQueue = _HighlightParseQueue();
 
 /// Top-level worker for [compute]: parse and encode as sendable nested lists
 /// of `[value, className, children]`.
+///
+/// Language registration is isolate-safe by construction: `highlight` is
+/// package:highlight's top-level `final Highlight()..registerLanguages(
+/// allLanguages)`, a lazy static that re-initializes with the full language
+/// set on first access in ANY isolate — nothing depends on UI-isolate-only
+/// registration. Null (unknown language, malformed source) falls back to
+/// plain monospace at the call site.
 List<Object?>? _highlightParseWorker(Map<String, String> payload) {
   try {
     final nodes = highlight
@@ -1177,7 +1187,19 @@ List<Object?>? _highlightParseWorker(Map<String, String> payload) {
         .nodes;
     if (nodes == null || nodes.isEmpty) return null;
     return nodes.map(_encodeHighlightNode).toList(growable: false);
-  } catch (_) {
+  } catch (error) {
+    // The caller renders plain text on null; surface the cause in debug
+    // builds so a broken language pack doesn't silently disable
+    // highlighting.
+    DebugLogger.warning(
+      'highlight-parse-failed',
+      scope: 'markdown/highlight',
+      data: {
+        'language': payload['language'],
+        'codeLength': payload['code']?.length,
+        'error': error.toString(),
+      },
+    );
     return null;
   }
 }

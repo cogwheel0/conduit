@@ -95,6 +95,33 @@ void main() {
     });
   });
 
+  test(
+    'a stuck interaction (missing end) defers exactly to maxDeferral',
+    () {
+      fakeAsync((async) {
+        final activity = InteractionActivity.instance;
+        activity.beginInteraction();
+        activity.beginInteraction();
+        activity.endInteraction();
+        var completed = false;
+        activity.whenIdle.then((_) => completed = true);
+
+        // One end short: no cool-down ever starts, so only the starvation
+        // bound can release the waiter.
+        async.elapse(
+          InteractionActivity.maxDeferral - const Duration(milliseconds: 1),
+        );
+        async.flushMicrotasks();
+        check(completed).isFalse();
+
+        async.elapse(const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        check(completed).isTrue();
+        check(activity.isInteracting).isTrue();
+      });
+    },
+  );
+
   test('touch-down alone never defers background work', () {
     fakeAsync((async) {
       final activity = InteractionActivity.instance;

@@ -129,7 +129,7 @@ class PerformanceProfiler {
     if (summary == null) return;
     DebugLogger.info(
       'frame-cadence',
-      scope: 'perf',
+      scope: 'perf/frame-cadence',
       data: {'reason': reason, ...summary},
     );
   }
@@ -222,17 +222,19 @@ class _FrameCadenceRecording {
     final sorted = List<double>.of(_intervalsMs)..sort();
     double at(double fraction) =>
         sorted[((sorted.length - 1) * fraction).round()];
-    // Bucket by the display cadences that matter: an interval belongs to the
-    // nearest of 120/90/80/60/lower Hz presentation slots.
+    // Bucket by the display cadences that matter: an interval belongs to
+    // the nearest of the 120/90/80/60 Hz presentation slots (8.33 / 11.11 /
+    // 12.5 / 16.67 ms), so each boundary is the midpoint between adjacent
+    // slots; past the 60 Hz/40 Hz midpoint counts as slower.
     var at120 = 0, at90 = 0, at80 = 0, at60 = 0, slower = 0;
     for (final interval in sorted) {
-      if (interval < 10.4) {
+      if (interval < 9.72) {
         at120 += 1;
-      } else if (interval < 11.9) {
+      } else if (interval < 11.81) {
         at90 += 1;
-      } else if (interval < 14.5) {
+      } else if (interval < 14.58) {
         at80 += 1;
-      } else if (interval < 20.9) {
+      } else if (interval < 20.83) {
         at60 += 1;
       } else {
         slower += 1;

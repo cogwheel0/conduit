@@ -674,11 +674,12 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   /// first chunk overfills any phone viewport while the rest streams in
   /// during the transcript's settlement frames.
   ///
-  /// Streaming documents are never chunked: streamed messages grow
-  /// block-by-block and the mutable tail must mount whole. Streaming is
-  /// detected via [MarkdownHeavyBlockPolicy] — every streaming render path
-  /// passes `defer` and every settled path `eager` (the streaming fade flag
-  /// is not usable here: live chat streams with the fade disabled).
+  /// Streaming documents reveal immediately instead of chunking: streamed
+  /// messages grow block-by-block and the mutable tail must mount whole.
+  /// Streaming is detected via [MarkdownHeavyBlockPolicy] — every streaming
+  /// render path passes `defer` and every settled path `eager` (the
+  /// streaming fade flag is not usable here: live chat streams with the
+  /// fade disabled).
   static const int _chunkedBlockInflationThreshold =
       markdownChunkedPartInflationThreshold;
 
@@ -699,14 +700,21 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       _fadeSourceOrNull(),
     );
     final blocks = widget.document.blocks;
-    if (widget.heavyBlockPolicy != MarkdownHeavyBlockPolicy.eager ||
-        blocks.length <= _chunkedBlockInflationThreshold) {
+    if (blocks.length <= _chunkedBlockInflationThreshold) {
       return renderer.renderCompiledBlocks(
         blocks,
         trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
       );
     }
+    // Over-threshold documents keep the chunked column across BOTH policy
+    // states: a defer→eager flip at the streaming/settled boundary must not
+    // change the column type, or the whole subtree re-inflates in one frame
+    // (the freeze this exists to prevent; the chat path avoids it at the
+    // display-parts level, but standalone surfaces render through here).
+    // Reveal progress is monotonic, so the flip itself re-inflates nothing.
     return ChunkedBlockColumn(
+      revealImmediately:
+          widget.heavyBlockPolicy != MarkdownHeavyBlockPolicy.eager,
       children: renderer.renderCompiledBlockWidgets(
         blocks,
         trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,

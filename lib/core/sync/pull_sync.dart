@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../database/app_database.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../database/mappers/conversation_assembler.dart';
@@ -92,39 +94,62 @@ int? _parseServerEpochSeconds(Object? value) {
 /// must still verify the LOCAL row is clean/synced at the stamp before
 /// honoring a skip.
 class PullFetchMemo {
-  static const int _maxEntries = 128;
+  PullFetchMemo({@visibleForTesting int Function()? elapsedMs})
+    : _elapsedMs = elapsedMs ?? _monotonicElapsedMs();
 
-  // id -> (stamp, cycle of last fetch, confirmed). Insertion-ordered for
-  // cheap oldest-first eviction; the overlap window realistically holds a
-  // handful of items.
-  final Map<String, ({int updatedAt, int fetchedCycle, bool confirmed})>
-  _entries = <String, ({int updatedAt, int fetchedCycle, bool confirmed})>{};
-  int _cycle = 0;
-
-  /// Marks a cycle boundary; call once at the start of each pull cycle.
-  void beginCycle() {
-    _cycle++;
+  static int Function() _monotonicElapsedMs() {
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsedMilliseconds;
   }
 
-  /// True when [id]@[updatedAt] was fetched in two distinct cycles and can
-  /// be skipped, assuming the local row still matches.
+  static const int _maxEntries = 128;
+
+  /// Minimum monotonic spacing between the first and the confirming fetch.
+  ///
+  /// Cycle boundaries alone are NOT enough: back-to-back triggers (e.g. a
+  /// folders-warm request debounced right into a refresh) can run two full
+  /// cycles inside the same server second, and updatedAt has one-second
+  /// resolution — both fetches could then predate a third same-second write,
+  /// and a "confirmed" skip would hide that write until the chat changed
+  /// again. Requiring the overlap-window span of LOCAL monotonic time to
+  /// pass guarantees (under the same skew bound the overlap window itself
+  /// assumes, RFC §7.1) that the server's stamped second is over, so the
+  /// confirming fetch observed the final state of that second.
+  static const int _confirmSpacingMs = kPullOverlapSeconds * 1000;
+
+  final int Function() _elapsedMs;
+
+  // id -> (stamp, monotonic time of FIRST fetch at this stamp, confirmed).
+  // Insertion-ordered for cheap oldest-first eviction; the overlap window
+  // realistically holds a handful of items.
+  final Map<String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>
+  _entries = <String, ({int updatedAt, int firstFetchedAtMs, bool confirmed})>{};
+
+  /// Marks a cycle boundary; call once at the start of each pull cycle.
+  /// (Retained as the API seam; confirmation is time-based, not cycle-based.)
+  void beginCycle() {}
+
+  /// True when [id]@[updatedAt] was re-fetched at least [_confirmSpacingMs]
+  /// after its first fetch and can be skipped, assuming the local row still
+  /// matches.
   bool isConfirmed(String id, int updatedAt) {
     final entry = _entries[id];
     return entry != null && entry.updatedAt == updatedAt && entry.confirmed;
   }
 
-  /// Records a completed fetch+merge of [id]@[updatedAt]. A record for the
-  /// same stamp made in a LATER cycle than the previous one confirms it.
+  /// Records a completed fetch+merge of [id]@[updatedAt]. A record made at
+  /// least [_confirmSpacingMs] of monotonic time after the FIRST record for
+  /// the same stamp confirms it.
   void recordFetched(String id, int updatedAt) {
+    final now = _elapsedMs();
     final entry = _entries.remove(id);
+    final sameStamp = entry != null && entry.updatedAt == updatedAt;
     final confirmsPrior =
-        entry != null &&
-        entry.updatedAt == updatedAt &&
-        entry.fetchedCycle < _cycle;
+        sameStamp && now - entry.firstFetchedAtMs >= _confirmSpacingMs;
     _entries[id] = (
       updatedAt: updatedAt,
-      fetchedCycle: _cycle,
-      confirmed: confirmsPrior || (entry?.confirmed ?? false),
+      firstFetchedAtMs: sameStamp ? entry.firstFetchedAtMs : now,
+      confirmed: confirmsPrior || (sameStamp && entry.confirmed),
     );
     while (_entries.length > _maxEntries) {
       _entries.remove(_entries.keys.first);

@@ -72,8 +72,6 @@
 		<true/>
 		<key>FLTEnableWideGamut</key>
 		<true/>
-		<key>MetalHUDEnabled</key>
-		<true/>
 		<key>ITSAppUsesNonExemptEncryption</key>
 		<false/>
 		<key>LSApplicationQueriesSchemes</key>

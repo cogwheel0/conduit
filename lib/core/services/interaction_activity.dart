@@ -55,6 +55,16 @@ class InteractionActivity {
   void notifyTouchDown() {
     DisplayBoost.begin();
     if (_activeInteractions > 0) return;
+    if (_coolingDown) {
+      // Hand the boost tail from the cool-down to the touch grace timer;
+      // letting the armed cool-down fire would end the boost mid-touch. A
+      // bare touch is not an interaction, so waiters release now rather
+      // than stranding until maxDeferral.
+      _cooldownTimer?.cancel();
+      _cooldownTimer = null;
+      _coolingDown = false;
+      _releaseWaiters();
+    }
     _touchBoostTimer?.cancel();
     _touchBoostTimer = Timer(touchBoostGrace, () {
       _touchBoostTimer = null;

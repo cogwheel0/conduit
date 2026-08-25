@@ -47,7 +47,7 @@ void main() {
     final document = compilePreparedMarkdownSync(prepared);
     check(
       document.blocks.length,
-    ).isGreaterThan(128); // over the chunk threshold
+    ).isGreaterThan(markdownChunkedPartInflationThreshold);
 
     await tester.pumpWidget(
       _harness(ConduitMarkdownWidget(compiledDocument: document)),
