@@ -2549,6 +2549,8 @@ void main() {
         isImage: false,
       );
       final service = _ResponsesHermesApi();
+      final capabilities = Completer<HermesCapabilities>();
+      final capabilitiesRequested = Completer<void>();
       final container = _testContainer(
         overrides: [
           activeConversationProvider.overrideWith(
@@ -2561,23 +2563,29 @@ void main() {
             () => _FixedHermesConfigController(),
           ),
           hermesApiServiceProvider.overrideWithValue(service),
-          hermesCapabilitiesProvider.overrideWith(
-            (ref) async => const HermesCapabilities(inputFiles: true),
-          ),
+          hermesCapabilitiesProvider.overrideWith((ref) {
+            if (!capabilitiesRequested.isCompleted) {
+              capabilitiesRequested.complete();
+            }
+            return capabilities.future;
+          }),
           attachedFilesProvider.overrideWith(
             () => _SeededAttachedFiles([attachment]),
           ),
         ],
       );
       addTearDown(container.dispose);
-      await container.read(hermesCapabilitiesProvider.future);
       container
           .read(selectedModelProvider.notifier)
           .set(hermesSyntheticModel());
 
-      await sendMessageWithContainer(container, 'Read the schedule', [
+      final send = sendMessageWithContainer(container, 'Read the schedule', [
         attachment.fileId!,
       ]);
+      await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+      check(service.inputs).isEmpty();
+      capabilities.complete(const HermesCapabilities(inputFiles: true));
+      await send;
 
       check(service.inputs.single.toResponsesJson() as List).deepEquals([
         {

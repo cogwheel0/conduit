@@ -7945,7 +7945,11 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
     }
     final responsesPdf =
         !desktop && isHermesResponsesPdfFileNameSupported(state.fileName);
-    if (responsesPdf) capabilities ??= ref.read(hermesCapabilitiesProvider);
+    if (responsesPdf && capabilities == null) {
+      capabilities = await AsyncValue.guard(
+        () => ref.read(hermesCapabilitiesProvider.future),
+      );
+    }
     if (responsesPdf && capabilities?.asData?.value.inputFiles != true) {
       throw const HermesChatInputException(
         'This Hermes server does not advertise Responses file input.',
