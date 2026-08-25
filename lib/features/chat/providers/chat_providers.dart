@@ -8002,6 +8002,12 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
           totalCharacters: 0,
         )
       : await documentService.prepareAll(documentSources);
+  if (documents.totalSourceBytes + inputFileBytes >
+      kHermesMaxAggregateLocalDocumentBytes) {
+    throw const HermesChatInputException(
+      'Hermes files exceed the 16 MB aggregate limit.',
+    );
+  }
   final promptText = documents.documents.isEmpty
       ? text
       : '$text\n\n${documents.renderForPrompt()}';

@@ -2598,6 +2598,87 @@ void main() {
       check(user.files!.single.containsKey('hermes_extracted_text')).isFalse();
     });
 
+    test('Hermes mixed files share one aggregate byte budget', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_mixed_budget_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final attachments = <FileUploadState>[];
+      for (var index = 0; index < 2; index++) {
+        final pdf = File('${directory.path}/schedule-$index.pdf');
+        final handle = await pdf.open(mode: FileMode.write);
+        await handle.writeString('%PDF-1.4\n');
+        await handle.truncate(kHermesMaxLocalDocumentBytes);
+        await handle.close();
+        attachments.add(
+          FileUploadState(
+            file: pdf,
+            fileName: 'schedule-$index.pdf',
+            fileSize: kHermesMaxLocalDocumentBytes,
+            progress: 1,
+            status: FileUploadStatus.completed,
+            fileId: 'hermes-local:composer-pdf-$index',
+            isImage: false,
+          ),
+        );
+      }
+      final text = File('${directory.path}/notes.txt');
+      await text.writeAsString('x');
+      attachments.add(
+        FileUploadState(
+          file: text,
+          fileName: 'notes.txt',
+          fileSize: 1,
+          progress: 1,
+          status: FileUploadStatus.completed,
+          fileId: 'hermes-local:composer-text',
+          isImage: false,
+        ),
+      );
+      final service = _ResponsesHermesApi();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesCapabilitiesProvider.overrideWith(
+            (ref) async => const HermesCapabilities(inputFiles: true),
+          ),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFiles(attachments),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(hermesCapabilitiesProvider.future);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(hermesSyntheticModel());
+
+      await expectLater(
+        sendMessageWithContainer(
+          container,
+          'Read the schedules and notes',
+          attachments.map((attachment) => attachment.fileId!).toList(),
+        ),
+        throwsA(
+          isA<HermesChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('16 MB aggregate limit'),
+          ),
+        ),
+      );
+      check(service.inputs).isEmpty();
+    });
+
     test(
       'server switch during document extraction cannot route local text',
       () async {
