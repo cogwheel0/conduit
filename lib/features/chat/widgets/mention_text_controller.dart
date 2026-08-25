@@ -133,7 +133,7 @@ class MentionTextEditingController extends TextEditingController {
 
     final List<MentionData> updated = <MentionData>[];
     for (final MentionData m in _mentionData) {
-      if (changeStart >= m.range.end) {
+      if (changeStart > m.range.end) {
         // After this mention — keep as-is.
         updated.add(m);
       } else if (changeStart <= m.range.start) {
