@@ -35,6 +35,7 @@ import '../../hermes/models/hermes_config.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
+import '../../workspace/models/workspace_resources.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -70,6 +71,7 @@ import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
 import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
+import 'skill_suggestion_overlay.dart';
 
 /// Native platform views are recomposited for every animated cursor-opacity
 /// frame. Keep the normal animated caret everywhere else, but use a discrete
@@ -480,6 +482,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   VoiceInputService? _voiceService;
   StreamSubscription<String>? _textSub;
   Timer? _contextSuggestionDebounce;
+  Timer? _skillSuggestionDebounce;
   String _baseTextAtStart = '';
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
@@ -493,6 +496,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   List<_ComposerContextSuggestion> _contextSuggestions =
       const <_ComposerContextSuggestion>[];
   int _contextSuggestionRequestId = 0;
+  int _skillSuggestionRequestId = 0;
+  AsyncValue<List<WorkspaceSkillSummary>> _skillSuggestions = const AsyncData(
+    <WorkspaceSkillSummary>[],
+  );
   bool _isNativeAttachmentPanelVisible = false;
   bool _isFallbackAttachmentPanelVisible = false;
   bool _fallbackPanelReplacedKeyboard = false;
@@ -622,6 +629,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _keyboardAttachmentSubscription?.cancel();
     _textSub?.cancel();
     _contextSuggestionDebounce?.cancel();
+    _skillSuggestionDebounce?.cancel();
     if (!kIsWeb && Platform.isIOS) {
       unawaited(IosKeyboardAttachmentBridge.instance.hide());
     }
@@ -1218,6 +1226,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       widget.enabled,
     );
     final bool isContextTrigger = match?.command.startsWith('#') ?? false;
+    final bool isSkillTrigger = match?.command.startsWith('\$') ?? false;
     final bool shouldShow = match != null;
     final bool wasShowing = _showPromptOverlay;
     final String previousCommand = _currentPromptCommand;
@@ -1262,8 +1271,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         if (!isContextTrigger) {
           _clearContextSuggestions();
         }
+        if (!isSkillTrigger) {
+          _clearSkillSuggestions();
+        }
       } else {
         _clearContextSuggestions();
+        _clearSkillSuggestions();
         _currentPromptCommand = '';
         _currentPromptRange = null;
         _promptSelectionIndex = 0;
@@ -1276,6 +1289,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     } else {
       _contextSuggestionDebounce?.cancel();
       _contextSuggestionDebounce = null;
+    }
+
+    if (isSkillTrigger) {
+      _scheduleSkillSuggestionSearch(match!.command);
+    } else {
+      _skillSuggestionDebounce?.cancel();
+      _skillSuggestionDebounce = null;
     }
 
     if (!wasShowing && shouldShow) {
@@ -1308,6 +1328,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ? ref.read(hermesSkillPromptsProvider).value
       : ref.read(promptsListProvider).value;
 
+  bool get _openWebUiSkillsAvailable {
+    if (!ref.read(openWebUiAccountAvailableProvider)) return false;
+    final model = ref.read(selectedModelProvider);
+    return model == null ||
+        (!isHermesModel(model) && !isLocallyMintedDirectModel(model));
+  }
+
   PromptCommandMatch? _resolvePromptCommand(
     String text,
     TextSelection selection,
@@ -1333,7 +1360,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (candidate.isEmpty ||
         !(candidate.startsWith('/') ||
             candidate.startsWith('#') ||
-            candidate.startsWith('@'))) {
+            candidate.startsWith('@') ||
+            candidate.startsWith('\$'))) {
+      return null;
+    }
+
+    if (candidate.startsWith('\$') && !_openWebUiSkillsAvailable) {
       return null;
     }
 
@@ -1391,6 +1423,91 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               m.id.toLowerCase().contains(searchQuery),
         )
         .toList();
+  }
+
+  void _clearSkillSuggestions() {
+    _skillSuggestionDebounce?.cancel();
+    _skillSuggestionDebounce = null;
+    _skillSuggestionRequestId++;
+    _skillSuggestions = const AsyncData(<WorkspaceSkillSummary>[]);
+  }
+
+  void _scheduleSkillSuggestionSearch(String command) {
+    _skillSuggestionDebounce?.cancel();
+    final requestId = ++_skillSuggestionRequestId;
+    setState(() {
+      _skillSuggestions = const AsyncLoading();
+      _promptSelectionIndex = 0;
+    });
+
+    final query = command.length > 1 ? command.substring(1).trim() : '';
+    _skillSuggestionDebounce = Timer(_contextSuggestionDelay, () {
+      unawaited(_loadSkillSuggestions(command, query, requestId));
+    });
+  }
+
+  Future<void> _loadSkillSuggestions(
+    String command,
+    String query,
+    int requestId,
+  ) async {
+    final api = ref.read(apiServiceProvider);
+    final token = ref.read(authTokenProvider3);
+    if (api == null || !_openWebUiSkillsAvailable) {
+      if (mounted && !_isDeactivated) _hidePromptOverlay();
+      return;
+    }
+
+    try {
+      final response = await api.getWorkspaceSkills(
+        query: query.isEmpty ? null : query,
+        page: 1,
+      );
+      if (!_skillSuggestionRequestIsCurrent(command, requestId, api, token)) {
+        return;
+      }
+      final skills = response.items
+          .where(
+            (skill) =>
+                skill.isActive && skill.id.isNotEmpty && skill.name.isNotEmpty,
+          )
+          .toList(growable: false);
+      setState(() {
+        _skillSuggestions = AsyncData(skills);
+        _promptSelectionIndex = skills.isEmpty
+            ? 0
+            : _promptSelectionIndex.clamp(0, skills.length - 1);
+      });
+    } catch (error, stackTrace) {
+      if (!_skillSuggestionRequestIsCurrent(command, requestId, api, token)) {
+        return;
+      }
+      DebugLogger.warning(
+        'skill suggestion search failed',
+        scope: 'chat/skills',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      setState(() {
+        _skillSuggestions = AsyncError(error, stackTrace);
+        _promptSelectionIndex = 0;
+      });
+    }
+  }
+
+  bool _skillSuggestionRequestIsCurrent(
+    String command,
+    int requestId,
+    Object api,
+    String? token,
+  ) {
+    return mounted &&
+        !_isDeactivated &&
+        requestId == _skillSuggestionRequestId &&
+        _currentPromptCommand == command &&
+        _currentPromptCommand.startsWith('\$') &&
+        identical(ref.read(apiServiceProvider), api) &&
+        ref.read(authTokenProvider3) == token &&
+        _openWebUiSkillsAvailable;
   }
 
   void _clearContextSuggestions() {
@@ -1704,6 +1821,40 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
+  void _applySkill(WorkspaceSkillSummary skill) {
+    final range = _currentPromptRange;
+    if (range == null) return;
+
+    final text = _controller.text;
+    final before = text.substring(0, range.start);
+    final after = text.substring(range.end);
+    final mention = '\$${skill.name} ';
+    final newText = '$before$mention$after';
+    final newCursor = before.length + mention.length;
+
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+    _controller.addMention(
+      range.start,
+      range.start + mention.trimRight().length,
+      id: skill.id,
+      label: skill.name,
+      kind: MentionKind.skill,
+    );
+
+    setState(() {
+      _hasText = newText.trim().isNotEmpty;
+      _clearSkillSuggestions();
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = null;
+      _promptSelectionIndex = 0;
+    });
+    _ensureFocusedIfEnabled();
+  }
+
   void _movePromptSelection(int delta) {
     if (_currentPromptCommand.startsWith('#')) {
       final int itemCount = _contextSuggestions.length;
@@ -1725,7 +1876,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Determine filtered list length based on trigger type.
     final int filteredLength;
-    if (_currentPromptCommand.startsWith('@')) {
+    if (_currentPromptCommand.startsWith('\$')) {
+      filteredLength = _skillSuggestions.asData?.value.length ?? 0;
+    } else if (_currentPromptCommand.startsWith('@')) {
       final List<Model>? models = ref.read(modelsProvider).value;
       if (models == null || models.isEmpty) return;
       filteredLength = _filterModels(models).length;
@@ -1771,6 +1924,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (filtered.isEmpty) return;
       int index = _promptSelectionIndex.clamp(0, filtered.length - 1);
       _applyModel(filtered[index]);
+      return;
+    }
+
+    if (_currentPromptCommand.startsWith('\$')) {
+      final skills =
+          _skillSuggestions.asData?.value ?? const <WorkspaceSkillSummary>[];
+      if (skills.isEmpty) return;
+      final index = _promptSelectionIndex.clamp(0, skills.length - 1);
+      _applySkill(skills[index]);
       return;
     }
 
@@ -1906,6 +2068,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!_showPromptOverlay) return;
     setState(() {
       _clearContextSuggestions();
+      _clearSkillSuggestions();
       _showPromptOverlay = false;
       _currentPromptCommand = '';
       _currentPromptRange = null;
@@ -1915,10 +2078,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   bool get _shouldShowPromptOverlay {
     if (!_showPromptOverlay) return false;
+    if (_currentPromptCommand.startsWith('\$')) {
+      return _openWebUiSkillsAvailable;
+    }
     final model = ref.read(selectedModelProvider);
     return !(model != null &&
         isHermesModel(model) &&
         _currentPromptCommand.startsWith('#'));
+  }
+
+  bool get _canConfirmPromptSelection {
+    if (!_shouldShowPromptOverlay) return false;
+    if (!_currentPromptCommand.startsWith('\$')) return true;
+    return _skillSuggestions.asData?.value.isNotEmpty ?? false;
   }
 
   Future<void> _openKnowledgePicker({String? initialBaseId}) async {
@@ -2180,6 +2352,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         filteredModels: _filterModels,
         selectionIndex: _promptSelectionIndex,
         onModelSelected: _applyModel,
+      );
+    }
+    if (_currentPromptCommand.startsWith('\$')) {
+      return SkillSuggestionOverlay(
+        skills: _skillSuggestions,
+        selectionIndex: _promptSelectionIndex,
+        onSkillSelected: _applySkill,
       );
     }
     return PromptSuggestionOverlay(
@@ -3572,7 +3751,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           actions: <Type, Action<Intent>>{
             SendMessageIntent: CallbackAction<SendMessageIntent>(
               onInvoke: (intent) {
-                if (_shouldShowPromptOverlay) {
+                if (_canConfirmPromptSelection) {
                   _confirmPromptSelection();
                   return null;
                 }

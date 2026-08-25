@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+enum MentionKind { entity, skill }
+
 /// Metadata for a tracked mention (range + identity).
 class MentionData {
   MentionData({
@@ -7,6 +9,7 @@ class MentionData {
     required this.idType,
     required this.id,
     required this.label,
+    required this.kind,
   });
 
   TextRange range;
@@ -19,6 +22,8 @@ class MentionData {
 
   /// Display label (e.g. model name).
   final String label;
+
+  final MentionKind kind;
 }
 
 /// A [TextEditingController] that renders tracked `@mention` spans
@@ -53,6 +58,7 @@ class MentionTextEditingController extends TextEditingController {
     String idType = 'M',
     String id = '',
     String label = '',
+    MentionKind kind = MentionKind.entity,
   }) {
     _mentionData
       ..add(
@@ -61,6 +67,7 @@ class MentionTextEditingController extends TextEditingController {
           idType: idType,
           id: id,
           label: label,
+          kind: kind,
         ),
       )
       ..sort((a, b) => a.range.start.compareTo(b.range.start));
@@ -86,7 +93,11 @@ class MentionTextEditingController extends TextEditingController {
       if (start == end) continue;
 
       buf.write(plainText.substring(cursor, start));
-      buf.write('<@${m.idType}:${m.id}|${m.label}>');
+      buf.write(
+        m.kind == MentionKind.skill
+            ? '<\$${m.id}|${m.label}>'
+            : '<@${m.idType}:${m.id}|${m.label}>',
+      );
       cursor = end;
     }
 
@@ -122,7 +133,13 @@ class MentionTextEditingController extends TextEditingController {
 
     final List<MentionData> updated = <MentionData>[];
     for (final MentionData m in _mentionData) {
-      if (changeStart >= m.range.end) {
+      final boundaryInsertionIsDelimiter =
+          changeStart == m.range.end &&
+          delta > 0 &&
+          newText.substring(changeStart, changeStart + delta).trim().isEmpty;
+      if (changeStart > m.range.end ||
+          (changeStart == m.range.end &&
+              (delta <= 0 || boundaryInsertionIsDelimiter))) {
         // After this mention — keep as-is.
         updated.add(m);
       } else if (changeStart <= m.range.start) {
