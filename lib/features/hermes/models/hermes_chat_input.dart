@@ -18,8 +18,8 @@ final class HermesChatInputException implements Exception {
 /// Typed input for Hermes's multimodal HTTP endpoints.
 ///
 /// Text-only turns deliberately serialize as the legacy scalar string. Turns
-/// containing images serialize as the OpenAI Responses-style content list
-/// accepted by Hermes's OpenAI-compatible Responses endpoint.
+/// containing images or files serialize as the OpenAI Responses-style content
+/// list accepted by Hermes's OpenAI-compatible Responses endpoint.
 sealed class HermesChatInput {
   const HermesChatInput();
 
@@ -154,7 +154,7 @@ final class HermesInputImagePart extends HermesChatContentPart {
   );
 }
 
-/// Ephemeral local file bytes used by the Desktop Gateway upload RPCs.
+/// Ephemeral local file bytes used by Responses and Desktop Gateway requests.
 /// Conduit never persists this data URL in chat metadata.
 final class HermesInputFilePart extends HermesChatContentPart {
   HermesInputFilePart({

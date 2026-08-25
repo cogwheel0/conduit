@@ -2,6 +2,7 @@ import CryptoKit
 import Flutter
 import ImageIO
 import PhotosUI
+import SafariServices
 import StoreKit
 import UIKit
 import UniformTypeIdentifiers
@@ -1601,6 +1602,11 @@ final class NativeSheetBridge: NativeSheetHostApi {
         }
 
         if let url = item.url {
+            if item.kind == "source",
+               let presenter = activeNavigationController?.visibleViewController {
+                presenter.present(SFSafariViewController(url: url), animated: true)
+                return
+            }
             UIApplication.shared.open(url)
             return
         }

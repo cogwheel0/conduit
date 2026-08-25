@@ -2531,6 +2531,73 @@ void main() {
       },
     );
 
+    test('Hermes Responses sends PDFs as input_file content', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_pdf_send_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/schedule.pdf');
+      final bytes = utf8.encode('%PDF-1.4\nschedule');
+      await document.writeAsBytes(bytes);
+      final attachment = FileUploadState(
+        file: document,
+        fileName: 'schedule.pdf',
+        fileSize: bytes.length,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: 'hermes-local:composer-pdf',
+        isImage: false,
+      );
+      final service = _ResponsesHermesApi();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesCapabilitiesProvider.overrideWith(
+            (ref) async => const HermesCapabilities(inputFiles: true),
+          ),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFiles([attachment]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(hermesCapabilitiesProvider.future);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(hermesSyntheticModel());
+
+      await sendMessageWithContainer(container, 'Read the schedule', [
+        attachment.fileId!,
+      ]);
+
+      check(service.inputs.single.toResponsesJson() as List).deepEquals([
+        {
+          'type': 'message',
+          'role': 'user',
+          'content': [
+            {'type': 'input_text', 'text': 'Read the schedule'},
+            {
+              'type': 'input_file',
+              'file_data': 'data:application/pdf;base64,${base64Encode(bytes)}',
+              'filename': 'schedule.pdf',
+            },
+          ],
+        },
+      ]);
+      final user = container.read(chatMessagesProvider).first;
+      check(user.files!.single['source']).equals('hermes_responses_file');
+      check(user.files!.single.containsKey('hermes_extracted_text')).isFalse();
+    });
+
     test(
       'server switch during document extraction cannot route local text',
       () async {
@@ -2538,11 +2605,11 @@ void main() {
           'conduit_hermes_admission_',
         );
         addTearDown(() => directory.delete(recursive: true));
-        final document = File('${directory.path}/notes.pdf');
+        final document = File('${directory.path}/notes.txt');
         await document.writeAsBytes(const <int>[0x25, 0x50, 0x44, 0x46]);
         final attachment = FileUploadState(
           file: document,
-          fileName: 'notes.pdf',
+          fileName: 'notes.txt',
           fileSize: await document.length(),
           progress: 1,
           status: FileUploadStatus.completed,

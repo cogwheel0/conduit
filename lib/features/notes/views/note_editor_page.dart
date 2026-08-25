@@ -162,6 +162,7 @@ class NoteEditorPage extends ConsumerStatefulWidget {
 class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final TextEditingController _titleController = TextEditingController();
   FleatherController? _contentController;
+  StreamSubscription<ParchmentChange>? _contentChangesSubscription;
   final FocusNode _titleFocusNode = FocusNode(debugLabel: 'note_title');
   final FocusNode _contentFocusNode = FocusNode(debugLabel: 'note_content');
   final ScrollController _scrollController = ScrollController();
@@ -304,9 +305,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void _installContentDocument(ParchmentDocument document) {
     final previous = _contentController;
     final controller = FleatherController(document: document);
-    controller.addListener(_onContentChanged);
+    _contentChangesSubscription?.cancel();
+    _contentChangesSubscription = document.changes.listen(
+      (_) => _onContentChanged(),
+    );
     _contentController = controller;
-    previous?.removeListener(_onContentChanged);
     previous?.dispose();
   }
 
@@ -319,6 +322,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _activeAudioCancelToken?.cancel('Note editor disposed.');
     _voiceService?.stopListening();
     _titleController.dispose();
+    _contentChangesSubscription?.cancel();
     _contentController?.dispose();
     _titleFocusNode.removeListener(_onTitleFocusChanged);
     _titleFocusNode.dispose();
@@ -480,16 +484,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }) {
     final data = <String, dynamic>{};
     if (includeContent) {
-      final document = _contentController?.document;
-      final markdown = document != null ? markdownFromDocument(document) : '';
-      final html = document != null ? htmlFromDocument(document) : '';
-      // `json` (TipTap) is intentionally left null: markdown stays the
-      // canonical interchange format so notes remain editable on the Open
-      // WebUI web client.
+      // Open WebUI prefers HTML when it is non-empty. Parchment's checklist
+      // HTML is not TipTap-compatible, so leave it empty and let Open WebUI
+      // derive its editor document from the canonical markdown.
       data['content'] = <String, dynamic>{
         'json': null,
-        'html': html,
-        'md': markdown,
+        'html': '',
+        'md': _contentMarkdown,
       };
     }
     if (files != null) {

@@ -170,6 +170,15 @@ void main() {
       check(extensions).not((it) => it.contains('pdf'));
     });
 
+    test('offers PDF when Hermes advertises Responses file input', () {
+      final extensions = chatLocalFilePickerExtensions(
+        hermesSyntheticModel(),
+        hermesResponsesFiles: true,
+      )!;
+
+      check(extensions).contains('pdf');
+    });
+
     test('leaves Desktop Hermes picker unrestricted', () {
       check(
         chatLocalFilePickerExtensions(

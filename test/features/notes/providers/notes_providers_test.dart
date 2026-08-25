@@ -25,6 +25,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' as flutter;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -113,7 +114,9 @@ Widget _noteEditorHarness({
   required SyncEngine syncEngine,
   bool withBackRoute = false,
   TargetPlatform platform = TargetPlatform.android,
+  Map<String, dynamic>? noteJson,
 }) {
+  final initialNote = noteJson ?? _deletedNoteJson();
   return ProviderScope(
     overrides: [
       appDatabaseProvider.overrideWith((ref) => db),
@@ -125,12 +128,15 @@ Widget _noteEditorHarness({
       syncEngineProvider.overrideWith(() => syncEngine),
       notesFeatureEnabledProvider.overrideWith(_EnabledNotesFeature.new),
       noteByIdProvider('deleted-note')
-          .overrideWith((ref) async => Note.fromJson(_deletedNoteJson())),
+          .overrideWith((ref) async => Note.fromJson(initialNote)),
     ],
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.conduit).copyWith(platform: platform),
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: noteJson == null
+          ? null
+          : (context, child) => flutter.Material(child: child),
       initialRoute: withBackRoute ? '/editor' : null,
       home: withBackRoute ? null : const NoteEditorPage(noteId: 'deleted-note'),
       routes: withBackRoute
@@ -226,6 +232,42 @@ void main() {
         TargetPlatform.iOS,
       }),
     );
+
+    testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final noteJson = <String, dynamic>{
+        ..._deletedNoteJson(),
+        'data': {
+          'content': {
+            'md': '- [ ] Task',
+            'html': '<div class="checklist">Task</div>',
+          },
+        },
+      };
+      await db.into(db.notes).insertOnConflictUpdate(serverToNoteRow(noteJson));
+      await tester.pumpWidget(
+        _noteEditorHarness(
+          db: db,
+          syncEngine: _NoDrainSyncEngine(),
+          noteJson: noteJson,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final checkbox = find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == 'FleatherCheckbox',
+      );
+      check(checkbox.evaluate()).length.equals(1);
+      await tester.tap(checkbox);
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pumpAndSettle();
+
+      final row = await db.notesDao.getNote('deleted-note');
+      final content = decodeNoteData(row!.data)['content'] as Map;
+      check(content['md'] as String).contains('[X] Task');
+      check(content['html']).equals('');
+    });
 
     test('renders cached Drift notes when the API is unavailable', () async {
       await db

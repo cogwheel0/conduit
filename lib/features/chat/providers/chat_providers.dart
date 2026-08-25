@@ -7898,20 +7898,18 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
   final images = <String>[];
   final seenImages = <String>{};
   final documentSources = <HermesLocalDocumentSource>[];
-  final desktopFiles = <HermesInputFilePart>[];
+  final inputFiles = <HermesInputFilePart>[];
   final desktop =
       (ref.read(hermesConfigProvider) as HermesConfig).mode ==
       HermesBackendMode.desktopGateway;
+  AsyncValue<HermesCapabilities>? capabilities;
   var decodedImageBytes = 0;
-  var desktopFileBytes = 0;
+  var inputFileBytes = 0;
 
   for (final attachmentId in attachmentIds ?? const <String>[]) {
     if (attachmentId.startsWith('data:image/')) {
-      final AsyncValue<HermesCapabilities> capabilities = ref.read(
-        hermesCapabilitiesProvider,
-      );
-      final inputImages = capabilities.asData?.value.inputImages == true;
-      if (!inputImages) {
+      capabilities ??= ref.read(hermesCapabilitiesProvider);
+      if (capabilities?.asData?.value.inputImages != true) {
         throw const HermesChatInputException(
           'This Hermes server does not advertise image input support.',
         );
@@ -7945,10 +7943,17 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
     if (state == null || state.isImage == true) {
       throw const HermesAttachmentsUnsupportedException();
     }
-    if (desktop) {
-      final remaining =
-          kHermesMaxAggregateLocalDocumentBytes - desktopFileBytes;
-      final bytes = await _readBoundedHermesDesktopFile(
+    final responsesPdf =
+        !desktop && isHermesResponsesPdfFileNameSupported(state.fileName);
+    if (responsesPdf) capabilities ??= ref.read(hermesCapabilitiesProvider);
+    if (responsesPdf && capabilities?.asData?.value.inputFiles != true) {
+      throw const HermesChatInputException(
+        'This Hermes server does not advertise Responses file input.',
+      );
+    }
+    if (desktop || responsesPdf) {
+      final remaining = kHermesMaxAggregateLocalDocumentBytes - inputFileBytes;
+      final bytes = await _readBoundedHermesFile(
         state.file,
         maxBytes: math.min(kHermesMaxLocalDocumentBytes, remaining),
       );
@@ -7957,8 +7962,8 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
           'Hermes attachments cannot be empty.',
         );
       }
-      desktopFileBytes += bytes.length;
-      final mediaType = _hermesDesktopFileMediaType(state.fileName);
+      inputFileBytes += bytes.length;
+      final mediaType = _hermesFileMediaType(state.fileName);
       if (mediaType == 'application/pdf' &&
           (bytes.length < 5 ||
               bytes[0] != 0x25 ||
@@ -7970,7 +7975,7 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
           'This attachment is not a valid PDF document.',
         );
       }
-      desktopFiles.add(
+      inputFiles.add(
         HermesInputFilePart(
           filename: state.fileName,
           mediaType: mediaType,
@@ -8001,13 +8006,13 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
       ? text
       : '$text\n\n${documents.renderForPrompt()}';
   final HermesChatInput input;
-  if (images.isEmpty && desktopFiles.isEmpty) {
+  if (images.isEmpty && inputFiles.isEmpty) {
     input = HermesChatInput.text(promptText);
   } else {
     input = HermesChatInput.multimodal(<HermesChatContentPart>[
       if (promptText.trim().isNotEmpty) HermesInputTextPart(promptText),
       for (final image in images) HermesInputImagePart(image),
-      ...desktopFiles,
+      ...inputFiles,
     ]);
   }
 
@@ -8020,10 +8025,10 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
       },
     for (final document in documents.documents)
       _hermesLocalDocumentDescriptor(document),
-    for (final file in desktopFiles)
+    for (final file in inputFiles)
       <String, dynamic>{
         'type': 'file',
-        'source': 'hermes_desktop_file',
+        'source': desktop ? 'hermes_desktop_file' : 'hermes_responses_file',
         'name': file.filename,
         'content_type': file.mediaType,
       },
@@ -8039,7 +8044,7 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
   );
 }
 
-Future<Uint8List> _readBoundedHermesDesktopFile(
+Future<Uint8List> _readBoundedHermesFile(
   File file, {
   required int maxBytes,
 }) async {
@@ -8062,7 +8067,7 @@ Future<Uint8List> _readBoundedHermesDesktopFile(
   return builder.takeBytes();
 }
 
-String _hermesDesktopFileMediaType(String filename) {
+String _hermesFileMediaType(String filename) {
   final extension = filename.toLowerCase().split('.').last;
   return switch (extension) {
     'pdf' => 'application/pdf',

@@ -7,9 +7,9 @@ import '../../../core/utils/debug_logger.dart';
 /// interchange format shared with the Open WebUI web client) and the
 /// [ParchmentDocument] model edited by Fleather.
 ///
-/// Markdown stays the source of truth: notes are stored as `content.md` (+ a
-/// derived `content.html`) and `content.json` is left null so notes authored or
-/// edited on the web (TipTap) remain fully compatible. These helpers wrap the
+/// Markdown stays the source of truth: notes are stored as `content.md` while
+/// `content.html` is left empty and `content.json` is left null so notes authored
+/// or edited on the web (TipTap) remain fully compatible. These helpers wrap the
 /// `parchment` codecs and centralise the best-effort failure handling, since
 /// decoding is lossy and may choke on markdown constructs the codec does not
 /// model (e.g. web-authored content or AI-enhanced output).
@@ -47,24 +47,6 @@ String markdownFromDocument(ParchmentDocument document) {
       stackTrace: st,
     );
     return document.toPlainText();
-  }
-}
-
-/// Encodes [document] to HTML for `content.html`.
-///
-/// Returns an empty string on failure; `content.md` remains the source of truth,
-/// so a missing HTML representation is non-fatal.
-String htmlFromDocument(ParchmentDocument document) {
-  try {
-    return parchmentHtml.encode(document);
-  } catch (e, st) {
-    DebugLogger.error(
-      'Failed to encode note document to HTML',
-      scope: 'notes/codec',
-      error: e,
-      stackTrace: st,
-    );
-    return '';
   }
 }
 

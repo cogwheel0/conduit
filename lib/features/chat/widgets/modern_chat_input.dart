@@ -136,10 +136,14 @@ bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
 List<String>? localFilePickerExtensionsForModel(
   Model? selectedModel, {
   bool desktopHermes = false,
+  bool hermesResponsesFiles = false,
 }) {
   if (selectedModel == null) return null;
   if (isHermesModel(selectedModel)) {
-    return desktopHermes ? null : kHermesLocalDocumentPickerExtensions;
+    if (desktopHermes) return null;
+    final extensions = <String>{...kHermesLocalDocumentPickerExtensions};
+    if (hermesResponsesFiles) extensions.add('pdf');
+    return extensions.toList(growable: false)..sort();
   }
   if (hasReservedDirectIdentity(selectedModel)) {
     final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
