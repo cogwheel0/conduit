@@ -22,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/interaction_activity.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
@@ -164,8 +165,11 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 
 // A 120 px streaming cache extent evicted rows almost immediately when
 // scrolling up mid-stream; remounting a settled row runs a synchronous
-// markdown compile, so the small extent bought hitches, not savings.
-const double _chatMessageScrollCachePixels = 600.0;
+// markdown compile, so the small extent bought hitches, not savings. Now that
+// remounts resolve from the prepared/compiled/extent caches (O(1) for
+// anything seen this session), a larger extent inflates rows further
+// off-screen instead of inside the visible fling.
+const double _chatMessageScrollCachePixels = 1200.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -1008,6 +1012,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     _endScrollProfile(reason: 'disposed');
+    // A drag interrupted by page disposal never delivers onUserDragEnd;
+    // release the interaction hold so background work isn't deferred until
+    // the maxDeferral timeout.
+    if (_isUserInteractingWithScroll) {
+      InteractionActivity.instance.endInteraction();
+    }
     _timelineViewportController.dispose();
     super.dispose();
   }
@@ -2262,6 +2272,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_activeScrollProfileTaskKey != null) {
       return;
     }
+    PerformanceProfiler.instance.startFrameCadence();
     _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_scroll',
       scope: 'chat',
@@ -2279,6 +2290,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     _activeScrollProfileTaskKey = null;
+    PerformanceProfiler.instance.stopFrameCadence(reason: reason);
     PerformanceProfiler.instance.finishTask(
       taskKey,
       data: {
@@ -2931,6 +2943,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
       onPointerDown: () {
+        // Ramp the ProMotion panel before the drag even clears touch slop;
+        // waiting for drag-start leaves the fling's first stretch at 40 Hz.
+        InteractionActivity.instance.notifyTouchDown();
         if (_explicitLatestNavigationInFlight ||
             _timelineScrollMode == _ChatTimelineScrollMode.anchoringNewTurn ||
             _shouldAutoFollowPinnedTurn) {
@@ -2938,6 +2953,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        InteractionActivity.instance.beginInteraction();
         final pinnedTurnWasActive = _wantsPinToTop;
         _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
@@ -2959,6 +2975,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         } catch (_) {}
       },
       onUserDragEnd: () {
+        InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;
         _updateBottomAnchorTracking();
@@ -3364,11 +3381,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
+    // Twelve rows is roughly the visible window plus one fling of history in
+    // each direction. Prewarm work runs on worker isolates in bounded
+    // batches, so the wider net costs background time, not frames.
     final candidateIndices = _selectMarkdownPrewarmCandidatesFromVisibleIds(
       messages: messages,
       layoutMetadata: layoutMetadata,
       visibleMessageIds: _timelineViewportController.visibleMessageIds,
-      maxCount: 6,
+      maxCount: 12,
     );
     final filteredCandidateIndices = <int>[];
     final signatureParts = <String>[];

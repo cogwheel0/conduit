@@ -12,6 +12,7 @@ import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../services/conversation_parsing.dart';
+import '../services/interaction_activity.dart';
 import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import 'backoff.dart';
@@ -299,6 +300,9 @@ class SyncEngine extends _$SyncEngine {
   }) {
     _debounce?.cancel();
     _debounce = null;
+    // Overlap-window skip decisions must never survive a dependency change:
+    // a different server/db/session invalidates every confirmed stamp.
+    _pullFetchMemo = PullFetchMemo();
     if (preserveDrainer) {
       if (retireActiveDrainerRemapper) {
         _retireActiveDrainerRemapperForCleanup();
@@ -564,8 +568,15 @@ class SyncEngine extends _$SyncEngine {
         debugLabel: 'pull.normalizeChatRows',
       ),
       onProgress: onProgress,
+      fetchMemo: _pullFetchMemo,
     );
   }
+
+  /// Session-scoped overlap-window fetch memo shared across the fresh
+  /// [PullSync] instances built each cycle. Replaced whenever bound
+  /// dependencies change ([_bindDependencies] bumps [_sessionEpoch]) so a
+  /// server/session switch always starts with an empty memo.
+  PullFetchMemo _pullFetchMemo = PullFetchMemo();
 
   /// Engine-internal: [PushSync] shares the engine's [IdRemapper] so the §7.3
   /// remap stream is single (PullSync crash-heal + PushSync create remap both
@@ -936,6 +947,16 @@ class SyncEngine extends _$SyncEngine {
   Future<void> reconcileNow() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
+    // Same deferral as pull cycles: reconciles walk chats/notes and issue
+    // DB deletes on the UI isolate. The explicit pull-to-refresh caller is
+    // idle by definition; this only delays reconciles triggered while the
+    // user is actively flinging a transcript. The idle case stays fully
+    // synchronous so callers still observe the running status immediately.
+    if (InteractionActivity.instance.isInteracting) {
+      await InteractionActivity.instance.whenIdle;
+      if (!_refreshBoundDependencies()) return;
+      if (_inert) return;
+    }
     final ownsProgressStatus = state.phase != SyncPhase.running;
     if (ownsProgressStatus && ref.mounted) {
       state = SyncStatus(
@@ -988,8 +1009,23 @@ class SyncEngine extends _$SyncEngine {
 
     PullResult? result;
     String? lastError;
+    var publishedRunning = false;
     try {
+      // Pull cycles run heavy parse/DB/provider work on the UI isolate; a
+      // cycle landing mid-fling breaks frame cadence. Waiting here is safe:
+      // the single-flight flag is already held, and _runOnce re-validates
+      // the session epoch at its own checkpoints after the wait. The idle
+      // case skips the await so cycle timing is unchanged when at rest.
+      if (InteractionActivity.instance.isInteracting) {
+        await InteractionActivity.instance.whenIdle;
+        // The wait can span a server/session rebind; a stale cycle must not
+        // publish running status (or run at all) under the new session.
+        if (!_cycleStillBound(cycleEpoch, 'after-interaction-idle')) {
+          return;
+        }
+      }
       if (ref.mounted) {
+        publishedRunning = true;
         state = SyncStatus(
           phase: SyncPhase.running,
           stage: SyncStage.chats,
@@ -1009,7 +1045,19 @@ class SyncEngine extends _$SyncEngine {
     } finally {
       _running = false;
       _clearCachedDrainerIfIdle();
-      if (ref.mounted) {
+      if (ref.mounted && cycleEpoch != _sessionEpoch) {
+        // Dependencies changed mid-cycle: this cycle's watermark/error belong
+        // to the old session and must not be published as the new session's
+        // status. Only clear a running phase this cycle itself set, so the
+        // new session never inherits a stuck spinner.
+        if (publishedRunning && state.phase == SyncPhase.running) {
+          state = SyncStatus(
+            phase: SyncPhase.idle,
+            lastSuccessUpdatedAtWatermark: state.lastSuccessUpdatedAtWatermark,
+            lastError: state.lastError,
+          );
+        }
+      } else if (ref.mounted) {
         final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
         var watermark = previousStateWatermark;
         if (result?.success ?? false) {

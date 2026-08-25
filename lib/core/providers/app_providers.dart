@@ -3471,6 +3471,17 @@ class Conversations extends _$Conversations {
           completer.complete(conversations);
           return;
         }
+        // Drift invalidates table watchers on ANY chats write, including
+        // sync-cycle upserts that change nothing — every background pull
+        // re-emitted an identical projection here as fresh objects, and the
+        // drawer rebuilt every mounted tile for it. Conversation is freezed
+        // (structural ==), so drop emissions that match the PUBLISHED state
+        // exactly; comparing against the published value (not the previous
+        // raw projection) keeps emissions that must correct a diverged
+        // optimistic in-memory update flowing through.
+        if (listEquals(state.asData?.value, conversations)) {
+          return;
+        }
         if (ref.mounted) {
           state = AsyncData<List<Conversation>>(conversations);
         }
@@ -6498,6 +6509,14 @@ class Folders extends _$Folders {
         final folders = _sort([for (final row in rows) folderFromRow(row)]);
         if (!completer.isCompleted) {
           completer.complete(folders);
+          return;
+        }
+        // Every sync cycle rewrites the folders table inside a transaction
+        // (replaceServerFolders), which invalidates this watcher even when
+        // nothing changed. Folder is freezed (structural ==) — drop
+        // value-identical emissions so the drawer's folder sections don't
+        // rebuild once per background pull.
+        if (listEquals(state.asData?.value, folders)) {
           return;
         }
         if (ref.mounted) {

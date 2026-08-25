@@ -121,6 +121,22 @@ class BlockRenderer {
     List<CompiledMarkdownBlock> blocks, {
     bool trimLastBlockBottomPadding = true,
   }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: renderCompiledBlockWidgets(
+        blocks,
+        trimLastBlockBottomPadding: trimLastBlockBottomPadding,
+      ),
+    );
+  }
+
+  /// The keyed per-block widgets behind [renderCompiledBlocks], for callers
+  /// that own the enclosing column (e.g. chunked inflation of very large
+  /// documents).
+  List<Widget> renderCompiledBlockWidgets(
+    List<CompiledMarkdownBlock> blocks, {
+    bool trimLastBlockBottomPadding = true,
+  }) {
     final renderedBlocks = <(String blockId, Widget widget)>[];
     for (final block in blocks) {
       final widget = _renderCompiledBlock(block);
@@ -135,12 +151,9 @@ class BlockRenderer {
         _withoutBottomPadding(lastBlock.$2),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: renderedBlocks
-          .map((entry) => _withStableBlockKey(entry.$1, entry.$2))
-          .toList(growable: false),
-    );
+    return renderedBlocks
+        .map((entry) => _withStableBlockKey(entry.$1, entry.$2))
+        .toList(growable: false);
   }
 
   Widget _withStableBlockKey(String blockId, Widget widget) {

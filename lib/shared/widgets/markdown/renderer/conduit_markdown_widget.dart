@@ -11,6 +11,7 @@ import '../markdown_document_controller.dart';
 import '../markdown_loading_skeleton.dart';
 import '../../../theme/theme_extensions.dart';
 import 'block_renderer.dart';
+import 'chunked_block_column.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'latex_rendering_server.dart';
@@ -463,22 +464,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _cachedView = switch (widget.document.renderTier) {
       MarkdownRenderTier.plainText => _buildPlainText(inlineRenderer, style),
       MarkdownRenderTier.richText => _buildRichText(inlineRenderer, style),
-      MarkdownRenderTier.blocks =>
-        BlockRenderer(
-          context,
-          style,
-          inlineRenderer,
-          _latexPreprocessor,
-          widget.onLinkTap,
-          widget.imageBuilder,
-          widget.stateScopeId,
-          null,
-          widget.heavyBlockPolicy,
-          _fadeSourceOrNull(),
-        ).renderCompiledBlocks(
-          widget.document.blocks,
-          trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
-        ),
+      MarkdownRenderTier.blocks => _buildBlocksView(inlineRenderer, style),
     };
 
     _renderedDocument = widget.document;
@@ -679,6 +665,60 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       rendered: rendered,
       style: style,
       fade: _fadeSourceOrNull(),
+    );
+  }
+
+  /// Above this many root blocks, block inflation is chunked across frames.
+  /// Attribution: ~2.4k blocks inflated + laid out in one frame took ~6 s
+  /// (parse itself, already off-thread, was a quarter of that); a bounded
+  /// first chunk overfills any phone viewport while the rest streams in
+  /// during the transcript's settlement frames.
+  ///
+  /// Streaming documents reveal immediately instead of chunking: streamed
+  /// messages grow block-by-block and the mutable tail must mount whole.
+  /// Streaming is detected via [MarkdownHeavyBlockPolicy] — every streaming
+  /// render path passes `defer` and every settled path `eager` (the
+  /// streaming fade flag is not usable here: live chat streams with the
+  /// fade disabled).
+  static const int _chunkedBlockInflationThreshold =
+      markdownChunkedPartInflationThreshold;
+
+  Widget _buildBlocksView(
+    InlineRenderer inlineRenderer,
+    ConduitMarkdownStyle style,
+  ) {
+    final renderer = BlockRenderer(
+      context,
+      style,
+      inlineRenderer,
+      _latexPreprocessor,
+      widget.onLinkTap,
+      widget.imageBuilder,
+      widget.stateScopeId,
+      null,
+      widget.heavyBlockPolicy,
+      _fadeSourceOrNull(),
+    );
+    final blocks = widget.document.blocks;
+    if (blocks.length <= _chunkedBlockInflationThreshold) {
+      return renderer.renderCompiledBlocks(
+        blocks,
+        trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+      );
+    }
+    // Over-threshold documents keep the chunked column across BOTH policy
+    // states: a defer→eager flip at the streaming/settled boundary must not
+    // change the column type, or the whole subtree re-inflates in one frame
+    // (the freeze this exists to prevent; the chat path avoids it at the
+    // display-parts level, but standalone surfaces render through here).
+    // Reveal progress is monotonic, so the flip itself re-inflates nothing.
+    return ChunkedBlockColumn(
+      revealImmediately:
+          widget.heavyBlockPolicy != MarkdownHeavyBlockPolicy.eager,
+      children: renderer.renderCompiledBlockWidgets(
+        blocks,
+        trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+      ),
     );
   }
 }

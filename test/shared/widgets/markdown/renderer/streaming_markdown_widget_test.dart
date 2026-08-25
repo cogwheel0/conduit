@@ -3917,6 +3917,106 @@ Tail keeps growing
   );
 
   testWidgets(
+    'over-cap settled mount compiles off-frame behind a skeleton',
+    (tester) async {
+      // A settled body past the synchronous-mount cap must not prepare or
+      // parse on the mount frame (the conversation-open freeze); it shows the
+      // approximate skeleton while the compile runs and fills in after.
+      final longSettled = StringBuffer();
+      var index = 0;
+      while (longSettled.length < 30000) {
+        longSettled.writeln('Deferred giant line $index with padding words.');
+        index += 1;
+      }
+      final content = longSettled.toString();
+      final compiler = _GatedSettledPrepareMarkdownCompileService();
+      addTearDown(() {
+        compiler.releaseFirst();
+        compiler.dispose();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  // Opt into the production mount path; the default
+                  // widget-test detection forces the synchronous path.
+                  debugTreatAsWidgetTest: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+      check(
+        tester.any(find.textContaining('Deferred giant line 0')),
+      ).isFalse();
+
+      compiler.releaseFirst();
+      await tester.pumpAndSettle();
+
+      check(compiler.preparedInputs).deepEquals([content]);
+      check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
+    },
+  );
+
+  testWidgets(
+    'below-cap settled mount renders synchronously on the first frame',
+    (tester) async {
+      // Control case for the over-cap test above, under the SAME fake
+      // compiler (whose async prepare is gated shut): a body under the cap
+      // must take the synchronous mount path — full content on the first
+      // pump, no skeleton, and no async prepareContent call. Together the
+      // two tests isolate the cap as the routing decision rather than the
+      // fake's universally-async prepare policy.
+      const content = 'Small settled body under the mount cap.';
+      final compiler = _GatedSettledPrepareMarkdownCompileService();
+      addTearDown(() {
+        compiler.releaseFirst();
+        compiler.dispose();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  debugTreatAsWidgetTest: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isFalse();
+      check(
+        tester.any(
+          find.textContaining('Small settled body', findRichText: true),
+        ),
+      ).isTrue();
+      check(compiler.preparedInputs).isEmpty();
+    },
+  );
+
+  testWidgets(
     'keeps rendered content visible when non-streaming content grows mid-response',
     (tester) async {
       // Reproduces issue #540: during the responseDone gap the turn phase

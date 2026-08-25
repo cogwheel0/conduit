@@ -297,22 +297,23 @@ void main() {
   testWidgets('parsed markdown cache keeps recently reused entries', (
     tester,
   ) async {
-    for (var index = 0; index < 32; index += 1) {
+    final capacity = debugCompiledMarkdownCacheCapacity();
+    for (var index = 0; index < capacity; index += 1) {
       await tester.pumpWidget(_buildMarkdownHarness('Message $index'));
     }
 
-    expect(debugParsedMarkdownCacheSize(), 32);
+    expect(debugParsedMarkdownCacheSize(), capacity);
 
     await tester.pumpWidget(_buildMarkdownHarness('Message 0'));
     expect(debugParsedMarkdownCacheKeys().last, 'Message 0');
 
-    await tester.pumpWidget(_buildMarkdownHarness('Message 32'));
+    await tester.pumpWidget(_buildMarkdownHarness('Message $capacity'));
 
-    expect(debugParsedMarkdownCacheSize(), 32);
+    expect(debugParsedMarkdownCacheSize(), capacity);
     expect(debugParsedMarkdownCacheKeys(), isNot(contains('Message 1')));
     expect(
       debugParsedMarkdownCacheKeys(),
-      containsAll(<String>['Message 0', 'Message 32']),
+      containsAll(<String>['Message 0', 'Message $capacity']),
     );
   });
 
