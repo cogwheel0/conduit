@@ -2539,6 +2539,7 @@ void main() {
       final document = File('${directory.path}/schedule.pdf');
       final bytes = utf8.encode('%PDF-1.4\nschedule');
       await document.writeAsBytes(bytes);
+      const image = 'data:image/png;base64,AQID';
       final attachment = FileUploadState(
         file: document,
         fileName: 'schedule.pdf',
@@ -2580,11 +2581,14 @@ void main() {
           .set(hermesSyntheticModel());
 
       final send = sendMessageWithContainer(container, 'Read the schedule', [
+        image,
         attachment.fileId!,
       ]);
       await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
       check(service.inputs).isEmpty();
-      capabilities.complete(const HermesCapabilities(inputFiles: true));
+      capabilities.complete(
+        const HermesCapabilities(inputImages: true, inputFiles: true),
+      );
       await send;
 
       check(service.inputs.single.toResponsesJson() as List).deepEquals([
@@ -2593,6 +2597,7 @@ void main() {
           'role': 'user',
           'content': [
             {'type': 'input_text', 'text': 'Read the schedule'},
+            {'type': 'input_image', 'image_url': image},
             {
               'type': 'input_file',
               'file_data': 'data:application/pdf;base64,${base64Encode(bytes)}',
@@ -2602,8 +2607,8 @@ void main() {
         },
       ]);
       final user = container.read(chatMessagesProvider).first;
-      check(user.files!.single['source']).equals('hermes_responses_file');
-      check(user.files!.single.containsKey('hermes_extracted_text')).isFalse();
+      check(user.files!.last['source']).equals('hermes_responses_file');
+      check(user.files!.last.containsKey('hermes_extracted_text')).isFalse();
     });
 
     test('Hermes mixed files share one aggregate byte budget', () async {

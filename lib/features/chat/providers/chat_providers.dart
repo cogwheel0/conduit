@@ -7903,10 +7903,27 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
       (ref.read(hermesConfigProvider) as HermesConfig).mode ==
       HermesBackendMode.desktopGateway;
   AsyncValue<HermesCapabilities>? capabilities;
+  final requestedAttachmentIds = attachmentIds ?? const <String>[];
+  final responsesPdfRequested =
+      !desktop &&
+      requestedAttachmentIds.any((attachmentId) {
+        final state = stateById[attachmentId];
+        return state != null &&
+            state.isImage != true &&
+            isHermesResponsesPdfFileNameSupported(state.fileName);
+      });
+  if (responsesPdfRequested) {
+    capabilities = ref.read(hermesCapabilitiesProvider);
+    if (capabilities?.asData == null) {
+      capabilities = await AsyncValue.guard(
+        () => ref.read(hermesCapabilitiesProvider.future),
+      );
+    }
+  }
   var decodedImageBytes = 0;
   var inputFileBytes = 0;
 
-  for (final attachmentId in attachmentIds ?? const <String>[]) {
+  for (final attachmentId in requestedAttachmentIds) {
     if (attachmentId.startsWith('data:image/')) {
       capabilities ??= ref.read(hermesCapabilitiesProvider);
       if (capabilities?.asData?.value.inputImages != true) {
@@ -7945,11 +7962,6 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
     }
     final responsesPdf =
         !desktop && isHermesResponsesPdfFileNameSupported(state.fileName);
-    if (responsesPdf && capabilities == null) {
-      capabilities = await AsyncValue.guard(
-        () => ref.read(hermesCapabilitiesProvider.future),
-      );
-    }
     if (responsesPdf && capabilities?.asData?.value.inputFiles != true) {
       throw const HermesChatInputException(
         'This Hermes server does not advertise Responses file input.',
