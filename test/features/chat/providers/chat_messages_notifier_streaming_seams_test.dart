@@ -4913,7 +4913,7 @@ void main() {
       },
     );
 
-    test('Hermes file regeneration leaves a failed assistant bubble', () async {
+    test('Hermes PDF regeneration leaves a failed assistant bubble', () async {
       final user = ChatMessage(
         id: 'user-file',
         role: 'user',
@@ -4921,8 +4921,8 @@ void main() {
         timestamp: DateTime(2024, 1, 1),
         files: const <Map<String, dynamic>>[
           <String, dynamic>{
-            'source': 'hermes_desktop_file',
-            'name': 'archive.zip',
+            'source': 'hermes_responses_file',
+            'name': 'schedule.pdf',
           },
         ],
       );

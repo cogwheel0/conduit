@@ -8625,9 +8625,13 @@ Future<void> _regenerateHermesMessage(
     }
   }
 
-  if (replayedFiles.any((file) => file['source'] == 'hermes_desktop_file')) {
+  if (replayedFiles.any(
+    (file) =>
+        file['source'] == 'hermes_desktop_file' ||
+        file['source'] == 'hermes_responses_file',
+  )) {
     const error = HermesAttachmentsUnsupportedException(
-      'Desktop file attachments cannot be regenerated. Send the file again.',
+      'File attachments cannot be regenerated. Send the file again.',
     );
     installAssistant(
       assistantMessage(
