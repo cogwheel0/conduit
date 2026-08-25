@@ -1453,7 +1453,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   ) async {
     final api = ref.read(apiServiceProvider);
     final token = ref.read(authTokenProvider3);
-    if (api == null || !_openWebUiSkillsAvailable) return;
+    if (api == null || !_openWebUiSkillsAvailable) {
+      if (mounted && !_isDeactivated) _hidePromptOverlay();
+      return;
+    }
 
     try {
       final response = await api.getWorkspaceSkills(
@@ -1464,7 +1467,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         return;
       }
       final skills = response.items
-          .where((skill) => skill.id.isNotEmpty && skill.name.isNotEmpty)
+          .where(
+            (skill) =>
+                skill.isActive && skill.id.isNotEmpty && skill.name.isNotEmpty,
+          )
           .toList(growable: false);
       setState(() {
         _skillSuggestions = AsyncData(skills);
@@ -2079,6 +2085,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return !(model != null &&
         isHermesModel(model) &&
         _currentPromptCommand.startsWith('#'));
+  }
+
+  bool get _canConfirmPromptSelection {
+    if (!_shouldShowPromptOverlay) return false;
+    if (!_currentPromptCommand.startsWith('\$')) return true;
+    return _skillSuggestions.asData?.value.isNotEmpty ?? false;
   }
 
   Future<void> _openKnowledgePicker({String? initialBaseId}) async {
@@ -3739,7 +3751,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           actions: <Type, Action<Intent>>{
             SendMessageIntent: CallbackAction<SendMessageIntent>(
               onInvoke: (intent) {
-                if (_shouldShowPromptOverlay) {
+                if (_canConfirmPromptSelection) {
                   _confirmPromptSelection();
                   return null;
                 }

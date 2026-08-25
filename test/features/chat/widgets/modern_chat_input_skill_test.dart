@@ -100,6 +100,84 @@ void main() {
     expect(find.text('First Skill'), findsNothing);
   });
 
+  testWidgets('inactive skills are not selectable', (tester) async {
+    final api = _SkillApi(
+      (_) async => const WorkspacePagedResponse(
+        items: [
+          _codeReview,
+          WorkspaceSkillSummary(
+            id: 'disabled',
+            name: 'Disabled Skill',
+            userId: 'user',
+            isActive: false,
+          ),
+        ],
+        total: 2,
+      ),
+    );
+    await _pumpComposer(tester, api: api);
+
+    await tester.enterText(find.byType(TextField), '\$');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    expect(find.text('Code Review'), findsOneWidget);
+    expect(find.text('Disabled Skill'), findsNothing);
+  });
+
+  testWidgets('Enter sends while skill suggestions are still loading', (
+    tester,
+  ) async {
+    final pending = Completer<WorkspacePagedResponse<WorkspaceSkillSummary>>();
+    final api = _SkillApi((_) => pending.future);
+    final sent = <String>[];
+    await _pumpComposer(tester, api: api, onSend: sent.add);
+
+    await tester.enterText(find.byType(TextField), '\$code');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(sent, ['\$code']);
+    pending.complete(_skills(_codeReview));
+    await tester.pump();
+  });
+
+  testWidgets('model changes during debounce clear the skill overlay', (
+    tester,
+  ) async {
+    final registry = DirectModelRegistry();
+    final directModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'direct',
+        name: 'Direct',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      ),
+      [DirectRemoteModel(id: 'llama3')],
+    ).single;
+    const serverModel = Model(id: 'server-model', name: 'Server Model');
+    final api = _SkillApi((_) async => _skills(_codeReview));
+    await _pumpComposer(
+      tester,
+      api: api,
+      model: serverModel,
+      directRegistry: registry,
+    );
+
+    await tester.enterText(find.byType(TextField), '\$code');
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ModernChatInput)),
+    );
+    container.read(selectedModelProvider.notifier).set(directModel);
+    await tester.pump(const Duration(milliseconds: 300));
+    container.read(selectedModelProvider.notifier).set(serverModel);
+    await tester.pump();
+
+    expect(api.queries, isEmpty);
+    expect(find.byKey(const ValueKey('prompt-overlay')), findsNothing);
+  });
+
   testWidgets('direct chats suppress OpenWebUI skill suggestions', (
     tester,
   ) async {
@@ -185,7 +263,7 @@ Future<void> _pumpComposer(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        selectedModelProvider.overrideWithValue(model),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(model)),
         apiServiceProvider.overrideWithValue(api),
         authTokenProvider3.overrideWithValue('token'),
         isAuthenticatedProvider2.overrideWithValue(authenticated),
@@ -215,6 +293,15 @@ Future<void> _pumpComposer(
 final class _SendOnEnterSettings extends AppSettingsNotifier {
   @override
   AppSettings build() => const AppSettings(sendOnEnter: true);
+}
+
+final class _SeededSelectedModel extends SelectedModel {
+  _SeededSelectedModel(this.model);
+
+  final Model model;
+
+  @override
+  Model build() => model;
 }
 
 final class _FixedDiscovery extends DirectModelDiscoveryController {
