@@ -98,6 +98,7 @@ class _FakeHermesApiService extends HermesApiService {
   List<Map<String, dynamic>>? lastResponseConversationHistory;
   String? lastResponseInstructions;
   CancelToken? lastResponseCancelToken;
+  CancelToken? lastRunEventsCancelToken;
   List<Map<String, dynamic>>? lastRunConversationHistory;
 
   @override
@@ -128,6 +129,7 @@ class _FakeHermesApiService extends HermesApiService {
     String? sessionId,
     CancelToken? cancelToken,
   }) {
+    lastRunEventsCancelToken = cancelToken;
     final streamError = runStreamError;
     final source = streamError == null
         ? (eventsOverride ?? Stream<HermesRunEvent>.fromIterable(events))
@@ -2112,6 +2114,136 @@ void main() {
           .equals('Hermes returned an invalid response.');
     },
   );
+
+  test('recovers a completed run after the event stream idles', () async {
+    final events = StreamController<HermesRunEvent>();
+    addTearDown(events.close);
+    events.add(const HermesTokenDelta('Recovered'));
+    final runCancelToken = CancelToken();
+    final fake = _FakeHermesApiService(
+      const [],
+      eventsOverride: events.stream,
+      eventStreamLimits: const HermesStreamLimits(
+        idleTimeout: Duration(milliseconds: 10),
+        maxDuration: Duration(seconds: 1),
+      ),
+      runResult: const {'status': 'completed', 'output': 'Recovered answer'},
+    );
+    final content = StringBuffer();
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hello',
+      cancelToken: runCancelToken,
+      recoveryPollInterval: Duration.zero,
+      appendContent: content.write,
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(fake.getRunCalls).equals(1);
+    check(content.toString()).equals('Recovered answer');
+    check(message.error).isNull();
+    check(fake.lastRunEventsCancelToken).isNotNull();
+    check(identical(fake.lastRunEventsCancelToken, runCancelToken)).isFalse();
+  });
+
+  test('retains the idle error when the run is still active', () async {
+    final events = StreamController<HermesRunEvent>();
+    addTearDown(events.close);
+    final fake = _FakeHermesApiService(
+      const [],
+      eventsOverride: events.stream,
+      eventStreamLimits: const HermesStreamLimits(
+        idleTimeout: Duration(milliseconds: 10),
+        maxDuration: Duration(seconds: 1),
+      ),
+      runResult: const {'status': 'running', 'output': ''},
+    );
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hello',
+      recoveryPollInterval: Duration.zero,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(fake.getRunCalls).equals(1);
+    check(message.error?.content)
+        .equals('The Hermes stream was idle for too long.');
+  });
+
+  test('Stop wins while an idle stream recovery is in flight', () async {
+    final events = StreamController<HermesRunEvent>();
+    addTearDown(events.close);
+    final getRunGate = Completer<Map<String, dynamic>>();
+    final registry = HermesRunRegistry();
+    final fake = _FakeHermesApiService(
+      const [],
+      eventsOverride: events.stream,
+      eventStreamLimits: const HermesStreamLimits(
+        idleTimeout: Duration(milliseconds: 10),
+        maxDuration: Duration(seconds: 1),
+      ),
+      getRunGate: getRunGate,
+    );
+    final content = StringBuffer();
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: registry,
+      assistantMessageId: message.id,
+      input: 'hello',
+      recoveryPollInterval: Duration.zero,
+      appendContent: content.write,
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+    while (fake.getRunCalls == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    final stop = registry.cancel(legacyHermesRunKey(message.id));
+    check(stop).isNotNull();
+    getRunGate.complete(const {
+      'status': 'completed',
+      'output': 'Stale answer',
+    });
+    await stop;
+    await dispatch;
+
+    check(content.toString()).isEmpty();
+    check(message.error).isNull();
+  });
 
   test('local run cancellation wins over queued provider failures', () async {
     final listened = Completer<void>();

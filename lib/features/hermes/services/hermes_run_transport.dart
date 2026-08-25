@@ -513,6 +513,18 @@ Future<void> dispatchHermesRun({
     return;
   }
 
+  // The event request has narrower ownership than the durable run. A local
+  // SSE guard must be able to tear down its socket without poisoning the
+  // caller-owned token that also cancels bounded checkpoint recovery.
+  final eventCancelToken = CancelToken();
+  unawaited(
+    runCancelToken.whenCancel.then<void>((_) {
+      if (!eventCancelToken.isCancelled) {
+        eventCancelToken.cancel('Hermes run stopped');
+      }
+    }),
+  );
+
   // Record transport metadata so the stop path can find this run.
   updateMessage((m) {
     final meta = Map<String, dynamic>.from(m.metadata ?? const {});
@@ -529,7 +541,7 @@ Future<void> dispatchHermesRun({
 
   late final StreamSubscription<HermesRunEvent> sub;
   sub = service
-      .runEvents(runId, sessionId: sessionId, cancelToken: runCancelToken)
+      .runEvents(runId, sessionId: sessionId, cancelToken: eventCancelToken)
       .listen(
         (event) {
           // A queued run.cancelled/run.stopped frame may race Conduit's own
@@ -609,22 +621,31 @@ Future<void> dispatchHermesRun({
     }
 
     // The events stream ended without a terminal event and the user didn't
-    // stop — it likely dropped (network blip / app backgrounded). Reconcile the
-    // final result by polling the run instead of leaving the message hung.
+    // stop. Ordinary drops use bounded polling; a semantic idle timeout gets
+    // one authoritative checkpoint lookup before its error is shown.
     if (!sawTerminal &&
         (!runCancelToken.isCancelled ||
             _isActiveHermesProtocolFailure(streamError, runCancelToken))) {
       try {
         final guardedError = streamError;
-        if (_isHermesProtocolFailure(guardedError)) throw guardedError!;
+        final allowsCheckpointRecovery = _allowsHermesCheckpointRecovery(
+          guardedError,
+        );
+        if (_isHermesProtocolFailure(guardedError) &&
+            !allowsCheckpointRecovery) {
+          throw guardedError!;
+        }
         final recovered = await _recoverRunOutput(
           service,
           runId,
           cancelToken: runCancelToken,
-          maxPolls: maxRecoveryPolls,
-          pollInterval: recoveryPollInterval,
+          maxPolls: allowsCheckpointRecovery ? 1 : maxRecoveryPolls,
+          pollInterval: allowsCheckpointRecovery
+              ? Duration.zero
+              : recoveryPollInterval,
         );
         if (recovered == null) return;
+        if (runCancelToken.isCancelled) return;
         if (recovered.text.isNotEmpty) {
           _appendAuthoritativeOutput(
             recovered.text,
@@ -662,6 +683,7 @@ Future<void> dispatchHermesRun({
       }
     }
   } finally {
+    _signalHermesTransportCancellation(eventCancelToken);
     _signalHermesTransportCancellation(runCancelToken);
     _cancelHermesTransportSubscription(
       sub,
@@ -1604,6 +1626,9 @@ String _friendlyError(Object e) {
 
 bool _isHermesProtocolFailure(Object? error) =>
     error is HermesStreamGuardException || error is FormatException;
+
+bool _allowsHermesCheckpointRecovery(Object? error) =>
+    error is HermesStreamGuardException && error.allowsCheckpointRecovery;
 
 bool _isActiveHermesProtocolFailure(Object? error, CancelToken cancelToken) =>
     _isHermesProtocolFailure(error) &&
