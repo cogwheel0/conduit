@@ -133,8 +133,13 @@ class MentionTextEditingController extends TextEditingController {
 
     final List<MentionData> updated = <MentionData>[];
     for (final MentionData m in _mentionData) {
+      final boundaryInsertionIsDelimiter =
+          changeStart == m.range.end &&
+          delta > 0 &&
+          newText.substring(changeStart, changeStart + delta).trim().isEmpty;
       if (changeStart > m.range.end ||
-          (changeStart == m.range.end && delta <= 0)) {
+          (changeStart == m.range.end &&
+              (delta <= 0 || boundaryInsertionIsDelimiter))) {
         // After this mention — keep as-is.
         updated.add(m);
       } else if (changeStart <= m.range.start) {
