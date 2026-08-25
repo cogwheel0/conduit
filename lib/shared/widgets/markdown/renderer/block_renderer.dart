@@ -953,9 +953,12 @@ class BlockRenderer {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 24,
-            child: Text(marker, style: style.body, textAlign: TextAlign.center),
+          Padding(
+            padding: const EdgeInsets.only(top: 1.0),
+            child: SizedBox(
+              width: 24,
+              child: Text(marker, style: style.body, textAlign: TextAlign.center),
+            ),
           ),
           Expanded(child: content),
         ],
